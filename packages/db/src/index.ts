@@ -39,3 +39,5 @@ export {
   type CrossTenantAttempt,
   type MutableRepoConfig,
 } from './repos/mutable.ts';
+
+export { buildRepositories, type Repositories, type RepoOptions } from './repos/aggregates.ts';

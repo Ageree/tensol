@@ -15,7 +15,10 @@
     "test:coverage": "bun test --coverage && bun run coverage:gate",
     "coverage:gate": "bun scripts/coverage-gate.ts --threshold=0.80",
     "build": "tsc -b",
-    "db:migrate:check": "echo '[placeholder] migration-check expands in Sprint 2' && exit 0",
+    "db:migrate:up": "bun packages/db/scripts/migrate.ts",
+    "db:migrate:rollback": "bun packages/db/scripts/rollback.ts",
+    "db:migrate:redo": "bun packages/db/scripts/redo.ts",
+    "db:migrate:check": "bun packages/db/scripts/migrate-check.ts",
     "lab:xss": "echo '[placeholder] lab xss fixture lands in Sprint 9' && exit 0"
   },
   "devDependencies": {
