@@ -6,7 +6,9 @@ name: cyberstrike-hybrid
 
 services:
   cs-postgres:
-    image: postgres:16-alpine
+    # Pinned by sha256 digest (Sprint 2 contract B7/R4) so dev + CI agree on
+    # exact PG version. Bump procedure: docs/runbooks/db-migrations.md.
+    image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
     container_name: cs-postgres
     restart: unless-stopped
     ports:
