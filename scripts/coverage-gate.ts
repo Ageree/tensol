@@ -15,7 +15,7 @@
 //
 // Usage:
 //   bun test --coverage   # produces coverage/lcov.info
-//   bun run scripts/coverage-gate.ts [--threshold=0.80]
+//   bun run scripts/coverage-gate.ts [--threshold=0.80] [--workspace=packages/db]
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -27,6 +27,9 @@ const lcovPath = `${repoRoot}coverage/lcov.info`;
 const args = Bun.argv.slice(2);
 const thresholdArg = args.find((a) => a.startsWith('--threshold='));
 const threshold = thresholdArg ? Number.parseFloat(thresholdArg.split('=')[1] ?? '0.8') : 0.8;
+
+const workspaceArg = args.find((a) => a.startsWith('--workspace='));
+const workspace = workspaceArg ? workspaceArg.split('=')[1] : undefined;
 
 if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
   console.error(`invalid threshold: ${threshold}`);
@@ -47,16 +50,17 @@ if (records.length === 0) {
   process.exit(2);
 }
 
-const result: GateResult = evaluateGate(records, threshold);
+const result: GateResult = evaluateGate(records, threshold, workspace);
 
 const fmt = (r: number) => `${(r * 100).toFixed(2)}%`;
+const scope = workspace ? ` workspace=${workspace}` : '';
 console.warn(
-  `coverage-gate: lines=${fmt(result.ratios.line)} functions=${fmt(result.ratios.function)} branches=${fmt(result.ratios.branch)} statements=${fmt(result.ratios.statement)} (threshold ${fmt(threshold)})`,
+  `coverage-gate:${scope} lines=${fmt(result.ratios.line)} functions=${fmt(result.ratios.function)} branches=${fmt(result.ratios.branch)} statements=${fmt(result.ratios.statement)} (threshold ${fmt(threshold)})`,
 );
 
 if (!result.pass) {
   console.error(
-    `coverage-gate: FAIL — metrics below threshold: ${result.failedMetrics.join(', ')}`,
+    `coverage-gate:${scope} FAIL — metrics below threshold: ${result.failedMetrics.join(', ')}`,
   );
   process.exit(1);
 }

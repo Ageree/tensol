@@ -42,7 +42,10 @@ The command resolves every workspace declared in `package.json#workspaces`
 | `bun run typecheck` | `tsc -b` against composite refs in every workspace       |
 | `bun test`          | Run all `*.test.ts` suites                               |
 | `bun run test:coverage` | Run tests with coverage thresholds (80/80/80/80)     |
-| `bun run db:migrate:check` | Migration sanity check (placeholder until Sprint 2) |
+| `bun run db:migrate:up`       | Apply all pending DB migrations.                |
+| `bun run db:migrate:rollback` | Rollback the latest migration.                  |
+| `bun run db:migrate:redo`     | Rollback latest then re-apply.                  |
+| `bun run db:migrate:check`    | CI gate: up→pg_dump→rollback→up→diff (B7).      |
 
 ## Local stack
 
@@ -63,6 +66,37 @@ Tear down with:
 ```sh
 docker compose -f infra/docker/docker-compose.local.yml down -v
 ```
+
+## Database
+
+The CyberStrike data layer (`packages/db`) uses Kysely + node-postgres + Kysely's
+built-in `Migrator` (see [ADR 0002](./docs/adr/0002-db-driver-kysely-pg.md)).
+
+Apply migrations:
+
+```sh
+DATABASE_URL=postgres://cs:cs@localhost:5433/cyberstrike bun run db:migrate:up
+```
+
+Rollback the latest migration:
+
+```sh
+DATABASE_URL=postgres://cs:cs@localhost:5433/cyberstrike bun run db:migrate:rollback
+```
+
+Verify schema determinism (CI gate, Sprint 2 contract B7):
+
+```sh
+DATABASE_URL=postgres://cs:cs@localhost:5433/cyberstrike bun run db:migrate:check
+```
+
+The check applies all migrations, dumps the schema with
+`pg_dump --schema-only --no-owner --no-privileges`, rolls back the latest, re-applies,
+dumps again, and exits non-zero if the two dumps differ. This catches enum OID drift,
+comment drift, and constraint-ordering drift that a naive up/down comparison would miss.
+
+For migration authoring conventions and the append-only trigger contract, see
+[`docs/runbooks/db-migrations.md`](./docs/runbooks/db-migrations.md).
 
 ## Repo layout
 

@@ -56,8 +56,28 @@ export const parseLcov = (content: string): ReadonlyArray<FileTotals> => {
   return records;
 };
 
-export const aggregateRatios = (records: ReadonlyArray<FileTotals>): GateRatios => {
-  const totals = records.reduce(
+/**
+ * Filter records by SF: path prefix. Used by --workspace=<dir> (B26-B29).
+ * The filter is applied as a substring match against the SF: line stored in
+ * `record.file`, so any record whose file path contains the workspace
+ * directory passes through. We anchor with a slash so `packages/db` does not
+ * accidentally match `packages/db-analytics` etc.
+ */
+export const filterByWorkspace = (
+  records: ReadonlyArray<FileTotals>,
+  workspace: string | undefined,
+): ReadonlyArray<FileTotals> => {
+  if (!workspace) return records;
+  const normalised = workspace.endsWith('/') ? workspace : `${workspace}/`;
+  return records.filter((r) => r.file.includes(normalised));
+};
+
+export const aggregateRatios = (
+  records: ReadonlyArray<FileTotals>,
+  workspace?: string | undefined,
+): GateRatios => {
+  const scoped = filterByWorkspace(records, workspace);
+  const totals = scoped.reduce(
     (acc, r) => ({
       linesFound: acc.linesFound + r.linesFound,
       linesHit: acc.linesHit + r.linesHit,
@@ -87,8 +107,12 @@ export const aggregateRatios = (records: ReadonlyArray<FileTotals>): GateRatios 
   };
 };
 
-export const evaluateGate = (records: ReadonlyArray<FileTotals>, threshold: number): GateResult => {
-  const ratios = aggregateRatios(records);
+export const evaluateGate = (
+  records: ReadonlyArray<FileTotals>,
+  threshold: number,
+  workspace?: string | undefined,
+): GateResult => {
+  const ratios = aggregateRatios(records, workspace);
   const failedMetrics: Metric[] = [];
   if (ratios.line < threshold) failedMetrics.push('line');
   if (ratios.function < threshold) failedMetrics.push('function');
