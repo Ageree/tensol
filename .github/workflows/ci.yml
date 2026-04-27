@@ -19,6 +19,10 @@ jobs:
         run: bun run bun:assert-version
       - name: install
         run: bun install --frozen-lockfile
+      - name: assert lockfile unchanged
+        # Codex review F1: --frozen-lockfile is a no-op assertion in some Bun versions.
+        # Make CI fail if `bun install` modified the tracked lockfile.
+        run: git diff --exit-code -- bun.lock
       - name: lint
         run: bun run lint
 
@@ -34,8 +38,30 @@ jobs:
         run: bun run bun:assert-version
       - name: install
         run: bun install --frozen-lockfile
+      - name: assert lockfile unchanged
+        run: git diff --exit-code -- bun.lock
       - name: typecheck
         run: bun run typecheck
+
+  # Codex review F3: runs the workspace smoke + integration tests so the
+  # 21-package layout has a behavioral guard inside CI. Per-package coverage
+  # gates remain in `unit-tests` below and expand sprint by sprint.
+  unit-tests-root:
+    name: unit-tests-root
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: assert bun version
+        run: bun run bun:assert-version
+      - name: install
+        run: bun install --frozen-lockfile
+      - name: assert lockfile unchanged
+        run: git diff --exit-code -- bun.lock
+      - name: test (root, all suites)
+        run: bun test
 
   unit-tests:
     name: unit-tests
@@ -54,6 +80,8 @@ jobs:
         run: bun run bun:assert-version
       - name: install
         run: bun install --frozen-lockfile
+      - name: assert lockfile unchanged
+        run: git diff --exit-code -- bun.lock
       - name: test ${{ matrix.workspace }}
         run: bun test --coverage ${{ matrix.workspace }}
       - name: coverage gate

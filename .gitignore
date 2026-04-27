@@ -14,9 +14,10 @@ coverage/
 .DS_Store
 *.log
 
-bun.lock
-bun.lockb
+# Bun lockfile is TRACKED for reproducible CI installs (bun install --frozen-lockfile).
+# Do not add bun.lock or bun.lockb to .gitignore — see codex adversarial review F1.
 
 .claude/scheduled_tasks.lock
 .claude/teams/
 .claude/tasks/
+.gitnexus
