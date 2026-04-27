@@ -10,6 +10,7 @@ import {
   dropAllTables,
   hasDatabaseUrl,
   seedTenant,
+  seedUser,
 } from './helpers/db-fixture.ts';
 
 const skip = !hasDatabaseUrl();
@@ -18,6 +19,7 @@ describe.skipIf(skip)('optimistic locking (B21)', () => {
   let f: DbFixture;
   let repos: Repositories;
   let tenantId: string;
+  let userId: string;
   let projectId: string;
 
   beforeAll(async () => {
@@ -26,6 +28,8 @@ describe.skipIf(skip)('optimistic locking (B21)', () => {
     await applyAllMigrations(f);
     repos = buildRepositories(f.db);
     tenantId = await seedTenant(f, { name: 'T', slug: 't-lock' });
+    // Sprint 2 evaluator F2: assessments.created_by FK requires a real users row.
+    userId = await seedUser(f, tenantId, { email: 'lock@example.com' });
     const project = await repos.projects.insert(tenantId, {
       name: 'p',
       description: '',
@@ -42,10 +46,9 @@ describe.skipIf(skip)('optimistic locking (B21)', () => {
   });
 
   test('versioned update: first update succeeds, second with stale version throws', async () => {
-    // Seed an assessment so we have a versioned aggregate to exercise.
     const assessment = await repos.assessments.insert(tenantId, {
       project_id: projectId,
-      created_by: tenantId, // FK loose — using tenant id as user placeholder
+      created_by: userId,
       state: 'draft',
       high_impact_categories: [],
       metadata: {},

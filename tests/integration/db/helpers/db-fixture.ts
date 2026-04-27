@@ -114,4 +114,33 @@ export const seedTenant = async (
   return row.id;
 };
 
+/**
+ * Seed a user inside the given tenant. Required by tests that insert rows
+ * into tables with FKs to `users` (assessments.created_by, user_sessions,
+ * mfa_secrets, audit_events.actor_id when actor_type='user').
+ *
+ * Sprint 2 evaluator F2: optimistic-lock test was inserting an assessment
+ * without a users row → FK violation. Centralising user seeding here keeps
+ * the FK chain honest as more aggregates land in later sprints.
+ */
+export const seedUser = async (
+  f: DbFixture,
+  tenantId: string,
+  args: { email: string; displayName?: string; role?: string },
+): Promise<string> => {
+  const row = await f.db
+    .insertInto('users')
+    .values({
+      tenant_id: tenantId,
+      email: args.email,
+      password_hash: 'placeholder-not-a-real-hash',
+      display_name: args.displayName ?? args.email,
+      status: 'active',
+      role: args.role ?? 'security_lead',
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  return row.id;
+};
+
 export { runInTenant };

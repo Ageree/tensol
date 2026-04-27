@@ -16,10 +16,25 @@
 //     bun run packages/db/scripts/migrate-check.ts
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildMigrator, databaseUrl } from './migrator.ts';
+
+/**
+ * Strip non-deterministic lines from a pg_dump output (Sprint 2 evaluator F3).
+ *
+ * pg_dump 17+ emits `\restrict <random-token>` and `\unrestrict <random-token>`
+ * ACL session-control directives that change every invocation. They are
+ * cosmetic, not part of the schema, and cause false-positive drift reports.
+ * Earlier pg_dump versions (≤16) do not emit them, so the same code is
+ * version-tolerant.
+ */
+const stripNonDeterministic = (sql: string): string =>
+  sql
+    .split('\n')
+    .filter((line) => !line.startsWith('\\restrict ') && !line.startsWith('\\unrestrict '))
+    .join('\n');
 
 const dumpSchema = (databaseUrlValue: string, outFile: string): void => {
   const result = spawnSync(
@@ -30,6 +45,9 @@ const dumpSchema = (databaseUrlValue: string, outFile: string): void => {
   if (result.status !== 0) {
     throw new Error(`pg_dump exited with status ${result.status}`);
   }
+  // Rewrite the dump in place with non-deterministic ACL tokens stripped.
+  const raw = readFileSync(outFile, 'utf8');
+  writeFileSync(outFile, stripNonDeterministic(raw));
 };
 
 const main = async (): Promise<void> => {

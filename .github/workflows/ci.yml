@@ -122,8 +122,12 @@ jobs:
         run: bun install --frozen-lockfile
       - name: assert lockfile unchanged
         run: git diff --exit-code -- bun.lock
-      - name: install pg client (for pg_dump)
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: install pg client (for pg_dump, pinned to v16)
+        # Sprint 2 evaluator F3 bonus: pg_dump 17+ emits non-deterministic
+        # \restrict/\unrestrict ACL tokens. migrate-check.ts strips them as
+        # the primary defence; pinning v16 here guarantees consistent
+        # behaviour across runner-image refreshes.
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
       - name: migrate-check (up -> pg_dump -> rollback -> up -> diff)
         run: bun run db:migrate:check
 

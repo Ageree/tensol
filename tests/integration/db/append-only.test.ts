@@ -46,12 +46,29 @@ describe.skipIf(skip)('append-only triggers (B14, B14b)', () => {
     }
   });
 
-  const appendOnlyTables = ['audit_events', 'llm_audit_events'] as const;
+  // All 4 append-only tables paired with a real text column for the
+  // zero-row UPDATE probe. Picking a column the table actually has avoids
+  // the parser short-circuiting before the trigger fires (evaluator F1
+  // follow-up). audit_events / llm_audit_events have trace_id; the FK-bound
+  // tables (assessment_artifacts, finding_evidence) use kind which both
+  // declare. The DELETE / TRUNCATE probes don't reference columns.
+  const appendOnlyTables = [
+    { name: 'audit_events', mutableColumn: 'trace_id' },
+    { name: 'llm_audit_events', mutableColumn: 'trace_id' },
+    { name: 'assessment_artifacts', mutableColumn: 'kind' },
+    { name: 'finding_evidence', mutableColumn: 'kind' },
+  ] as const;
 
-  for (const tbl of appendOnlyTables) {
-    test(`B14 — UPDATE on ${tbl} is rejected with TG_TABLE_NAME and TG_OP`, async () => {
+  // Tables for which we seeded a real row in beforeAll — the matching-row
+  // UPDATE/DELETE probes need rows to target.
+  const seededRowTables = appendOnlyTables.filter(
+    (t) => t.name === 'audit_events' || t.name === 'llm_audit_events',
+  );
+
+  for (const { name: tbl, mutableColumn } of seededRowTables) {
+    test(`B14 — matching-row UPDATE on ${tbl} is rejected (row trigger)`, async () => {
       try {
-        await sql.raw(`UPDATE ${tbl} SET trace_id = 'tampered' WHERE 1=1`).execute(f.db);
+        await sql.raw(`UPDATE ${tbl} SET ${mutableColumn} = 'tampered' WHERE 1=1`).execute(f.db);
         throw new Error(`UPDATE on ${tbl} should have failed`);
       } catch (e) {
         const msg = (e as Error).message;
@@ -61,7 +78,7 @@ describe.skipIf(skip)('append-only triggers (B14, B14b)', () => {
       }
     });
 
-    test(`B14 — DELETE on ${tbl} is rejected with TG_TABLE_NAME and TG_OP`, async () => {
+    test(`B14 — matching-row DELETE on ${tbl} is rejected (row trigger)`, async () => {
       try {
         await sql.raw(`DELETE FROM ${tbl} WHERE 1=1`).execute(f.db);
         throw new Error(`DELETE on ${tbl} should have failed`);
@@ -72,8 +89,44 @@ describe.skipIf(skip)('append-only triggers (B14, B14b)', () => {
         expect(msg).toContain('DELETE');
       }
     });
+  }
 
-    test(`B14b — TRUNCATE on ${tbl} is rejected with TG_TABLE_NAME and TG_OP`, async () => {
+  for (const { name: tbl, mutableColumn } of appendOnlyTables) {
+    // Sprint 2 evaluator F1: zero-row UPDATE/DELETE MUST still raise.
+    // Postgres row-level triggers don't fire on zero-row queries; the
+    // statement-level trigger is the safety net. An attacker probing for
+    // write-permission capability cannot distinguish "no matches" from
+    // "denied" — both raise.
+    //
+    // F1 follow-up: each table's UPDATE probe references a column that
+    // table actually declares (`mutableColumn`). Otherwise the parser
+    // rejects with `column "foo" of relation "<tbl>" does not exist`
+    // BEFORE the trigger fires — silent test pass / real semantic gap.
+    test(`B14 (F1) — zero-row UPDATE on ${tbl} is rejected (statement trigger)`, async () => {
+      try {
+        await sql.raw(`UPDATE ${tbl} SET ${mutableColumn} = 'noop' WHERE 1=0`).execute(f.db);
+        throw new Error(`zero-row UPDATE on ${tbl} should have failed`);
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).toContain('append-only table');
+        expect(msg).toContain(tbl);
+        expect(msg).toContain('UPDATE');
+      }
+    });
+
+    test(`B14 (F1) — zero-row DELETE on ${tbl} is rejected (statement trigger)`, async () => {
+      try {
+        await sql.raw(`DELETE FROM ${tbl} WHERE 1=0`).execute(f.db);
+        throw new Error(`zero-row DELETE on ${tbl} should have failed`);
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).toContain('append-only table');
+        expect(msg).toContain(tbl);
+        expect(msg).toContain('DELETE');
+      }
+    });
+
+    test(`B14b — TRUNCATE on ${tbl} is rejected (statement trigger)`, async () => {
       try {
         await sql.raw(`TRUNCATE TABLE ${tbl}`).execute(f.db);
         throw new Error(`TRUNCATE on ${tbl} should have failed`);

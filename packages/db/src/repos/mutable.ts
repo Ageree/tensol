@@ -165,13 +165,17 @@ export class MutableRepository<TableName extends keyof Database> {
       if (expectedVersion === undefined) {
         throw new Error(`${this.resourceType}.update requires expectedVersion (versioned table)`);
       }
+      // SET version = version + 1, updated_at = now(), <values...>
+      // WHERE id = $ AND tenant_id = $ AND version = $expectedVersion
+      // numUpdatedRows = 0 → version mismatch → OptimisticLockError.
+      const { sql: kysq } = await import('kysely');
       const result = await this.db
         // biome-ignore lint/suspicious/noExplicitAny: kysely generic boundary.
         .updateTable(this.table as any)
         .set({
           ...(values as Record<string, unknown>),
-          // biome-ignore lint/suspicious/noExplicitAny: version + updated_at columns are present on versioned tables.
-          version: (this.db.fn as any).coalesce(undefined),
+          version: kysq`version + 1`,
+          updated_at: kysq`now()`,
         } as Record<string, unknown>)
         // biome-ignore lint/suspicious/noExplicitAny: schema-known columns.
         .where('id' as any, '=', id)
