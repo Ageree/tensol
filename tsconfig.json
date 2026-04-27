@@ -1,0 +1,26 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./apps/api" },
+    { "path": "./apps/web" },
+    { "path": "./services/coordinator" },
+    { "path": "./services/browser-worker" },
+    { "path": "./services/validator-worker" },
+    { "path": "./services/report-builder" },
+    { "path": "./services/http-worker" },
+    { "path": "./services/cyberstrike-worker" },
+    { "path": "./services/llm-gateway" },
+    { "path": "./packages/config" },
+    { "path": "./packages/contracts" },
+    { "path": "./packages/db" },
+    { "path": "./packages/authz" },
+    { "path": "./packages/scope-engine" },
+    { "path": "./packages/audit" },
+    { "path": "./packages/object-storage" },
+    { "path": "./packages/queue" },
+    { "path": "./packages/telemetry" },
+    { "path": "./packages/validators" },
+    { "path": "./packages/reports" },
+    { "path": "./packages/skill-library" }
+  ]
+}

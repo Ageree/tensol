@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['main']
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: assert bun version
+        run: bun run bun:assert-version
+      - name: install
+        run: bun install --frozen-lockfile
+      - name: lint
+        run: bun run lint
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: assert bun version
+        run: bun run bun:assert-version
+      - name: install
+        run: bun install --frozen-lockfile
+      - name: typecheck
+        run: bun run typecheck
+
+  unit-tests:
+    name: unit-tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace:
+          - packages/config
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: assert bun version
+        run: bun run bun:assert-version
+      - name: install
+        run: bun install --frozen-lockfile
+      - name: test ${{ matrix.workspace }}
+        run: bun test --coverage ${{ matrix.workspace }}
+      - name: coverage gate
+        run: bun run coverage:gate
+
+  migration-check:
+    name: migration-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: placeholder
+        # Expanded in Sprint 2 once kysely + node-pg-migrate land.
+        run: echo "[placeholder] migration-check expands in Sprint 2"
+
+  image-build:
+    name: image-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: placeholder
+        # Expanded once service Dockerfiles arrive (Sprint 7+).
+        run: echo "[placeholder] image-build expands when service Dockerfiles arrive"
