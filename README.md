@@ -141,9 +141,75 @@ docs/
   plans/                     read-only source plans
 ```
 
+## Auth
+
+Sprint 3 ships the auth surface for the API: bootstrap registration, login
+(password + optional TOTP MFA), logout, MFA enrollment, password reset, and a
+1274-cell static RBAC matrix.
+
+### Bootstrap
+
+The very first registration creates the platform_admin user + owning tenant
+and atomically flips `platform_settings.bootstrap_consumed_at`. Every
+subsequent `POST /auth/register` returns `410 Gone`.
+
+In non-`local` envs, a strong `BOOTSTRAP_TOKEN` (≥32 bytes / 64 hex chars)
+is required at boot. In `local`, the token is optional (set
+`APP_ENV=local`).
+
+```sh
+APP_ENV=local SESSION_SECRET="$(openssl rand -hex 32)" \
+  bun apps/api/src/server.ts &
+
+curl -X POST http://localhost:8080/auth/register \
+  -H 'content-type: application/json' \
+  -d '{
+    "email": "admin@example.com",
+    "password": "correct-horse-battery-staple",
+    "displayName": "Bootstrap Admin",
+    "tenantSlug": "acme",
+    "tenantName": "Acme",
+    "bootstrapToken": "irrelevant-in-local"
+  }'
+```
+
+### Login
+
+Two-step flow:
+
+1. `POST /auth/login` with `{email, password}`.
+   - Valid creds + no MFA → `200` + `Set-Cookie: cs_session=...`.
+   - Valid creds + MFA enrolled → `401` + `{pre_auth_token, expires_in}`.
+   - Anything else → `401` + `{error: 'invalid_credentials'}` (canonical).
+
+2. (only if MFA) `POST /auth/login/mfa` with `{pre_auth_token, mfa_code}`.
+   - Valid → `200` + `Set-Cookie`. Failure → canonical `401`.
+
+### MFA enrollment
+
+Authenticated user calls `POST /auth/mfa/enable` to receive a fresh TOTP
+secret (SHA1 / 6 digits / 30s period), renders it as a QR code, and confirms
+with `POST /auth/mfa/verify` carrying the first valid 6-digit code.
+
+### RBAC summary
+
+- 7 roles: `platform_admin`, `tenant_admin`, `security_lead`, `operator`,
+  `developer`, `auditor`, `viewer`.
+- 13 resources, 14 actions → 1274 frozen `(role, resource, action)` cells.
+- `assertCan(actor, action, resource)` is pure (no I/O, no tenancy).
+- Tenancy is enforced separately via `tenantGuard` + `assertOwnership`.
+
+### Further reading
+
+- [ADR 0003 — Auth, RBAC, Tenancy & MFA Secret Encryption](./docs/adr/0003-mfa-secret-encryption.md)
+- [OWASP ASVS L1 mapping](./docs/security/asvs-l1-mapping.md)
+- [Auth-rotation runbook](./docs/runbooks/auth-rotation.md)
+
 ## ADRs
 
 - [ADR 0001 — Monorepo with Bun workspaces](./docs/adr/0001-monorepo-bun-workspaces.md)
+- [ADR 0002 — DB driver: Kysely + node-postgres](./docs/adr/0002-db-driver-kysely-pg.md)
+- [ADR 0003 — Auth, RBAC, Tenancy & MFA Secret Encryption](./docs/adr/0003-mfa-secret-encryption.md)
 
 Subsequent ADRs land sprint by sprint as architecture decisions are made.
 
