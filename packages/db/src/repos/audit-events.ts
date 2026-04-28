@@ -73,7 +73,7 @@ export class AuditEventsRepo {
       .selectAll()
       .where('tenant_id', '=', args.tenantId)
       .where(
-        sql<boolean>`tenant_id != (SELECT id FROM tenants WHERE slug = ${PLATFORM_TENANT_SLUG})`,
+        sql<boolean>`tenant_id NOT IN (SELECT id FROM tenants WHERE slug = ${PLATFORM_TENANT_SLUG})`,
       )
       .orderBy('occurred_at', 'desc')
       .orderBy('id', 'desc')
@@ -108,7 +108,7 @@ export class AuditEventsRepo {
       .select((eb) => eb.fn.countAll<string>().as('count'))
       .where('tenant_id', '=', tenantId)
       .where(
-        sql<boolean>`tenant_id != (SELECT id FROM tenants WHERE slug = ${PLATFORM_TENANT_SLUG})`,
+        sql<boolean>`tenant_id NOT IN (SELECT id FROM tenants WHERE slug = ${PLATFORM_TENANT_SLUG})`,
       )
       .executeTakeFirstOrThrow();
     return Number(row.count);

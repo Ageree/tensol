@@ -14,19 +14,18 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import {
-  type DbFixture,
-  applyAllMigrations,
-  createFixture,
-  dropAllTables,
-  seedTenant,
-} from '../db/helpers/db-fixture.ts';
-import {
   type AuthFixture,
   buildAuthApp,
   hasDatabaseUrl,
   resetAuthState,
   seedLoggedInUser,
 } from '../auth/helpers/auth-fixture.ts';
+import {
+  type DbFixture,
+  applyAllMigrations,
+  createFixture,
+  dropAllTables,
+} from '../db/helpers/db-fixture.ts';
 
 describe.skipIf(!hasDatabaseUrl())('audit :: deny pipeline (A8/A10)', () => {
   let fx: DbFixture;
@@ -180,10 +179,7 @@ describe.skipIf(!hasDatabaseUrl())('audit :: deny pipeline (A8/A10)', () => {
       .selectFrom('audit_events')
       .selectAll()
       .where((eb) =>
-        eb.or([
-          eb('action', '=', 'rbac.deny'),
-          eb('action', '=', 'tenant.cross_tenant_attempt'),
-        ]),
+        eb.or([eb('action', '=', 'rbac.deny'), eb('action', '=', 'tenant.cross_tenant_attempt')]),
       )
       .execute();
 
@@ -195,10 +191,7 @@ describe.skipIf(!hasDatabaseUrl())('audit :: deny pipeline (A8/A10)', () => {
       .selectFrom('audit_events')
       .selectAll()
       .where((eb) =>
-        eb.or([
-          eb('action', '=', 'rbac.deny'),
-          eb('action', '=', 'tenant.cross_tenant_attempt'),
-        ]),
+        eb.or([eb('action', '=', 'rbac.deny'), eb('action', '=', 'tenant.cross_tenant_attempt')]),
       )
       .execute();
 

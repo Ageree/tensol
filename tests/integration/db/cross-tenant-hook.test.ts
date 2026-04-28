@@ -76,4 +76,52 @@ describe.skipIf(skip)('cross-tenant hook (B19b)', () => {
     expect(e.actorTenantId).toBe(t2);
     expect(e.rowTenantId).toBe(t1);
   });
+
+  // Sprint 4 A9 — wiring the hook into denyAudit produces an audit row.
+  test('A9: hook → denyAudit produces tenant.cross_tenant_attempt row', async () => {
+    const { denyAudit } = await import('@cyberstrike/audit');
+    const wiredRepos = buildRepositories(f.db, {
+      onCrossTenantAttempt: (e) => {
+        void denyAudit(
+          { db: f.db },
+          {
+            tenantId: e.actorTenantId,
+            action: 'tenant.cross_tenant_attempt',
+            outcome: 'cross_tenant',
+            actorType: 'service',
+            actorId: 'system',
+            actorName: 'mutable-repository',
+            resourceType: e.resourceType,
+            resourceId: e.resourceId,
+            reason: 'repository-level cross-tenant detected',
+            traceId: 'a'.repeat(32),
+            metadata: { attemptedResourceTenantId: e.rowTenantId, operation: e.operation },
+          },
+        );
+      },
+    });
+
+    await runInTenant(t2, () => wiredRepos.projects.findById(undefined, p1Id));
+    // Audit emission is fire-and-forget; wait for it to settle.
+    await new Promise((r) => setTimeout(r, 150));
+
+    const rows = await f.db
+      .selectFrom('audit_events')
+      .selectAll()
+      .where('action', '=', 'tenant.cross_tenant_attempt')
+      .where('resource_id', '=', p1Id)
+      .execute();
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    const row = rows[rows.length - 1];
+    if (!row) throw new Error('expected audit row');
+    expect(row.tenant_id).toBe(t2);
+    const after = row.after_state as {
+      outcome: string;
+      attemptedResourceTenantId: string;
+      operation: string;
+    };
+    expect(after.outcome).toBe('cross_tenant');
+    expect(after.attemptedResourceTenantId).toBe(t1);
+    expect(after.operation).toBe('find');
+  });
 });

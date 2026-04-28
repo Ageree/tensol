@@ -21,7 +21,8 @@ const SPEC: RoleSpec = {
   finding: ['read', 'list', 'create', 'update', 'change_status'],
   evidence: ['read', 'list', 'create'],
   report: ['read', 'list', 'create'],
-  audit_log: ['read', 'list'],
+  // Sprint 4 A15b — audit_log access restricted to auditor + tenant_admin only.
+  audit_log: [],
 
   skill: ['read', 'list'],
   tool_catalog: ['read', 'list'],

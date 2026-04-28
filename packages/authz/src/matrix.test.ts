@@ -200,6 +200,34 @@ describe('packages/authz :: representative role checks', () => {
   });
 });
 
+describe('packages/authz :: A15b — audit_log restricted to auditor + tenant_admin only', () => {
+  // Sprint 4 contract A15b: only `auditor` and `tenant_admin` may read|list
+  // `audit_log`; every other role is denied. Cardinality stays at 1274 — this
+  // is a decision flip, not a cell add/remove.
+  test('auditor + tenant_admin: read|list on audit_log allowed', () => {
+    for (const role of ['auditor', 'tenant_admin'] as const) {
+      expect(RBAC_MATRIX.get(buildKey(role, 'audit_log', 'read'))?.allowed).toBe(true);
+      expect(RBAC_MATRIX.get(buildKey(role, 'audit_log', 'list'))?.allowed).toBe(true);
+    }
+  });
+
+  test('platform_admin / security_lead / operator / developer / viewer: every audit_log action denied', () => {
+    const restrictedRoles = [
+      'platform_admin',
+      'security_lead',
+      'operator',
+      'developer',
+      'viewer',
+    ] as const;
+    for (const role of restrictedRoles) {
+      for (const action of ACTIONS) {
+        const decision = RBAC_MATRIX.get(buildKey(role, 'audit_log', action));
+        expect(decision?.allowed).toBe(false);
+      }
+    }
+  });
+});
+
 describe('packages/authz :: matrix entries are typed as Role × Resource × Action', () => {
   test('every key uses a known Role, Resource, Action triple', () => {
     const validRoles: ReadonlySet<string> = new Set<Role>(ROLES);

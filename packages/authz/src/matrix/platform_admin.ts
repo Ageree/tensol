@@ -27,8 +27,9 @@ const SPEC: RoleSpec = {
   evidence: ['read', 'list'],
   report: ['read', 'list'],
 
-  // Audit log: platform_admin can read.
-  audit_log: ['read', 'list'],
+  // Sprint 4 A15b — audit_log access restricted to auditor + tenant_admin
+  // (platform_admin cross-tenant audit visibility deferred to Phase 9 / Q-4).
+  audit_log: [],
 };
 
 export const platformAdminMatrix: ReadonlyMap<string, Decision> = expandRoleSpec(
