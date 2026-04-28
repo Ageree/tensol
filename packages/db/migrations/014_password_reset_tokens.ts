@@ -30,6 +30,7 @@ export const up = async (db: Kysely<any>): Promise<void> => {
     .addColumn('expires_at', 'timestamptz', (c) => c.notNull())
     .addColumn('consumed_at', 'timestamptz')
     .addColumn('created_at', 'timestamptz', (c) => c.notNull().defaultTo(sql`now()`))
+    .addColumn('updated_at', 'timestamptz', (c) => c.notNull().defaultTo(sql`now()`))
     .execute();
 
   await sql`CREATE INDEX idx_password_reset_tokens_user_expires

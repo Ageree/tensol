@@ -69,6 +69,29 @@ export interface MfaSecretsTable {
   updated_at: DbDefault<Date>;
 }
 
+// =============== auth (password reset) ===============
+
+export interface PasswordResetTokensTable {
+  // PRIMARY KEY: sha256(plaintext) hex (CHAR(64)). The plaintext NEVER reaches DB.
+  token_hash: string;
+  user_id: string;
+  tenant_id: string;
+  expires_at: Date;
+  consumed_at: Date | null;
+  created_at: DbDefault<Date>;
+  updated_at: DbDefault<Date>;
+}
+
+// =============== platform settings (singleton) ===============
+
+export interface PlatformSettingsTable {
+  // CHAR(1) singleton lock — only ever value 'x'. Platform-scoped (NO tenant_id).
+  lock: DbDefault<string>;
+  bootstrap_consumed_at: Date | null;
+  created_at: DbDefault<Date>;
+  updated_at: DbDefault<Date>;
+}
+
 // =============== domain core ===============
 
 export interface ProjectsTable {
@@ -299,6 +322,8 @@ export interface Database {
   users: UsersTable;
   user_sessions: UserSessionsTable;
   mfa_secrets: MfaSecretsTable;
+  password_reset_tokens: PasswordResetTokensTable;
+  platform_settings: PlatformSettingsTable;
   projects: ProjectsTable;
   targets: TargetsTable;
   assessments: AssessmentsTable;
@@ -321,6 +346,8 @@ export const ALL_TABLE_NAMES: ReadonlyArray<keyof Database> = [
   'users',
   'user_sessions',
   'mfa_secrets',
+  'password_reset_tokens',
+  'platform_settings',
   'projects',
   'targets',
   'assessments',
@@ -344,8 +371,14 @@ export const APPEND_ONLY_TABLES: ReadonlyArray<keyof Database> = [
   'llm_audit_events',
 ] as const;
 
+/** Platform-scoped tables (no tenant_id column). */
+export const PLATFORM_SCOPED_TABLES: ReadonlyArray<keyof Database> = [
+  'tenants',
+  'platform_settings',
+] as const;
+
 export const TENANT_OWNED_TABLES: ReadonlyArray<keyof Database> = ALL_TABLE_NAMES.filter(
-  (t) => t !== 'tenants',
+  (t) => !PLATFORM_SCOPED_TABLES.includes(t),
 );
 
 export const VERSIONED_TABLES: ReadonlyArray<keyof Database> = [

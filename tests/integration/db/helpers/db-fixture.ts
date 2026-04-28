@@ -89,6 +89,8 @@ export const dropAllTables = async (f: DbFixture): Promise<void> => {
     'assessments',
     'targets',
     'projects',
+    'platform_settings',
+    'password_reset_tokens',
     'mfa_secrets',
     'user_sessions',
     'users',
@@ -141,6 +143,114 @@ export const seedUser = async (
     .returning('id')
     .executeTakeFirstOrThrow();
   return row.id;
+};
+
+/**
+ * Seed a session row for a user. Sprint 3 contract C17 — `tenantGuard` middleware
+ * looks up `user_sessions` by token_hash. The hash format here is opaque (the
+ * test merely needs a stable identifier in token_hash); production routes use
+ * bcrypt(token).
+ */
+export const seedSession = async (
+  f: DbFixture,
+  args: {
+    tenantId: string;
+    userId: string;
+    tokenHash: string;
+    expiresAt?: Date;
+    ip?: string;
+    userAgent?: string;
+  },
+): Promise<string> => {
+  const row = await f.db
+    .insertInto('user_sessions')
+    .values({
+      tenant_id: args.tenantId,
+      user_id: args.userId,
+      token_hash: args.tokenHash,
+      expires_at: args.expiresAt ?? new Date(Date.now() + 60 * 60 * 1000),
+      ip: args.ip ?? null,
+      user_agent: args.userAgent ?? null,
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  return row.id;
+};
+
+/**
+ * Seed an MFA secret row for a user. Used by mfa.test.ts and login.test.ts
+ * fixtures. Caller passes the base32-plaintext secret; production encrypts
+ * (Sprint 7 — see ADR 0003 §Limitations R9).
+ */
+export const seedMfaSecret = async (
+  f: DbFixture,
+  args: {
+    tenantId: string;
+    userId: string;
+    secretEncrypted: string;
+    enrolledAt?: Date | null;
+    algo?: string;
+    digits?: number;
+    period?: number;
+  },
+): Promise<string> => {
+  const row = await f.db
+    .insertInto('mfa_secrets')
+    .values({
+      tenant_id: args.tenantId,
+      user_id: args.userId,
+      secret_encrypted: args.secretEncrypted,
+      enrolled_at: args.enrolledAt ?? null,
+      algo: args.algo ?? 'SHA1',
+      digits: args.digits ?? 6,
+      period_seconds: args.period ?? 30,
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  return row.id;
+};
+
+/**
+ * Seed a password-reset token row. Caller passes the sha256-hash (token_hash)
+ * AND the plaintext for tests that exercise the redemption flow. Defaults to
+ * a 15-minute TTL.
+ */
+export const seedPasswordResetToken = async (
+  f: DbFixture,
+  args: {
+    tenantId: string;
+    userId: string;
+    tokenHash: string;
+    expiresAt?: Date;
+    consumedAt?: Date | null;
+  },
+): Promise<void> => {
+  await f.db
+    .insertInto('password_reset_tokens')
+    .values({
+      token_hash: args.tokenHash,
+      tenant_id: args.tenantId,
+      user_id: args.userId,
+      expires_at: args.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000),
+      consumed_at: args.consumedAt ?? null,
+    })
+    .execute();
+};
+
+/**
+ * Set platform_settings.bootstrap_consumed_at — useful for the C21b "already
+ * consumed → 410 Gone" assertion. Migration 015 seeds the singleton row;
+ * this helper just flips the column.
+ */
+export const seedPlatformSettings = async (
+  f: DbFixture,
+  args: { bootstrapConsumedAt?: Date | null },
+): Promise<void> => {
+  await f.db
+    .updateTable('platform_settings')
+    .set({ bootstrap_consumed_at: args.bootstrapConsumedAt ?? null })
+    .where('lock', '=', 'x')
+    .execute();
 };
 
 export { runInTenant };

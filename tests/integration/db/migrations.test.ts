@@ -43,11 +43,12 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
   });
 
   test('B6 — rollback removes the latest migration', async () => {
-    // After applyAllMigrations: reports table exists. Roll back once.
+    // After applyAllMigrations the latest migration is 015_platform_settings.
+    // Roll back once and verify platform_settings is gone.
     const before = await sql<{ exists: boolean }>`
       SELECT EXISTS (
         SELECT 1 FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'reports'
+        WHERE table_schema = 'public' AND table_name = 'platform_settings'
       ) AS exists
     `.execute(f.db);
     expect(before.rows[0]?.exists).toBe(true);
@@ -59,7 +60,7 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     const after = await sql<{ exists: boolean }>`
       SELECT EXISTS (
         SELECT 1 FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'reports'
+        WHERE table_schema = 'public' AND table_name = 'platform_settings'
       ) AS exists
     `.execute(f.db);
     expect(after.rows[0]?.exists).toBe(false);

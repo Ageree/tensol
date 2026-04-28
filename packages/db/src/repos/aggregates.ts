@@ -9,6 +9,8 @@ import type { Kysely } from 'kysely';
 import type { Database } from '../schema.ts';
 import { AppendOnlyRepository } from './append-only.ts';
 import { type CrossTenantAttempt, MutableRepository } from './mutable.ts';
+import { PasswordResetTokensRepo } from './password-reset-tokens.ts';
+import { PlatformSettingsRepo } from './platform-settings.ts';
 
 export interface RepoOptions {
   readonly onCrossTenantAttempt?: ((event: CrossTenantAttempt) => void) | undefined;
@@ -37,6 +39,8 @@ export const buildRepositories = (db: Kysely<Database>, opts: RepoOptions = {}) 
     users: new MutableRepository(db, 'users', mutable('user', opts)),
     userSessions: new MutableRepository(db, 'user_sessions', mutable('user_session', opts)),
     mfaSecrets: new MutableRepository(db, 'mfa_secrets', mutable('mfa_secret', opts)),
+    passwordResetTokens: new PasswordResetTokensRepo(db),
+    platformSettings: new PlatformSettingsRepo(db),
 
     // domain core
     projects: new MutableRepository(db, 'projects', mutable('project', opts)),

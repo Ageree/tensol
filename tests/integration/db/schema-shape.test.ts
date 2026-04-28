@@ -16,6 +16,7 @@ const TENANT_OWNED = [
   'users',
   'user_sessions',
   'mfa_secrets',
+  'password_reset_tokens',
   'projects',
   'targets',
   'assessments',
