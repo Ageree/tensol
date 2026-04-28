@@ -7,6 +7,7 @@ import type { Hono } from 'hono';
 import type { SessionEnv } from '../middleware/session.ts';
 import { tenantGuard } from '../middleware/tenant-guard.ts';
 import { handleTestResource } from './_test/resource.ts';
+import { handleListAuditEvents } from './audit/events.ts';
 import { handleLoginMfa } from './auth/login-mfa.ts';
 import { handleLogin } from './auth/login.ts';
 import { handleLogout } from './auth/logout.ts';
@@ -41,4 +42,7 @@ export const registerRoutes = (app: Hono<SessionEnv>, deps: RouteDeps): void => 
 
   // Sprint-3-only IDOR fixture endpoint.
   app.get('/_test/resource/:id', tenantGuard(), (c) => handleTestResource(deps, c));
+
+  // Sprint 4 A14 — per-tenant audit-events read API.
+  app.get('/api/v1/audit-events', tenantGuard(), (c) => handleListAuditEvents(deps, c));
 };

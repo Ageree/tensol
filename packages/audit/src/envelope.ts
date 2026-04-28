@@ -1,4 +1,6 @@
-export const name = 'packages/contracts' as const;
+// Re-export of the audit envelope schema and types from @cyberstrike/contracts
+// so package-internal code (writer.ts, deny.ts, testing.ts) and downstream
+// consumers can import `AuditEventEnvelope` etc. from a single namespace.
 
 export {
   AUDIT_ACTIONS,
@@ -14,4 +16,4 @@ export {
   auditEventEnvelopeSchema,
   auditOutcomeSchema,
   serviceActorIdSchema,
-} from './audit.ts';
+} from '@cyberstrike/contracts';

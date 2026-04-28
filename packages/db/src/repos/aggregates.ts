@@ -8,6 +8,7 @@
 import type { Kysely } from 'kysely';
 import type { Database } from '../schema.ts';
 import { AppendOnlyRepository } from './append-only.ts';
+import { AuditEventsRepo } from './audit-events.ts';
 import { type CrossTenantAttempt, MutableRepository } from './mutable.ts';
 import { PasswordResetTokensRepo } from './password-reset-tokens.ts';
 import { PlatformSettingsRepo } from './platform-settings.ts';
@@ -62,6 +63,8 @@ export const buildRepositories = (db: Kysely<Database>, opts: RepoOptions = {}) 
     auditEvents: new AppendOnlyRepository(db, 'audit_events', {
       resourceType: 'audit_event',
     }),
+    /** Sprint 4 A11/A12 — tenant-aware read API (sentinel-filtered). */
+    auditEventsForTenant: new AuditEventsRepo(db),
     llmAuditEvents: new AppendOnlyRepository(db, 'llm_audit_events', {
       resourceType: 'llm_audit_event',
     }),

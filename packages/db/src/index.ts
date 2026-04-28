@@ -46,5 +46,15 @@ export {
 } from './repos/mutable.ts';
 
 export { buildRepositories, type Repositories, type RepoOptions } from './repos/aggregates.ts';
+export {
+  AuditEventsRepo,
+  PLATFORM_TENANT_SLUG,
+  type AuditEventCursor,
+  type AuditEventsPage,
+  decodeCursor,
+  encodeCursor,
+} from './repos/audit-events.ts';
 export { PasswordResetTokensRepo, type RedeemedResetToken } from './repos/password-reset-tokens.ts';
 export { PlatformSettingsRepo, type PlatformSettingsRow } from './repos/platform-settings.ts';
+
+export type { AuditEventsTable } from './schema.ts';

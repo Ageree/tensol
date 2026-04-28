@@ -23,8 +23,10 @@
       "name": "@cyberstrike/api",
       "version": "0.1.0",
       "dependencies": {
+        "@cyberstrike/audit": "workspace:*",
         "@cyberstrike/authz": "workspace:*",
         "@cyberstrike/config": "workspace:*",
+        "@cyberstrike/contracts": "workspace:*",
         "@cyberstrike/db": "workspace:*",
         "hono": "4.12.15",
         "zod": "^3.23.8",
@@ -37,6 +39,15 @@
     "packages/audit": {
       "name": "@cyberstrike/audit",
       "version": "0.1.0",
+      "dependencies": {
+        "@cyberstrike/contracts": "workspace:*",
+        "@cyberstrike/db": "workspace:*",
+        "kysely": "0.27.4",
+        "zod": "^3.23.8",
+      },
+      "devDependencies": {
+        "fast-check": "^3.23.1",
+      },
     },
     "packages/authz": {
       "name": "@cyberstrike/authz",
@@ -57,6 +68,9 @@
     "packages/contracts": {
       "name": "@cyberstrike/contracts",
       "version": "0.1.0",
+      "dependencies": {
+        "zod": "^3.23.8",
+      },
     },
     "packages/db": {
       "name": "@cyberstrike/db",
@@ -205,6 +219,8 @@
 
     "bun-types": ["bun-types@1.3.13", "", { "dependencies": { "@types/node": "*" } }, "sha512-QXKeHLlOLqQX9LgYaHJfzdBaV21T63HhFJnvuRCcjZiaUDpbs5ED1MgxbMra71CsryN/1dAoXuJJJwIv/2drVA=="],
 
+    "fast-check": ["fast-check@3.23.2", "", { "dependencies": { "pure-rand": "^6.1.0" } }, "sha512-h5+1OzzfCC3Ef7VbtKdcv7zsstUQwUDlYpUTvjeUsJAssPgLn7QzbboPtL5ro04Mq0rPOsMzl7q5hIbRs2wD1A=="],
+
     "hono": ["hono@4.12.15", "", {}, "sha512-qM0jDhFEaCBb4TxoW7f53Qrpv9RBiayUHo0S52JudprkhvpjIrGoU1mnnr29Fvd1U335ZFPZQY1wlkqgfGXyLg=="],
 
     "kysely": ["kysely@0.27.4", "", {}, "sha512-dyNKv2KRvYOQPLCAOCjjQuCk4YFd33BvGdf/o5bC7FiW+BB6snA81Zt+2wT9QDFzKqxKa5rrOmvlK/anehCcgA=="],
@@ -240,6 +256,8 @@
     "postgres-interval": ["postgres-interval@3.0.0", "", {}, "sha512-BSNDnbyZCXSxgA+1f5UU2GmwhoI0aU5yMxRGO8CdFEcY2BQF9xm/7MqKnYoM1nJDk8nONNWDk9WeSmePFhQdlw=="],
 
     "postgres-range": ["postgres-range@1.1.4", "", {}, "sha512-i/hbxIE9803Alj/6ytL7UHQxRvZkI9O4Sy+J3HGc4F4oo/2eQAjTSNJ0bfxyse3bH0nuVesCk+3IRLaMtG3H6w=="],
+
+    "pure-rand": ["pure-rand@6.1.0", "", {}, "sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA=="],
 
     "split2": ["split2@4.2.0", "", {}, "sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg=="],
 

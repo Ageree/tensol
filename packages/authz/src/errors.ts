@@ -21,20 +21,28 @@ export class MfaError extends Error {
 }
 
 /**
- * Sprint 3 contract C18 (R6): structured fields for audit reconstruction.
- * Middleware MUST translate to generic `403 {error: 'forbidden'}` — never
- * leak the field values into the response body (C18c).
+ * Sprint 3 contract C18 (R6) + Sprint 4 A8 (R3+R7): structured fields for
+ * audit reconstruction. Middleware MUST translate to generic
+ * `403 {error: 'forbidden'}` — never leak the field values into the response
+ * body (C18c).
+ *
+ * Sprint 4 attribution rule: cross-tenant deny audit rows are attributed to
+ * the **actor's** tenant (`actorTenantId`), not the targeted tenant. The
+ * targeted tenant lands in `targetedTenantId` and ends up as
+ * `metadata.attemptedResourceTenantId` on the audit row.
  */
 export class RbacDenyError extends Error {
   public readonly actorTenantId: string;
   public readonly attemptedResourceType: string;
   public readonly attemptedResourceId: string | undefined;
+  public readonly targetedTenantId: string | undefined;
   public readonly reason: string;
 
   constructor(args: {
     actorTenantId: string;
     attemptedResourceType: string;
     attemptedResourceId?: string;
+    targetedTenantId?: string;
     reason: string;
   }) {
     super(`forbidden: ${args.reason}`);
@@ -42,6 +50,7 @@ export class RbacDenyError extends Error {
     this.actorTenantId = args.actorTenantId;
     this.attemptedResourceType = args.attemptedResourceType;
     this.attemptedResourceId = args.attemptedResourceId;
+    this.targetedTenantId = args.targetedTenantId;
     this.reason = args.reason;
   }
 }

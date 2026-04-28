@@ -1,0 +1,148 @@
+// Audit envelope contracts — Sprint 4 A2/A3/A4.
+//
+// Single source of truth for the AuditEventEnvelope shape, AuditAction union,
+// AuditOutcome union, and the closed ServiceActor enum. The runtime audit
+// writer in packages/audit and every emission call site (auth routes today,
+// CRUD routes in Sprint 5+, deny pipeline in Sprint 4) parse against these.
+
+import { z } from 'zod';
+
+// ============================================================================
+// Service actors — closed set (A5/CF-6, Sprint 7+ plug-in point)
+// ============================================================================
+
+/**
+ * Service actor IDs reserved for Sprints 7+. Closed set: adding a 5th value
+ * without updating service-actors.test.ts must fail CI. The IDs are stable
+ * lowercase-kebab-case literals; their human-readable names live in
+ * `packages/audit/src/service-actors.ts` so the contract package stays
+ * runtime-side-effect-free.
+ */
+export const SERVICE_ACTOR_IDS = [
+  'coordinator',
+  'browser-worker',
+  'validator-worker',
+  'report-builder',
+] as const;
+
+export type ServiceActorId = (typeof SERVICE_ACTOR_IDS)[number];
+
+export const serviceActorIdSchema = z.enum(SERVICE_ACTOR_IDS);
+
+// ============================================================================
+// Audit actions — exhaustive union
+// ============================================================================
+
+export const AUDIT_ACTIONS = [
+  // Sprint 3 auth surface — preserved verbatim.
+  'auth.register',
+  'auth.login.password',
+  'auth.login.mfa',
+  'auth.logout',
+  'auth.mfa.enable',
+  'auth.mfa.verify',
+  'auth.password.reset.request',
+  'auth.password.reset.confirm',
+  // Sprint 4 deny pipeline — A3.
+  'rbac.deny',
+  'tenant.cross_tenant_attempt',
+  'audit.append_only_violation',
+] as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+export const auditActionSchema = z.enum(AUDIT_ACTIONS);
+
+// ============================================================================
+// Audit outcomes — exhaustive union
+// ============================================================================
+
+export const AUDIT_OUTCOMES = [
+  // Sprint 3 outcomes — preserved verbatim.
+  'success',
+  'failure',
+  'mfa_required',
+  'gone',
+  'no_session',
+  'issued',
+  'miss',
+  'replay',
+  // Sprint 4 deny outcomes — A4.
+  'denied',
+  'forbidden',
+  'cross_tenant',
+] as const;
+
+export type AuditOutcome = (typeof AUDIT_OUTCOMES)[number];
+
+export const auditOutcomeSchema = z.enum(AUDIT_OUTCOMES);
+
+// ============================================================================
+// Audit actor — user OR service (closed)
+// ============================================================================
+
+const userActorSchema = z
+  .object({
+    type: z.literal('user'),
+    id: z.string().min(1),
+    name: z.string().min(1),
+  })
+  .strict();
+
+const serviceActorSchema = z
+  .object({
+    type: z.literal('service'),
+    id: serviceActorIdSchema,
+    name: z.string().min(1),
+  })
+  .strict();
+
+export const auditActorSchema = z.discriminatedUnion('type', [userActorSchema, serviceActorSchema]);
+
+export type AuditActor = z.infer<typeof auditActorSchema>;
+
+// ============================================================================
+// Audit envelope — A2
+// ============================================================================
+
+const uuidSchema = z.string().uuid();
+const traceIdSchema = z.string().regex(/^[0-9a-f]{32}$/, 'traceId must be 32 hex chars');
+
+/**
+ * `before` and `after` are JSON-serialisable values (object|array|primitive|null)
+ * captured before and after a state-changing API action. Both are optional —
+ * many actions (e.g. login attempts) don't have a before/after pair. The
+ * redact() pipeline strips secrets before they land in either field.
+ */
+const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(jsonValueSchema),
+    z.record(jsonValueSchema),
+  ]),
+);
+
+export const auditEventEnvelopeSchema = z
+  .object({
+    id: uuidSchema,
+    actor: auditActorSchema,
+    tenantId: uuidSchema,
+    projectId: uuidSchema.nullable(),
+    assessmentId: uuidSchema.nullable(),
+    action: auditActionSchema,
+    resourceType: z.string().min(1),
+    resourceId: z.string().min(1).nullable(),
+    before: jsonValueSchema.optional(),
+    after: jsonValueSchema.optional(),
+    ip: z.string().nullable(),
+    userAgent: z.string().nullable(),
+    traceId: traceIdSchema,
+    outcome: auditOutcomeSchema,
+    occurredAt: z.string().datetime(),
+  })
+  .strict();
+
+export type AuditEventEnvelope = z.infer<typeof auditEventEnvelopeSchema>;

@@ -20,6 +20,7 @@ export const assertOwnership = (actorTenantId: string, resource: ResourceTenancy
     actorTenantId,
     attemptedResourceType: resource.resourceType,
     attemptedResourceId: resource.resourceId,
+    targetedTenantId: resource.resourceTenantId,
     reason: 'cross-tenant access',
   });
 };
