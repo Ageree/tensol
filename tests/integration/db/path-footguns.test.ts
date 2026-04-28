@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 
-describe('path footguns (B25 + Sprint 3 C5 + Sprint 4 A27 extension)', () => {
-  test('no .pathname / path.dirname(import.meta.url) / __dirname in db, authz, audit, contracts, api, integration tests, or scripts', () => {
+describe('path footguns (B25 + Sprint 3 C5 + Sprint 4 A27 + Sprint 5 A-Reg-2 extension)', () => {
+  test('no .pathname / path.dirname(import.meta.url) / __dirname across the whole source tree', () => {
     const result = spawnSync(
       'grep',
       [
@@ -21,9 +21,18 @@ describe('path footguns (B25 + Sprint 3 C5 + Sprint 4 A27 extension)', () => {
         'packages/audit/',
         'packages/contracts/',
         'apps/api/',
+        // Sprint 5 A-Reg-2: extend to the new route + middleware + integration directories.
+        'apps/api/src/routes/projects/',
+        'apps/api/src/routes/targets/',
+        'apps/api/src/routes/assessments/',
+        'apps/api/src/middleware/idempotency.ts',
         'tests/integration/db/',
         'tests/integration/auth/',
         'tests/integration/audit/',
+        'tests/integration/projects/',
+        'tests/integration/targets/',
+        'tests/integration/assessments/',
+        'tests/integration/idor/',
         'scripts/',
         '--include=*.ts',
         '--exclude-dir=node_modules',
