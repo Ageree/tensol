@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 
-describe('path footguns (B25)', () => {
-  test('no .pathname / path.dirname(import.meta.url) / __dirname in db, integration tests, or scripts', () => {
+describe('path footguns (B25 + Sprint 3 C5 extension)', () => {
+  test('no .pathname / path.dirname(import.meta.url) / __dirname in db, authz, api, integration tests, or scripts', () => {
     const result = spawnSync(
       'grep',
       [
@@ -17,7 +17,10 @@ describe('path footguns (B25)', () => {
         '-E',
         String.raw`(import\.meta\.url\)?\.pathname|path\.dirname\(import\.meta\.url|^.*\b__dirname\b)`,
         'packages/db/',
+        'packages/authz/',
+        'apps/api/',
         'tests/integration/db/',
+        'tests/integration/auth/',
         'scripts/',
         '--include=*.ts',
         '--exclude-dir=node_modules',
