@@ -337,10 +337,14 @@ export const seedAssessment = async (
       approved_at: args.approvedAt ?? null,
       testing_window_start: args.testingWindowStart ?? null,
       testing_window_end: args.testingWindowEnd ?? null,
-      // biome-ignore lint/suspicious/noExplicitAny: Json union maps via Kysely.
-      high_impact_categories: (args.highImpactCategories ?? []) as any,
-      // biome-ignore lint/suspicious/noExplicitAny: Json union maps via Kysely.
-      metadata: {} as any,
+      // Sprint 5 F4a: pg driver's default serializer turns a JS array into the
+      // Postgres array literal `{c2}` rather than the JSON literal `["c2"]`,
+      // which the JSONB column rejects with SQLSTATE 22P02 (invalid_json).
+      // Stringifying first forces JSON-text bind so the JSONB cast succeeds.
+      // biome-ignore lint/suspicious/noExplicitAny: Json boundary; pg expects text for jsonb.
+      high_impact_categories: JSON.stringify(args.highImpactCategories ?? []) as any,
+      // biome-ignore lint/suspicious/noExplicitAny: Json boundary; pg expects text for jsonb.
+      metadata: JSON.stringify({}) as any,
     })
     .returning('id')
     .executeTakeFirstOrThrow();
