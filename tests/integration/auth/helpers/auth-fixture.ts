@@ -213,6 +213,11 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       ALTER TABLE audit_events DISABLE TRIGGER USER;
       ALTER TABLE assessment_approvals DISABLE TRIGGER USER;
       ALTER TABLE target_ownership_claims DISABLE TRIGGER USER;
+      -- Sprint 5 F3: audit_events references projects + assessments via FK
+      -- (migration 011, no CASCADE). Delete it FIRST so subsequent DELETEs of
+      -- assessments/projects don't violate audit_events_assessment_id_fkey or
+      -- audit_events_project_id_fkey. Order otherwise follows reverse-FK depth.
+      DELETE FROM audit_events;
       DELETE FROM idempotency_keys;
       DELETE FROM assessment_approvals;
       DELETE FROM target_ownership_claims;
@@ -223,7 +228,6 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       DELETE FROM password_reset_tokens;
       DELETE FROM user_sessions;
       DELETE FROM mfa_secrets;
-      DELETE FROM audit_events;
       DELETE FROM projects;
       DELETE FROM users;
       DELETE FROM tenants;
