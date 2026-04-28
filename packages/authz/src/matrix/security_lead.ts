@@ -14,13 +14,15 @@ const SPEC: RoleSpec = {
   project: ['read', 'list', 'create', 'update'],
   target: ['read', 'list', 'create', 'update'],
 
+  // Sprint 5 A-RBAC-1: `approve` granted ONLY to tenant_admin.
+  // Sprint 5 contract: security_lead retains the rest of the lifecycle
+  // (submit/start/pause/resume/cancel) and the change_status sentinel.
   assessment: [
     'read',
     'list',
     'create',
     'update',
     'submit',
-    'approve',
     'start',
     'pause',
     'resume',

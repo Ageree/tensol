@@ -31,8 +31,12 @@ const CELLS: ReadonlyArray<Cell> = [
   { role: 'platform_admin', action: 'create', resource: 'tenant', allowed: true },
   { role: 'tenant_admin', action: 'create', resource: 'tenant', allowed: false },
   { role: 'tenant_admin', action: 'change_tool_policy', resource: 'tool_policy', allowed: true },
-  { role: 'security_lead', action: 'approve', resource: 'assessment', allowed: true },
-  { role: 'operator', action: 'submit', resource: 'assessment', allowed: true },
+  // Sprint 5 A-RBAC-1: approve flipped to tenant_admin only.
+  { role: 'security_lead', action: 'approve', resource: 'assessment', allowed: false },
+  { role: 'tenant_admin', action: 'approve', resource: 'assessment', allowed: true },
+  // Sprint 5 A-RBAC-1: operator no longer creates/submits — runs lifecycle.
+  { role: 'operator', action: 'submit', resource: 'assessment', allowed: false },
+  { role: 'operator', action: 'start', resource: 'assessment', allowed: true },
   { role: 'operator', action: 'change_scope', resource: 'scope_rule', allowed: false },
   { role: 'developer', action: 'change_scope', resource: 'scope_rule', allowed: false },
   { role: 'developer', action: 'change_tool_policy', resource: 'tool_policy', allowed: false },

@@ -72,9 +72,9 @@ describe('packages/authz :: assertCan deterministic-output matrix (C9 — 50+ ca
     { role: 'tenant_admin', action: 'change_tool_policy', resource: 'tool_policy', expected: true },
     { role: 'tenant_admin', action: 'change_scope', resource: 'scope_rule', expected: true },
     { role: 'tenant_admin', action: 'create', resource: 'skill', expected: false },
-    // security_lead
+    // security_lead — Sprint 5 A-RBAC-1: approve flipped to tenant_admin only.
     { role: 'security_lead', action: 'submit', resource: 'assessment', expected: true },
-    { role: 'security_lead', action: 'approve', resource: 'assessment', expected: true },
+    { role: 'security_lead', action: 'approve', resource: 'assessment', expected: false },
     { role: 'security_lead', action: 'start', resource: 'assessment', expected: true },
     { role: 'security_lead', action: 'pause', resource: 'assessment', expected: true },
     { role: 'security_lead', action: 'resume', resource: 'assessment', expected: true },
@@ -88,10 +88,17 @@ describe('packages/authz :: assertCan deterministic-output matrix (C9 — 50+ ca
     },
     { role: 'security_lead', action: 'create', resource: 'user', expected: false },
     { role: 'security_lead', action: 'delete', resource: 'tenant', expected: false },
-    // operator
-    { role: 'operator', action: 'create', resource: 'assessment', expected: true },
-    { role: 'operator', action: 'submit', resource: 'assessment', expected: true },
+    // operator — Sprint 5 A-RBAC-1: r,l,start,pause,resume,cancel only.
+    { role: 'operator', action: 'create', resource: 'assessment', expected: false },
+    { role: 'operator', action: 'submit', resource: 'assessment', expected: false },
     { role: 'operator', action: 'approve', resource: 'assessment', expected: false },
+    { role: 'operator', action: 'start', resource: 'assessment', expected: true },
+    { role: 'operator', action: 'cancel', resource: 'assessment', expected: true },
+    // tenant_admin — Sprint 5 A-RBAC-1: full assessment lifecycle including approve.
+    { role: 'tenant_admin', action: 'submit', resource: 'assessment', expected: true },
+    { role: 'tenant_admin', action: 'approve', resource: 'assessment', expected: true },
+    { role: 'tenant_admin', action: 'start', resource: 'assessment', expected: true },
+    { role: 'tenant_admin', action: 'cancel', resource: 'assessment', expected: true },
     { role: 'operator', action: 'change_scope', resource: 'scope_rule', expected: false },
     { role: 'operator', action: 'change_tool_policy', resource: 'tool_policy', expected: false },
     { role: 'operator', action: 'create', resource: 'finding', expected: true },

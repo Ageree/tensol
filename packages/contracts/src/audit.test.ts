@@ -36,7 +36,7 @@ const baseEnvelope = {
 };
 
 describe('contracts :: AuditAction (A3)', () => {
-  test('AUDIT_ACTIONS is the exhaustive set including Sprint 4 deny pipeline', () => {
+  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16 new emission points)', () => {
     const expected = [
       'auth.register',
       'auth.login.password',
@@ -49,6 +49,26 @@ describe('contracts :: AuditAction (A3)', () => {
       'rbac.deny',
       'tenant.cross_tenant_attempt',
       'audit.append_only_violation',
+      // Sprint 5 — projects (3).
+      'project.created',
+      'project.updated',
+      'project.archived',
+      // Sprint 5 — targets (4).
+      'target.created',
+      'target.updated',
+      'target.deleted',
+      'target.ownership_proof.submitted',
+      // Sprint 5 — assessments success (8).
+      'assessment.created',
+      'assessment.updated',
+      'assessment.submitted',
+      'assessment.approved',
+      'assessment.started',
+      'assessment.paused',
+      'assessment.resumed',
+      'assessment.cancelled',
+      // Sprint 5 — assessment deny (R8 testing-window gate).
+      'assessment.start.denied',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
   });

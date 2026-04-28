@@ -47,6 +47,26 @@ export const AUDIT_ACTIONS = [
   'rbac.deny',
   'tenant.cross_tenant_attempt',
   'audit.append_only_violation',
+  // Sprint 5 — projects (3).
+  'project.created',
+  'project.updated',
+  'project.archived',
+  // Sprint 5 — targets (4).
+  'target.created',
+  'target.updated',
+  'target.deleted',
+  'target.ownership_proof.submitted',
+  // Sprint 5 — assessments success (8).
+  'assessment.created',
+  'assessment.updated',
+  'assessment.submitted',
+  'assessment.approved',
+  'assessment.started',
+  'assessment.paused',
+  'assessment.resumed',
+  'assessment.cancelled',
+  // Sprint 5 — assessment deny (R8 testing-window gate).
+  'assessment.start.denied',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

@@ -11,6 +11,18 @@ describe('packages/authz :: RBAC_MATRIX shape (C8)', () => {
     expect(ROLES.length * RESOURCES.length * ACTIONS.length).toBe(1274);
   });
 
+  // Sprint 5 A-RBAC-2 / A-RBAC-3: allow count is the meaningful delta. The
+  // 1274 cardinality is structural (every cell exists with allowed=true|false);
+  // what changes between sprints is the number of allow=true cells.
+  // Sprint 5 baseline: 239 allows after the Sprint 5 lifecycle additions
+  // (tenant_admin +6 on assessment) and tightenings (security_lead −1 on
+  // assessment.approve; operator −3 on c/u/submit, +2 on start/cancel).
+  test('Sprint 5 A-RBAC-2: total allow=true cells = 239', () => {
+    let allows = 0;
+    for (const d of RBAC_MATRIX.values()) if (d.allowed) allows++;
+    expect(allows).toBe(239);
+  });
+
   test('every (role, resource, action) cell is present', () => {
     for (const role of ROLES) {
       for (const resource of RESOURCES) {
@@ -125,18 +137,17 @@ describe('packages/authz :: representative role checks', () => {
     expect(RBAC_MATRIX.get(buildKey('tenant_admin', 'tenant', 'delete'))?.allowed).toBe(false);
   });
 
-  test('security_lead: full assessment lifecycle', () => {
-    const lifecycle: ReadonlyArray<Action> = [
-      'submit',
-      'approve',
-      'start',
-      'pause',
-      'resume',
-      'cancel',
-    ];
+  test('security_lead: assessment lifecycle minus approve (Sprint 5 A-RBAC-1: approve → tenant_admin only)', () => {
+    const lifecycle: ReadonlyArray<Action> = ['submit', 'start', 'pause', 'resume', 'cancel'];
     for (const a of lifecycle) {
       expect(RBAC_MATRIX.get(buildKey('security_lead', 'assessment', a))?.allowed).toBe(true);
     }
+  });
+
+  test('security_lead: cannot approve assessments (Sprint 5 A-RBAC-1)', () => {
+    expect(RBAC_MATRIX.get(buildKey('security_lead', 'assessment', 'approve'))?.allowed).toBe(
+      false,
+    );
   });
 
   test('security_lead: change_scope + change_tool_policy allowed (own role concerns)', () => {
@@ -146,13 +157,56 @@ describe('packages/authz :: representative role checks', () => {
     expect(RBAC_MATRIX.get(toolKey)?.allowed).toBe(true);
   });
 
-  test('operator: cannot approve assessments (security_lead approval gate)', () => {
+  test('operator: cannot approve assessments (tenant_admin approval gate)', () => {
     expect(RBAC_MATRIX.get(buildKey('operator', 'assessment', 'approve'))?.allowed).toBe(false);
   });
 
-  test('operator: can submit assessments + draft', () => {
-    expect(RBAC_MATRIX.get(buildKey('operator', 'assessment', 'submit'))?.allowed).toBe(true);
-    expect(RBAC_MATRIX.get(buildKey('operator', 'assessment', 'create'))?.allowed).toBe(true);
+  test('operator: can run assessment lifecycle (start/pause/resume/cancel) — Sprint 5 A-RBAC-1', () => {
+    for (const a of ['start', 'pause', 'resume', 'cancel'] as const) {
+      expect(RBAC_MATRIX.get(buildKey('operator', 'assessment', a))?.allowed).toBe(true);
+    }
+  });
+
+  test('operator: cannot author or submit assessments (Sprint 5 A-RBAC-1)', () => {
+    for (const a of ['create', 'update', 'submit'] as const) {
+      expect(RBAC_MATRIX.get(buildKey('operator', 'assessment', a))?.allowed).toBe(false);
+    }
+  });
+
+  test('tenant_admin: full assessment lifecycle including approve (Sprint 5 A-RBAC-1)', () => {
+    const lifecycle: ReadonlyArray<Action> = [
+      'submit',
+      'approve',
+      'start',
+      'pause',
+      'resume',
+      'cancel',
+    ];
+    for (const a of lifecycle) {
+      expect(RBAC_MATRIX.get(buildKey('tenant_admin', 'assessment', a))?.allowed).toBe(true);
+    }
+  });
+
+  test('developer + viewer: read-only on project/target/assessment (Sprint 5 A-RBAC-1 / OQ-6)', () => {
+    for (const role of ['developer', 'viewer'] as const) {
+      for (const r of ['project', 'target', 'assessment'] as const) {
+        expect(RBAC_MATRIX.get(buildKey(role, r, 'read'))?.allowed).toBe(true);
+        expect(RBAC_MATRIX.get(buildKey(role, r, 'list'))?.allowed).toBe(true);
+        for (const a of [
+          'create',
+          'update',
+          'delete',
+          'submit',
+          'approve',
+          'start',
+          'pause',
+          'resume',
+          'cancel',
+        ] as const) {
+          expect(RBAC_MATRIX.get(buildKey(role, r, a))?.allowed).toBe(false);
+        }
+      }
+    }
   });
 
   test('viewer: no mutation anywhere', () => {

@@ -15,7 +15,20 @@ const SPEC: RoleSpec = {
   project: ['read', 'list', 'create', 'update', 'delete'],
   target: ['read', 'list', 'create', 'update', 'delete'],
 
-  assessment: ['read', 'list', 'create', 'update', 'delete', 'change_status'],
+  assessment: [
+    'read',
+    'list',
+    'create',
+    'update',
+    'delete',
+    'submit',
+    'approve',
+    'start',
+    'pause',
+    'resume',
+    'cancel',
+    'change_status',
+  ],
   scope_rule: ['read', 'list', 'create', 'update', 'delete', 'change_scope'],
   tool_policy: ['read', 'list', 'create', 'update', 'delete', 'change_tool_policy'],
 
