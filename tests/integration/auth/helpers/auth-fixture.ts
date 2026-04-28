@@ -148,6 +148,56 @@ export const seedLoggedInUser = async (
 };
 
 /**
+ * Sprint 5 F1 — seed an ADDITIONAL logged-in user inside an EXISTING tenant.
+ * Used by IT files that need a tenant_admin alongside a security_lead in the
+ * same tenant (e.g. assessment-approve flow). `seedLoggedInUser` always creates
+ * a new tenant, so calling it twice with the same slug fails on the unique
+ * constraint AND lands the second user in a different tenant. This helper
+ * fixes both.
+ */
+export const seedExtraLoggedInUser = async (
+  fx: AuthFixture & { db: DbFixture['db'] },
+  args: {
+    tenantId: string;
+    email: string;
+    password?: string;
+    role?: string;
+  },
+): Promise<SeededLogin> => {
+  const password = args.password ?? 'correct-horse-battery-staple';
+  const passwordHash = await fx.hasher.hash(password);
+  const userId = await seedUser(fx as unknown as DbFixture, args.tenantId, {
+    email: args.email,
+    role: args.role ?? 'security_lead',
+  });
+  await fx.db
+    .updateTable('users')
+    .set({ password_hash: passwordHash })
+    .where('id', '=', userId)
+    .execute();
+
+  const plaintext = '0123456789abcdef'.repeat(4);
+  await fx.sessionRepo.issue({
+    tenantId: args.tenantId,
+    userId,
+    plaintext,
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+  });
+
+  const cookieValue = SessionRepo.formatCookieValue(userId, plaintext);
+  const cookieHeader = `${TEST_COOKIE_NAME}=${cookieValue}`;
+
+  return {
+    tenantId: args.tenantId,
+    userId,
+    email: args.email,
+    password,
+    cookieValue,
+    cookieHeader,
+  };
+};
+
+/**
  * Reset every auth-relevant table between tests. The append-only tables
  * (`audit_events`) reject DELETE/TRUNCATE under their enforce_append_only()
  * trigger; we temporarily DISABLE triggers, truncate, then re-enable.

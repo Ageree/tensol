@@ -48,20 +48,27 @@ describe.skipIf(!hasDatabaseUrl())('integration :: projects routes (A-Proj-1..6 
     await fx.db.destroy();
   });
 
+  // Sprint 5 F1 fix: unique slug suffix per call prevents tenants_slug_key
+  // unique-constraint collisions between sequential test files in the same
+  // `bun test` process and between multiple seedLoggedInUser calls in one
+  // beforeEach (the helper unconditionally inserts a new tenant row).
+  const uniqSlug = (base: string): string =>
+    `${base}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
   beforeEach(async () => {
     await resetAuthState(fx.db);
     const t1 = await seedLoggedInUser(auth, {
-      tenantSlug: 't1',
+      tenantSlug: uniqSlug('t1'),
       email: 't1@example.com',
       role: 'security_lead',
     });
     const t2 = await seedLoggedInUser(auth, {
-      tenantSlug: 't2',
+      tenantSlug: uniqSlug('t2'),
       email: 't2@example.com',
       role: 'security_lead',
     });
     const v = await seedLoggedInUser(auth, {
-      tenantSlug: 'tv',
+      tenantSlug: uniqSlug('tv'),
       email: 'viewer@example.com',
       role: 'viewer',
     });
@@ -247,7 +254,7 @@ describe.skipIf(!hasDatabaseUrl())('integration :: projects routes (A-Proj-1..6 
 
   test('A-Proj-5 — tenant_admin DELETE soft-archives + emits project.archived', async () => {
     const ta = await seedLoggedInUser(auth, {
-      tenantSlug: 't1',
+      tenantSlug: uniqSlug('t1-admin'),
       email: 'admin@example.com',
       role: 'tenant_admin',
     });

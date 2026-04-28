@@ -11,6 +11,7 @@ import {
   buildAuthApp,
   hasDatabaseUrl,
   resetAuthState,
+  seedExtraLoggedInUser,
   seedLoggedInUser,
 } from '../auth/helpers/auth-fixture.ts';
 import {
@@ -67,15 +68,19 @@ describe.skipIf(!hasDatabaseUrl())(
       await fx.db.destroy();
     });
 
+    // Sprint 5 F1 fix: unique slug + admin reuses T1 tenant.
+    const uniqSlug = (base: string): string =>
+      `${base}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
     beforeEach(async () => {
       await resetAuthState(fx.db);
       const t1 = await seedLoggedInUser(auth, {
-        tenantSlug: 't1',
+        tenantSlug: uniqSlug('t1'),
         email: 't1@x',
         role: 'security_lead',
       });
-      const ta = await seedLoggedInUser(auth, {
-        tenantSlug: 't1',
+      const ta = await seedExtraLoggedInUser(auth, {
+        tenantId: t1.tenantId,
         email: 'ta@x',
         role: 'tenant_admin',
       });

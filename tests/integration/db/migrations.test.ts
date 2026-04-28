@@ -43,12 +43,16 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
   });
 
   test('B6 — rollback removes the latest migration', async () => {
-    // After applyAllMigrations the latest migration is 015_platform_settings.
-    // Roll back once and verify platform_settings is gone.
+    // Sprint 5 F2 fix: latest migration is 016 (assessment_targets +
+    // idempotency_keys + target_ownership_claims + assessment_approvals +
+    // assessments.approved_at column). Rollback drops all four tables; this
+    // test spot-checks `assessment_approvals` which is unique to migration 016.
+    // (The previous Sprint 4 assertion against `platform_settings` from
+    // migration 015 became stale once 016 landed.)
     const before = await sql<{ exists: boolean }>`
       SELECT EXISTS (
         SELECT 1 FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'platform_settings'
+        WHERE table_schema = 'public' AND table_name = 'assessment_approvals'
       ) AS exists
     `.execute(f.db);
     expect(before.rows[0]?.exists).toBe(true);
@@ -60,7 +64,7 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     const after = await sql<{ exists: boolean }>`
       SELECT EXISTS (
         SELECT 1 FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'platform_settings'
+        WHERE table_schema = 'public' AND table_name = 'assessment_approvals'
       ) AS exists
     `.execute(f.db);
     expect(after.rows[0]?.exists).toBe(false);

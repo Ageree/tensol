@@ -41,15 +41,19 @@ describe.skipIf(!hasDatabaseUrl())('integration :: targets routes (A-Tgt-1..7 + 
     await fx.db.destroy();
   });
 
+  // Sprint 5 F1 fix: unique slug suffix per call (see projects.test.ts).
+  const uniqSlug = (base: string): string =>
+    `${base}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
   beforeEach(async () => {
     await resetAuthState(fx.db);
     const t1 = await seedLoggedInUser(auth, {
-      tenantSlug: 't1',
+      tenantSlug: uniqSlug('t1'),
       email: 't1@example.com',
       role: 'security_lead',
     });
     const t2 = await seedLoggedInUser(auth, {
-      tenantSlug: 't2',
+      tenantSlug: uniqSlug('t2'),
       email: 't2@example.com',
       role: 'security_lead',
     });
@@ -187,7 +191,7 @@ describe.skipIf(!hasDatabaseUrl())('integration :: targets routes (A-Tgt-1..7 + 
   test('A-Tgt-6 — DELETE refuses when target is referenced by an assessment → 409', async () => {
     // tenant_admin to delete.
     const ta = await seedLoggedInUser(auth, {
-      tenantSlug: 't1',
+      tenantSlug: uniqSlug('t1-admin'),
       email: 'admin@t1',
       role: 'tenant_admin',
     });
@@ -214,7 +218,7 @@ describe.skipIf(!hasDatabaseUrl())('integration :: targets routes (A-Tgt-1..7 + 
 
   test('A-Tgt-6 — DELETE allowed when no references; emits target.deleted', async () => {
     const ta = await seedLoggedInUser(auth, {
-      tenantSlug: 't1',
+      tenantSlug: uniqSlug('t1-admin2'),
       email: 'admin2@t1',
       role: 'tenant_admin',
     });

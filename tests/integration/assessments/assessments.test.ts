@@ -15,6 +15,7 @@ import {
   countAuditEvents,
   hasDatabaseUrl,
   resetAuthState,
+  seedExtraLoggedInUser,
   seedLoggedInUser,
 } from '../auth/helpers/auth-fixture.ts';
 import {
@@ -62,20 +63,26 @@ describe.skipIf(!hasDatabaseUrl())('integration :: assessments routes', () => {
     await fx.db.destroy();
   });
 
+  // Sprint 5 F1 fix: unique slug suffix per call.
+  const uniqSlug = (base: string): string =>
+    `${base}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
   beforeEach(async () => {
     await resetAuthState(fx.db);
     const t1 = await seedLoggedInUser(auth, {
-      tenantSlug: 't1',
+      tenantSlug: uniqSlug('t1'),
       email: 't1@example.com',
       role: 'security_lead',
     });
     const t2 = await seedLoggedInUser(auth, {
-      tenantSlug: 't2',
+      tenantSlug: uniqSlug('t2'),
       email: 't2@example.com',
       role: 'security_lead',
     });
-    const ta = await seedLoggedInUser(auth, {
-      tenantSlug: 't1',
+    // tenant_admin must live INSIDE T1's tenant so approve flows can target
+    // T1's assessments — seedExtraLoggedInUser reuses the existing tenant.
+    const ta = await seedExtraLoggedInUser(auth, {
+      tenantId: t1.tenantId,
       email: 'admin@t1',
       role: 'tenant_admin',
     });
