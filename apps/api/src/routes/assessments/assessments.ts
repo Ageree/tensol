@@ -236,10 +236,18 @@ export const handleCreateAssessment = async (
         testing_window_end: parsed.data.testingWindow
           ? new Date(parsed.data.testingWindow.end)
           : null,
-        // biome-ignore lint/suspicious/noExplicitAny: Json boundary.
-        high_impact_categories: parsed.data.highImpactCategories as any,
-        // biome-ignore lint/suspicious/noExplicitAny: Json boundary.
-        metadata: { name: parsed.data.name } as any,
+        // Sprint 5 F5: pg-driver serializes a JS array as Postgres array
+        // literal `{c2}` when the prepared-statement param type is unknown
+        // (Kysely doesn't tag it as jsonb). For an empty `[]` Postgres maps
+        // it silently to `{}` which the JSONB column accepts as object —
+        // semantically wrong but no error. With a non-empty array the JSONB
+        // cast fails 22P02. Serialise to JSON text so the cast succeeds for
+        // both empty and non-empty cases. Symmetric fix at all 3 prod sites
+        // (create / patch / approve) and at seedAssessment in test fixtures.
+        // biome-ignore lint/suspicious/noExplicitAny: Json boundary; pg expects text for jsonb.
+        high_impact_categories: JSON.stringify(parsed.data.highImpactCategories) as any,
+        // biome-ignore lint/suspicious/noExplicitAny: Json boundary; pg expects text for jsonb.
+        metadata: JSON.stringify({ name: parsed.data.name }) as any,
       })
       .returning('id')
       .executeTakeFirstOrThrow();
@@ -454,11 +462,13 @@ export const handlePatchAssessment = async (
 
   await deps.db.transaction().execute(async (tx) => {
     const { sql } = await import('kysely');
+    // Sprint 5 F5: JSONB columns receive stringified JSON to bypass the
+    // pg-driver array-literal serialization (see comment in createAssessment).
     const setClause: {
       testing_window_start?: Date | null;
       testing_window_end?: Date | null;
-      high_impact_categories?: ReadonlyArray<string>;
-      metadata?: Record<string, unknown>;
+      high_impact_categories?: string;
+      metadata?: string;
       version: unknown;
       updated_at: unknown;
     } = {
@@ -474,10 +484,13 @@ export const handlePatchAssessment = async (
         : null;
     }
     if (parsed.data.highImpactCategories !== undefined) {
-      setClause.high_impact_categories = parsed.data.highImpactCategories;
+      setClause.high_impact_categories = JSON.stringify(parsed.data.highImpactCategories);
     }
     if (parsed.data.name !== undefined) {
-      setClause.metadata = { ...((row.metadata as object) ?? {}), name: parsed.data.name };
+      setClause.metadata = JSON.stringify({
+        ...((row.metadata as object) ?? {}),
+        name: parsed.data.name,
+      });
     }
     await tx
       // biome-ignore lint/suspicious/noExplicitAny: kysely set boundary.
@@ -671,8 +684,12 @@ export const handleApproveAssessment = async (
         assessment_id: row.id,
         approved_by: actor.id,
         target_count: targetCount,
-        // biome-ignore lint/suspicious/noExplicitAny: Json boundary.
-        high_impact_categories: cats as any,
+        // Sprint 5 F5 — JSONB write must be JSON text (see createAssessment).
+        // R5 dual-table approve: this is the forensic snapshot of the
+        // category set at approval time. Empty `[]` and non-empty `['c2']`
+        // both round-trip correctly only with JSON.stringify.
+        // biome-ignore lint/suspicious/noExplicitAny: Json boundary; pg expects text for jsonb.
+        high_impact_categories: JSON.stringify(cats) as any,
       })
       .execute();
     const { sql } = await import('kysely');

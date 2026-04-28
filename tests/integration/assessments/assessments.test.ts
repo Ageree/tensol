@@ -287,6 +287,69 @@ describe.skipIf(!hasDatabaseUrl())('integration :: assessments routes', () => {
     expect(approval.high_impact_categories).toEqual(['c2']);
   });
 
+  // Sprint 5 F5 regression — non-empty highImpactCategories must round-trip
+  // through both create + approve via the route layer. The pg-driver array-
+  // literal serialization bug (`['c2','ad']` → `{c2,ad}` rejected by JSONB
+  // 22P02) was masked when prior tests used `[]` because Postgres silently
+  // accepts `{}` as an empty JSON object. This test exercises the full
+  // forensic-snapshot path: createAssessment writes the array → seedTarget
+  // verified → submit + approve → assessment_approvals row holds the same
+  // categories. If the JSON.stringify wrap is reverted, this test fails 500.
+  test('F5 regression — non-empty highImpactCategories round-trip through create + approve', async () => {
+    const cats = ['c2', 'ad'] as const;
+    const createRes = await auth.app.request(`/api/v1/projects/${projectId}/assessments`, {
+      method: 'POST',
+      headers: { cookie: t1Cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'F5-RoundTrip',
+        testingWindow: null,
+        highImpactCategories: cats,
+        targetIds: [target1Id, target2Id],
+        scopeRules: [sampleScopeRule()],
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()) as { id: string; highImpactCategories: unknown };
+    expect(created.highImpactCategories).toEqual([...cats]);
+
+    // Re-read row via DB to confirm storage shape (defends against the
+    // route returning the request payload instead of the persisted value).
+    const stored = await fx.db
+      .selectFrom('assessments')
+      .selectAll()
+      .where('id', '=', created.id)
+      .executeTakeFirstOrThrow();
+    expect(stored.high_impact_categories).toEqual([...cats]);
+
+    // Submit then approve so assessment_approvals carries the same snapshot.
+    const submitRes = await auth.app.request(`/api/v1/assessments/${created.id}/submit`, {
+      method: 'POST',
+      headers: {
+        cookie: t1Cookie,
+        'content-type': 'application/json',
+        'idempotency-key': `f5-submit-${Date.now()}`,
+      },
+      body: '{}',
+    });
+    expect(submitRes.status).toBe(200);
+    const approveRes = await auth.app.request(`/api/v1/assessments/${created.id}/approve`, {
+      method: 'POST',
+      headers: {
+        cookie: adminCookie,
+        'content-type': 'application/json',
+        'idempotency-key': `f5-approve-${Date.now()}`,
+      },
+      body: '{}',
+    });
+    expect(approveRes.status).toBe(200);
+    const approval = await fx.db
+      .selectFrom('assessment_approvals')
+      .selectAll()
+      .where('assessment_id', '=', created.id)
+      .executeTakeFirstOrThrow();
+    expect(approval.high_impact_categories).toEqual([...cats]);
+  });
+
   test('A-Asm-5 — security_lead cannot approve (RBAC: tenant_admin only) → 403', async () => {
     const aid = await seedAssessment(fx, {
       tenantId: t1TenantId,
