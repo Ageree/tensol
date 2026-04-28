@@ -60,11 +60,17 @@ export class AuditEventsRepo {
   /**
    * Per-tenant audit-events page. Excludes platform-sentinel rows.
    * Order: occurred_at DESC, id DESC. Cursor is exclusive.
+   *
+   * Sprint 5 A-Asm-11 / R7: optional `resourceType` + `resourceId` filter
+   * for the per-assessment timeline endpoint. The sentinel exclusion still
+   * carries through.
    */
   async findForTenantPage(args: {
     tenantId: string;
     limit: number;
     cursor?: AuditEventCursor;
+    resourceType?: string;
+    resourceId?: string;
   }): Promise<AuditEventsPage> {
     const limit = Math.max(1, Math.min(100, Math.floor(args.limit)));
 
@@ -78,6 +84,8 @@ export class AuditEventsRepo {
       .orderBy('occurred_at', 'desc')
       .orderBy('id', 'desc')
       .limit(limit + 1);
+    if (args.resourceType) q = q.where('resource_type', '=', args.resourceType);
+    if (args.resourceId) q = q.where('resource_id', '=', args.resourceId);
 
     if (args.cursor) {
       // Strict less-than on (occurred_at, id) lexicographic order. Postgres
