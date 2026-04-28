@@ -36,3 +36,8 @@ export {
 } from './middleware/rate-limit.ts';
 export { sessionMiddleware, type SessionEnv } from './middleware/session.ts';
 export { tenantGuard } from './middleware/tenant-guard.ts';
+export {
+  PLATFORM_TENANT_SLUG,
+  ensurePlatformTenantId,
+  resetPlatformTenantCache,
+} from './routes/shared.ts';

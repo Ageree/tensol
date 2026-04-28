@@ -14,6 +14,7 @@ import type { AuthApiConfig } from './config.ts';
 import type { RateLimiter } from './middleware/rate-limit.ts';
 import { type SessionEnv, sessionMiddleware } from './middleware/session.ts';
 import type { PreAuthStore } from './pre-auth-tokens.ts';
+import { registerRoutes } from './routes/register-routes.ts';
 import { SessionRepo } from './session-repo.ts';
 
 export interface AppOptions {
@@ -57,8 +58,17 @@ export const createApp = (options: AppOptions) => {
     c.json({ status: 'ok', appEnv: options.config.appEnv, name: 'apps/api' }),
   );
 
-  // Route registration is performed by the caller (apps/api/src/index.ts) so
-  // the routes module can pull all of its deps without circular imports.
+  registerRoutes(app, {
+    config: options.config,
+    db: options.db,
+    repos: options.repos,
+    hasher: options.hasher,
+    totp: options.totp,
+    preAuthStore: options.preAuthStore,
+    rateLimiter: options.rateLimiter,
+    sessionRepo,
+  });
+
   return { app, sessionRepo };
 };
 
