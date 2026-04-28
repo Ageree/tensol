@@ -31,6 +31,8 @@ export {
   type Json,
   type PasswordResetTokensTable,
   type PlatformSettingsTable,
+  type UserSessionsTable,
+  type UsersTable,
 } from './schema.ts';
 
 export { createDatabase, type DbConfig } from './db.ts';
