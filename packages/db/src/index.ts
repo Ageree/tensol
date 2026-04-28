@@ -56,5 +56,21 @@ export {
 } from './repos/audit-events.ts';
 export { PasswordResetTokensRepo, type RedeemedResetToken } from './repos/password-reset-tokens.ts';
 export { PlatformSettingsRepo, type PlatformSettingsRow } from './repos/platform-settings.ts';
+export {
+  IdempotencyKeysRepo,
+  type IdempotencyInsertArgs,
+  type IdempotencyLookupArgs,
+  type IdempotencyRow,
+} from './repos/idempotency-keys.ts';
 
-export type { AuditEventsTable } from './schema.ts';
+export type {
+  AssessmentApprovalsTable,
+  AssessmentTargetsTable,
+  AssessmentsTable,
+  AssessmentScopeRulesTable,
+  AuditEventsTable,
+  IdempotencyKeysTable,
+  ProjectsTable,
+  TargetOwnershipClaimsTable,
+  TargetsTable,
+} from './schema.ts';

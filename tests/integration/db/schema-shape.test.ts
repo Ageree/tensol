@@ -21,7 +21,11 @@ const TENANT_OWNED = [
   'targets',
   'assessments',
   'assessment_scope_rules',
+  'assessment_targets',
   'assessment_artifacts',
+  'assessment_approvals',
+  'target_ownership_claims',
+  'idempotency_keys',
   'jobs',
   'decepticon_sessions',
   'observations_browser',
@@ -35,10 +39,18 @@ const TENANT_OWNED = [
 
 const APPEND_ONLY = [
   'assessment_artifacts',
+  'assessment_approvals',
+  'target_ownership_claims',
   'finding_evidence',
   'audit_events',
   'llm_audit_events',
 ];
+
+// Tables that intentionally don't carry an `updated_at` column even though
+// they are not append-only: assessment_targets is a join with no mutable
+// fields; idempotency_keys rows are insert-once and read-or-expire — there
+// is nothing to update.
+const NO_UPDATED_AT_NON_APPEND_ONLY = ['assessment_targets', 'idempotency_keys'];
 
 describe.skipIf(skip)('schema shape (B9-B12, B23, B23b, B24)', () => {
   let f: DbFixture;
@@ -83,6 +95,9 @@ describe.skipIf(skip)('schema shape (B9-B12, B23, B23b, B24)', () => {
       expect(cols.has('created_at')).toBe(true);
       if (APPEND_ONLY.includes(t)) {
         expect(cols.has('updated_at')).toBe(false); // B13
+      } else if (NO_UPDATED_AT_NON_APPEND_ONLY.includes(t)) {
+        // Sprint 5 / migration 016 — see comment on the const.
+        expect(cols.has('updated_at')).toBe(false);
       } else {
         expect(cols.has('updated_at')).toBe(true);
       }

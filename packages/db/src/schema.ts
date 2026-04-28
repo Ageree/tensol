@@ -123,6 +123,7 @@ export interface AssessmentsTable {
   state: string; // draft|submitted|approved|running|paused|cancelled|completed|failed
   created_by: string;
   approved_by: string | null;
+  approved_at: Date | null;
   testing_window_start: Date | null;
   testing_window_end: Date | null;
   high_impact_categories: Json; // string[]
@@ -142,6 +143,34 @@ export interface AssessmentScopeRulesTable {
   created_at: DbDefault<Date>;
   updated_at: DbDefault<Date>;
   version: DbDefault<number>;
+}
+
+// =============== assessment ↔ target join (Sprint 5 / migration 016) ===============
+
+export interface AssessmentTargetsTable {
+  // composite PK on (assessment_id, target_id); both NOT NULL.
+  assessment_id: string;
+  target_id: string;
+  tenant_id: string; // denormalised for tenant-scoped filtering.
+  created_at: DbDefault<Date>;
+}
+
+// =============== idempotency cache (Sprint 5 / migration 016) ===============
+
+// Mutable in the limited sense that rows expire after 24h, but the body of
+// a cached row is never edited — only inserted (winning the unique-on-(tenant,key)
+// race) or read. Sprint 5 R2: ONLY 2xx responses persist.
+export interface IdempotencyKeysTable {
+  // composite PK on (tenant_id, key); both NOT NULL.
+  key: string;
+  tenant_id: string;
+  actor_id: string;
+  route_method: string;
+  route_path: string;
+  request_hash: string;
+  response_status: number;
+  response_body: Json;
+  created_at: DbDefault<Date>;
 }
 
 // =============== append-only artifacts (NO updated_at) ===============
@@ -250,6 +279,30 @@ export interface FindingsTable {
   updated_at: DbDefault<Date>;
 }
 
+// target_ownership_claims is APPEND-ONLY (Sprint 5 / migration 016)
+export interface TargetOwnershipClaimsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  target_id: string;
+  method: string; // CHECK ('dns_txt'|'http_meta'|'manual_attestation')
+  evidence: string;
+  submitted_by_user_id: string;
+  submitted_at: DbDefault<Date>;
+  created_at: DbDefault<Date>;
+}
+
+// assessment_approvals is APPEND-ONLY (Sprint 5 / migration 016 / R5 path B)
+export interface AssessmentApprovalsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  assessment_id: string;
+  approved_by: string;
+  approved_at: DbDefault<Date>;
+  target_count: number;
+  high_impact_categories: Json;
+  created_at: DbDefault<Date>;
+}
+
 // finding_evidence is APPEND-ONLY (no updated_at)
 export interface FindingEvidenceTable {
   id: Generated<string>;
@@ -328,7 +381,11 @@ export interface Database {
   targets: TargetsTable;
   assessments: AssessmentsTable;
   assessment_scope_rules: AssessmentScopeRulesTable;
+  assessment_targets: AssessmentTargetsTable;
   assessment_artifacts: AssessmentArtifactsTable;
+  assessment_approvals: AssessmentApprovalsTable;
+  target_ownership_claims: TargetOwnershipClaimsTable;
+  idempotency_keys: IdempotencyKeysTable;
   jobs: JobsTable;
   decepticon_sessions: DecepticonSessionsTable;
   observations_browser: ObservationsBrowserTable;
@@ -352,7 +409,11 @@ export const ALL_TABLE_NAMES: ReadonlyArray<keyof Database> = [
   'targets',
   'assessments',
   'assessment_scope_rules',
+  'assessment_targets',
   'assessment_artifacts',
+  'assessment_approvals',
+  'target_ownership_claims',
+  'idempotency_keys',
   'jobs',
   'decepticon_sessions',
   'observations_browser',
@@ -366,6 +427,8 @@ export const ALL_TABLE_NAMES: ReadonlyArray<keyof Database> = [
 
 export const APPEND_ONLY_TABLES: ReadonlyArray<keyof Database> = [
   'assessment_artifacts',
+  'assessment_approvals',
+  'target_ownership_claims',
   'finding_evidence',
   'audit_events',
   'llm_audit_events',

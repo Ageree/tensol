@@ -161,6 +161,15 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
     DO $$
     BEGIN
       ALTER TABLE audit_events DISABLE TRIGGER USER;
+      ALTER TABLE assessment_approvals DISABLE TRIGGER USER;
+      ALTER TABLE target_ownership_claims DISABLE TRIGGER USER;
+      DELETE FROM idempotency_keys;
+      DELETE FROM assessment_approvals;
+      DELETE FROM target_ownership_claims;
+      DELETE FROM assessment_targets;
+      DELETE FROM assessment_scope_rules;
+      DELETE FROM assessments;
+      DELETE FROM targets;
       DELETE FROM password_reset_tokens;
       DELETE FROM user_sessions;
       DELETE FROM mfa_secrets;
@@ -170,8 +179,12 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       DELETE FROM tenants;
       UPDATE platform_settings SET bootstrap_consumed_at = NULL WHERE lock = 'x';
       ALTER TABLE audit_events ENABLE TRIGGER USER;
+      ALTER TABLE assessment_approvals ENABLE TRIGGER USER;
+      ALTER TABLE target_ownership_claims ENABLE TRIGGER USER;
     EXCEPTION WHEN OTHERS THEN
       ALTER TABLE audit_events ENABLE TRIGGER USER;
+      ALTER TABLE assessment_approvals ENABLE TRIGGER USER;
+      ALTER TABLE target_ownership_claims ENABLE TRIGGER USER;
       RAISE;
     END $$;
   `)

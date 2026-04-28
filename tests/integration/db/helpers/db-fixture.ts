@@ -84,7 +84,11 @@ export const dropAllTables = async (f: DbFixture): Promise<void> => {
     'observations_browser',
     'decepticon_sessions',
     'jobs',
+    'idempotency_keys',
+    'target_ownership_claims',
+    'assessment_approvals',
     'assessment_artifacts',
+    'assessment_targets',
     'assessment_scope_rules',
     'assessments',
     'targets',
@@ -250,6 +254,194 @@ export const seedPlatformSettings = async (
     .updateTable('platform_settings')
     .set({ bootstrap_consumed_at: args.bootstrapConsumedAt ?? null })
     .where('lock', '=', 'x')
+    .execute();
+};
+
+// ============================================================================
+// Sprint 5 — projects / targets / assessments / approvals / idempotency
+// ============================================================================
+
+export const seedProject = async (
+  f: DbFixture,
+  args: { tenantId: string; name: string; description?: string; status?: 'active' | 'archived' },
+): Promise<string> => {
+  const row = await f.db
+    .insertInto('projects')
+    .values({
+      tenant_id: args.tenantId,
+      name: args.name,
+      description: args.description ?? '',
+      status: args.status ?? 'active',
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  return row.id;
+};
+
+export const seedTarget = async (
+  f: DbFixture,
+  args: {
+    tenantId: string;
+    projectId: string;
+    kind?: 'url' | 'domain' | 'ip' | 'cidr' | 'cloud_account' | 'k8s_namespace' | 'repo';
+    value: string;
+    ownershipStatus?: 'unverified' | 'pending' | 'verified';
+  },
+): Promise<string> => {
+  const row = await f.db
+    .insertInto('targets')
+    .values({
+      tenant_id: args.tenantId,
+      project_id: args.projectId,
+      kind: args.kind ?? 'url',
+      value: args.value,
+      ownership_status: args.ownershipStatus ?? 'unverified',
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  return row.id;
+};
+
+export const seedAssessment = async (
+  f: DbFixture,
+  args: {
+    tenantId: string;
+    projectId: string;
+    createdBy: string;
+    state?:
+      | 'draft'
+      | 'submitted'
+      | 'approved'
+      | 'running'
+      | 'paused'
+      | 'cancelled'
+      | 'completed'
+      | 'failed';
+    approvedBy?: string | null;
+    approvedAt?: Date | null;
+    testingWindowStart?: Date | null;
+    testingWindowEnd?: Date | null;
+    highImpactCategories?: ReadonlyArray<string>;
+    targetIds?: ReadonlyArray<string>;
+    scopeRules?: ReadonlyArray<{ ruleKind: string; effect: 'allow' | 'deny'; payload: unknown }>;
+  },
+): Promise<string> => {
+  const row = await f.db
+    .insertInto('assessments')
+    .values({
+      tenant_id: args.tenantId,
+      project_id: args.projectId,
+      created_by: args.createdBy,
+      state: args.state ?? 'draft',
+      approved_by: args.approvedBy ?? null,
+      approved_at: args.approvedAt ?? null,
+      testing_window_start: args.testingWindowStart ?? null,
+      testing_window_end: args.testingWindowEnd ?? null,
+      // biome-ignore lint/suspicious/noExplicitAny: Json union maps via Kysely.
+      high_impact_categories: (args.highImpactCategories ?? []) as any,
+      // biome-ignore lint/suspicious/noExplicitAny: Json union maps via Kysely.
+      metadata: {} as any,
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  if (args.targetIds && args.targetIds.length > 0) {
+    await f.db
+      .insertInto('assessment_targets')
+      .values(
+        args.targetIds.map((tid) => ({
+          assessment_id: row.id,
+          target_id: tid,
+          tenant_id: args.tenantId,
+        })),
+      )
+      .execute();
+  }
+  if (args.scopeRules && args.scopeRules.length > 0) {
+    await f.db
+      .insertInto('assessment_scope_rules')
+      .values(
+        args.scopeRules.map((sr) => ({
+          tenant_id: args.tenantId,
+          assessment_id: row.id,
+          rule_kind: sr.ruleKind,
+          effect: sr.effect,
+          // biome-ignore lint/suspicious/noExplicitAny: Json boundary.
+          payload: sr.payload as any,
+        })),
+      )
+      .execute();
+  }
+  return row.id;
+};
+
+/**
+ * Seed an `assessment_approvals` row directly. Tests that exercise approve-then-X
+ * flows can use this to skip the full submit/approve route round-trip.
+ * The hot-path `approved_by`/`approved_at` columns on `assessments` are NOT
+ * touched — caller must update them separately if simulating a fully approved
+ * assessment.
+ */
+export const seedAssessmentApproval = async (
+  f: DbFixture,
+  args: {
+    tenantId: string;
+    assessmentId: string;
+    approvedBy: string;
+    targetCount: number;
+    highImpactCategories?: ReadonlyArray<string>;
+    approvedAt?: Date;
+  },
+): Promise<string> => {
+  const row = await f.db
+    .insertInto('assessment_approvals')
+    .values({
+      tenant_id: args.tenantId,
+      assessment_id: args.assessmentId,
+      approved_by: args.approvedBy,
+      approved_at: args.approvedAt ?? new Date(),
+      target_count: args.targetCount,
+      // biome-ignore lint/suspicious/noExplicitAny: Json boundary.
+      high_impact_categories: (args.highImpactCategories ?? []) as any,
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  return row.id;
+};
+
+/**
+ * Seed an `idempotency_keys` row directly. Sprint 5 R2: this helper is for
+ * tests that pre-populate cached responses; production code MUST NOT call
+ * this helper — it bypasses the 2xx-only guard. Tests use it to simulate
+ * "what if a 4xx row somehow got into the table?" defence-in-depth scenarios.
+ */
+export const seedIdempotencyKey = async (
+  f: DbFixture,
+  args: {
+    tenantId: string;
+    key: string;
+    actorId: string;
+    routeMethod: string;
+    routePath: string;
+    requestHash: string;
+    responseStatus: number;
+    responseBody: unknown;
+    createdAt?: Date;
+  },
+): Promise<void> => {
+  await f.db
+    .insertInto('idempotency_keys')
+    .values({
+      tenant_id: args.tenantId,
+      key: args.key,
+      actor_id: args.actorId,
+      route_method: args.routeMethod,
+      route_path: args.routePath,
+      request_hash: args.requestHash,
+      response_status: args.responseStatus,
+      // biome-ignore lint/suspicious/noExplicitAny: Json boundary.
+      response_body: args.responseBody as any,
+      ...(args.createdAt ? { created_at: args.createdAt } : {}),
+    })
     .execute();
 };
 

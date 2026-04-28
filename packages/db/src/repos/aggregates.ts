@@ -9,6 +9,7 @@ import type { Kysely } from 'kysely';
 import type { Database } from '../schema.ts';
 import { AppendOnlyRepository } from './append-only.ts';
 import { AuditEventsRepo } from './audit-events.ts';
+import { IdempotencyKeysRepo } from './idempotency-keys.ts';
 import { type CrossTenantAttempt, MutableRepository } from './mutable.ts';
 import { PasswordResetTokensRepo } from './password-reset-tokens.ts';
 import { PlatformSettingsRepo } from './platform-settings.ts';
@@ -53,9 +54,26 @@ export const buildRepositories = (db: Kysely<Database>, opts: RepoOptions = {}) 
       versioned('assessment_scope_rule', opts),
     ),
 
+    // Sprint 5 / migration 016 — assessment ↔ target join (mutable in the
+    // limited sense that rows can be inserted or set-replaced atomically;
+    // no per-row update — only delete-then-insert during PATCH).
+    assessmentTargets: new MutableRepository(db, 'assessment_targets', {
+      resourceType: 'assessment_target',
+      versioned: false,
+      onCrossTenantAttempt: opts.onCrossTenantAttempt,
+    }),
+
     // append-only
     assessmentArtifacts: new AppendOnlyRepository(db, 'assessment_artifacts', {
       resourceType: 'assessment_artifact',
+    }),
+    /** Sprint 5 / migration 016 / R5 path B — append-only forensic record of approvals. */
+    assessmentApprovals: new AppendOnlyRepository(db, 'assessment_approvals', {
+      resourceType: 'assessment_approval',
+    }),
+    /** Sprint 5 / migration 016 / OQ-3 — append-only ownership-proof history. */
+    targetOwnershipClaims: new AppendOnlyRepository(db, 'target_ownership_claims', {
+      resourceType: 'target_ownership_claim',
     }),
     findingEvidence: new AppendOnlyRepository(db, 'finding_evidence', {
       resourceType: 'finding_evidence',
@@ -65,6 +83,8 @@ export const buildRepositories = (db: Kysely<Database>, opts: RepoOptions = {}) 
     }),
     /** Sprint 4 A11/A12 — tenant-aware read API (sentinel-filtered). */
     auditEventsForTenant: new AuditEventsRepo(db),
+    /** Sprint 5 / R2 — idempotency cache (2xx-only insert + lookup). */
+    idempotencyKeys: new IdempotencyKeysRepo(db),
     llmAuditEvents: new AppendOnlyRepository(db, 'llm_audit_events', {
       resourceType: 'llm_audit_event',
     }),
