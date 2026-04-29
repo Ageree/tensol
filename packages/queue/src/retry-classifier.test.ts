@@ -17,6 +17,25 @@ describe('classifyError (A-Q-Retry-1)', () => {
     expect(classifyError(err)).toBe('transient');
   });
 
+  // Sprint 9 codex iter-2 P1 — browser-worker transient sentinels.
+  it('classifies BrowserTimeoutError as transient', () => {
+    const err = new Error('browser timeout');
+    err.name = 'BrowserTimeoutError';
+    expect(classifyError(err)).toBe('transient');
+  });
+
+  it('classifies StorageWriteError as transient', () => {
+    const err = new Error('disk full');
+    err.name = 'StorageWriteError';
+    expect(classifyError(err)).toBe('transient');
+  });
+
+  it('classifies DbTransientError as transient', () => {
+    const err = new Error('connection lost');
+    err.name = 'DbTransientError';
+    expect(classifyError(err)).toBe('transient');
+  });
+
   it('classifies ECONNREFUSED message as transient', () => {
     expect(classifyError(new Error('ECONNREFUSED 127.0.0.1:5432'))).toBe('transient');
   });

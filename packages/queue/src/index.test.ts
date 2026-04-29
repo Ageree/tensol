@@ -18,7 +18,9 @@ describe('packages/queue :: public surface', () => {
       'assessment.start',
       'recon.browser.placeholder',
       'decepticon.findings',
+      'recon.browser',
     ]);
+    expect(ENVELOPE_KINDS.length).toBe(4);
   });
 
   test('exports job statuses enum (matches DB CHECK constraint)', () => {

@@ -230,6 +230,9 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       -- violations. Mirrors Sprint 7 jobs FK pitfall (P26) and Sprint 5 F3.
       DELETE FROM candidate_findings;
       DELETE FROM decepticon_sessions;
+      -- Sprint 9: observations_browser has FK to assessments. Delete BEFORE
+      -- assessments. Not append-only — no trigger toggle needed.
+      DELETE FROM observations_browser;
       DELETE FROM assessment_artifacts;
       DELETE FROM assessment_approvals;
       DELETE FROM target_ownership_claims;

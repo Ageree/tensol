@@ -39,3 +39,19 @@ export const decepticonFindingsPayloadSchema = z.object({
 });
 
 export type DecepticonFindingsPayload = z.infer<typeof decepticonFindingsPayloadSchema>;
+
+/**
+ * Sprint 9 — Payload for `recon.browser` envelopes. Coordinator publishes
+ * one envelope per declared startUrl after scope-validation passes. The
+ * browser-worker handler also calls this schema as defence-in-depth.
+ */
+export const reconBrowserPayloadSchema = z.object({
+  tenantId: z.string().uuid(),
+  projectId: z.string().uuid().nullable(),
+  assessmentId: z.string().uuid(),
+  targetId: z.string().uuid(),
+  startUrl: z.string().url(),
+  traceId: z.string().regex(/^[0-9a-f]{32}$/),
+});
+
+export type ReconBrowserPayload = z.infer<typeof reconBrowserPayloadSchema>;

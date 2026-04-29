@@ -76,6 +76,12 @@ export const AUDIT_ACTIONS = [
   'decepticon.session.completed',
   'decepticon.session.failed',
   'decepticon.candidate.observed',
+  // Sprint 9 — browser-worker scope-guarded crawl lifecycle.
+  'recon.browser.job.started',
+  'recon.browser.job.completed',
+  'recon.browser.job.failed',
+  'recon.browser.navigation.denied',
+  'recon.browser.observation.persisted',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

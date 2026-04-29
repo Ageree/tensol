@@ -5,7 +5,20 @@
 
 export type RetryClass = 'transient' | 'terminal';
 
-const TRANSIENT_NAMES = new Set(['NetworkError', 'TimeoutError']);
+// Sprint 9 codex iter-2 P1 — browser-worker transient sentinels:
+//   - BrowserTimeoutError (Playwright/Chromium-side timeout)
+//   - StorageWriteError (object-storage put failure, transient)
+//   - DbTransientError (DB connection / write transient)
+// Without these, the classifier defaults to terminal and the queue
+// short-circuits on the first attempt. Names are stable string literals
+// so this package stays free of a back-dep on services/browser-worker.
+const TRANSIENT_NAMES = new Set([
+  'NetworkError',
+  'TimeoutError',
+  'BrowserTimeoutError',
+  'StorageWriteError',
+  'DbTransientError',
+]);
 const TRANSIENT_PATTERN = /ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|\b5\d\d\b/;
 
 interface MaybeTerminal {

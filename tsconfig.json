@@ -22,6 +22,7 @@
     { "path": "./packages/telemetry" },
     { "path": "./packages/validators" },
     { "path": "./packages/reports" },
-    { "path": "./packages/skill-library" }
+    { "path": "./packages/skill-library" },
+    { "path": "./tests/lab/xss-fixture" }
   ]
 }

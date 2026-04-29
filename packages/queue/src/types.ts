@@ -10,10 +10,18 @@ import type { jobEnvelopeSchema } from './envelope.ts';
 /** Closed-set envelope kinds. Adding a kind requires a code change. */
 export const ENVELOPE_KINDS = [
   'assessment.start',
+  /**
+   * @deprecated Sprint 7 placeholder. Sprint 9 replaces with `recon.browser`.
+   * Retained one sprint for back-compat; no active publishers.
+   */
   'recon.browser.placeholder',
   // Sprint 8 — fake decepticon adapter publishes one envelope per observed
   // candidate. Sprint 10 validator-worker will subscribe and gate them.
   'decepticon.findings',
+  // Sprint 9 — coordinator publishes one envelope per declared startUrl
+  // after scope-validation passes. Browser-worker subscribes and runs the
+  // scope-guarded crawl.
+  'recon.browser',
 ] as const;
 
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];

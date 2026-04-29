@@ -9,7 +9,9 @@ describe('queue-envelope contract', () => {
       'assessment.start',
       'recon.browser.placeholder',
       'decepticon.findings',
+      'recon.browser',
     ]);
+    expect(ENVELOPE_KINDS.length).toBe(4);
   });
 
   test('JOB_STATUSES matches the DB CHECK constraint state-machine', () => {

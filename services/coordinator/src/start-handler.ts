@@ -29,6 +29,7 @@ import type {
 import { decide } from '@cyberstrike/scope-engine';
 import type { Kysely } from 'kysely';
 import { sql } from 'kysely';
+import { type BrowserChildTargetSpec, publishReconBrowserChildJobs } from './browser-child-job.ts';
 import { type ChildTargetSpec, publishReconChildJobs } from './child-job.ts';
 import { assessmentStartPayloadSchema } from './payloads.ts';
 
@@ -206,6 +207,22 @@ export const handleAssessmentStart = async (
     adapter: deps.adapter,
     parent: envelope,
     targets: childTargets,
+    ...(deps.randomUUID ? { randomUUID: deps.randomUUID } : {}),
+    ...(deps.clockIso ? { clockIso: deps.clockIso } : {}),
+  });
+
+  // Sprint 9 — also publish `recon.browser` envelopes per target so the
+  // browser-worker can run the scope-guarded crawl. Placeholder envelopes
+  // above are retained for Sprint 7 IT back-compat (deprecated; remove in
+  // Sprint 10+ once those tests migrate).
+  const browserTargets: BrowserChildTargetSpec[] = targets.map((t) => ({
+    targetId: t.target_id,
+    startUrl: targetUrlForChild(t),
+  }));
+  await publishReconBrowserChildJobs({
+    adapter: deps.adapter,
+    parent: envelope,
+    targets: browserTargets,
     ...(deps.randomUUID ? { randomUUID: deps.randomUUID } : {}),
     ...(deps.clockIso ? { clockIso: deps.clockIso } : {}),
   });

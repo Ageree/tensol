@@ -9,10 +9,16 @@ import { z } from 'zod';
 
 export const ENVELOPE_KINDS = [
   'assessment.start',
+  /**
+   * @deprecated Sprint 7 placeholder. Sprint 9 replaces with `recon.browser`.
+   */
   'recon.browser.placeholder',
   // Sprint 8 — fake decepticon adapter publishes one envelope per observed
   // candidate. Sprint 10 validator-worker will subscribe and gate them.
   'decepticon.findings',
+  // Sprint 9 — coordinator publishes one envelope per declared startUrl
+  // after scope-validation passes. Browser-worker subscribes.
+  'recon.browser',
 ] as const;
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];
 

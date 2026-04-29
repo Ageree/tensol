@@ -1,5 +1,5 @@
 {
-  "last_turn_at": "2026-04-29T10:28:24.643Z",
-  "turn_count": 71,
-  "last_agent_output": "{\n  \"findings\": [\n    {\n      \"title\": \"[P2] Use stable idempotency keys for candidate jobs\",\n      "
+  "last_turn_at": "2026-04-29T11:43:22.056Z",
+  "turn_count": 73,
+  "last_agent_output": "{\"findings\":[{\"title\":\"[P1] Subscribe recon.browser jobs before publishing them\",\"body\":\"When assess"
 }

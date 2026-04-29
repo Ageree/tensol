@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.11",
-  "workspaces": ["apps/*", "services/*", "packages/*"],
+  "workspaces": ["apps/*", "services/*", "packages/*", "tests/lab/xss-fixture"],
   "scripts": {
     "bun:assert-version": "bun scripts/assert-bun-version.ts",
     "lint": "biome check .",
@@ -19,7 +19,7 @@
     "db:migrate:rollback": "bun packages/db/scripts/rollback.ts",
     "db:migrate:redo": "bun packages/db/scripts/redo.ts",
     "db:migrate:check": "bun packages/db/scripts/migrate-check.ts",
-    "lab:xss": "echo '[placeholder] lab xss fixture lands in Sprint 9' && exit 0"
+    "lab:xss": "bun tests/lab/xss-fixture/bin/run.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
@@ -31,10 +31,12 @@
     "@cyberstrike/api": "workspace:*",
     "@cyberstrike/audit": "workspace:*",
     "@cyberstrike/authz": "workspace:*",
+    "@cyberstrike/browser-worker": "workspace:*",
     "@cyberstrike/contracts": "workspace:*",
     "@cyberstrike/coordinator": "workspace:*",
     "@cyberstrike/db": "workspace:*",
     "@cyberstrike/decepticon-adapter": "workspace:*",
+    "@cyberstrike/lab-xss-fixture": "workspace:*",
     "@cyberstrike/object-storage": "workspace:*",
     "@cyberstrike/queue": "workspace:*",
     "@cyberstrike/scope-engine": "workspace:*",

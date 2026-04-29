@@ -6,7 +6,7 @@
 export const name = 'services/coordinator' as const;
 
 import type { Database } from '@cyberstrike/db';
-import type { QueueAdapter, Subscription } from '@cyberstrike/queue';
+import type { Handler, QueueAdapter, Subscription } from '@cyberstrike/queue';
 import type { EffectiveScope } from '@cyberstrike/scope-engine';
 import type { Kysely } from 'kysely';
 import { reconPlaceholderHandler } from './placeholder-consumer.ts';
@@ -20,15 +20,18 @@ export type { CoordinatorScopeDeps, DecepticonRunner };
 export {
   assessmentStartPayloadSchema,
   decepticonFindingsPayloadSchema,
+  reconBrowserPayloadSchema,
   reconPlaceholderPayloadSchema,
 } from './payloads.ts';
 export type {
   AssessmentStartPayload,
   DecepticonFindingsPayload,
+  ReconBrowserPayload,
   ReconPlaceholderPayload,
 } from './payloads.ts';
 export { handleAssessmentStart } from './start-handler.ts';
 export { publishReconChildJobs } from './child-job.ts';
+export { publishReconBrowserChildJobs } from './browser-child-job.ts';
 export { reconPlaceholderHandler } from './placeholder-consumer.ts';
 
 export interface CoordinatorDeps {
@@ -38,6 +41,16 @@ export interface CoordinatorDeps {
   readonly buildScope: (assessmentId: string) => Promise<EffectiveScope | null>;
   /** Sprint 8 — optional fake-decepticon orchestration runner. */
   readonly decepticonRunner?: DecepticonRunner;
+  /**
+   * Sprint 9 codex iter-3 P1 — optional `recon.browser` consumer. When
+   * provided, `createCoordinator` subscribes the queue with it so jobs
+   * published by `publishReconBrowserChildJobs` flow end-to-end without
+   * a manually-wired subscriber. Callers pre-bind via:
+   *   `(env) => handleReconBrowser(workerDeps, env)`
+   * Keeping it as an injected `Handler` avoids forcing this package to
+   * import @cyberstrike/browser-worker.
+   */
+  readonly browserHandler?: Handler;
   /** Test seam — passed through to handlers. */
   readonly randomUUID?: () => string;
   readonly clockIso?: () => string;
@@ -55,6 +68,7 @@ export interface CoordinatorHandle {
 export const createCoordinator = (deps: CoordinatorDeps): CoordinatorHandle => {
   let assessmentStartSub: Subscription | null = null;
   let placeholderSub: Subscription | null = null;
+  let browserSub: Subscription | null = null;
   return {
     start: (): void => {
       const startDeps = {
@@ -80,15 +94,23 @@ export const createCoordinator = (deps: CoordinatorDeps): CoordinatorHandle => {
         reconPlaceholderHandler,
         subOpts,
       );
+      // Sprint 9 codex iter-3 P1 — auto-subscribe `recon.browser` when a
+      // browser handler is injected. Without this, recon.browser jobs
+      // published by start-handler stay `pending` forever in production.
+      if (deps.browserHandler) {
+        browserSub = deps.adapter.subscribe('recon.browser', deps.browserHandler, subOpts);
+      }
     },
     stop: async (opts?: { timeoutMs?: number }): Promise<void> => {
       const stopOpts = opts ?? {};
       await Promise.all([
         assessmentStartSub?.stop(stopOpts) ?? Promise.resolve(),
         placeholderSub?.stop(stopOpts) ?? Promise.resolve(),
+        browserSub?.stop(stopOpts) ?? Promise.resolve(),
       ]);
       assessmentStartSub = null;
       placeholderSub = null;
+      browserSub = null;
     },
   };
 };

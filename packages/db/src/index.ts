@@ -62,6 +62,14 @@ export {
   type IdempotencyLookupArgs,
   type IdempotencyRow,
 } from './repos/idempotency-keys.ts';
+export {
+  insertObservationBrowser,
+  listObservationsBrowserByAssessment,
+  type ConsoleMessageInput,
+  type InsertObservationBrowserInput,
+  type InsertObservationBrowserResult,
+  type ListObservationsByAssessmentInput,
+} from './repos/observations-browser.ts';
 
 export type {
   AssessmentApprovalsTable,
@@ -70,6 +78,7 @@ export type {
   AssessmentScopeRulesTable,
   AuditEventsTable,
   IdempotencyKeysTable,
+  ObservationsBrowserTable,
   ProjectsTable,
   TargetOwnershipClaimsTable,
   TargetsTable,
