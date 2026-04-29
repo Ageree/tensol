@@ -19,6 +19,8 @@ export const ACTIONS = [
   'change_status',
   'change_scope',
   'change_tool_policy',
+  // Sprint 6 A-SE-RBAC-1 — scope-engine validate endpoint.
+  'scope_validate',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];

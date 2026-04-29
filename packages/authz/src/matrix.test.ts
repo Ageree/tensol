@@ -6,21 +6,21 @@ import { RESOURCES, type Resource } from './resources.ts';
 import { ROLES, type Role } from './roles.ts';
 
 describe('packages/authz :: RBAC_MATRIX shape (C8)', () => {
-  test('cardinality is exactly 7 × 13 × 14 = 1274 entries', () => {
-    expect(RBAC_MATRIX.size).toBe(1274);
-    expect(ROLES.length * RESOURCES.length * ACTIONS.length).toBe(1274);
+  test('cardinality is exactly 7 × 13 × 15 = 1365 entries (Sprint 6 added scope_validate)', () => {
+    expect(RBAC_MATRIX.size).toBe(1365);
+    expect(ROLES.length * RESOURCES.length * ACTIONS.length).toBe(1365);
   });
 
   // Sprint 5 A-RBAC-2 / A-RBAC-3: allow count is the meaningful delta. The
-  // 1274 cardinality is structural (every cell exists with allowed=true|false);
+  // 1365 cardinality is structural (every cell exists with allowed=true|false);
   // what changes between sprints is the number of allow=true cells.
-  // Sprint 5 baseline: 239 allows after the Sprint 5 lifecycle additions
-  // (tenant_admin +6 on assessment) and tightenings (security_lead −1 on
-  // assessment.approve; operator −3 on c/u/submit, +2 on start/cancel).
-  test('Sprint 5 A-RBAC-2: total allow=true cells = 239', () => {
+  // Sprint 6 A-SE-RBAC-1: +3 allows (tenant_admin, security_lead, operator on
+  // assessment.scope_validate). 239 → 242. Auditor's C10 invariant preserved
+  // (no scope_validate grant — it's not a read/list action).
+  test('Sprint 6 A-SE-RBAC-1: total allow=true cells = 242 (was 239 + 3)', () => {
     let allows = 0;
     for (const d of RBAC_MATRIX.values()) if (d.allowed) allows++;
-    expect(allows).toBe(239);
+    expect(allows).toBe(242);
   });
 
   test('every (role, resource, action) cell is present', () => {
@@ -278,6 +278,20 @@ describe('packages/authz :: A15b — audit_log restricted to auditor + tenant_ad
         const decision = RBAC_MATRIX.get(buildKey(role, 'audit_log', action));
         expect(decision?.allowed).toBe(false);
       }
+    }
+  });
+});
+
+describe('packages/authz :: A-SE-RBAC-1 — assessment.scope_validate per-role grants', () => {
+  test('tenant_admin / security_lead / operator: scope_validate allowed', () => {
+    for (const role of ['tenant_admin', 'security_lead', 'operator'] as const) {
+      expect(RBAC_MATRIX.get(buildKey(role, 'assessment', 'scope_validate'))?.allowed).toBe(true);
+    }
+  });
+
+  test('auditor / developer / viewer / platform_admin: scope_validate denied', () => {
+    for (const role of ['auditor', 'developer', 'viewer', 'platform_admin'] as const) {
+      expect(RBAC_MATRIX.get(buildKey(role, 'assessment', 'scope_validate'))?.allowed).toBe(false);
     }
   });
 });

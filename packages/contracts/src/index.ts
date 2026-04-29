@@ -68,8 +68,44 @@ export {
 } from './targets.ts';
 
 export {
+  CLOUD_PROVIDERS,
+  type CloudProvider,
+  HTTP_METHODS,
+  type HttpMethod,
+  PROTOCOLS,
+  type Protocol,
+  RULE_KINDS,
+  type RuleKind,
   SCOPE_EFFECTS,
   type ScopeEffect,
   type ScopeRule,
+  type StrictScopeRule,
+  TOOL_CATEGORIES,
+  type ToolCategory,
+  VCS_PROVIDERS,
+  type VcsProvider,
+  type LegacyScopeRule,
   scopeRuleSchema,
+  strictScopeRuleSchema,
+  legacyScopeRulePayload,
 } from './scope-rules.ts';
+
+// Sprint 6 — scope-engine action input + decision DTO.
+export {
+  SCOPE_ACTION_KINDS,
+  type ScopeActionInput,
+  type ScopeActionKind,
+  scopeActionInputSchema,
+} from './scope-action.ts';
+
+export {
+  DECISION_REASONS,
+  type Decision,
+  type DecisionReason,
+  type ScopeValidateRequest,
+  type ScopeValidateResponse,
+  decisionReasonSchema,
+  decisionSchema,
+  scopeValidateRequestSchema,
+  scopeValidateResponseSchema,
+} from './scope-validate.ts';

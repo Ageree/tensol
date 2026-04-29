@@ -28,6 +28,8 @@ const SPEC: RoleSpec = {
     'resume',
     'cancel',
     'change_status',
+    // Sprint 6 A-SE-RBAC-1.
+    'scope_validate',
   ],
   scope_rule: ['read', 'list', 'create', 'update', 'delete', 'change_scope'],
   tool_policy: ['read', 'list', 'change_tool_policy'],

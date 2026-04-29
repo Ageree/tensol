@@ -16,6 +16,7 @@
     "@cyberstrike/config": "workspace:*",
     "@cyberstrike/contracts": "workspace:*",
     "@cyberstrike/db": "workspace:*",
+    "@cyberstrike/scope-engine": "workspace:*",
     "hono": "4.12.15",
     "zod": "^3.23.8"
   }

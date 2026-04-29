@@ -30,6 +30,7 @@
         "@cyberstrike/config": "workspace:*",
         "@cyberstrike/contracts": "workspace:*",
         "@cyberstrike/db": "workspace:*",
+        "@cyberstrike/scope-engine": "workspace:*",
         "hono": "4.12.15",
         "zod": "^3.23.8",
       },
@@ -100,6 +101,13 @@
     "packages/scope-engine": {
       "name": "@cyberstrike/scope-engine",
       "version": "0.1.0",
+      "dependencies": {
+        "@cyberstrike/contracts": "workspace:*",
+        "zod": "^3.23.8",
+      },
+      "devDependencies": {
+        "fast-check": "^3.23.1",
+      },
     },
     "packages/skill-library": {
       "name": "@cyberstrike/skill-library",

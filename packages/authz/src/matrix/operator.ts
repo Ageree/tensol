@@ -17,7 +17,8 @@ const SPEC: RoleSpec = {
   // Sprint 5 A-RBAC-1: operator runs assessments day-to-day — start/pause/resume/cancel.
   // No create/update/submit (security_lead/tenant_admin author and submit).
   // No approve (tenant_admin only).
-  assessment: ['read', 'list', 'start', 'pause', 'resume', 'cancel'],
+  // Sprint 6 A-SE-RBAC-1: operator can run pre-flight scope validation.
+  assessment: ['read', 'list', 'start', 'pause', 'resume', 'cancel', 'scope_validate'],
   scope_rule: ['read', 'list'],
   tool_policy: ['read', 'list'],
 

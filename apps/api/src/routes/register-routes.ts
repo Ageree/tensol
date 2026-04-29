@@ -24,6 +24,7 @@ import {
   handleStartAssessment,
   handleSubmitAssessment,
 } from './assessments/assessments.ts';
+import { handleScopeValidate } from './assessments/scope-validate.ts';
 import { handleListAuditEvents } from './audit/events.ts';
 import { handleLoginMfa } from './auth/login-mfa.ts';
 import { handleLogin } from './auth/login.ts';
@@ -143,4 +144,9 @@ export const registerRoutes = (app: Hono<SessionEnv>, deps: RouteDeps): void => 
     handleAssessmentArtifacts(deps, c),
   );
   app.get('/api/v1/assessments/:id/engine', tenantGuard(), (c) => handleAssessmentEngine(deps, c));
+
+  // Sprint 6 §5.6 — scope-engine validate endpoint. Read-only (no Idempotency-Key).
+  app.post('/api/v1/assessments/:id/scope/validate', tenantGuard(), (c) =>
+    handleScopeValidate(deps, c),
+  );
 };

@@ -36,7 +36,7 @@ const baseEnvelope = {
 };
 
 describe('contracts :: AuditAction (A3)', () => {
-  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16 new emission points)', () => {
+  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1)', () => {
     const expected = [
       'auth.register',
       'auth.login.password',
@@ -69,6 +69,8 @@ describe('contracts :: AuditAction (A3)', () => {
       'assessment.cancelled',
       // Sprint 5 — assessment deny (R8 testing-window gate).
       'assessment.start.denied',
+      // Sprint 6 — scope engine deny event (A-SE-Audit-1).
+      'scope.validate.denied',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
   });
