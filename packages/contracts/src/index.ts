@@ -109,3 +109,13 @@ export {
   scopeValidateRequestSchema,
   scopeValidateResponseSchema,
 } from './scope-validate.ts';
+
+// Sprint 7 — queue envelope schema mirror.
+export {
+  ENVELOPE_KINDS as QUEUE_ENVELOPE_KINDS,
+  JOB_STATUSES as QUEUE_JOB_STATUSES,
+  type EnvelopeKind as QueueEnvelopeKind,
+  type JobEnvelopeContract,
+  type JobStatusContract,
+  jobEnvelopeContractSchema,
+} from './queue-envelope.ts';

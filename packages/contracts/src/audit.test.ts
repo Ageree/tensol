@@ -36,7 +36,7 @@ const baseEnvelope = {
 };
 
 describe('contracts :: AuditAction (A3)', () => {
-  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1)', () => {
+  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1) + Sprint 7 (1)', () => {
     const expected = [
       'auth.register',
       'auth.login.password',
@@ -71,6 +71,8 @@ describe('contracts :: AuditAction (A3)', () => {
       'assessment.start.denied',
       // Sprint 6 — scope engine deny event (A-SE-Audit-1).
       'scope.validate.denied',
+      // Sprint 7 — coordinator scope-deny terminal failure (A-Q-Audit-1, OQ-3).
+      'assessment.failed',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
   });

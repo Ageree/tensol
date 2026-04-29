@@ -63,6 +63,18 @@ type AssessmentRow = {
 
 type ProjectRow = { id: string; tenant_id: string };
 
+// codex iter-3 P1 — outbox guard sentinel. Thrown inside the start tx when
+// the optimistic-version UPDATE matches 0 rows (another concurrent tx won).
+// Caller maps to 409 to prevent duplicate `assessment.start` enqueue.
+class ConcurrentStartError extends Error {
+  override readonly name = 'ConcurrentStartError';
+  readonly assessmentId: string;
+  constructor(assessmentId: string) {
+    super(`assessment ${assessmentId} already started by concurrent request`);
+    this.assessmentId = assessmentId;
+  }
+}
+
 const idParam = z.string().uuid();
 const ifMatchHeader = z
   .string()
@@ -822,17 +834,102 @@ export const handleStartAssessment = async (
     );
   }
 
-  // Window valid — commit transition.
+  // Window valid — A-Q-Api-1: commit BOTH the state transition AND the
+  // outbox row in the SAME DB transaction (Sprint 7 outbox pattern). If
+  // either fails, both roll back; the engine state never drifts from queue.
   const { sql } = await import('kysely');
-  await deps.db
-    .updateTable('assessments')
-    .set({ state: 'running', version: sql`version + 1`, updated_at: sql`now()` })
-    .where('tenant_id', '=', actor.tenantId)
-    .where('id', '=', row.id)
-    .where('version', '=', row.version)
-    .execute();
+  const traceId = newTraceId();
+  const idemKeyHeader =
+    c.req.header('idempotency-key') ?? c.req.header('Idempotency-Key') ?? `start:${row.id}`;
+  const envelopeIdemKey = `assessment.start:${idemKeyHeader}`;
+  const startEnvelope = {
+    jobId: crypto.randomUUID(),
+    tenantId: actor.tenantId,
+    projectId: row.project_id,
+    assessmentId: row.id,
+    kind: 'assessment.start' as const,
+    idempotencyKey: envelopeIdemKey,
+    createdAt: new Date().toISOString(),
+    attempt: 0,
+    maxAttempts: 3,
+    traceId,
+    payload: {
+      assessmentId: row.id,
+      // Children dispatched by coordinator after scope-validate per target.
+      // The handler reads assessment_targets directly; we pass IDs as a
+      // hint for trace logs and as a defence-in-depth payload check.
+      targetIds: await loadAssessmentTargetIds(deps, actor.tenantId, row.id),
+    },
+  };
 
-  // Sprint 7: enqueue assessment.start envelope here
+  // codex iter-3 P1 — concurrent-start outbox guard. Two POST /start calls
+  // with different Idempotency-Key headers can both load `row` at version=N
+  // before either commits. The optimistic UPDATE serialises them: only the
+  // tx that wins the version race affects 1 row; the loser affects 0. Without
+  // this check, the loser still inserts an `assessment.start` job, causing
+  // duplicate child dispatch. Capture `numUpdatedRows` and abort the loser
+  // with 409 BEFORE the outbox insert.
+  let outboxLost = false;
+  try {
+    await deps.db.transaction().execute(async (tx) => {
+      const updateResult = await tx
+        .updateTable('assessments')
+        .set({ state: 'running', version: sql`version + 1`, updated_at: sql`now()` })
+        .where('tenant_id', '=', actor.tenantId)
+        .where('id', '=', row.id)
+        .where('version', '=', row.version)
+        .executeTakeFirst();
+      if ((updateResult.numUpdatedRows ?? 0n) === 0n) {
+        // Lost the version race — another tx already transitioned this
+        // assessment to running. Abort BEFORE the outbox insert so we do not
+        // enqueue a duplicate `assessment.start` job. Throw a tagged error
+        // and unwind via the catch block below.
+        outboxLost = true;
+        throw new ConcurrentStartError(row.id);
+      }
+      await tx
+        .insertInto('jobs')
+        .values({
+          tenant_id: startEnvelope.tenantId,
+          project_id: startEnvelope.projectId,
+          assessment_id: startEnvelope.assessmentId,
+          kind: startEnvelope.kind,
+          status: 'pending',
+          attempt: 0,
+          max_attempts: startEnvelope.maxAttempts,
+          idempotency_key: startEnvelope.idempotencyKey,
+          not_before: null,
+          trace_id: startEnvelope.traceId,
+          // CF-3 Sprint 5 F5 — JSONB write must be JSON.stringify wrapped.
+          // biome-ignore lint/suspicious/noExplicitAny: pg expects text for jsonb.
+          payload: JSON.stringify(startEnvelope) as any,
+        })
+        .execute();
+    });
+  } catch (err) {
+    if (err instanceof ConcurrentStartError) {
+      // Loser of the concurrent-start race — return 409 without audit.
+      return c.json({ error: 'assessment_already_started' }, 409);
+    }
+    // Atomicity: tx rollback means no state change AND no enqueue. The
+    // unique-violation on (tenant_id, idempotency_key) is a benign race
+    // (e.g. retried POST that bypassed idempotency middleware) — the
+    // assessment is already running, so we treat as success.
+    if (
+      typeof err === 'object' &&
+      err !== null &&
+      'code' in err &&
+      (err as { code: unknown }).code === '23505'
+    ) {
+      // Pre-existing job row — idempotent replay. Continue to audit + return.
+    } else {
+      throw err;
+    }
+  }
+  if (outboxLost) {
+    // Defensive — should be unreachable since the catch returns above.
+    return c.json({ error: 'assessment_already_started' }, 409);
+  }
 
   await audit(deps, {
     tenantId: actor.tenantId,
@@ -847,12 +944,31 @@ export const handleStartAssessment = async (
     assessmentId: row.id,
     ip: sourceIp(c),
     userAgent: userAgent(c),
-    traceId: newTraceId(),
-    metadata: { fromState: row.state, toState: 'running', command: 'start' },
+    traceId,
+    metadata: {
+      fromState: row.state,
+      toState: 'running',
+      command: 'start',
+      jobId: startEnvelope.jobId,
+    },
   });
   const refreshed = await loadAssessmentById(deps, row.id);
   if (!refreshed) return c.json({ error: 'not_found' }, 404);
   return c.json(assessmentPublic(refreshed));
+};
+
+const loadAssessmentTargetIds = async (
+  deps: RouteDeps,
+  tenantId: string,
+  assessmentId: string,
+): Promise<string[]> => {
+  const rows = await deps.db
+    .selectFrom('assessment_targets')
+    .select(['target_id'])
+    .where('tenant_id', '=', tenantId)
+    .where('assessment_id', '=', assessmentId)
+    .execute();
+  return rows.map((r) => r.target_id);
 };
 
 // =============================================================================

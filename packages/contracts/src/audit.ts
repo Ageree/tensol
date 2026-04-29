@@ -69,6 +69,8 @@ export const AUDIT_ACTIONS = [
   'assessment.start.denied',
   // Sprint 6 — scope engine deny event (A-SE-Audit-1).
   'scope.validate.denied',
+  // Sprint 7 — coordinator scope-deny terminal failure (A-Q-Audit-1, OQ-3).
+  'assessment.failed',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

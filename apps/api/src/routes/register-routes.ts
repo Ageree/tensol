@@ -24,6 +24,7 @@ import {
   handleStartAssessment,
   handleSubmitAssessment,
 } from './assessments/assessments.ts';
+import { handleListAssessmentJobs } from './assessments/jobs.ts';
 import { handleScopeValidate } from './assessments/scope-validate.ts';
 import { handleListAuditEvents } from './audit/events.ts';
 import { handleLoginMfa } from './auth/login-mfa.ts';
@@ -149,4 +150,7 @@ export const registerRoutes = (app: Hono<SessionEnv>, deps: RouteDeps): void => 
   app.post('/api/v1/assessments/:id/scope/validate', tenantGuard(), (c) =>
     handleScopeValidate(deps, c),
   );
+
+  // Sprint 7 §5.5 A-Q-Api-3 — assessment jobs listing.
+  app.get('/api/v1/assessments/:id/jobs', tenantGuard(), (c) => handleListAssessmentJobs(deps, c));
 };

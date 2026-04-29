@@ -219,6 +219,8 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       -- audit_events_project_id_fkey. Order otherwise follows reverse-FK depth.
       DELETE FROM audit_events;
       DELETE FROM idempotency_keys;
+      -- Sprint 7: jobs has FK to assessments; delete BEFORE assessments.
+      DELETE FROM jobs;
       DELETE FROM assessment_approvals;
       DELETE FROM target_ownership_claims;
       DELETE FROM assessment_targets;

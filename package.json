@@ -32,7 +32,10 @@
     "@cyberstrike/audit": "workspace:*",
     "@cyberstrike/authz": "workspace:*",
     "@cyberstrike/contracts": "workspace:*",
+    "@cyberstrike/coordinator": "workspace:*",
     "@cyberstrike/db": "workspace:*",
+    "@cyberstrike/queue": "workspace:*",
+    "@cyberstrike/scope-engine": "workspace:*",
     "kysely": "0.27.4",
     "pg": "8.13.1",
     "zod": "^3.23.8"
