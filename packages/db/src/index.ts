@@ -70,6 +70,25 @@ export {
   type InsertObservationBrowserResult,
   type ListObservationsByAssessmentInput,
 } from './repos/observations-browser.ts';
+export {
+  ValidationStatusInvariantError,
+  findFindingByCandidateId,
+  insertConfirmedFinding,
+  listFindingsByAssessment,
+  type FindFindingByCandidateInput,
+  type FindingValidationStatus,
+  type InsertConfirmedFindingInput,
+  type InsertConfirmedFindingResult,
+  type ListFindingsByAssessmentInput,
+  type ValidatedByLike,
+} from './repos/findings.ts';
+export {
+  insertFindingEvidence,
+  listFindingEvidence,
+  type InsertFindingEvidenceInput,
+  type InsertFindingEvidenceResult,
+  type ListFindingEvidenceInput,
+} from './repos/finding-evidence.ts';
 
 export type {
   AssessmentApprovalsTable,
@@ -77,6 +96,9 @@ export type {
   AssessmentsTable,
   AssessmentScopeRulesTable,
   AuditEventsTable,
+  CandidateFindingsTable,
+  FindingEvidenceTable,
+  FindingsTable,
   IdempotencyKeysTable,
   ObservationsBrowserTable,
   ProjectsTable,

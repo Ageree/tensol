@@ -9,5 +9,10 @@
   },
   "scripts": {
     "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@cyberstrike/contracts": "workspace:*",
+    "@cyberstrike/scope-engine": "workspace:*",
+    "zod": "^3.23.8"
   }
 }

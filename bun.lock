@@ -17,6 +17,8 @@
         "@cyberstrike/object-storage": "workspace:*",
         "@cyberstrike/queue": "workspace:*",
         "@cyberstrike/scope-engine": "workspace:*",
+        "@cyberstrike/validator-worker": "workspace:*",
+        "@cyberstrike/validators": "workspace:*",
         "kysely": "0.27.4",
         "pg": "8.13.1",
         "zod": "^3.23.8",
@@ -144,6 +146,11 @@
     "packages/validators": {
       "name": "@cyberstrike/validators",
       "version": "0.1.0",
+      "dependencies": {
+        "@cyberstrike/contracts": "workspace:*",
+        "@cyberstrike/scope-engine": "workspace:*",
+        "zod": "^3.23.8",
+      },
     },
     "services/browser-worker": {
       "name": "@cyberstrike/browser-worker",
@@ -188,6 +195,16 @@
     "services/validator-worker": {
       "name": "@cyberstrike/validator-worker",
       "version": "0.1.0",
+      "dependencies": {
+        "@cyberstrike/audit": "workspace:*",
+        "@cyberstrike/contracts": "workspace:*",
+        "@cyberstrike/db": "workspace:*",
+        "@cyberstrike/object-storage": "workspace:*",
+        "@cyberstrike/queue": "workspace:*",
+        "@cyberstrike/scope-engine": "workspace:*",
+        "@cyberstrike/validators": "workspace:*",
+        "zod": "^3.23.8",
+      },
     },
     "tests/lab/xss-fixture": {
       "name": "@cyberstrike/lab-xss-fixture",

@@ -22,6 +22,12 @@ export const ENVELOPE_KINDS = [
   // after scope-validation passes. Browser-worker subscribes and runs the
   // scope-guarded crawl.
   'recon.browser',
+  // Sprint 10 — coordinator publishes one envelope per candidate after
+  // the decepticon stream emits it. Validator-worker subscribes, replays
+  // in a scope-guarded browser context, and persists findings ONLY on
+  // confirmed status (DirectInsertForbidden invariant lives in the
+  // findings repo, not at the queue boundary).
+  'validate.finding',
 ] as const;
 
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];

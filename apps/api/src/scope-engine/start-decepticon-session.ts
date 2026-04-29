@@ -379,6 +379,34 @@ export const startDecepticonSession = async (
     };
     await deps.queueAdapter.publish(childEnvelope);
 
+    // Sprint 10 — also publish a `validate.finding` envelope so the
+    // validator-worker can replay the candidate and gate findings creation.
+    // Only XSS-reflected candidates are wired in Sprint 10; other types
+    // skip the publish until later sprints add their validators.
+    if (candidate.type === 'xss_reflected') {
+      const validateEnvelope: JobEnvelope = {
+        jobId: randomUUID(),
+        tenantId: input.tenantId,
+        projectId: input.projectId ?? null,
+        assessmentId: input.assessmentId,
+        kind: 'validate.finding',
+        idempotencyKey: `${input.parentEnvelope.idempotencyKey}:validate:${candidateFindingId}`,
+        createdAt: clockIso(),
+        attempt: 0,
+        maxAttempts: 3,
+        traceId: input.traceId,
+        payload: {
+          tenantId: input.tenantId,
+          projectId: input.projectId ?? null,
+          assessmentId: input.assessmentId,
+          candidateFindingId,
+          candidateType: 'xss_reflected',
+          traceId: input.traceId,
+        },
+      };
+      await deps.queueAdapter.publish(validateEnvelope);
+    }
+
     await emitAudit(
       { db: deps.db },
       {

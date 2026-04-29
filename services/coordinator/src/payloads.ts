@@ -55,3 +55,22 @@ export const reconBrowserPayloadSchema = z.object({
 });
 
 export type ReconBrowserPayload = z.infer<typeof reconBrowserPayloadSchema>;
+
+/**
+ * Sprint 10 — Payload for `validate.finding` envelopes. Coordinator publishes
+ * one envelope per candidate after `decepticon.candidate.observed` lands
+ * (Sprint 8 flow). Validator-worker subscribes and runs the deterministic
+ * XSS replay. `.strict()` to reject unknown keys.
+ */
+export const validateFindingPayloadSchema = z
+  .object({
+    tenantId: z.string().uuid(),
+    projectId: z.string().uuid().nullable(),
+    assessmentId: z.string().uuid(),
+    candidateFindingId: z.string().uuid(),
+    candidateType: z.literal('xss_reflected'),
+    traceId: z.string().regex(/^[0-9a-f]{32}$/),
+  })
+  .strict();
+
+export type ValidateFindingPayload = z.infer<typeof validateFindingPayloadSchema>;

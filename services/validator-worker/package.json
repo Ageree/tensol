@@ -9,5 +9,15 @@
   },
   "scripts": {
     "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@cyberstrike/audit": "workspace:*",
+    "@cyberstrike/contracts": "workspace:*",
+    "@cyberstrike/db": "workspace:*",
+    "@cyberstrike/object-storage": "workspace:*",
+    "@cyberstrike/queue": "workspace:*",
+    "@cyberstrike/scope-engine": "workspace:*",
+    "@cyberstrike/validators": "workspace:*",
+    "zod": "^3.23.8"
   }
 }

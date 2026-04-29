@@ -82,6 +82,13 @@ export const AUDIT_ACTIONS = [
   'recon.browser.job.failed',
   'recon.browser.navigation.denied',
   'recon.browser.observation.persisted',
+  // Sprint 10 — XSS validator + finding creation lifecycle.
+  'validation.started',
+  'validation.confirmed',
+  'validation.rejected',
+  'validation.inconclusive',
+  'validation.out_of_scope',
+  'finding.created',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

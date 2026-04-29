@@ -217,6 +217,9 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       -- enforce_append_only() trigger so DELETE during fixture reset is
       -- allowed.
       ALTER TABLE assessment_artifacts DISABLE TRIGGER USER;
+      -- Sprint 10 (P30): finding_evidence is append-only (migration 011
+      -- attached enforce_append_only triggers). DISABLE before DELETE.
+      ALTER TABLE finding_evidence DISABLE TRIGGER USER;
       -- Sprint 5 F3: audit_events references projects + assessments via FK
       -- (migration 011, no CASCADE). Delete it FIRST so subsequent DELETEs of
       -- assessments/projects don't violate audit_events_assessment_id_fkey or
@@ -225,6 +228,13 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       DELETE FROM idempotency_keys;
       -- Sprint 7: jobs has FK to assessments; delete BEFORE assessments.
       DELETE FROM jobs;
+      -- Sprint 10 (P30): finding_evidence FK→findings, findings FK→
+      -- candidate_findings (created_from_candidate_id) AND FK→assessments.
+      -- DELETE order: finding_evidence → findings → candidate_findings →
+      -- assessments. finding_evidence has NO enforce_append_only trigger in
+      -- current migrations — no toggle needed.
+      DELETE FROM finding_evidence;
+      DELETE FROM findings;
       -- Sprint 8 (P28): candidate_findings + decepticon_sessions + assessment_artifacts
       -- all have FK to assessments. Delete BEFORE assessments to avoid FK
       -- violations. Mirrors Sprint 7 jobs FK pitfall (P26) and Sprint 5 F3.
@@ -251,11 +261,13 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       ALTER TABLE assessment_approvals ENABLE TRIGGER USER;
       ALTER TABLE target_ownership_claims ENABLE TRIGGER USER;
       ALTER TABLE assessment_artifacts ENABLE TRIGGER USER;
+      ALTER TABLE finding_evidence ENABLE TRIGGER USER;
     EXCEPTION WHEN OTHERS THEN
       ALTER TABLE audit_events ENABLE TRIGGER USER;
       ALTER TABLE assessment_approvals ENABLE TRIGGER USER;
       ALTER TABLE target_ownership_claims ENABLE TRIGGER USER;
       ALTER TABLE assessment_artifacts ENABLE TRIGGER USER;
+      ALTER TABLE finding_evidence ENABLE TRIGGER USER;
       RAISE;
     END $$;
   `)

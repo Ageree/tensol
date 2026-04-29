@@ -22,12 +22,14 @@ export {
   decepticonFindingsPayloadSchema,
   reconBrowserPayloadSchema,
   reconPlaceholderPayloadSchema,
+  validateFindingPayloadSchema,
 } from './payloads.ts';
 export type {
   AssessmentStartPayload,
   DecepticonFindingsPayload,
   ReconBrowserPayload,
   ReconPlaceholderPayload,
+  ValidateFindingPayload,
 } from './payloads.ts';
 export { handleAssessmentStart } from './start-handler.ts';
 export { publishReconChildJobs } from './child-job.ts';

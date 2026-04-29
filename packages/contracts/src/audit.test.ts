@@ -36,7 +36,7 @@ const baseEnvelope = {
 };
 
 describe('contracts :: AuditAction (A3)', () => {
-  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1) + Sprint 7 (1) + Sprint 8 decepticon (4) + Sprint 9 browser (5)', () => {
+  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1) + Sprint 7 (1) + Sprint 8 decepticon (4) + Sprint 9 browser (5) + Sprint 10 validator (6)', () => {
     const expected = [
       'auth.register',
       'auth.login.password',
@@ -84,10 +84,17 @@ describe('contracts :: AuditAction (A3)', () => {
       'recon.browser.job.failed',
       'recon.browser.navigation.denied',
       'recon.browser.observation.persisted',
+      // Sprint 10 — XSS validator + finding creation lifecycle.
+      'validation.started',
+      'validation.confirmed',
+      'validation.rejected',
+      'validation.inconclusive',
+      'validation.out_of_scope',
+      'finding.created',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // Sprint 9 cardinality: 33 → 38 (+5 recon.browser.* actions).
-    expect(AUDIT_ACTIONS.length).toBe(38);
+    // Sprint 10 cardinality: 38 → 44 (+6 validation.* + finding.created).
+    expect(AUDIT_ACTIONS.length).toBe(44);
   });
 
   test('zod rejects unknown action', () => {

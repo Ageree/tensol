@@ -19,6 +19,10 @@ export const ENVELOPE_KINDS = [
   // Sprint 9 — coordinator publishes one envelope per declared startUrl
   // after scope-validation passes. Browser-worker subscribes.
   'recon.browser',
+  // Sprint 10 — coordinator publishes one envelope per candidate after
+  // decepticon emits it. Validator-worker subscribes and runs deterministic
+  // XSS replay.
+  'validate.finding',
 ] as const;
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];
 
