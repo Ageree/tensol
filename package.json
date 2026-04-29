@@ -34,6 +34,8 @@
     "@cyberstrike/contracts": "workspace:*",
     "@cyberstrike/coordinator": "workspace:*",
     "@cyberstrike/db": "workspace:*",
+    "@cyberstrike/decepticon-adapter": "workspace:*",
+    "@cyberstrike/object-storage": "workspace:*",
     "@cyberstrike/queue": "workspace:*",
     "@cyberstrike/scope-engine": "workspace:*",
     "kysely": "0.27.4",

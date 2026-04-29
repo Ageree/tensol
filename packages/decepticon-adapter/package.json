@@ -1,0 +1,17 @@
+{
+  "name": "@cyberstrike/decepticon-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@cyberstrike/contracts": "workspace:*",
+    "zod": "^3.23.8"
+  }
+}

@@ -18,6 +18,7 @@
     { "path": "./packages/audit" },
     { "path": "./packages/object-storage" },
     { "path": "./packages/queue" },
+    { "path": "./packages/decepticon-adapter" },
     { "path": "./packages/telemetry" },
     { "path": "./packages/validators" },
     { "path": "./packages/reports" },

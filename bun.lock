@@ -11,6 +11,8 @@
         "@cyberstrike/contracts": "workspace:*",
         "@cyberstrike/coordinator": "workspace:*",
         "@cyberstrike/db": "workspace:*",
+        "@cyberstrike/decepticon-adapter": "workspace:*",
+        "@cyberstrike/object-storage": "workspace:*",
         "@cyberstrike/queue": "workspace:*",
         "@cyberstrike/scope-engine": "workspace:*",
         "kysely": "0.27.4",
@@ -33,6 +35,9 @@
         "@cyberstrike/config": "workspace:*",
         "@cyberstrike/contracts": "workspace:*",
         "@cyberstrike/db": "workspace:*",
+        "@cyberstrike/decepticon-adapter": "workspace:*",
+        "@cyberstrike/object-storage": "workspace:*",
+        "@cyberstrike/queue": "workspace:*",
         "@cyberstrike/scope-engine": "workspace:*",
         "hono": "4.12.15",
         "zod": "^3.23.8",
@@ -87,6 +92,14 @@
       },
       "devDependencies": {
         "@types/pg": "8.11.10",
+      },
+    },
+    "packages/decepticon-adapter": {
+      "name": "@cyberstrike/decepticon-adapter",
+      "version": "0.1.0",
+      "dependencies": {
+        "@cyberstrike/contracts": "workspace:*",
+        "zod": "^3.23.8",
       },
     },
     "packages/object-storage": {
@@ -204,6 +217,8 @@
     "@cyberstrike/cyberstrike-worker": ["@cyberstrike/cyberstrike-worker@workspace:services/cyberstrike-worker"],
 
     "@cyberstrike/db": ["@cyberstrike/db@workspace:packages/db"],
+
+    "@cyberstrike/decepticon-adapter": ["@cyberstrike/decepticon-adapter@workspace:packages/decepticon-adapter"],
 
     "@cyberstrike/http-worker": ["@cyberstrike/http-worker@workspace:services/http-worker"],
 

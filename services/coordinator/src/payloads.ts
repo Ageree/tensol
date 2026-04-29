@@ -22,3 +22,20 @@ export const reconPlaceholderPayloadSchema = z.object({
 });
 
 export type ReconPlaceholderPayload = z.infer<typeof reconPlaceholderPayloadSchema>;
+
+/**
+ * Sprint 8 — Payload for `decepticon.findings` envelopes. Coordinator drains
+ * the FakeDecepticonAdapter candidate stream and republishes each candidate
+ * as an envelope so a future Sprint 10 validator can subscribe.
+ */
+export const decepticonFindingsPayloadSchema = z.object({
+  sessionId: z.string().uuid(),
+  candidateId: z.string().uuid(),
+  candidateFindingId: z.string().uuid(),
+  type: z.string().min(1),
+  severity: z.enum(['info', 'low', 'medium', 'high', 'critical']),
+  affectedUrl: z.string().min(1),
+  source: z.string().min(1),
+});
+
+export type DecepticonFindingsPayload = z.infer<typeof decepticonFindingsPayloadSchema>;

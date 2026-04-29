@@ -1,0 +1,28 @@
+{
+  "scenario": "sqli-demo",
+  "description": "Sprint 8 R4 — distinct second-tenant fixture for A-FD-Tenant-Iso. Emits one sqli candidate so cross-talk between tenants becomes binary-detectable: T1 candidate types must equal ['xss_reflected'], T2 candidate types must equal ['sqli'].",
+  "timeScale": 0,
+  "statusTimeline": [
+    { "status": "started", "delayMs": 0 },
+    { "status": "planning", "delayMs": 0 },
+    { "status": "recon", "delayMs": 0 },
+    { "status": "exploit", "delayMs": 0 },
+    { "status": "reporting", "delayMs": 0 },
+    { "status": "completed", "delayMs": 0 }
+  ],
+  "candidates": [
+    {
+      "type": "sqli",
+      "severity": "critical",
+      "affectedUrl": "https://example.com/api/users?id=",
+      "source": "decepticon",
+      "afterStatus": "exploit",
+      "payload": {
+        "parameter": "id",
+        "injectionType": "boolean_blind",
+        "samplePayload": "1' OR '1'='1",
+        "evidence": "differential timing observed on truthy vs falsy payload"
+      }
+    }
+  ]
+}

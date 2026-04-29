@@ -71,6 +71,11 @@ export const AUDIT_ACTIONS = [
   'scope.validate.denied',
   // Sprint 7 — coordinator scope-deny terminal failure (A-Q-Audit-1, OQ-3).
   'assessment.failed',
+  // Sprint 8 — fake decepticon adapter session lifecycle + candidate observation.
+  'decepticon.session.started',
+  'decepticon.session.completed',
+  'decepticon.session.failed',
+  'decepticon.candidate.observed',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

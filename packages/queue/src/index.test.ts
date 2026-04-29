@@ -14,7 +14,11 @@ import {
 
 describe('packages/queue :: public surface', () => {
   test('exports envelope kinds enum (closed-set)', () => {
-    expect(ENVELOPE_KINDS).toEqual(['assessment.start', 'recon.browser.placeholder']);
+    expect(ENVELOPE_KINDS).toEqual([
+      'assessment.start',
+      'recon.browser.placeholder',
+      'decepticon.findings',
+    ]);
   });
 
   test('exports job statuses enum (matches DB CHECK constraint)', () => {

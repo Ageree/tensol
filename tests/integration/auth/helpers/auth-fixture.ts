@@ -213,6 +213,10 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       ALTER TABLE audit_events DISABLE TRIGGER USER;
       ALTER TABLE assessment_approvals DISABLE TRIGGER USER;
       ALTER TABLE target_ownership_claims DISABLE TRIGGER USER;
+      -- Sprint 8 (P28): assessment_artifacts is append-only; disable the
+      -- enforce_append_only() trigger so DELETE during fixture reset is
+      -- allowed.
+      ALTER TABLE assessment_artifacts DISABLE TRIGGER USER;
       -- Sprint 5 F3: audit_events references projects + assessments via FK
       -- (migration 011, no CASCADE). Delete it FIRST so subsequent DELETEs of
       -- assessments/projects don't violate audit_events_assessment_id_fkey or
@@ -221,6 +225,12 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       DELETE FROM idempotency_keys;
       -- Sprint 7: jobs has FK to assessments; delete BEFORE assessments.
       DELETE FROM jobs;
+      -- Sprint 8 (P28): candidate_findings + decepticon_sessions + assessment_artifacts
+      -- all have FK to assessments. Delete BEFORE assessments to avoid FK
+      -- violations. Mirrors Sprint 7 jobs FK pitfall (P26) and Sprint 5 F3.
+      DELETE FROM candidate_findings;
+      DELETE FROM decepticon_sessions;
+      DELETE FROM assessment_artifacts;
       DELETE FROM assessment_approvals;
       DELETE FROM target_ownership_claims;
       DELETE FROM assessment_targets;
@@ -237,10 +247,12 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       ALTER TABLE audit_events ENABLE TRIGGER USER;
       ALTER TABLE assessment_approvals ENABLE TRIGGER USER;
       ALTER TABLE target_ownership_claims ENABLE TRIGGER USER;
+      ALTER TABLE assessment_artifacts ENABLE TRIGGER USER;
     EXCEPTION WHEN OTHERS THEN
       ALTER TABLE audit_events ENABLE TRIGGER USER;
       ALTER TABLE assessment_approvals ENABLE TRIGGER USER;
       ALTER TABLE target_ownership_claims ENABLE TRIGGER USER;
+      ALTER TABLE assessment_artifacts ENABLE TRIGGER USER;
       RAISE;
     END $$;
   `)

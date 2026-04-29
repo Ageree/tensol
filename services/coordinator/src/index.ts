@@ -10,14 +10,23 @@ import type { QueueAdapter, Subscription } from '@cyberstrike/queue';
 import type { EffectiveScope } from '@cyberstrike/scope-engine';
 import type { Kysely } from 'kysely';
 import { reconPlaceholderHandler } from './placeholder-consumer.ts';
-import { type CoordinatorScopeDeps, handleAssessmentStart } from './start-handler.ts';
+import {
+  type CoordinatorScopeDeps,
+  type DecepticonRunner,
+  handleAssessmentStart,
+} from './start-handler.ts';
 
-export type { CoordinatorScopeDeps };
+export type { CoordinatorScopeDeps, DecepticonRunner };
 export {
   assessmentStartPayloadSchema,
+  decepticonFindingsPayloadSchema,
   reconPlaceholderPayloadSchema,
 } from './payloads.ts';
-export type { AssessmentStartPayload, ReconPlaceholderPayload } from './payloads.ts';
+export type {
+  AssessmentStartPayload,
+  DecepticonFindingsPayload,
+  ReconPlaceholderPayload,
+} from './payloads.ts';
 export { handleAssessmentStart } from './start-handler.ts';
 export { publishReconChildJobs } from './child-job.ts';
 export { reconPlaceholderHandler } from './placeholder-consumer.ts';
@@ -27,6 +36,8 @@ export interface CoordinatorDeps {
   readonly adapter: QueueAdapter;
   readonly scopeDeps: CoordinatorScopeDeps;
   readonly buildScope: (assessmentId: string) => Promise<EffectiveScope | null>;
+  /** Sprint 8 — optional fake-decepticon orchestration runner. */
+  readonly decepticonRunner?: DecepticonRunner;
   /** Test seam — passed through to handlers. */
   readonly randomUUID?: () => string;
   readonly clockIso?: () => string;
@@ -51,6 +62,7 @@ export const createCoordinator = (deps: CoordinatorDeps): CoordinatorHandle => {
         adapter: deps.adapter,
         scopeDeps: deps.scopeDeps,
         buildScope: deps.buildScope,
+        ...(deps.decepticonRunner ? { decepticonRunner: deps.decepticonRunner } : {}),
         ...(deps.randomUUID ? { randomUUID: deps.randomUUID } : {}),
         ...(deps.clockIso ? { clockIso: deps.clockIso } : {}),
       };

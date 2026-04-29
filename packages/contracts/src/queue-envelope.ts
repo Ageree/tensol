@@ -7,7 +7,13 @@
 
 import { z } from 'zod';
 
-export const ENVELOPE_KINDS = ['assessment.start', 'recon.browser.placeholder'] as const;
+export const ENVELOPE_KINDS = [
+  'assessment.start',
+  'recon.browser.placeholder',
+  // Sprint 8 — fake decepticon adapter publishes one envelope per observed
+  // candidate. Sprint 10 validator-worker will subscribe and gate them.
+  'decepticon.findings',
+] as const;
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];
 
 const isoDatetime = z

@@ -1,0 +1,29 @@
+{
+  "scenario": "xss-reflected",
+  "description": "Sprint 8 minimal XSS scenario. Decepticon recons the lab fixture and emits one xss_reflected candidate referencing the placeholder URL. Sprint 9 will own the lab and replace this URL.",
+  "timeScale": 0,
+  "statusTimeline": [
+    { "status": "started", "delayMs": 0 },
+    { "status": "planning", "delayMs": 0 },
+    { "status": "recon", "delayMs": 0 },
+    { "status": "exploit", "delayMs": 0 },
+    { "status": "reporting", "delayMs": 0 },
+    { "status": "completed", "delayMs": 0 }
+  ],
+  "candidates": [
+    {
+      "type": "xss_reflected",
+      "severity": "high",
+      "affectedUrl": "http://localhost:9999/xss?q=",
+      "source": "decepticon",
+      "afterStatus": "exploit",
+      "payload": {
+        "parameter": "q",
+        "reflectionContext": "html_body",
+        "encodingObserved": "none",
+        "samplePayload": "<svg onload=alert(1)>",
+        "evidence": "raw payload reflected in <div>${q}</div> sink"
+      }
+    }
+  ]
+}

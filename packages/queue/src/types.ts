@@ -8,7 +8,13 @@ import type { z } from 'zod';
 import type { jobEnvelopeSchema } from './envelope.ts';
 
 /** Closed-set envelope kinds. Adding a kind requires a code change. */
-export const ENVELOPE_KINDS = ['assessment.start', 'recon.browser.placeholder'] as const;
+export const ENVELOPE_KINDS = [
+  'assessment.start',
+  'recon.browser.placeholder',
+  // Sprint 8 — fake decepticon adapter publishes one envelope per observed
+  // candidate. Sprint 10 validator-worker will subscribe and gate them.
+  'decepticon.findings',
+] as const;
 
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];
 

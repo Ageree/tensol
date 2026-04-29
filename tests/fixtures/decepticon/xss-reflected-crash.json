@@ -1,0 +1,14 @@
+{
+  "scenario": "xss-reflected-crash",
+  "description": "Sprint 8 crash-path fixture. Adapter simulates a session crash mid-recon. Used by A-FD-Crash IT.",
+  "timeScale": 0,
+  "simulateCrashAt": "recon",
+  "statusTimeline": [
+    { "status": "started", "delayMs": 0 },
+    { "status": "planning", "delayMs": 0 },
+    { "status": "recon", "delayMs": 0 },
+    { "status": "exploit", "delayMs": 0 },
+    { "status": "completed", "delayMs": 0 }
+  ],
+  "candidates": []
+}

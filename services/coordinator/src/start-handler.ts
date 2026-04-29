@@ -32,6 +32,28 @@ import { sql } from 'kysely';
 import { type ChildTargetSpec, publishReconChildJobs } from './child-job.ts';
 import { assessmentStartPayloadSchema } from './payloads.ts';
 
+/**
+ * Sprint 8 — orchestrate the fake-decepticon session for a scope-validated
+ * assessment. Provided by apps/api/src/scope-engine/start-decepticon-session.ts;
+ * passed in as a function to keep services/coordinator free of a hard
+ * dependency on the API package.
+ */
+export interface DecepticonRunnerInput {
+  readonly tenantId: string;
+  readonly projectId: string | null;
+  readonly assessmentId: string;
+  readonly scope: EffectiveScope;
+  readonly traceId: string;
+  readonly parentEnvelope: JobEnvelope;
+}
+
+export interface DecepticonRunnerResult {
+  readonly status: 'completed' | 'failed';
+  readonly failureReason?: string;
+}
+
+export type DecepticonRunner = (input: DecepticonRunnerInput) => Promise<DecepticonRunnerResult>;
+
 export interface CoordinatorScopeDeps {
   readonly dns: DnsResolver;
   readonly clock: Clock;
@@ -48,6 +70,12 @@ export interface StartHandlerDeps {
    * passed in by API process at coordinator setup. Tests inject mocks.
    */
   readonly buildScope: (assessmentId: string) => Promise<EffectiveScope | null>;
+  /**
+   * Sprint 8 — fake decepticon orchestration runner. When provided, the
+   * coordinator runs the session AFTER scope-validation passes. Optional so
+   * Sprint 7 ITs that don't supply one keep working.
+   */
+  readonly decepticonRunner?: DecepticonRunner;
   /** Test seam — defaults to crypto.randomUUID(). */
   readonly randomUUID?: () => string;
   /** Test seam — defaults to () => new Date().toISOString(). */
@@ -148,6 +176,27 @@ export const handleAssessmentStart = async (
     }
   }
 
+  // Sprint 8 — start the decepticon session BEFORE publishing recon child
+  // jobs. If the session fails (crash mid-stream), the runner has already
+  // marked the assessment as `failed` and emitted audits; we surface a
+  // terminal nack so the queue stops retrying.
+  if (deps.decepticonRunner) {
+    const runResult = await deps.decepticonRunner({
+      tenantId: envelope.tenantId,
+      projectId: envelope.projectId ?? null,
+      assessmentId: envelope.assessmentId,
+      scope,
+      traceId: envelope.traceId,
+      parentEnvelope: envelope,
+    });
+    if (runResult.status === 'failed') {
+      return {
+        kind: 'nack',
+        error: new ScopeDenyError(runResult.failureReason ?? 'decepticon_session_failed', []),
+      };
+    }
+  }
+
   // Step 5 — allow path: publish per-target child jobs.
   const childTargets: ChildTargetSpec[] = targets.map((t) => ({
     targetId: t.target_id,
@@ -163,7 +212,8 @@ export const handleAssessmentStart = async (
 
   // A-Q-Audit-2 inline-note — NO additional audit on allow path. The route's
   // `assessment.started` (Sprint 5) is the single audit row for a successful
-  // start. Per-target child publishes do NOT drip audit rows.
+  // start. Per-target child publishes do NOT drip audit rows. Sprint 8 adds
+  // session lifecycle audits via the decepticonRunner above.
   return { kind: 'ack' };
 };
 

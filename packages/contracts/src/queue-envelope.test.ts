@@ -5,7 +5,11 @@ import { ENVELOPE_KINDS, JOB_STATUSES, jobEnvelopeContractSchema } from './queue
 
 describe('queue-envelope contract', () => {
   test('ENVELOPE_KINDS matches the canonical packages/queue list', () => {
-    expect([...ENVELOPE_KINDS]).toEqual(['assessment.start', 'recon.browser.placeholder']);
+    expect([...ENVELOPE_KINDS]).toEqual([
+      'assessment.start',
+      'recon.browser.placeholder',
+      'decepticon.findings',
+    ]);
   });
 
   test('JOB_STATUSES matches the DB CHECK constraint state-machine', () => {
