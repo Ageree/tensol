@@ -104,6 +104,48 @@ export DECEPTICON_ASSISTANT_ID=decepticon  # or 'soundwave' for planning intervi
 The `FakeDecepticonAdapter` (Sprint 8) remains the default and is used
 for CI / unit tests since CI has no Docker runtime for the real engine.
 
+## End-to-end demo (Sprint 13)
+
+Run a real engagement from assessment.start → confirmed finding in the UI:
+
+**Prerequisites:**
+- Decepticon stack healthy on `localhost:2024` (7/7 containers)
+- PostgreSQL on `localhost:5433` (`DATABASE_URL=postgres://cs:cs@localhost:5433/cyberstrike`)
+- Lab target reachable (e.g. Metasploitable 2 on `http://192.168.56.101/`)
+
+**Steps:**
+
+1. Set env vars for the real adapter:
+
+```sh
+export DECEPTICON_ADAPTER=real
+export DECEPTICON_API_URL=http://localhost:2024
+export DATABASE_URL=postgres://cs:cs@localhost:5433/cyberstrike
+```
+
+2. Start the API + coordinator (from project root):
+
+```sh
+bun run dev
+```
+
+3. Create a project, add the lab target (IP or URL), start an assessment via the UI or API.
+
+4. The coordinator picks up the `assessment.start` job, scope-validates the target, then calls
+   `RealDecepticonAdapter.start()` which creates a LangGraph thread at `:2024` and streams
+   subagent events back. Each `report_finding` event becomes a `candidate_findings` row,
+   and a `validate.finding` job is dispatched to the validator-worker.
+
+5. Open `http://localhost:3000` (apps/web) — confirmed findings appear under the assessment
+   once the validator-worker processes the `validate.finding` job.
+
+**Scope invariant:** every candidate's `affectedUrl` is validated against the assessment scope
+before it is persisted. Out-of-scope candidates are dropped silently with a
+`scope.validate.denied` audit row.
+
+**LangGraph thread ID** is stored in `decepticon_sessions.langgraph_thread_id` for traceability.
+You can cross-reference with the Decepticon web UI at `http://localhost:3000` (upstream port).
+
 ## Database
 
 The CyberStrike data layer (`packages/db`) uses Kysely + node-postgres + Kysely's

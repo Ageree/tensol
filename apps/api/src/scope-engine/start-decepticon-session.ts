@@ -237,6 +237,8 @@ export const startDecepticonSession = async (
       opplan_object_key: putResult.key,
       opplan_sha256: putResult.sha256,
       opplan_size_bytes: String(putResult.sizeBytes),
+      // Sprint 13: populated by RealDecepticonAdapter; NULL for fake sessions.
+      langgraph_thread_id: sessionHandle.langgraphThreadId ?? null,
     })
     .execute();
 

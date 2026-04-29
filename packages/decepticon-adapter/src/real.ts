@@ -280,6 +280,7 @@ export class RealDecepticonAdapter implements DecepticonAdapter {
       assessmentId: input.opplan.assessmentId,
       tenantId: input.tenantId,
       startedAt,
+      langgraphThreadId: thread.thread_id,
     };
   }
 

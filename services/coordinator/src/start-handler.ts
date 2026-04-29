@@ -128,7 +128,11 @@ const targetToActionInput = (target: AssessmentTargetRow): ScopeActionInput => {
 
 const targetUrlForChild = (target: AssessmentTargetRow): string => {
   if (target.kind === 'url') return target.value;
-  if (target.kind === 'ip') return target.value;
+  // B6 (Sprint 13): bare IPs are not valid URLs; wrap as http://<ip>/ so the
+  // recon.browser payload passes zod's z.string().url() validation. IP-kind
+  // targets go through the network/recon path, not full browser crawl, but
+  // the envelope schema still requires a URL-shaped string.
+  if (target.kind === 'ip') return `http://${target.value}/`;
   return `https://${target.value}`;
 };
 

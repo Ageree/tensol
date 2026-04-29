@@ -103,6 +103,8 @@ export interface SessionHandle {
   readonly assessmentId: string;
   readonly tenantId: string;
   readonly startedAt: string;
+  /** Sprint 13 — upstream LangGraph thread ID. Populated by RealDecepticonAdapter; undefined for fake. */
+  readonly langgraphThreadId?: string;
 }
 
 export const ARTIFACT_KINDS = ['opplan', 'report', 'transcript'] as const;

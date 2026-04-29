@@ -217,6 +217,8 @@ export interface DecepticonSessionsTable {
   opplan_object_key: string;
   opplan_sha256: string;
   opplan_size_bytes: string;
+  /** Sprint 13 — LangGraph thread_id from RealDecepticonAdapter. NULL for fake sessions. */
+  langgraph_thread_id: string | null;
   started_at: DbDefault<Date>;
   completed_at: Date | null;
   created_at: DbDefault<Date>;

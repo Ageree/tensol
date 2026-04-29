@@ -32,5 +32,6 @@ export type { FixtureDefinition, FixtureLoader, FsFixtureLoaderDeps } from './fi
 export { FakeDecepticonAdapter } from './fake.ts';
 export type { FakeAdapterDeps } from './fake.ts';
 export { RealDecepticonAdapter } from './real.ts';
+export type { DecepticonClient, StreamChunk } from './real.ts';
 export { resolveAdapterKind, selectAdapter } from './select.ts';
 export type { SelectAdapterDeps } from './select.ts';
