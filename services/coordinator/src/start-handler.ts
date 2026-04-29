@@ -11,6 +11,7 @@
 //   5. Allow → publish per-target recon.browser.placeholder child jobs.
 //   6. Return ack/nack.
 
+import { isIP } from 'node:net';
 import { emitAudit } from '@cyberstrike/audit';
 import type { ScopeActionInput } from '@cyberstrike/contracts';
 import type { Database } from '@cyberstrike/db';
@@ -126,13 +127,16 @@ const targetToActionInput = (target: AssessmentTargetRow): ScopeActionInput => {
   return { kind: 'http_request', url: `https://${value}`, method: 'GET' };
 };
 
-const targetUrlForChild = (target: AssessmentTargetRow): string => {
+/** Exported for testing (P2 IPv6 bracket fix). */
+export const targetUrlForChild = (target: AssessmentTargetRow): string => {
   if (target.kind === 'url') return target.value;
-  // B6 (Sprint 13): bare IPs are not valid URLs; wrap as http://<ip>/ so the
-  // recon.browser payload passes zod's z.string().url() validation. IP-kind
-  // targets go through the network/recon path, not full browser crawl, but
-  // the envelope schema still requires a URL-shaped string.
-  if (target.kind === 'ip') return `http://${target.value}/`;
+  // B6 (Sprint 13 codex P2): bare IPs are not valid URLs; wrap as http://<ip>/.
+  // IPv6 literals need brackets: http://[2001:db8::1]/  — isIP() returns 6 for IPv6.
+  if (target.kind === 'ip') {
+    const version = isIP(target.value);
+    if (version === 6) return `http://[${target.value}]/`;
+    return `http://${target.value}/`;
+  }
   return `https://${target.value}`;
 };
 

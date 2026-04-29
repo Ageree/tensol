@@ -36,7 +36,7 @@ const baseEnvelope = {
 };
 
 describe('contracts :: AuditAction (A3)', () => {
-  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1) + Sprint 7 (1) + Sprint 8 decepticon (4) + Sprint 9 browser (5) + Sprint 10 validator (6) + Sprint 11 finding status (1)', () => {
+  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1) + Sprint 7 (1) + Sprint 8 decepticon (4) + Sprint 9 browser (5) + Sprint 10 validator (6) + Sprint 11 finding status (1) + Sprint 13 codex P1-A candidate scope gate (1)', () => {
     const expected = [
       'auth.register',
       'auth.login.password',
@@ -93,10 +93,12 @@ describe('contracts :: AuditAction (A3)', () => {
       'finding.created',
       // Sprint 11 — finding status workflow.
       'finding.status_changed',
+      // Sprint 13 codex P1-A — per-candidate scope gate deny event.
+      'decepticon.candidate.denied',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // Sprint 11 cardinality: 44 → 45 (+finding.status_changed).
-    expect(AUDIT_ACTIONS.length).toBe(45);
+    // Sprint 13 codex P1-A cardinality: 45 → 46 (+decepticon.candidate.denied).
+    expect(AUDIT_ACTIONS.length).toBe(46);
   });
 
   test('zod rejects unknown action', () => {

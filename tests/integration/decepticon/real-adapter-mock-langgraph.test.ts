@@ -277,6 +277,158 @@ describe.skipIf(!hasDatabaseUrl())(
       rmSync(storageDir, { recursive: true, force: true });
     });
 
+    test('A-13-Scope: out-of-scope candidate is denied — 0 candidate_findings, 0 validate jobs, 1 denied audit', async () => {
+      await resetAuthState(fx.db);
+      tenantId = uniqUuid();
+      await fx.db
+        .insertInto('tenants')
+        .values({ id: tenantId, slug: `t-${tenantId.slice(0, 8)}`, name: 't' })
+        .execute();
+
+      const userId = uniqUuid();
+      await fx.db
+        .insertInto('users')
+        .values({
+          id: userId,
+          tenant_id: tenantId,
+          email: `u-${userId.slice(0, 8)}@example.com`,
+          display_name: `u-${userId.slice(0, 8)}`,
+          status: 'active',
+          role: 'security_lead',
+          password_hash: 'x',
+        })
+        .execute();
+
+      const projectId = await seedProject(fx, { tenantId, name: 'P-scope-deny' });
+      const targetId = await seedTarget(fx, {
+        tenantId,
+        projectId,
+        kind: 'url',
+        value: 'https://example.com/',
+        ownershipStatus: 'verified',
+      });
+      const assessmentId = await seedAssessment(fx, {
+        tenantId,
+        projectId,
+        createdBy: userId,
+        state: 'running',
+        targetIds: [targetId],
+        // Scope only allows example.com — attacker.example must be denied.
+        scopeRules: allowExampleComScopeRules,
+      });
+
+      // Adapter emits one candidate with an out-of-scope URL.
+      // The attacker.example domain is NOT in scope, so decide() should deny it.
+      const outOfScopeChunks: StreamChunk[] = [
+        { event: 'metadata', data: { run_id: 'run-s13-scope-deny' } },
+        {
+          event: 'custom',
+          data: {
+            type: 'subagent_tool_result',
+            agent: 'detector',
+            tool: 'report_finding',
+            content: JSON.stringify({
+              type: 'xss_reflected',
+              severity: 'high',
+              affectedUrl: 'https://attacker.example/',
+              reproduction: { method: 'GET', payload: '<script>alert(1)</script>' },
+            }),
+          },
+        },
+        { event: 'end', data: {} },
+      ];
+      const mockClient = buildMockClient(outOfScopeChunks, 'mock-thread-scope-deny');
+      const adapter = new RealDecepticonAdapter({ clientFactory: () => mockClient });
+      const { storage, baseDir: storageDir } = buildLocalObjectStorage();
+      // scopeDeps is pre-bound in the runner via createDecepticonRunner so
+      // startDecepticonSession calls decide() on each candidate's affectedUrl.
+      // attacker.example resolves to [] (no DNS entry) → dnsResolution=failed
+      // → denied (fail-closed per scope-engine codex iter-4 P1).
+      const runner = createDecepticonRunner(adapter, {
+        db: fx.db,
+        objectStorage: storage,
+        queueAdapter,
+        scopeDeps: stubScopeDeps,
+      });
+
+      const env: JobEnvelope = {
+        jobId: uniqUuid(),
+        tenantId,
+        projectId,
+        assessmentId,
+        kind: 'assessment.start',
+        idempotencyKey: 'assessment.start:real-s13-scope-deny',
+        createdAt: new Date().toISOString(),
+        attempt: 0,
+        maxAttempts: 3,
+        traceId: '0123456789abcdef0123456789abcdef',
+        payload: { assessmentId, targetIds: [targetId] },
+      };
+      await queueAdapter.publish(env);
+
+      const outcome = await handleAssessmentStart(
+        {
+          db: fx.db,
+          adapter: queueAdapter,
+          scopeDeps: stubScopeDeps,
+          buildScope: (id) => buildScopeForAssessment(fx.db, id),
+          decepticonRunner: runner,
+        },
+        env,
+      );
+      // Session completes even though the candidate was denied.
+      expect(outcome.kind).toBe('ack');
+
+      // A-13-Scope P1-A: ZERO candidate_findings rows for out-of-scope URL.
+      const candidates = await fx.db
+        .selectFrom('candidate_findings')
+        .selectAll()
+        .where('tenant_id', '=', tenantId)
+        .where('assessment_id', '=', assessmentId)
+        .execute();
+      expect(candidates.length).toBe(0);
+
+      // A-13-Scope P1-A: ZERO validate.finding jobs published.
+      const validateJobs = await fx.db
+        .selectFrom('jobs')
+        .selectAll()
+        .where('tenant_id', '=', tenantId)
+        .where('assessment_id', '=', assessmentId)
+        .where('kind', '=', 'validate.finding')
+        .execute();
+      expect(validateJobs.length).toBe(0);
+
+      // A-13-Scope P1-A: ZERO decepticon.findings jobs published for denied candidate.
+      const decepticonJobs = await fx.db
+        .selectFrom('jobs')
+        .selectAll()
+        .where('tenant_id', '=', tenantId)
+        .where('assessment_id', '=', assessmentId)
+        .where('kind', '=', 'decepticon.findings')
+        .execute();
+      expect(decepticonJobs.length).toBe(0);
+
+      // A-13-Scope P1-A: ONE decepticon.candidate.denied audit event.
+      const deniedAuditRows = await fx.db
+        .selectFrom('audit_events')
+        .selectAll()
+        .where('tenant_id', '=', tenantId)
+        .where('assessment_id', '=', assessmentId)
+        .where('action', '=', 'decepticon.candidate.denied')
+        .execute();
+      expect(deniedAuditRows.length).toBe(1);
+
+      // Verify the denied audit metadata contains the out-of-scope URL.
+      const deniedRow = deniedAuditRows[0];
+      if (!deniedRow) throw new Error('expected denied audit row');
+      // after_state = { outcome: 'denied', reason: 'scope_deny', affectedUrl, ... }
+      const afterState = deniedRow.after_state as Record<string, unknown>;
+      expect(afterState.affectedUrl).toBe('https://attacker.example/');
+
+      rmSync(queueDir, { recursive: true, force: true });
+      rmSync(storageDir, { recursive: true, force: true });
+    });
+
     test('A-13-Flow: crash path — failed session + no candidates + audit', async () => {
       await resetAuthState(fx.db);
       tenantId = uniqUuid();

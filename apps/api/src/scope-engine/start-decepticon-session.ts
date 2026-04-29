@@ -43,7 +43,12 @@ import {
 } from '@cyberstrike/decepticon-adapter';
 import type { ObjectStorage } from '@cyberstrike/object-storage';
 import type { JobEnvelope, QueueAdapter } from '@cyberstrike/queue';
-import type { EffectiveScope, NormalizedRule } from '@cyberstrike/scope-engine';
+import {
+  type EffectiveScope,
+  type EngineDeps,
+  type NormalizedRule,
+  decide,
+} from '@cyberstrike/scope-engine';
 import type { Kysely } from 'kysely';
 import { sql } from 'kysely';
 
@@ -54,6 +59,13 @@ export interface StartDecepticonDeps {
   readonly adapter: DecepticonAdapter;
   readonly objectStorage: ObjectStorage;
   readonly queueAdapter: QueueAdapter;
+  /**
+   * Sprint 13 codex P1-A — scope engine deps (DNS, clock, rate-limit) for the
+   * per-candidate scope gate. When provided, every candidate's affectedUrl is
+   * decided before persistence. When absent (legacy direct callers not using
+   * createDecepticonRunner), the gate is skipped for backward-compat.
+   */
+  readonly scopeDeps?: EngineDeps;
   /** Test seam — defaults to crypto.randomUUID(). */
   readonly randomUUID?: () => string;
   /** Test seam — defaults to () => new Date().toISOString(). */
@@ -326,9 +338,59 @@ export const startDecepticonSession = async (
     };
   }
 
-  // 8. Drain candidate stream → persist + republish + audit.
+  // 8. Drain candidate stream → scope gate → persist + republish + audit.
+  // P1-A: scope gate active when scopeDeps is available (forwarded by the
+  // coordinator from its CoordinatorScopeDeps at call time, or pre-bound in
+  // deps). When absent (legacy direct callers), the gate is skipped so
+  // backward-compat is preserved — but real production paths MUST supply deps.
+  const effectiveScopeDeps: EngineDeps | null = deps.scopeDeps ?? null;
   const candidateFindingIds: string[] = [];
   for await (const candidate of deps.adapter.streamCandidates(sessionHandle.sessionId)) {
+    // P1-A (codex fix): per-candidate scope gate. Real and compromised adapters
+    // can emit any affectedUrl; we must decide() BEFORE persisting or publishing.
+    if (effectiveScopeDeps !== null) {
+      const scopeDecision = await decide(
+        input.scope,
+        // Use method:'GET' as the canonical scope-gate action for URL reachability
+        // (mirrors targetToActionInput in start-handler). The candidate URL need
+        // only be within the allowed domain/IP scope; the actual exploit method
+        // is irrelevant to the scope boundary check.
+        { kind: 'http_request', url: candidate.affectedUrl, method: 'GET' },
+        effectiveScopeDeps,
+      );
+      if (!scopeDecision.allowed) {
+        // Drop candidate silently — emit one denied audit row for observability.
+        // metadata is spread into after_state (a Json object) by emitAudit;
+        // Kysely handles JSONB serialization natively — no pre-stringify needed.
+        // ruleIds is an array; emitAudit spreads it into the after_state object.
+        await emitAudit(
+          { db: deps.db },
+          {
+            tenantId: input.tenantId,
+            action: 'decepticon.candidate.denied',
+            outcome: 'denied',
+            actorType: 'service',
+            actorId: COORDINATOR_ACTOR_ID,
+            actorName: 'coordinator',
+            resourceType: 'candidate_finding',
+            resourceId: null,
+            ...(input.projectId ? { projectId: input.projectId } : {}),
+            assessmentId: input.assessmentId,
+            ip: 'coordinator',
+            userAgent: null,
+            traceId: input.traceId,
+            metadata: {
+              reason: 'scope_deny',
+              affectedUrl: candidate.affectedUrl,
+              ruleIds: [...scopeDecision.matchedDenyRuleIds],
+              sessionId: sessionHandle.sessionId,
+            },
+          },
+        );
+        continue;
+      }
+    }
+
     const candidateFindingId = randomUUID();
     candidateFindingIds.push(candidateFindingId);
 

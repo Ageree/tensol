@@ -91,6 +91,9 @@ export const AUDIT_ACTIONS = [
   'finding.created',
   // Sprint 11 — finding status workflow.
   'finding.status_changed',
+  // Sprint 13 codex P1-A — per-candidate scope gate: out-of-scope candidates
+  // are dropped (no DB persist, no queue publish) and emit this audit event.
+  'decepticon.candidate.denied',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

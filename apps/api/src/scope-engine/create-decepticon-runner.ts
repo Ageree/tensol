@@ -13,6 +13,7 @@ import type { Database } from '@cyberstrike/db';
 import type { DecepticonAdapter } from '@cyberstrike/decepticon-adapter';
 import type { ObjectStorage } from '@cyberstrike/object-storage';
 import type { QueueAdapter } from '@cyberstrike/queue';
+import type { EngineDeps } from '@cyberstrike/scope-engine';
 import type { Kysely } from 'kysely';
 import type { StartDecepticonInput } from './start-decepticon-session.ts';
 import { startDecepticonSession } from './start-decepticon-session.ts';
@@ -21,6 +22,13 @@ export interface DecepticonRunnerDeps {
   readonly db: Kysely<Database>;
   readonly objectStorage: ObjectStorage;
   readonly queueAdapter: QueueAdapter;
+  /**
+   * Sprint 13 codex P1-A — scope engine deps for per-candidate scope gate.
+   * Provide real DNS/clock/rateLimit so decide() runs on every candidate's
+   * affectedUrl before persistence. Omit only in legacy tests that call
+   * startDecepticonSession directly (not through createDecepticonRunner).
+   */
+  readonly scopeDeps?: EngineDeps;
   readonly randomUUID?: () => string;
   readonly clockIso?: () => string;
 }
@@ -41,6 +49,9 @@ export const createDecepticonRunner = (
         adapter,
         objectStorage: deps.objectStorage,
         queueAdapter: deps.queueAdapter,
+        // P1-A: forward scopeDeps so startDecepticonSession can gate each
+        // candidate's affectedUrl through decide() with real DNS/clock/rateLimit.
+        ...(deps.scopeDeps ? { scopeDeps: deps.scopeDeps } : {}),
         ...(deps.randomUUID ? { randomUUID: deps.randomUUID } : {}),
         ...(deps.clockIso ? { clockIso: deps.clockIso } : {}),
       },
