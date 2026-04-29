@@ -67,6 +67,43 @@ Tear down with:
 docker compose -f infra/docker/docker-compose.local.yml down -v
 ```
 
+## Decepticon engine (real adapter)
+
+Sprint 12 wires `RealDecepticonAdapter` to the upstream
+[PurpleAILAB/Decepticon](https://github.com/PurpleAILAB/Decepticon)
+LangGraph platform. Decepticon ships its own Docker Compose stack with
+two isolated networks (management + sandbox) — we only talk to its
+LangGraph HTTP endpoint at `localhost:2024`.
+
+The repo lives under `external/decepticon/` (gitignored, cloned via
+`git clone`):
+
+```sh
+mkdir -p external && cd external
+git clone --depth 1 https://github.com/PurpleAILAB/Decepticon.git decepticon
+```
+
+Run it (separate from cyberstrike-hybrid services):
+
+```sh
+cd external/decepticon
+# follow upstream setup: install Docker + run the install script
+curl -fsSL https://decepticon.red/install | bash
+decepticon onboard           # provider, API key, model profile
+decepticon                   # starts LangGraph :2024 + web :3000
+```
+
+Switch the platform to the real adapter via env:
+
+```sh
+export DECEPTICON_ADAPTER=real
+export DECEPTICON_API_URL=http://localhost:2024
+export DECEPTICON_ASSISTANT_ID=decepticon  # or 'soundwave' for planning interview
+```
+
+The `FakeDecepticonAdapter` (Sprint 8) remains the default and is used
+for CI / unit tests since CI has no Docker runtime for the real engine.
+
 ## Database
 
 The CyberStrike data layer (`packages/db`) uses Kysely + node-postgres + Kysely's

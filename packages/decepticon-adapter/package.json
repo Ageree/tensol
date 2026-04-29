@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@cyberstrike/contracts": "workspace:*",
+    "@langchain/langgraph-sdk": "1.8.10",
     "zod": "^3.23.8"
   }
 }

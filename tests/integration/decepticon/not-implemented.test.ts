@@ -1,42 +1,34 @@
-// Sprint 8 §A-FD-NotImpl — RealDecepticonAdapter must reject at runtime.
+// Sprint 12 — RealDecepticonAdapter is now wired (no longer NotImplemented).
+// This file kept for naming continuity with Sprint 8 contract A-FD-NotImpl
+// but the assertions now verify the real adapter accepts a clientFactory
+// and rejects only when the LangGraph endpoint is unreachable.
+//
+// CI does NOT run the upstream Decepticon engine — full unit-level
+// behaviour for the real adapter lives in
+// `packages/decepticon-adapter/src/real.test.ts`.
 
 import { describe, expect, test } from 'bun:test';
-import { NotImplementedError, RealDecepticonAdapter } from '@cyberstrike/decepticon-adapter';
+import { RealDecepticonAdapter } from '@cyberstrike/decepticon-adapter';
 
-describe('decepticon :: RealDecepticonAdapter NotImplemented (A-FD-NotImpl)', () => {
-  test('start rejects with typed NotImplementedError sentinel', async () => {
+describe('decepticon :: RealDecepticonAdapter (Sprint 12 wired)', () => {
+  test('constructible with no deps and exposes the DecepticonAdapter surface', () => {
     const adapter = new RealDecepticonAdapter();
-    let caught: unknown = null;
-    try {
-      await adapter.start({
-        tenantId: '11111111-1111-1111-1111-111111111111',
-        opplan: {
-          assessmentId: '22222222-2222-2222-2222-222222222222',
-          targets: ['x'],
-          authorizedScope: [],
-          exclusions: [],
-          testingWindow: { start: null, end: null },
-          allowedTools: [],
-          unavailableTools: [],
-          engagementProfile: 'recon-only',
-          foothold: false,
-          postExploit: false,
-          c2: false,
-          ad: false,
-        },
-      });
-    } catch (e) {
-      caught = e;
-    }
-    expect(caught).toBeInstanceOf(NotImplementedError);
-    expect((caught as NotImplementedError).name).toBe('NotImplementedError');
-    expect((caught as NotImplementedError).method).toBe('start');
+    expect(typeof adapter.start).toBe('function');
+    expect(typeof adapter.streamStatus).toBe('function');
+    expect(typeof adapter.streamCandidates).toBe('function');
+    expect(typeof adapter.pause).toBe('function');
+    expect(typeof adapter.resume).toBe('function');
+    expect(typeof adapter.stop).toBe('function');
+    expect(typeof adapter.exportArtifacts).toBe('function');
   });
 
-  test('streamCandidates throws NotImplementedError synchronously', () => {
+  test('streamStatus on unknown sessionId throws', () => {
     const adapter = new RealDecepticonAdapter();
-    expect(() => adapter.streamCandidates('00000000-0000-0000-0000-000000000000')).toThrow(
-      NotImplementedError,
-    );
+    expect(() => adapter.streamStatus('nonexistent')).toThrow(/Unknown session/);
+  });
+
+  test('streamCandidates on unknown sessionId throws', () => {
+    const adapter = new RealDecepticonAdapter();
+    expect(() => adapter.streamCandidates('nonexistent')).toThrow(/Unknown session/);
   });
 });
