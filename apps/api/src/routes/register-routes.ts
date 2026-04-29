@@ -36,6 +36,12 @@ import { handleMfaVerify } from './auth/mfa-verify.ts';
 import { handlePasswordResetConfirm } from './auth/password-reset-confirm.ts';
 import { handlePasswordResetRequest } from './auth/password-reset-request.ts';
 import { handleRegister } from './auth/register.ts';
+import { handleGetEvidence, handleListFindingEvidence } from './evidence/evidence.ts';
+import {
+  handleGetFinding,
+  handleListAssessmentFindings,
+  handlePatchFindingStatus,
+} from './findings/findings.ts';
 import {
   handleArchiveProject,
   handleCreateProject,
@@ -153,4 +159,17 @@ export const registerRoutes = (app: Hono<SessionEnv>, deps: RouteDeps): void => 
 
   // Sprint 7 §5.5 A-Q-Api-3 — assessment jobs listing.
   app.get('/api/v1/assessments/:id/jobs', tenantGuard(), (c) => handleListAssessmentJobs(deps, c));
+
+  // Sprint 11 — findings.
+  app.get('/api/v1/assessments/:id/findings', tenantGuard(), (c) =>
+    handleListAssessmentFindings(deps, c),
+  );
+  app.get('/api/v1/findings/:id', tenantGuard(), (c) => handleGetFinding(deps, c));
+  app.patch('/api/v1/findings/:id/status', tenantGuard(), (c) => handlePatchFindingStatus(deps, c));
+
+  // Sprint 11 — evidence.
+  app.get('/api/v1/findings/:id/evidence', tenantGuard(), (c) =>
+    handleListFindingEvidence(deps, c),
+  );
+  app.get('/api/v1/evidence/:id', tenantGuard(), (c) => handleGetEvidence(deps, c));
 };

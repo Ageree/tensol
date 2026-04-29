@@ -42,10 +42,13 @@ describe('findings repo :: DirectInsertForbidden surface', () => {
     const exported = Object.keys(findingsModule).sort();
     expect(exported).toEqual(
       [
+        'FINDING_STATUSES',
         'ValidationStatusInvariantError',
         'findFindingByCandidateId',
+        'getFinding',
         'insertConfirmedFinding',
         'listFindingsByAssessment',
+        'updateFindingStatus',
       ].sort(),
     );
     // Negative assertions — these must NOT exist on the module surface.

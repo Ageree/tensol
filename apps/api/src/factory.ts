@@ -13,6 +13,7 @@
 import { denyAudit } from '@cyberstrike/audit';
 import { type PasswordHasher, RbacDenyError, type TotpVerifier } from '@cyberstrike/authz';
 import { type Database, type Repositories, buildRepositories } from '@cyberstrike/db';
+import type { ObjectStorage } from '@cyberstrike/object-storage';
 import { Hono } from 'hono';
 import type { Kysely } from 'kysely';
 import type { AuthApiConfig } from './config.ts';
@@ -37,6 +38,7 @@ export interface AppOptions {
   readonly totp: TotpVerifier;
   readonly preAuthStore: PreAuthStore;
   readonly rateLimiter: RateLimiter;
+  readonly objectStorage?: ObjectStorage;
 }
 
 const newTraceId = (): string => {
@@ -152,7 +154,7 @@ export const createApp = (options: AppOptions) => {
     c.json({ status: 'ok', appEnv: options.config.appEnv, name: 'apps/api' }),
   );
 
-  registerRoutes(app, {
+  const routeDeps = {
     config: options.config,
     db: options.db,
     repos,
@@ -161,7 +163,9 @@ export const createApp = (options: AppOptions) => {
     preAuthStore: options.preAuthStore,
     rateLimiter: options.rateLimiter,
     sessionRepo,
-  });
+    ...(options.objectStorage !== undefined ? { objectStorage: options.objectStorage } : {}),
+  };
+  registerRoutes(app, routeDeps);
 
   return { app, sessionRepo };
 };

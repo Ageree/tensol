@@ -42,6 +42,41 @@ export const insertFindingEvidence = async (
   return { id: String(row.id) };
 };
 
+export interface GetFindingEvidenceInput {
+  readonly db: Kysely<Database>;
+  readonly tenantId: string;
+  readonly evidenceId: string;
+}
+
+export interface FindingEvidenceRow {
+  readonly id: string;
+  readonly findingId: string;
+  readonly kind: string;
+  readonly objectStorageKey: string;
+  readonly sha256: string;
+  readonly sizeBytes: number;
+}
+
+export const getFindingEvidence = async (
+  input: GetFindingEvidenceInput,
+): Promise<FindingEvidenceRow | null> => {
+  const row = await input.db
+    .selectFrom('finding_evidence')
+    .select(['id', 'finding_id', 'kind', 'object_storage_key', 'sha256', 'size_bytes'])
+    .where('id', '=', input.evidenceId)
+    .where('tenant_id', '=', input.tenantId)
+    .executeTakeFirst();
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    findingId: String(row.finding_id),
+    kind: String(row.kind),
+    objectStorageKey: String(row.object_storage_key),
+    sha256: String(row.sha256),
+    sizeBytes: Number(row.size_bytes),
+  };
+};
+
 export interface ListFindingEvidenceInput {
   readonly db: Kysely<Database>;
   readonly tenantId: string;

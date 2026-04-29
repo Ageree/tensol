@@ -12,6 +12,7 @@
 
 import type { PasswordHasher, TotpVerifier } from '@cyberstrike/authz';
 import type { Database, Repositories } from '@cyberstrike/db';
+import type { ObjectStorage } from '@cyberstrike/object-storage';
 import type { Context } from 'hono';
 import type { Kysely } from 'kysely';
 import type { AuthApiConfig } from '../config.ts';
@@ -32,6 +33,7 @@ export interface RouteDeps {
   readonly rateLimiter: RateLimiter;
   readonly sessionRepo: SessionRepo;
   readonly nowMs?: () => number;
+  readonly objectStorage?: ObjectStorage;
 }
 
 /** Canonical 401 body — Sprint 3 C22. */

@@ -114,15 +114,111 @@ export interface ListFindingsByAssessmentInput {
   readonly assessmentId: string;
 }
 
+export interface FindingRow {
+  readonly id: string;
+  readonly assessmentId: string;
+  readonly type: string;
+  readonly severity: string;
+  readonly confidence: string;
+  readonly status: string;
+  readonly affectedUrl: string;
+  readonly reproduction: unknown;
+  readonly validatorLog: unknown;
+  readonly validatedAt: Date;
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
+}
+
 export const listFindingsByAssessment = async (
   input: ListFindingsByAssessmentInput,
-): Promise<ReadonlyArray<{ readonly id: string; readonly status: string }>> => {
+): Promise<ReadonlyArray<FindingRow>> => {
   const rows = await input.db
     .selectFrom('findings')
-    .select(['id', 'status'])
+    .selectAll()
     .where('tenant_id', '=', input.tenantId)
     .where('assessment_id', '=', input.assessmentId)
     .orderBy('created_at', 'asc')
     .execute();
-  return rows.map((r) => ({ id: String(r.id), status: String(r.status) }));
+  return rows.map((r) => ({
+    id: String(r.id),
+    assessmentId: String(r.assessment_id),
+    type: String(r.type),
+    severity: String(r.severity),
+    confidence: String(r.confidence),
+    status: String(r.status),
+    affectedUrl: String(r.affected_url),
+    reproduction: r.reproduction,
+    validatorLog: r.validator_log,
+    validatedAt: r.validated_at,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+};
+
+export interface GetFindingInput {
+  readonly db: Kysely<Database>;
+  readonly tenantId: string;
+  readonly findingId: string;
+}
+
+export const getFinding = async (input: GetFindingInput): Promise<FindingRow | null> => {
+  const row = await input.db
+    .selectFrom('findings')
+    .selectAll()
+    .where('id', '=', input.findingId)
+    .where('tenant_id', '=', input.tenantId)
+    .executeTakeFirst();
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    assessmentId: String(row.assessment_id),
+    type: String(row.type),
+    severity: String(row.severity),
+    confidence: String(row.confidence),
+    status: String(row.status),
+    affectedUrl: String(row.affected_url),
+    reproduction: row.reproduction,
+    validatorLog: row.validator_log,
+    validatedAt: row.validated_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
+
+export type FindingStatus =
+  | 'open'
+  | 'triaged'
+  | 'accepted_risk'
+  | 'false_positive'
+  | 'fixed'
+  | 'retested'
+  | 'closed';
+
+export const FINDING_STATUSES: ReadonlyArray<FindingStatus> = [
+  'open',
+  'triaged',
+  'accepted_risk',
+  'false_positive',
+  'fixed',
+  'retested',
+  'closed',
+];
+
+export interface UpdateFindingStatusInput {
+  readonly db: Kysely<Database>;
+  readonly tenantId: string;
+  readonly findingId: string;
+  readonly status: FindingStatus;
+}
+
+export const updateFindingStatus = async (
+  input: UpdateFindingStatusInput,
+): Promise<{ readonly updated: boolean }> => {
+  const result = await input.db
+    .updateTable('findings')
+    .set({ status: input.status })
+    .where('id', '=', input.findingId)
+    .where('tenant_id', '=', input.tenantId)
+    .executeTakeFirst();
+  return { updated: Number(result.numUpdatedRows) > 0 };
 };

@@ -89,6 +89,8 @@ export const AUDIT_ACTIONS = [
   'validation.inconclusive',
   'validation.out_of_scope',
   'finding.created',
+  // Sprint 11 — finding status workflow.
+  'finding.status_changed',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
