@@ -1,13 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { listAssessments } from '../api/assessments.ts';
 import { getProject } from '../api/projects.ts';
+import { listTargets } from '../api/targets.ts';
 
 interface Props {
   projectId: string;
   onAssessmentClick: (id: string) => void;
+  onCredentialsClick?: (targetId: string) => void;
 }
 
-export const ProjectDetailPage = ({ projectId, onAssessmentClick }: Props) => {
+export const ProjectDetailPage = ({ projectId, onAssessmentClick, onCredentialsClick }: Props) => {
   const { data: projectData, isLoading: loadingProject } = useQuery({
     queryKey: ['project', projectId],
     queryFn: () => getProject(projectId),
@@ -18,11 +20,17 @@ export const ProjectDetailPage = ({ projectId, onAssessmentClick }: Props) => {
     queryFn: () => listAssessments(projectId),
   });
 
+  const { data: targetsData } = useQuery({
+    queryKey: ['targets', projectId],
+    queryFn: () => listTargets(projectId),
+  });
+
   if (loadingProject || loadingAssessments)
     return <p data-testid="project-detail-loading">Loading...</p>;
 
   const project = projectData?.project;
   const assessments = assessmentsData?.assessments ?? [];
+  const targets = targetsData?.targets ?? [];
 
   return (
     <div data-testid="project-detail-page">
@@ -46,6 +54,27 @@ export const ProjectDetailPage = ({ projectId, onAssessmentClick }: Props) => {
             </li>
           ))}
         </ul>
+      )}
+      {onCredentialsClick && targets.length > 0 && (
+        <>
+          <h2>Targets</h2>
+          <ul data-testid="target-list">
+            {targets.map((t) => (
+              <li key={t.id} data-testid={`target-item-${t.id}`}>
+                <span>
+                  {t.kind}: {t.value}
+                </span>{' '}
+                <button
+                  type="button"
+                  data-testid={`credentials-btn-${t.id}`}
+                  onClick={() => onCredentialsClick(t.id)}
+                >
+                  Credentials
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );

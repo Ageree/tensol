@@ -5,9 +5,10 @@ import type { Finding } from '../api/findings.ts';
 interface Props {
   assessmentId: string;
   onFindingClick: (id: string) => void;
+  onTimelineClick?: (id: string) => void;
 }
 
-export const AssessmentPage = ({ assessmentId, onFindingClick }: Props) => {
+export const AssessmentPage = ({ assessmentId, onFindingClick, onTimelineClick }: Props) => {
   const { data: assessmentData, isLoading: loadingAssessment } = useQuery({
     queryKey: ['assessment', assessmentId],
     queryFn: () => getAssessment(assessmentId),
@@ -34,6 +35,15 @@ export const AssessmentPage = ({ assessmentId, onFindingClick }: Props) => {
   return (
     <div data-testid="assessment-page">
       <h1>Assessment</h1>
+      {onTimelineClick && (
+        <button
+          type="button"
+          data-testid="view-timeline-btn"
+          onClick={() => onTimelineClick(assessmentId)}
+        >
+          View Timeline
+        </button>
+      )}
       <dl>
         <dt>State</dt>
         <dd data-testid="assessment-state">{assessment?.state}</dd>

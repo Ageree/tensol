@@ -52,12 +52,14 @@ export const App = () => {
         <ProjectDetailPage
           projectId={route.id}
           onAssessmentClick={(id) => nav({ name: 'assessment', id })}
+          onCredentialsClick={(id) => nav({ name: 'target-credentials', id })}
         />
       )}
       {route.name === 'assessment' && (
         <AssessmentPage
           assessmentId={route.id}
           onFindingClick={(id) => nav({ name: 'finding', id })}
+          onTimelineClick={(id) => nav({ name: 'assessment-timeline', id })}
         />
       )}
       {route.name === 'assessment-timeline' && (

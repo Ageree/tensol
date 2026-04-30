@@ -1,22 +1,26 @@
 import { useQuery } from '@tanstack/react-query';
+import { ApiError } from '../api/client.ts';
 import { type CredentialListItem, listTargetCredentials } from '../api/credentials.ts';
 
 interface Props {
   targetId: string;
-  canReadCredentials?: boolean;
 }
 
-export const TargetCredentialsPage = ({ targetId, canReadCredentials = true }: Props) => {
-  const { data, isLoading } = useQuery({
+export const TargetCredentialsPage = ({ targetId }: Props) => {
+  const { data, isLoading, error } = useQuery({
     queryKey: ['target-credentials', targetId],
     queryFn: () => listTargetCredentials(targetId),
-    enabled: canReadCredentials,
+    retry: false,
   });
 
-  if (!canReadCredentials) {
+  if (error instanceof ApiError && error.status === 403) {
     return (
       <p data-testid="credentials-forbidden">You do not have permission to view credentials.</p>
     );
+  }
+
+  if (error) {
+    return <p data-testid="credentials-error">Failed to load credentials.</p>;
   }
 
   if (isLoading) return <p data-testid="credentials-loading">Loading credentials…</p>;
