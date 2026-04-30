@@ -214,11 +214,11 @@ export const handleBrowserAuth = async (
       traceId,
     });
 
-    // Access the underlying Playwright context for storageState capture.
+    // Access the underlying Playwright page + context for storageState capture.
     // biome-ignore lint/suspicious/noExplicitAny: internal session map access for storageState.
     const internalSession = (driver as any).sessions?.get(session.sessionId);
     const page = internalSession?.page;
-    const context = internalSession?.context;
+    const context = driver.getSessionContext(session.sessionId);
 
     if (!page || !context) {
       throw new Error('browser_session_missing_page_or_context');
