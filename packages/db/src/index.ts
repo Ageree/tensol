@@ -99,6 +99,23 @@ export {
   type InsertFindingEvidenceResult,
   type ListFindingEvidenceInput,
 } from './repos/finding-evidence.ts';
+export {
+  findReportById,
+  findReportByIdCrossTenant,
+  findReportByIdempotencyKey,
+  insertReport,
+  markReportBuilding,
+  markReportFailed,
+  markReportReady,
+  type FindReportByIdInput,
+  type FindReportByIdCrossTenantInput,
+  type FindReportByIdempotencyKeyInput,
+  type InsertReportInput,
+  type MarkReportBuildingInput,
+  type MarkReportFailedInput,
+  type MarkReportReadyInput,
+  type ReportRow,
+} from './repos/reports.ts';
 
 export type {
   AssessmentApprovalsTable,

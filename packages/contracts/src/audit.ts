@@ -94,6 +94,13 @@ export const AUDIT_ACTIONS = [
   // Sprint 13 codex P1-A — per-candidate scope gate: out-of-scope candidates
   // are dropped (no DB persist, no queue publish) and emit this audit event.
   'decepticon.candidate.denied',
+  // Sprint 14 — report builder lifecycle.
+  'report.build.requested',
+  'report.build.started',
+  'report.build.completed',
+  'report.build.failed',
+  'report.finding.excluded_oos',
+  'report.downloaded',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

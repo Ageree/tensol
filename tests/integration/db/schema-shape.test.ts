@@ -44,6 +44,7 @@ const APPEND_ONLY = [
   'finding_evidence',
   'audit_events',
   'llm_audit_events',
+  'reports', // Sprint 14: delete-deny trigger, status-only UPDATE allowed, no content mutation
 ];
 
 // Tables that intentionally don't carry an `updated_at` column even though

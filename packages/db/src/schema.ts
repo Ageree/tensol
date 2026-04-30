@@ -355,19 +355,29 @@ export interface LlmAuditEventsTable {
   created_at: DbDefault<Date>;
 }
 
-// =============== reports (sprint 12 minimal) ===============
+// =============== reports (sprint 14 — one snapshot row per build) ===============
 
 export interface ReportsTable {
   id: Generated<string>;
   tenant_id: string;
   assessment_id: string;
-  format: string; // 'html'|'json'|'zip'
-  object_storage_key: string;
-  sha256: string;
-  size_bytes: string;
-  status: string; // pending|building|published|failed
+  idempotency_key: string;
+  status: string; // queued|building|ready|failed
+  // HTML artifact (null until status=ready)
+  object_key_html: string | null;
+  sha256_html: string | null;
+  size_bytes_html: string | null; // BIGINT — Kysely returns string
+  // JSON artifact (null until status=ready)
+  object_key_json: string | null;
+  sha256_json: string | null;
+  size_bytes_json: string | null;
+  // ZIP artifact (null until status=ready)
+  object_key_zip: string | null;
+  sha256_zip: string | null;
+  size_bytes_zip: string | null;
+  failure_reason: string | null;
   created_at: DbDefault<Date>;
-  updated_at: DbDefault<Date>;
+  completed_at: Date | null;
 }
 
 // =============== aggregate Database type ===============
@@ -434,6 +444,7 @@ export const APPEND_ONLY_TABLES: ReadonlyArray<keyof Database> = [
   'finding_evidence',
   'audit_events',
   'llm_audit_events',
+  'reports',
 ] as const;
 
 /** Platform-scoped tables (no tenant_id column). */

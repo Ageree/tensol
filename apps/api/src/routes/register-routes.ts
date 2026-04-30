@@ -50,6 +50,7 @@ import {
   handlePatchProject,
   handleProjectSummary,
 } from './projects/projects.ts';
+import { handleBuildReport, handleDownloadReport, handleGetReport } from './reports/reports.ts';
 import type { RouteDeps } from './shared.ts';
 import {
   handleCreateTarget,
@@ -172,4 +173,11 @@ export const registerRoutes = (app: Hono<SessionEnv>, deps: RouteDeps): void => 
     handleListFindingEvidence(deps, c),
   );
   app.get('/api/v1/evidence/:id', tenantGuard(), (c) => handleGetEvidence(deps, c));
+
+  // Sprint 14 — reports.
+  app.post('/api/v1/assessments/:id/reports', tenantGuard(), idem, (c) =>
+    handleBuildReport(deps, c),
+  );
+  app.get('/api/v1/reports/:id', tenantGuard(), (c) => handleGetReport(deps, c));
+  app.get('/api/v1/reports/:id/download', tenantGuard(), (c) => handleDownloadReport(deps, c));
 };
