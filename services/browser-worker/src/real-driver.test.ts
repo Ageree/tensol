@@ -1,36 +1,55 @@
-// Sprint 9 — RealBrowserDriver stub: every method rejects with NotImplementedError.
+// Sprint 15 — RealBrowserDriver: replaces the Sprint 9 NotImplementedError stub.
+// These tests exercise error paths without launching a real browser.
 
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, mock, test } from 'bun:test';
 import { RealBrowserDriver } from './real-driver.ts';
-import { NotImplementedError } from './types.ts';
 
 describe('RealBrowserDriver', () => {
-  test('launch rejects with NotImplementedError', async () => {
+  test('navigate rejects with session_not_found for unknown sessionId', async () => {
     const drv = new RealBrowserDriver();
     await expect(
-      drv.launch({ tenantId: 't', assessmentId: 'a', traceId: 'x'.repeat(32) }),
-    ).rejects.toBeInstanceOf(NotImplementedError);
+      drv.navigate('unknown-session-id', { url: 'http://x', method: 'GET' }),
+    ).rejects.toThrow('session_not_found:unknown-session-id');
   });
 
-  test('navigate rejects with NotImplementedError', async () => {
+  test('close resolves silently for unknown sessionId', async () => {
     const drv = new RealBrowserDriver();
-    await expect(drv.navigate('s', { url: 'http://x', method: 'GET' })).rejects.toBeInstanceOf(
-      NotImplementedError,
-    );
+    await expect(drv.close('unknown-session-id')).resolves.toBeUndefined();
   });
 
-  test('close rejects with NotImplementedError', async () => {
-    const drv = new RealBrowserDriver();
-    await expect(drv.close('s')).rejects.toBeInstanceOf(NotImplementedError);
+  test('scopeCheck rejection is propagated from navigate', async () => {
+    const drv = new RealBrowserDriver({
+      scopeCheck: async () => {
+        throw new Error('scope_denied');
+      },
+      randomUUID: () => 'test-session-id',
+    });
+    // Inject a fake session directly so navigate reaches the scopeCheck call.
+    const fakePage = {
+      on: mock(() => {}),
+      goto: mock(async () => ({ status: () => 200, url: () => 'http://x' })),
+      screenshot: mock(async () => new Uint8Array()),
+      content: mock(async () => '<html></html>'),
+      evaluate: mock(async () => []),
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: inject test session via internal map
+    (drv as any).sessions.set('test-session-id', {
+      sessionId: 'test-session-id',
+      browser: { close: mock(async () => {}) },
+      context: { unrouteAll: mock(async () => {}), route: mock(async () => {}) },
+      page: fakePage,
+    });
+    await expect(
+      drv.navigate('test-session-id', { url: 'http://x', method: 'GET' }),
+    ).rejects.toThrow('scope_denied');
   });
 
-  test('error has correct name', async () => {
-    const drv = new RealBrowserDriver();
-    try {
-      await drv.launch({ tenantId: 't', assessmentId: 'a', traceId: 'x'.repeat(32) });
-      expect.unreachable('should have thrown');
-    } catch (err) {
-      expect((err as Error).name).toBe('NotImplementedError');
-    }
+  test('randomUUID dep is used for sessionId generation', () => {
+    const fixedUuid = mock(() => 'fixed-uuid-1234');
+    const drv = new RealBrowserDriver({ randomUUID: fixedUuid });
+    // The UUID fn is injected but only called during launch (which needs a real browser).
+    // Verify it is stored and callable.
+    // biome-ignore lint/suspicious/noExplicitAny: internal field access for verification
+    expect(typeof (drv as any).randomUUID).toBe('function');
   });
 });

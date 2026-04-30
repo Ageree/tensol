@@ -1,3 +1,4 @@
+export const name = 'packages/browser-auth' as const;
 export { CredentialSchema, type Credential } from './credential-schema.ts';
 export {
   LoginRecipeSchema,

@@ -1,3 +1,4 @@
+export const name = 'packages/browser-driver' as const;
 export { PlaywrightBrowserDriverFacade } from './playwright-facade.ts';
 export type {
   ActInput,
