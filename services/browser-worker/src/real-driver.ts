@@ -306,14 +306,6 @@ export class RealBrowserDriver implements BrowserDriver {
     }
   }
 
-  // Returns the shared BrowserContext for an active session — used by auth-handler
-  // to capture storageState after recipe execution without bypassing SF1 pooling.
-  getSessionContext(sessionId: string): BrowserContext | null {
-    const session = this.sessions.get(sessionId);
-    if (!session) return null;
-    return this.sharedContext;
-  }
-
   private buildHar(entries: ReadonlyArray<{ url: string; status: number }>): string {
     return JSON.stringify({
       log: {
