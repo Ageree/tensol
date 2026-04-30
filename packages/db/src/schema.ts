@@ -380,6 +380,18 @@ export interface ReportsTable {
   completed_at: Date | null;
 }
 
+export interface TargetCredentialsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  target_id: string;
+  recipe_id: string;
+  encrypted_blob: Buffer;
+  iv: Buffer;
+  auth_tag: Buffer;
+  created_by: string;
+  created_at: DbDefault<Date>;
+}
+
 // =============== aggregate Database type ===============
 
 export interface Database {
@@ -407,6 +419,7 @@ export interface Database {
   audit_events: AuditEventsTable;
   llm_audit_events: LlmAuditEventsTable;
   reports: ReportsTable;
+  target_credentials: TargetCredentialsTable;
 }
 
 // Used by tests (B3) to assert every table key is present.
@@ -435,6 +448,7 @@ export const ALL_TABLE_NAMES: ReadonlyArray<keyof Database> = [
   'audit_events',
   'llm_audit_events',
   'reports',
+  'target_credentials',
 ] as const;
 
 export const APPEND_ONLY_TABLES: ReadonlyArray<keyof Database> = [
@@ -445,6 +459,7 @@ export const APPEND_ONLY_TABLES: ReadonlyArray<keyof Database> = [
   'audit_events',
   'llm_audit_events',
   'reports',
+  'target_credentials',
 ] as const;
 
 /** Platform-scoped tables (no tenant_id column). */

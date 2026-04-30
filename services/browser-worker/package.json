@@ -11,10 +11,13 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@cyberstrike/browser-auth": "workspace:*",
     "@cyberstrike/contracts": "workspace:*",
+    "@cyberstrike/db": "workspace:*",
     "@cyberstrike/object-storage": "workspace:*",
     "@cyberstrike/queue": "workspace:*",
     "@cyberstrike/scope-engine": "workspace:*",
+    "playwright": "^1.49.0",
     "zod": "^3.23.8"
   }
 }

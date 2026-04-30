@@ -36,7 +36,7 @@ const baseEnvelope = {
 };
 
 describe('contracts :: AuditAction (A3)', () => {
-  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1) + Sprint 7 (1) + Sprint 8 decepticon (4) + Sprint 9 browser (5) + Sprint 10 validator (6) + Sprint 11 finding status (1) + Sprint 13 codex P1-A candidate scope gate (1) + Sprint 14 report builder (6)', () => {
+  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1) + Sprint 7 (1) + Sprint 8 decepticon (4) + Sprint 9 browser (5) + Sprint 10 validator (6) + Sprint 11 finding status (1) + Sprint 13 codex P1-A candidate scope gate (1) + Sprint 14 report builder (6) + Sprint 15 browser auth (4)', () => {
     const expected = [
       'auth.register',
       'auth.login.password',
@@ -102,10 +102,15 @@ describe('contracts :: AuditAction (A3)', () => {
       'report.build.failed',
       'report.finding.excluded_oos',
       'report.downloaded',
+      // Sprint 15 — browser auth: login recipe + encrypted credential lifecycle.
+      'auth.recipe.executed',
+      'auth.credential.encrypted',
+      'auth.credential.decrypted',
+      'auth.login.failed',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // Sprint 14 cardinality: 46 → 52 (+6 report actions).
-    expect(AUDIT_ACTIONS.length).toBe(52);
+    // Sprint 15 cardinality: 52 → 56 (+4 auth.* actions).
+    expect(AUDIT_ACTIONS.length).toBe(56);
   });
 
   test('zod rejects unknown action', () => {

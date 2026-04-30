@@ -11,8 +11,10 @@ describe('queue-envelope contract', () => {
       'decepticon.findings',
       'recon.browser',
       'validate.finding',
+      'report.build',
+      'browser.auth',
     ]);
-    expect(ENVELOPE_KINDS.length).toBe(5);
+    expect(ENVELOPE_KINDS.length).toBe(7);
   });
 
   test('JOB_STATUSES matches the DB CHECK constraint state-machine', () => {

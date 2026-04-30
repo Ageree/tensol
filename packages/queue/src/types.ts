@@ -28,6 +28,12 @@ export const ENVELOPE_KINDS = [
   // confirmed status (DirectInsertForbidden invariant lives in the
   // findings repo, not at the queue boundary).
   'validate.finding',
+  // Sprint 14 — API enqueues one envelope per report build request.
+  // Report-builder worker subscribes and renders HTML+JSON+ZIP.
+  'report.build',
+  // Sprint 15 — browser-worker auth flow. Payload carries credentialId +
+  // recipe JSON. Browser-worker decrypts, logs in, persists storageState.
+  'browser.auth',
 ] as const;
 
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];

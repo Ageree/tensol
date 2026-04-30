@@ -34,12 +34,13 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     // Spot-check that key tables exist.
     const rows = await sql<{ table_name: string }>`
       SELECT table_name FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_name IN ('tenants', 'audit_events', 'reports')
+      WHERE table_schema = 'public' AND table_name IN ('tenants', 'audit_events', 'reports', 'target_credentials')
     `.execute(f.db);
     const found = new Set(rows.rows.map((r) => r.table_name));
     expect(found.has('tenants')).toBe(true);
     expect(found.has('audit_events')).toBe(true);
     expect(found.has('reports')).toBe(true);
+    expect(found.has('target_credentials')).toBe(true);
   });
 
   test('B6 — rollback removes the latest migration', async () => {
@@ -145,6 +146,36 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     expect(afterRollback.rows[0]?.exists).toBe(false);
 
     // Re-apply all migrations for downstream tests.
+    await applyAllMigrations(f);
+  });
+
+  test('B6 — target_credentials table present after migration 018, absent after rollback', async () => {
+    // Sprint 15: migration 018 adds target_credentials. Rollback 1 step (018→017)
+    // drops it. Re-apply for downstream tests.
+    await applyAllMigrations(f);
+
+    const trigRows = await sql<{ tgname: string }>`
+      SELECT tgname FROM pg_trigger
+      WHERE tgrelid = 'public.target_credentials'::regclass
+        AND NOT tgisinternal
+      ORDER BY tgname
+    `.execute(f.db);
+    const trigNames = new Set(trigRows.rows.map((r) => r.tgname));
+    expect(trigNames.has('target_credentials_no_update_delete_stmt')).toBe(true);
+    expect(trigNames.has('target_credentials_no_update_delete_row')).toBe(true);
+    expect(trigNames.has('target_credentials_no_truncate')).toBe(true);
+
+    const r = await f.migrator.migrateDown();
+    if (r.error) throw r.error instanceof Error ? r.error : new Error(String(r.error));
+
+    const afterRollback = await sql<{ exists: boolean }>`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'target_credentials'
+      ) AS exists
+    `.execute(f.db);
+    expect(afterRollback.rows[0]?.exists).toBe(false);
+
     await applyAllMigrations(f);
   });
 

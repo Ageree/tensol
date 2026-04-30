@@ -20,8 +20,10 @@ describe('packages/queue :: public surface', () => {
       'decepticon.findings',
       'recon.browser',
       'validate.finding',
+      'report.build',
+      'browser.auth',
     ]);
-    expect(ENVELOPE_KINDS.length).toBe(5);
+    expect(ENVELOPE_KINDS.length).toBe(7);
   });
 
   test('exports job statuses enum (matches DB CHECK constraint)', () => {

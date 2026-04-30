@@ -222,6 +222,8 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       ALTER TABLE finding_evidence DISABLE TRIGGER USER;
       -- Sprint 14: reports has a delete-deny trigger. DISABLE before DELETE.
       ALTER TABLE reports DISABLE TRIGGER USER;
+      -- Sprint 15: target_credentials is append-only. DISABLE before DELETE.
+      ALTER TABLE target_credentials DISABLE TRIGGER USER;
       -- Sprint 5 F3: audit_events references projects + assessments via FK
       -- (migration 011, no CASCADE). Delete it FIRST so subsequent DELETEs of
       -- assessments/projects don't violate audit_events_assessment_id_fkey or
@@ -232,6 +234,8 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       DELETE FROM jobs;
       -- Sprint 14: reports has FK to assessments; delete BEFORE assessments.
       DELETE FROM reports;
+      -- Sprint 15: target_credentials has FK to targets; delete BEFORE targets.
+      DELETE FROM target_credentials;
       -- Sprint 10 (P30): finding_evidence FK→findings, findings FK→
       -- candidate_findings (created_from_candidate_id) AND FK→assessments.
       -- DELETE order: finding_evidence → findings → candidate_findings →
@@ -267,6 +271,7 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       ALTER TABLE assessment_artifacts ENABLE TRIGGER USER;
       ALTER TABLE finding_evidence ENABLE TRIGGER USER;
       ALTER TABLE reports ENABLE TRIGGER USER;
+      ALTER TABLE target_credentials ENABLE TRIGGER USER;
     EXCEPTION WHEN OTHERS THEN
       ALTER TABLE audit_events ENABLE TRIGGER USER;
       ALTER TABLE assessment_approvals ENABLE TRIGGER USER;
@@ -274,6 +279,7 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       ALTER TABLE assessment_artifacts ENABLE TRIGGER USER;
       ALTER TABLE finding_evidence ENABLE TRIGGER USER;
       ALTER TABLE reports ENABLE TRIGGER USER;
+      ALTER TABLE target_credentials ENABLE TRIGGER USER;
       RAISE;
     END $$;
   `)

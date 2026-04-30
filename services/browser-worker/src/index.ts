@@ -35,6 +35,15 @@ export {
 export { checkNavigation, type ScopeGuardDeps } from './scope-guard.ts';
 
 export {
+  handleBrowserAuth,
+  browserAuthPayloadSchema,
+  type BrowserAuthDeps,
+  type BrowserAuthPayload,
+  type BrowserAuthAuditEmitter,
+  type BrowserAuthAuditArgs,
+} from './auth-handler.ts';
+
+export {
   handleReconBrowser,
   reconBrowserPayloadSchema,
   type AuditEmitter,

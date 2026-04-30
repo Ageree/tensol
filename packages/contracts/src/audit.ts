@@ -101,6 +101,11 @@ export const AUDIT_ACTIONS = [
   'report.build.failed',
   'report.finding.excluded_oos',
   'report.downloaded',
+  // Sprint 15 — browser auth: login recipe + encrypted credential lifecycle.
+  'auth.recipe.executed',
+  'auth.credential.encrypted',
+  'auth.credential.decrypted',
+  'auth.login.failed',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

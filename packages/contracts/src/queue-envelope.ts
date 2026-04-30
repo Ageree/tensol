@@ -23,6 +23,12 @@ export const ENVELOPE_KINDS = [
   // decepticon emits it. Validator-worker subscribes and runs deterministic
   // XSS replay.
   'validate.finding',
+  // Sprint 14 — API enqueues one envelope per report build request.
+  // Report-builder worker subscribes and renders HTML+JSON+ZIP.
+  'report.build',
+  // Sprint 15 — browser-worker auth flow. Payload carries credentialId +
+  // recipe JSON. Browser-worker decrypts, logs in, persists storageState.
+  'browser.auth',
 ] as const;
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];
 

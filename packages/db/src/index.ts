@@ -117,6 +117,14 @@ export {
   type ReportRow,
 } from './repos/reports.ts';
 
+export {
+  getTargetCredential,
+  insertTargetCredential,
+  listTargetCredentials,
+  type InsertTargetCredentialInput,
+  type TargetCredentialRow,
+} from './repos/target-credentials.ts';
+
 export type {
   AssessmentApprovalsTable,
   AssessmentTargetsTable,
@@ -129,6 +137,7 @@ export type {
   IdempotencyKeysTable,
   ObservationsBrowserTable,
   ProjectsTable,
+  TargetCredentialsTable,
   TargetOwnershipClaimsTable,
   TargetsTable,
 } from './schema.ts';

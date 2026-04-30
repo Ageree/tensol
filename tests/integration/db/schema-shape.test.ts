@@ -35,6 +35,7 @@ const TENANT_OWNED = [
   'audit_events',
   'llm_audit_events',
   'reports',
+  'target_credentials',
 ];
 
 const APPEND_ONLY = [
@@ -45,6 +46,7 @@ const APPEND_ONLY = [
   'audit_events',
   'llm_audit_events',
   'reports', // Sprint 14: delete-deny trigger, status-only UPDATE allowed, no content mutation
+  'target_credentials', // Sprint 15: fully immutable encrypted credential rows
 ];
 
 // Tables that intentionally don't carry an `updated_at` column even though

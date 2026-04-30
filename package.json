@@ -4,7 +4,13 @@
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.11",
-  "workspaces": ["apps/*", "services/*", "packages/*", "tests/lab/xss-fixture"],
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*",
+    "tests/lab/xss-fixture",
+    "tests/lab/auth-fixture"
+  ],
   "scripts": {
     "bun:assert-version": "bun scripts/assert-bun-version.ts",
     "lint": "biome check .",
@@ -29,6 +35,9 @@
   },
   "dependencies": {
     "@cyberstrike/api": "workspace:*",
+    "@cyberstrike/browser-auth": "workspace:*",
+    "@cyberstrike/browser-driver": "workspace:*",
+    "@cyberstrike/lab-auth-fixture": "workspace:*",
     "@cyberstrike/audit": "workspace:*",
     "@cyberstrike/authz": "workspace:*",
     "@cyberstrike/browser-worker": "workspace:*",
