@@ -48,6 +48,7 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     // step-1 rolls back 019 (SPA columns gone, target_credentials still present),
     // step-2 rolls back 018 (target_credentials gone, langgraph_thread_id still present),
     // step-3 rolls back 017 (langgraph_thread_id gone).
+    // K = down(020) → down(019) → down(018) → down(017); pop 020 first so step-1 lands on 019.
     await applyAllMigrations(f);
 
     // Verify 018 shape: target_credentials exists.
@@ -58,6 +59,10 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
       ) AS exists
     `.execute(f.db);
     expect(beforeStep1.rows[0]?.exists).toBe(true);
+
+    // Pop mig 020 so subsequent steps land on the expected migrations.
+    const r020 = await f.migrator.migrateDown();
+    if (r020.error) throw r020.error instanceof Error ? r020.error : new Error(String(r020.error));
 
     // Step-1: roll back 019 (SPA columns drop — target_credentials still present).
     const r1 = await f.migrator.migrateDown();
@@ -188,7 +193,7 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
 
   test('B6 — observations_browser SPA columns present after migration 019, absent after rollback', async () => {
     // Sprint 16: migration 019 adds source_url/depth/discovery_method to observations_browser.
-    // Rollback 1 step drops them. Re-apply for downstream tests.
+    // K = down(020) → down(019); pop 020 first so migrateDown targets 019.
     await applyAllMigrations(f);
 
     const cols = await sql<{ column_name: string }>`
@@ -198,6 +203,11 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
       ORDER BY column_name
     `.execute(f.db);
     expect(cols.rows).toHaveLength(3);
+
+    // Pop mig 020 so the next migrateDown targets 019.
+    const r020pre = await f.migrator.migrateDown();
+    if (r020pre.error)
+      throw r020pre.error instanceof Error ? r020pre.error : new Error(String(r020pre.error));
 
     const r019 = await f.migrator.migrateDown();
     if (r019.error) throw r019.error instanceof Error ? r019.error : new Error(String(r019.error));
@@ -213,8 +223,8 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
   });
 
   test('B6 — target_credentials table present after migration 018, absent after rollback', async () => {
-    // Sprint 15: migration 018 adds target_credentials. With 019 now latest,
-    // we need 2 down steps: down(019) then down(018). Re-apply after.
+    // Sprint 15: migration 018 adds target_credentials. With 020 now latest,
+    // K = down(020) → down(019) → down(018); pop 020 first so steps land on 019/018.
     await applyAllMigrations(f);
 
     const trigRows = await sql<{ tgname: string }>`
@@ -227,6 +237,11 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     expect(trigNames.has('target_credentials_no_update_delete_stmt')).toBe(true);
     expect(trigNames.has('target_credentials_no_update_delete_row')).toBe(true);
     expect(trigNames.has('target_credentials_no_truncate')).toBe(true);
+
+    // Pop mig 020 so subsequent steps land on the expected migrations.
+    const r020pre = await f.migrator.migrateDown();
+    if (r020pre.error)
+      throw r020pre.error instanceof Error ? r020pre.error : new Error(String(r020pre.error));
 
     // Step 1: roll back 019 (SPA columns drop — target_credentials still present).
     const r019 = await f.migrator.migrateDown();

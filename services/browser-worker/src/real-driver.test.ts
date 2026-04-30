@@ -35,14 +35,10 @@ describe('RealBrowserDriver', () => {
     // biome-ignore lint/suspicious/noExplicitAny: inject test session via internal map
     (drv as any).sessions.set('test-session-id', {
       sessionId: 'test-session-id',
+      browser: { close: mock(async () => {}) },
+      context: { unrouteAll: mock(async () => {}), route: mock(async () => {}) },
       page: fakePage,
     });
-    // sharedContext must be set for navigate to access it
-    // biome-ignore lint/suspicious/noExplicitAny: inject shared context via internal field
-    (drv as any).sharedContext = {
-      unrouteAll: mock(async () => {}),
-      route: mock(async () => {}),
-    };
     await expect(
       drv.navigate('test-session-id', { url: 'http://x', method: 'GET' }),
     ).rejects.toThrow('scope_denied');
