@@ -297,6 +297,52 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
     await resetAuthState(dbFx.db);
   });
 
+  test('A-15-ScopeGuard: null scope → nack before decryption + auth.recipe.scope_denied audit', async () => {
+    const { tenantId, userId, target, assessment } = await seedActors();
+    const credentialId = await insertEncryptedCredential(dbFx.db, {
+      tenantId,
+      targetId: target.id,
+      userId,
+      username: LAB_USERNAME,
+      password: LAB_PASSWORD,
+    });
+
+    const deps = buildDeps({ db: dbFx.db, tenantId, assessmentId: assessment.id, denyScope: true });
+    const result = await handleBrowserAuth(deps, {
+      jobId: crypto.randomUUID(),
+      tenantId,
+      assessmentId: assessment.id,
+      kind: 'browser.auth' as const,
+      idempotencyKey: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      attempt: 1,
+      maxAttempts: 3,
+      traceId: '0'.repeat(32),
+      payload: {
+        tenantId,
+        assessmentId: assessment.id,
+        targetId: target.id,
+        credentialId,
+        targetUrl: `http://localhost:${authLab.port}/`,
+        recipeJson: makeRecipeJson(authLab.port),
+        traceId: '0'.repeat(32),
+      },
+    } as unknown as Parameters<typeof handleBrowserAuth>[1]);
+
+    expect(result.kind).toBe('nack');
+
+    const { sql } = await import('kysely');
+    const auditRows = await sql<{ action: string }>`
+      SELECT action FROM audit_events WHERE assessment_id = ${assessment.id}
+    `.execute(dbFx.db);
+    const actions = auditRows.rows.map((r) => r.action);
+    expect(actions).toContain('auth.recipe.scope_denied');
+    expect(actions).not.toContain('auth.credential.decrypted');
+    expect(actions).not.toContain('auth.recipe.executed');
+
+    await resetAuthState(dbFx.db);
+  });
+
   test('A-15-DecryptionFailure: tampered auth_tag → nack terminal', async () => {
     const { tenantId, userId, target, assessment } = await seedActors();
     const plaintext = JSON.stringify({ username: LAB_USERNAME, password: LAB_PASSWORD });

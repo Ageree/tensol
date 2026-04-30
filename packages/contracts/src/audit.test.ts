@@ -109,10 +109,12 @@ describe('contracts :: AuditAction (A3)', () => {
       'auth.login.failed',
       // Sprint 15 codex adversarial — credential bound to wrong target.
       'auth.credential.target_mismatch',
+      // Sprint 15 codex adversarial — scope unavailable or target URL denied.
+      'auth.recipe.scope_denied',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // Sprint 15 cardinality: 52 → 57 (+4 auth.* actions + 1 codex adversarial).
-    expect(AUDIT_ACTIONS.length).toBe(57);
+    // Sprint 15 cardinality: 52 → 58 (+4 auth.* actions + 2 codex adversarial).
+    expect(AUDIT_ACTIONS.length).toBe(58);
   });
 
   test('zod rejects unknown action', () => {

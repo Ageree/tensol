@@ -137,8 +137,8 @@ export const handleBrowserAuth = async (
   if (!scope) {
     await deps.auditEmitter({
       ...auditBase,
-      action: 'auth.recipe.executed',
-      outcome: 'failure',
+      action: 'auth.recipe.scope_denied',
+      outcome: 'denied',
       resourceType: 'target_credential',
       resourceId: credentialId,
       metadata: { reason: 'scope_unavailable' },
@@ -148,6 +148,14 @@ export const handleBrowserAuth = async (
 
   const decision = await checkNavigation(scope, targetUrl, deps.scopeDeps);
   if (!decision.allowed) {
+    await deps.auditEmitter({
+      ...auditBase,
+      action: 'auth.recipe.scope_denied',
+      outcome: 'denied',
+      resourceType: 'target_credential',
+      resourceId: credentialId,
+      metadata: { targetUrl, matchedDenyRuleIds: decision.matchedDenyRuleIds },
+    });
     return nack(new ScopeDenyError(targetUrl, decision.matchedDenyRuleIds));
   }
 
