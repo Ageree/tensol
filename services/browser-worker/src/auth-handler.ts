@@ -119,13 +119,36 @@ export const handleBrowserAuth = async (
     return nack(new Error(`credential_not_found:${credentialId}`));
   }
 
-  // Scope-guard before any browser action.
+  // Verify credential belongs to the requested target — prevents cross-target replay.
+  if (credRow.targetId !== payload.targetId) {
+    await deps.auditEmitter({
+      ...auditBase,
+      action: 'auth.credential.target_mismatch',
+      outcome: 'denied',
+      resourceType: 'target_credential',
+      resourceId: credentialId,
+      metadata: { requestedTargetId: payload.targetId, credentialTargetId: credRow.targetId },
+    });
+    return nack(new Error(`credential_target_mismatch:${credentialId}`));
+  }
+
+  // Scope-guard before any browser action — fail closed on null scope.
   const scope = await deps.buildScope(assessmentId);
-  if (scope) {
-    const decision = await checkNavigation(scope, targetUrl, deps.scopeDeps);
-    if (!decision.allowed) {
-      return nack(new ScopeDenyError(targetUrl, decision.matchedDenyRuleIds));
-    }
+  if (!scope) {
+    await deps.auditEmitter({
+      ...auditBase,
+      action: 'auth.recipe.executed',
+      outcome: 'failure',
+      resourceType: 'target_credential',
+      resourceId: credentialId,
+      metadata: { reason: 'scope_unavailable' },
+    });
+    return nack(new Error('scope_unavailable'));
+  }
+
+  const decision = await checkNavigation(scope, targetUrl, deps.scopeDeps);
+  if (!decision.allowed) {
+    return nack(new ScopeDenyError(targetUrl, decision.matchedDenyRuleIds));
   }
 
   // Decrypt credential — KEK never logged.
@@ -165,13 +188,14 @@ export const handleBrowserAuth = async (
     return nack(err);
   }
 
+  const recipeScopeCheck = async (url: string): Promise<void> => {
+    const d = await checkNavigation(scope, url, deps.scopeDeps);
+    if (!d.allowed) throw new ScopeDenyError(url, d.matchedDenyRuleIds);
+  };
+
   // Launch browser + execute recipe.
   const driver = new RealBrowserDriver({
-    scopeCheck: async (url: string) => {
-      if (!scope) return;
-      const d = await checkNavigation(scope, url, deps.scopeDeps);
-      if (!d.allowed) throw new ScopeDenyError(url, d.matchedDenyRuleIds);
-    },
+    scopeCheck: recipeScopeCheck,
   });
 
   let loginResult: LoginResult;
@@ -193,7 +217,7 @@ export const handleBrowserAuth = async (
     }
 
     try {
-      loginResult = await executeRecipe(page, context, recipe, credential);
+      loginResult = await executeRecipe(page, context, recipe, credential, recipeScopeCheck);
     } finally {
       // Zero-out credential reference (best-effort GC hint).
       credential = { username: '', password: '' };

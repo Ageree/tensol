@@ -106,6 +106,8 @@ export const AUDIT_ACTIONS = [
   'auth.credential.encrypted',
   'auth.credential.decrypted',
   'auth.login.failed',
+  // Sprint 15 codex adversarial — credential bound to wrong target.
+  'auth.credential.target_mismatch',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

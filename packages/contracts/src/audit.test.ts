@@ -107,10 +107,12 @@ describe('contracts :: AuditAction (A3)', () => {
       'auth.credential.encrypted',
       'auth.credential.decrypted',
       'auth.login.failed',
+      // Sprint 15 codex adversarial — credential bound to wrong target.
+      'auth.credential.target_mismatch',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // Sprint 15 cardinality: 52 → 56 (+4 auth.* actions).
-    expect(AUDIT_ACTIONS.length).toBe(56);
+    // Sprint 15 cardinality: 52 → 57 (+4 auth.* actions + 1 codex adversarial).
+    expect(AUDIT_ACTIONS.length).toBe(57);
   });
 
   test('zod rejects unknown action', () => {

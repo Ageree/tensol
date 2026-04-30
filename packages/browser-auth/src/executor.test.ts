@@ -86,4 +86,24 @@ describe('executor :: executeRecipe', () => {
       LoginFailedError,
     );
   });
+
+  test('scopeCheck is called for each navigate step and propagates rejection', async () => {
+    const page = makePage();
+    const deniedError = new Error('scope_denied:evil.example.com');
+    const evilRecipe = makeRecipe({
+      steps: [
+        { action: 'navigate', value: 'http://localhost:9999/login' },
+        { action: 'navigate', value: 'http://evil.example.com/steal' },
+      ],
+    });
+    const scopeCheck = mock(async (url: string) => {
+      if (url.includes('evil.example.com')) throw deniedError;
+    });
+    await expect(
+      executeRecipe(page, makeContext(), evilRecipe, credential, scopeCheck),
+    ).rejects.toBe(deniedError);
+    expect(scopeCheck).toHaveBeenCalledWith('http://localhost:9999/login');
+    expect(scopeCheck).toHaveBeenCalledWith('http://evil.example.com/steal');
+    expect(page.goto).toHaveBeenCalledTimes(1);
+  });
 });

@@ -84,10 +84,18 @@ export class RealBrowserDriver implements BrowserDriver {
       });
     });
 
-    // HAR capture via route interception — record all requests.
+    // HAR capture via route interception — scope-check each subrequest before fetching.
     const harEntries: Array<{ url: string; status: number }> = [];
     await context.route('**/*', async (route) => {
       const req = route.request();
+      if (this.scopeCheck) {
+        try {
+          await this.scopeCheck(req.url());
+        } catch {
+          await route.abort('blockedbyclient');
+          return;
+        }
+      }
       const resp = await route.fetch();
       harEntries.push({ url: req.url(), status: resp.status() });
       await route.fulfill({ response: resp });

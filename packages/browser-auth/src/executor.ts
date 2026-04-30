@@ -37,10 +37,14 @@ const executeStep = async (
   page: ExecutorPage,
   step: RecipeStep,
   credential: Credential,
+  scopeCheck?: (url: string) => Promise<void>,
 ): Promise<void> => {
   switch (step.action) {
     case 'navigate': {
       const url = step.value ?? '';
+      if (scopeCheck) {
+        await scopeCheck(url);
+      }
       await page.goto(url, ...(step.waitFor ? [{ timeout: step.waitFor.timeoutMs }] : []));
       break;
     }
@@ -74,9 +78,10 @@ export const executeRecipe = async (
   context: ExecutorContext,
   recipe: LoginRecipe,
   credential: Credential,
+  scopeCheck?: (url: string) => Promise<void>,
 ): Promise<LoginResult> => {
   for (const step of recipe.steps) {
-    await executeStep(page, step, credential);
+    await executeStep(page, step, credential, scopeCheck);
   }
 
   try {
