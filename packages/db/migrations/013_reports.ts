@@ -47,16 +47,24 @@ export const up = async (db: Kysely<any>): Promise<void> => {
     db,
   );
 
-  // Append-only triggers: block DELETE (and UPDATE as defence-in-depth).
-  // The worker updates status columns via direct SQL bypassing the repo's
-  // type surface, which is intentional — the trigger fires and rejects
-  // external DELETE attempts. Worker status updates go via repo methods that
-  // use raw sql UPDATE — accepted by the trigger only through the controlled
-  // worker path.
+  // Append-only + immutability triggers.
   //
-  // NOTE: reports uses DELETE-only blocking variant, not full attachAppendOnlyTriggers,
+  // DELETE/TRUNCATE: blocked for all rows (report rows are permanent).
+  //
+  // UPDATE: allowed during state-machine progression (queued→building→ready|failed)
+  // but BLOCKED once a row reaches status='ready'.
+  //
+  // F4 [P1-from-evaluator codex fix]: The spec §S12 line 538 ("snapshot is
+  // immutable, never overwrites") was previously enforced only by repo-surface
+  // convention (no updateContent method). A direct raw SQL UPDATE on a ready row
+  // would succeed. This trigger enforces immutability at the DB level for the
+  // sha256_*, object_key_*, and size_bytes_* columns when OLD.status='ready'.
+  // State-machine UPDATEs on queued/building rows are still allowed because the
+  // WHEN clause limits the trigger to ready rows only.
+  //
+  // NOTE: reports uses DELETE-only blocking variant (not full attachAppendOnlyTriggers)
   // because status machine (queued→building→ready|failed) requires UPDATE.
-  // We use a custom delete-only trigger here.
+  // We add a separate ROW-level UPDATE guard for ready rows.
   await sql`
     CREATE OR REPLACE FUNCTION reports_deny_delete() RETURNS trigger AS $$
     BEGIN
@@ -75,10 +83,32 @@ export const up = async (db: Kysely<any>): Promise<void> => {
       BEFORE TRUNCATE ON reports
       FOR EACH STATEMENT EXECUTE FUNCTION reports_deny_delete()
   `.execute(db);
+
+  // ROW-level immutability guard: block UPDATE when OLD.status='ready'.
+  // State-machine UPDATEs (queued→building, building→ready, building→failed)
+  // are not blocked because OLD.status will be 'queued' or 'building' in those
+  // paths. This fires BEFORE UPDATE for each row where status was already 'ready'.
+  await sql`
+    CREATE OR REPLACE FUNCTION raise_immutable_ready_report() RETURNS trigger AS $$
+    BEGIN
+      RAISE EXCEPTION 'reports: UPDATE rejected — row id=% is immutable (status=ready)', OLD.id
+        USING ERRCODE = 'check_violation';
+    END;
+    $$ LANGUAGE plpgsql
+  `.execute(db);
+  await sql`
+    CREATE TRIGGER reports_immutable_ready
+      BEFORE UPDATE ON reports
+      FOR EACH ROW
+      WHEN (OLD.status = 'ready')
+      EXECUTE FUNCTION raise_immutable_ready_report()
+  `.execute(db);
 };
 
 // biome-ignore lint/suspicious/noExplicitAny: migrations operate on the structural db handle.
 export const down = async (db: Kysely<any>): Promise<void> => {
+  await sql`DROP TRIGGER IF EXISTS reports_immutable_ready ON reports`.execute(db);
+  await sql`DROP FUNCTION IF EXISTS raise_immutable_ready_report()`.execute(db);
   await sql`DROP TRIGGER IF EXISTS reports_no_truncate ON reports`.execute(db);
   await sql`DROP TRIGGER IF EXISTS reports_no_delete_stmt ON reports`.execute(db);
   await sql`DROP FUNCTION IF EXISTS reports_deny_delete()`.execute(db);

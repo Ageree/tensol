@@ -112,8 +112,17 @@ export type ReportMarkFailed = (input: {
 export interface ReportBuilderDeps {
   readonly objectStorage: ObjectStorage;
   readonly buildScope: (assessmentId: string) => Promise<EffectiveScope | null>;
-  /** Injected for scope guard. Null-guard: gate skipped if absent. */
-  readonly scopeDeps?: EngineDeps | null;
+  /**
+   * Injected for scope guard. REQUIRED for report-builder (fail-closed design).
+   *
+   * F2 [HIGH codex fix]: scopeDeps is intentionally non-optional here. This is
+   * a divergence from the S13 decepticon-adapter null-guard (which was retained
+   * for legacy back-compat with callers that predate createDecepticonRunner).
+   * report-builder is greenfield with no legacy callers — fail-closed is correct.
+   * Missing scopeDeps means misconfiguration; throw at startup rather than silently
+   * degrading scope enforcement to "include everything".
+   */
+  readonly scopeDeps: EngineDeps;
   readonly auditEmitter: AuditEmitter;
   readonly confirmedFindingsLoader: ConfirmedFindingsLoader;
   readonly reportStatusLoader: ReportStatusLoader;
@@ -168,6 +177,13 @@ export const handleReportBuild = async (
   deps: ReportBuilderDeps,
   envelope: JobEnvelope,
 ): Promise<HandlerOutcome> => {
+  // F2 [HIGH codex fix]: Validate scopeDeps at handler entry (startup-time check).
+  // report-builder requires scopeDeps — fail-closed, not legacy-null-guard.
+  // See ReportBuilderDeps.scopeDeps comment for rationale vs S13 decepticon-adapter.
+  if (!deps.scopeDeps) {
+    throw new Error('report-builder requires scopeDeps — configuration error');
+  }
+
   // 1. Parse payload.
   const parsed = deps.payloadSchema.safeParse(envelope.payload);
   if (!parsed.success) {
@@ -242,48 +258,56 @@ const buildReport = async (
   });
 
   // 5. Scope guard — validate each finding's affectedUrl before including.
+  //
+  // F2 [HIGH codex fix]: buildScope returning null is now a HARD failure.
+  // report-builder is greenfield; no legacy callers exist. Silently including
+  // all findings when scope is unavailable contradicts the "scope-guard at
+  // publication" promise. Fail the build with failure_reason='scope_unavailable'
+  // so the caller can investigate and re-queue after the scope is fixed.
   const scope = await deps.buildScope(payload.assessmentId);
+  if (!scope) {
+    throw new Error('scope_unavailable');
+  }
+
   let excludedCount = 0;
   const includedFindings: FindingRow[] = [];
 
   for (const finding of allFindings) {
-    if (deps.scopeDeps && scope) {
-      let decision: { allowed: boolean };
-      try {
-        decision = await decide(
-          scope,
-          { kind: 'http_request', url: finding.affectedUrl, method: 'GET' },
-          deps.scopeDeps,
-        );
-      } catch {
-        // Fail-closed: exclude if scope check throws.
-        decision = { allowed: false };
-      }
+    let decision: { allowed: boolean };
+    try {
+      decision = await decide(
+        scope,
+        { kind: 'http_request', url: finding.affectedUrl, method: 'GET' },
+        deps.scopeDeps,
+      );
+    } catch {
+      // Fail-closed: exclude if scope check throws.
+      decision = { allowed: false };
+    }
 
-      if (!decision.allowed) {
-        excludedCount++;
-        try {
-          await deps.auditEmitter({
-            tenantId: payload.tenantId,
-            action: 'report.finding.excluded_oos',
-            outcome: 'denied',
-            actorType: 'service',
-            actorId: REPORT_BUILDER_ACTOR_ID,
-            actorName: 'report-builder',
-            resourceType: 'finding',
-            resourceId: finding.id,
-            ...(payload.projectId ? { projectId: payload.projectId } : {}),
-            assessmentId: payload.assessmentId,
-            ip: 'report-builder',
-            userAgent: null,
-            traceId: payload.traceId,
-            metadata: { affectedUrl: finding.affectedUrl, jobId: envelope.jobId },
-          });
-        } catch {
-          // best-effort
-        }
-        continue;
+    if (!decision.allowed) {
+      excludedCount++;
+      try {
+        await deps.auditEmitter({
+          tenantId: payload.tenantId,
+          action: 'report.finding.excluded_oos',
+          outcome: 'denied',
+          actorType: 'service',
+          actorId: REPORT_BUILDER_ACTOR_ID,
+          actorName: 'report-builder',
+          resourceType: 'finding',
+          resourceId: finding.id,
+          ...(payload.projectId ? { projectId: payload.projectId } : {}),
+          assessmentId: payload.assessmentId,
+          ip: 'report-builder',
+          userAgent: null,
+          traceId: payload.traceId,
+          metadata: { affectedUrl: finding.affectedUrl, jobId: envelope.jobId },
+        });
+      } catch {
+        // best-effort
       }
+      continue;
     }
     includedFindings.push(finding);
   }
@@ -330,14 +354,27 @@ const buildReport = async (
   ];
 
   // Per-finding evidence bytes.
+  //
+  // F3 [MEDIUM codex fix]: Object-storage read failures for evidence are NO
+  // LONGER silently swallowed. A missing or unreadable evidence object means
+  // the report cannot faithfully represent the finding — marking the report
+  // "ready" with silently-omitted evidence is misleading and unaudited.
+  //
+  // Strategy: throw on read failure. The outer try/catch in handleReportBuild
+  // (step 3→buildReport path) catches, calls markFailed with
+  // failure_reason='evidence_unreachable:<findingId>:<evidenceId>', emits
+  // report.build.failed audit, and returns nack — allowing the queue worker's
+  // retry logic (maxAttempts) to re-deliver. After exhaustion the report stays
+  // in status=failed with the specific reason recorded for investigation.
   for (const finding of includedFindings) {
     for (const ev of finding.evidence) {
       let bytes: Buffer;
       try {
         bytes = await deps.objectStorage.get(ev.objectStorageKey);
       } catch {
-        // Missing evidence — skip entry but don't fail the build.
-        continue;
+        // Propagate as a build failure. The queue will nack+retry; after
+        // maxAttempts the outer handler marks the report failed with this reason.
+        throw new Error(`evidence_unreachable:${finding.id}:${ev.id}`);
       }
       const ext =
         ev.kind === 'screenshot'

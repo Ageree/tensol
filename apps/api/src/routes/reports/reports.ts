@@ -76,16 +76,60 @@ export const handleBuildReport = async (
     return c.json({ reportId: existing.id, status: existing.status }, 202);
   }
 
-  // Insert report row (status=queued).
-  let reportId: string;
+  // Insert report row (status=queued) + enqueue report.build job atomically.
+  //
+  // F1 [HIGH codex fix]: Both insertions happen in a single DB transaction so
+  // a failure during job-insert cannot leave an orphaned "queued" report row
+  // with no corresponding job — which would cause the idempotency-replay path
+  // to return a queued report_id that is permanently stuck (never enqueued).
+  //
+  // The outbox pattern (Sprint 7) stores jobs in the `jobs` table which is
+  // polled by the queue worker — inserting the job row inside the same DB
+  // transaction as the report row ensures atomicity at the PG level.
+  const traceId = newTraceId();
+  let reportId = '';
   try {
-    const inserted = await insertReport({
-      db: deps.db,
-      tenantId: actor.tenantId,
-      assessmentId,
-      idempotencyKey: scopedKey,
+    await deps.db.transaction().execute(async (trx) => {
+      const inserted = await insertReport({
+        db: trx,
+        tenantId: actor.tenantId,
+        assessmentId,
+        idempotencyKey: scopedKey,
+      });
+      reportId = inserted.id;
+
+      const jobIdemKey = `report.build:${reportId}`;
+      // biome-ignore lint/suspicious/noExplicitAny: pg expects text for jsonb column.
+      const jobPayload: any = JSON.stringify({
+        tenantId: actor.tenantId,
+        projectId: assessment.project_id ?? null,
+        assessmentId,
+        reportId,
+        traceId,
+      });
+
+      try {
+        await trx
+          .insertInto('jobs')
+          .values({
+            tenant_id: actor.tenantId,
+            project_id: assessment.project_id ?? null,
+            assessment_id: assessmentId,
+            kind: 'report.build',
+            status: 'pending',
+            attempt: 0,
+            max_attempts: 3,
+            idempotency_key: jobIdemKey,
+            not_before: null,
+            trace_id: traceId,
+            payload: jobPayload,
+          })
+          .execute();
+      } catch (err) {
+        if (!isUniqueViolation(err)) throw err;
+        // Duplicate job — idempotent, proceed.
+      }
     });
-    reportId = inserted.id;
   } catch (err) {
     if (isUniqueViolation(err)) {
       // Concurrent POST with same key — re-read and return existing.
@@ -97,40 +141,6 @@ export const handleBuildReport = async (
       if (race) return c.json({ reportId: race.id, status: race.status }, 202);
     }
     throw err;
-  }
-
-  // Enqueue `report.build` job via outbox pattern (jobs table).
-  const traceId = newTraceId();
-  const jobIdemKey = `report.build:${reportId}`;
-  // biome-ignore lint/suspicious/noExplicitAny: pg expects text for jsonb column.
-  const payload: any = JSON.stringify({
-    tenantId: actor.tenantId,
-    projectId: assessment.project_id ?? null,
-    assessmentId,
-    reportId,
-    traceId,
-  });
-
-  try {
-    await deps.db
-      .insertInto('jobs')
-      .values({
-        tenant_id: actor.tenantId,
-        project_id: assessment.project_id ?? null,
-        assessment_id: assessmentId,
-        kind: 'report.build',
-        status: 'pending',
-        attempt: 0,
-        max_attempts: 3,
-        idempotency_key: jobIdemKey,
-        not_before: null,
-        trace_id: traceId,
-        payload,
-      })
-      .execute();
-  } catch (err) {
-    if (!isUniqueViolation(err)) throw err;
-    // Duplicate job — idempotent, proceed.
   }
 
   // Emit report.build.requested audit.
