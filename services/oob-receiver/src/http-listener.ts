@@ -51,6 +51,12 @@ export const startHttpListener = (deps: OobHttpListenerDeps): OobHttpListenerHan
       }
       const redacted = redactHeaders(headersObj);
 
+      // Enforce 64KB cap before buffering to prevent DoS via huge body.
+      const contentLength = req.headers.get('content-length');
+      if (contentLength !== null && Number(contentLength) > BODY_LIMIT_BYTES) {
+        return new Response('Payload Too Large', { status: 413 });
+      }
+
       let body: string | null = null;
       try {
         const buf = await req.arrayBuffer();

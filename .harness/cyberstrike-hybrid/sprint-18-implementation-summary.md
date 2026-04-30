@@ -53,6 +53,35 @@
 - **no-DB**: 1074 pass / 0 fail ✓
 - **full-PG**: 1319 pass / 2 fail (both pre-existing: findings-api auditor 403 + browser retry-transient) ✓ (≤3 threshold)
 
+## Codex Adversarial Review Fixes (post-PASS, single commit on 7e9bcdf)
+
+### HIGH-1 — handleSsrfReplay loads candidate+assessment from DB
+- Added `candidateLoader` + `assessmentLoader` calls at start of `handleSsrfReplay` (mirrors `handleValidateFinding` pattern)
+- Nacks with `ssrf_candidate_not_found` if candidate missing or `type !== 'ssrf'`
+- Uses `candidate.affectedUrl` (DB-sourced) for the confirmed finding insert — NOT the queue payload
+- IT updated: `candidateLoader: async () => null` → `buildCandidateLoader(fx.db)`, seed uses `type: 'ssrf'`
+
+### HIGH-2 — OOB token embedded in coordinator replayUrl
+- `start-decepticon-session.ts`: builds token-bearing URL — appends `?_cs_token=<ssrfToken>` or `&_cs_token=<ssrfToken>` if existing query params
+- IT envelope `replayUrl` updated to pre-embed token (as coordinator now sends it)
+- IT assertion added: `expect(httpClient.lastUrl).toContain(`_cs_token=${token}`)`
+- `TrackingHttpClient` gains `lastUrl: string` field tracking last outbound URL
+
+### MED-1 — DNS listener reconstructs 3-label token
+- `dns-listener.ts`: `qname.split('.')[0]` → `qname.split('.').slice(0, 3).join('.')`
+- New unit test in `dns-listener.test.ts`: full qname `UUID.UUID.hex8.oob.example` → 3-label join → `parseToken` returns non-null with correct fields
+
+### MED-2 — SSRF deps required; fail-visible on missing
+- `handleSsrfReplay` checks `!deps.ssrfHttpClient || !deps.oobCallbackLoader` at entry
+- If absent: emits `validation.inconclusive/failure` audit with `reason: 'config_error'`, returns nack `ssrf_config_error`
+- Silent no-op fallbacks removed; `ValidatorWorkerDeps.oobCallbackLoader` / `ssrfHttpClient` remain optional at type level (used by XSS path too)
+
+## Test Results (codex fix commit)
+- **lint**: 0 errors ✓
+- **typecheck**: 0 errors ✓
+- **no-DB**: 1075 pass / 0 fail (+1 new MED-1 DNS unit test) ✓
+- **full-PG**: 1320 pass / 2 fail (same 2 pre-existing as baseline 7e9bcdf) ✓ (≤3 threshold)
+
 ## Key Fixes During Implementation
 - `queue/src/types.ts` lacked `'validator.ssrf.replay'` — added alongside `contracts/queue-envelope.ts`
 - `c.nullable()` not a Kysely column builder method — columns are nullable by default, removed callback

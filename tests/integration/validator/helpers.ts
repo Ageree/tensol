@@ -232,6 +232,7 @@ export const seedCandidateFinding = async (
     tenantId: string;
     assessmentId: string;
     affectedUrl: string;
+    type?: string;
     severity?: 'info' | 'low' | 'medium' | 'high' | 'critical';
   },
 ): Promise<string> => {
@@ -244,7 +245,7 @@ export const seedCandidateFinding = async (
       id,
       tenant_id: args.tenantId,
       assessment_id: args.assessmentId,
-      type: 'xss_reflected',
+      type: args.type ?? 'xss_reflected',
       severity: args.severity ?? 'medium',
       affected_url: args.affectedUrl,
       source: 'fake-decepticon',

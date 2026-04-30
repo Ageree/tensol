@@ -18,6 +18,17 @@ describe('oob-receiver :: DNS token extraction', () => {
     expect(parseToken(reconstructed)).not.toBeNull();
   });
 
+  test('full qname with token in first 3 labels → dns-listener extracts token via slice(0,3)', () => {
+    // Verify the MED-1 fix: qname.split('.').slice(0, 3).join('.') reconstructs the token.
+    const qname = `${VALID_UUID_A}.${VALID_UUID_B}.deadbeef.oob.example`;
+    const token = qname.split('.').slice(0, 3).join('.');
+    const result = parseToken(token);
+    expect(result).not.toBeNull();
+    expect(result?.candidateId).toBe(VALID_UUID_A);
+    expect(result?.tenantId).toBe(VALID_UUID_B);
+    expect(result?.random8).toBe('deadbeef');
+  });
+
   test('non-token leftmost label → token=null', () => {
     const firstLabel = 'probe123';
     expect(parseToken(firstLabel)).toBeNull();

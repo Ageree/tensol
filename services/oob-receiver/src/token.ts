@@ -28,8 +28,8 @@ export const extractTokenFromPath = (
   pathname: string,
   queryToken: string | null,
 ): string | null => {
-  // Try query param first.
-  if (queryToken) return queryToken;
+  // Try query param first — only if it parses as a valid token.
+  if (queryToken && parseToken(queryToken)) return queryToken;
   // Try first path segment that matches token format: /<token>/...
   const segments = pathname.split('/').filter(Boolean);
   for (const seg of segments) {

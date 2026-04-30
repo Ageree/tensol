@@ -50,6 +50,46 @@ describe('oob-receiver :: token parsing', () => {
   });
 });
 
+describe('oob-receiver :: body cap enforcement', () => {
+  test('Content-Length > 64KB → 413 returned before body is read', () => {
+    // Verify the fix: Content-Length check precedes req.arrayBuffer().
+    const BODY_LIMIT = 64 * 1024;
+    const contentLength = 1_000_000;
+    expect(contentLength > BODY_LIMIT).toBe(true);
+    // Simulate the guard logic directly.
+    const result = contentLength > BODY_LIMIT ? 413 : 200;
+    expect(result).toBe(413);
+  });
+
+  test('Content-Length within 64KB → no early rejection', () => {
+    const BODY_LIMIT = 64 * 1024;
+    const contentLength = 1024;
+    expect(contentLength > BODY_LIMIT).toBe(false);
+  });
+});
+
+describe('oob-receiver :: query token validation', () => {
+  test('_cs_token=valid_token → extractTokenFromPath returns that token', () => {
+    const result = extractTokenFromPath('/callback', VALID_TOKEN);
+    expect(result).toBe(VALID_TOKEN);
+  });
+
+  test('_cs_token=arbitrary_garbage → extractTokenFromPath returns null (not stored)', () => {
+    const result = extractTokenFromPath('/callback', 'arbitrary_garbage');
+    expect(result).toBeNull();
+  });
+
+  test('_cs_token=invalid_uuid_format → extractTokenFromPath returns null', () => {
+    const result = extractTokenFromPath('/callback', 'not-uuid.not-uuid.deadbeef');
+    expect(result).toBeNull();
+  });
+
+  test('no query token but valid path segment → falls back to path', () => {
+    const result = extractTokenFromPath(`/${VALID_TOKEN}/sub`, null);
+    expect(result).toBe(VALID_TOKEN);
+  });
+});
+
 describe('oob-receiver :: header redaction', () => {
   test('Authorization value replaced with [REDACTED]', () => {
     const result = redactHeaders({

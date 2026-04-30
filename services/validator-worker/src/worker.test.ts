@@ -18,6 +18,7 @@ import {
   type AuditEmitterArgs,
   type CandidateRow,
   type ValidatorWorkerDeps,
+  handleSsrfReplay,
   handleValidateFinding,
 } from './worker.ts';
 
@@ -437,5 +438,121 @@ describe('validator-worker :: handleValidateFinding', () => {
     const { deps } = await buildDeps();
     const out = await handleValidateFinding(deps, buildEnvelope({ malformed: true }));
     expect(out.kind).toBe('nack');
+  });
+});
+
+const SSRF_CANDIDATE = '44444444-4444-4444-4444-444444444444';
+const SSRF_TOKEN = `${SSRF_CANDIDATE}.${TENANT}.abcd1234`;
+
+const buildSsrfEnvelope = (): JobEnvelope => ({
+  jobId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+  tenantId: TENANT,
+  projectId: null,
+  assessmentId: ASSESS,
+  kind: 'validator.ssrf.replay',
+  idempotencyKey: 'ssrf-idem',
+  createdAt: '2026-04-29T00:00:00.000Z',
+  attempt: 0,
+  maxAttempts: 3,
+  traceId: TRACE,
+  payload: {
+    tenantId: TENANT,
+    projectId: null,
+    assessmentId: ASSESS,
+    candidateFindingId: SSRF_CANDIDATE,
+    candidateType: 'ssrf',
+    replayUrl: `http://ssrf.lab.example/redirect?_cs_token=${SSRF_TOKEN}`,
+    token: SSRF_TOKEN,
+    traceId: TRACE,
+  },
+});
+
+const buildSsrfDeps = (override: Partial<ValidatorWorkerDeps> = {}): ValidatorWorkerDeps => {
+  const audits: AuditEmitterArgs[] = [];
+  const auditEmitter: AuditEmitter = async (args): Promise<void> => {
+    audits.push(args);
+  };
+  const ssrfCandidate: CandidateRow = {
+    id: SSRF_CANDIDATE,
+    tenantId: TENANT,
+    assessmentId: ASSESS,
+    type: 'ssrf',
+    severity: 'high',
+    affectedUrl: 'http://ssrf.lab.example/redirect',
+    source: 'fake-decepticon',
+    payload: {},
+  };
+  return {
+    driver: { replay: async () => ({ attempt: 0 }) } as unknown as ValidatorWorkerDeps['driver'],
+    objectStorage: {
+      put: async () => ({ key: '', sha256: '', sizeBytes: 0, contentType: '' }),
+      get: async () => Buffer.from([]),
+    },
+    buildScope: async () => null,
+    scopeDeps: stubScopeDeps,
+    auditEmitter,
+    candidateLoader: async () => ssrfCandidate,
+    assessmentLoader: async () => ({ id: ASSESS, tenantId: TENANT, projectId: null }),
+    findingsWriter: async () => ({ id: 'f1' }),
+    findingEvidenceWriter: async () => ({ id: 'e1' }),
+    findingByCandidateLoader: async () => null,
+    evidenceCounter: async () => 0,
+    findingCreatedAuditChecker: async () => false,
+    payloadSchema: validateFindingPayloadSchema,
+    ssrfHttpClient: { callCount: 0, get: async () => {} },
+    oobCallbackLoader: async () => false,
+    _auditStore: audits,
+    ...override,
+  } as unknown as ValidatorWorkerDeps;
+};
+
+describe('validator-worker :: handleSsrfReplay', () => {
+  test('null buildScope() → ssrf.replay_denied audit + terminal ack (no_scope)', async () => {
+    const audits: AuditEmitterArgs[] = [];
+    const deps = buildSsrfDeps({
+      buildScope: async () => null,
+      auditEmitter: async (args) => {
+        audits.push(args);
+      },
+    });
+    const out = await handleSsrfReplay(deps, buildSsrfEnvelope());
+    expect(out.kind).toBe('ack');
+    const denied = audits.find((a) => a.action === 'validator.ssrf.replay_denied');
+    expect(denied).toBeDefined();
+    expect((denied?.metadata as { reason: string }).reason).toBe('no_scope');
+  });
+
+  test('missing ssrfHttpClient → nack with config_error audit', async () => {
+    const audits: AuditEmitterArgs[] = [];
+    const deps = buildSsrfDeps({
+      ssrfHttpClient: undefined,
+      auditEmitter: async (args) => {
+        audits.push(args);
+      },
+    });
+    const out = await handleSsrfReplay(deps, buildSsrfEnvelope());
+    expect(out.kind).toBe('nack');
+    const configErr = audits.find((a) => a.action === 'validation.inconclusive');
+    expect((configErr?.metadata as { reason: string }).reason).toBe('config_error');
+  });
+
+  test('ssrf candidate type mismatch → nack', async () => {
+    const deps = buildSsrfDeps({
+      candidateLoader: async () => ({
+        id: SSRF_CANDIDATE,
+        tenantId: TENANT,
+        assessmentId: ASSESS,
+        type: 'xss_reflected',
+        severity: 'medium' as const,
+        affectedUrl: 'http://ssrf.lab.example/redirect',
+        source: 'fake',
+        payload: {},
+      }),
+    });
+    const out = await handleSsrfReplay(deps, buildSsrfEnvelope());
+    expect(out.kind).toBe('nack');
+    if (out.kind === 'nack') {
+      expect(out.error.message).toContain('ssrf_candidate_not_found');
+    }
   });
 });

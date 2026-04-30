@@ -31,6 +31,7 @@ import {
 import {
   buildAssessmentLoader,
   buildAuditEmitter,
+  buildCandidateLoader,
   buildFindingByCandidateLoader,
   buildFindingsWriter,
   buildLocalStorage,
@@ -43,6 +44,7 @@ const VALID_TRACE = '0123456789abcdef0123456789abcdef';
 
 class TrackingHttpClient {
   callCount = 0;
+  lastUrl = '';
   private readonly _db: DbFixture['db'];
   private readonly _token: string;
 
@@ -53,6 +55,7 @@ class TrackingHttpClient {
 
   async get(url: string): Promise<void> {
     this.callCount++;
+    this.lastUrl = url;
     // Simulate the OOB receiver inserting a row on callback receipt.
     // biome-ignore lint/suspicious/noExplicitAny: jsonb boundary.
     const headersJson = JSON.stringify({}) as any;
@@ -138,6 +141,7 @@ describe.skipIf(!hasDatabaseUrl())('validator :: SSRF pipeline (A-18-IT)', () =>
     const candidateFindingId = await seedCandidateFinding(fx.db, {
       tenantId,
       assessmentId,
+      type: 'ssrf',
       affectedUrl: 'http://ssrf.lab.example/redirect?url=http://169.254.169.254/',
     });
 
@@ -211,7 +215,7 @@ describe.skipIf(!hasDatabaseUrl())('validator :: SSRF pipeline (A-18-IT)', () =>
       buildScope: async () => scope,
       scopeDeps: ssrfScopeDeps,
       auditEmitter: buildAuditEmitter(fx.db),
-      candidateLoader: async () => null,
+      candidateLoader: buildCandidateLoader(fx.db),
       assessmentLoader: buildAssessmentLoader(fx.db),
       findingsWriter: buildFindingsWriter(fx.db),
       findingEvidenceWriter: async () => ({ id: uniqUuid() }),
@@ -241,7 +245,8 @@ describe.skipIf(!hasDatabaseUrl())('validator :: SSRF pipeline (A-18-IT)', () =>
         assessmentId,
         candidateFindingId,
         candidateType: 'ssrf',
-        replayUrl: 'http://ssrf.lab.example/redirect',
+        // Coordinator embeds token per HIGH-2 fix: replayUrl carries _cs_token.
+        replayUrl: `http://ssrf.lab.example/redirect?_cs_token=${token}`,
         token,
         traceId: VALID_TRACE,
       },
@@ -249,6 +254,9 @@ describe.skipIf(!hasDatabaseUrl())('validator :: SSRF pipeline (A-18-IT)', () =>
 
     const result = await handleSsrfReplay(deps, envelope);
     expect(result.kind).toBe('ack');
+
+    // HIGH-2: outbound HTTP call must carry the token in the URL.
+    expect(httpClient.lastUrl).toContain(`_cs_token=${token}`);
 
     // oob_callbacks row inserted by httpClient stub.
     const oobRows = await fx.db
@@ -312,6 +320,7 @@ describe.skipIf(!hasDatabaseUrl())('validator :: SSRF pipeline (A-18-IT)', () =>
     const candidateFindingId = await seedCandidateFinding(fx.db, {
       tenantId,
       assessmentId,
+      type: 'ssrf',
       affectedUrl: 'http://evil.oos.example/ssrf',
     });
     const token = `${candidateFindingId}.${tenantId}.deadbeef`;
@@ -340,7 +349,7 @@ describe.skipIf(!hasDatabaseUrl())('validator :: SSRF pipeline (A-18-IT)', () =>
       buildScope: async () => scope,
       scopeDeps: stubValidatorScopeDeps,
       auditEmitter: buildAuditEmitter(fx.db),
-      candidateLoader: async () => null,
+      candidateLoader: buildCandidateLoader(fx.db),
       assessmentLoader: buildAssessmentLoader(fx.db),
       findingsWriter: buildFindingsWriter(fx.db),
       findingEvidenceWriter: async () => ({ id: uniqUuid() }),

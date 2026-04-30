@@ -504,13 +504,76 @@ export const handleSsrfReplay = async (
   }
   const payload = parsed.data;
 
-  const scope = await deps.buildScope(payload.assessmentId);
+  // MED-2: require ssrf deps — fail-visible on missing config.
+  if (!deps.ssrfHttpClient || !deps.oobCallbackLoader) {
+    await deps.auditEmitter({
+      tenantId: payload.tenantId,
+      action: 'validation.inconclusive',
+      outcome: 'failure',
+      actorType: 'service',
+      actorId: VALIDATOR_WORKER_ACTOR_ID,
+      actorName: 'validator-worker',
+      resourceType: 'candidate_finding',
+      resourceId: payload.candidateFindingId,
+      ...(payload.projectId ? { projectId: payload.projectId } : {}),
+      assessmentId: payload.assessmentId,
+      ip: null,
+      userAgent: null,
+      traceId: payload.traceId,
+      metadata: {
+        reason: 'config_error',
+        missing: !deps.ssrfHttpClient ? 'ssrfHttpClient' : 'oobCallbackLoader',
+      },
+    });
+    return {
+      kind: 'nack',
+      error: new ScopeDenyError('ssrf_config_error', ['ssrf_deps_not_configured']),
+    };
+  }
 
-  const oobCallbackLoader = deps.oobCallbackLoader ?? (async (_token: string) => false);
-  const ssrfHttpClient = deps.ssrfHttpClient ?? {
-    callCount: 0,
-    get: async (_url: string): Promise<void> => {},
-  };
+  // HIGH-1: load candidate from DB and verify type.
+  const candidate = await deps.candidateLoader({
+    tenantId: payload.tenantId,
+    candidateFindingId: payload.candidateFindingId,
+  });
+  if (!candidate || candidate.type !== 'ssrf') {
+    return {
+      kind: 'nack',
+      error: new ScopeDenyError('ssrf_candidate_not_found', ['ssrf_candidate_not_found']),
+    };
+  }
+
+  const assessment = await deps.assessmentLoader({
+    tenantId: payload.tenantId,
+    assessmentId: payload.assessmentId,
+  });
+  if (!assessment) {
+    return {
+      kind: 'nack',
+      error: new ScopeDenyError('ssrf_assessment_not_found', ['ssrf_assessment_not_found']),
+    };
+  }
+
+  const scope = await deps.buildScope(payload.assessmentId);
+  if (!scope) {
+    await deps.auditEmitter({
+      tenantId: payload.tenantId,
+      action: 'validator.ssrf.replay_denied',
+      outcome: 'denied',
+      actorType: 'service',
+      actorId: VALIDATOR_WORKER_ACTOR_ID,
+      actorName: 'validator-worker',
+      resourceType: 'candidate_finding',
+      resourceId: payload.candidateFindingId,
+      ...(payload.projectId ? { projectId: payload.projectId } : {}),
+      assessmentId: payload.assessmentId,
+      ip: null,
+      userAgent: null,
+      traceId: payload.traceId,
+      metadata: { reason: 'no_scope' },
+    });
+    return { kind: 'ack' };
+  }
 
   const result = await validateSsrfCandidate(
     {
@@ -526,14 +589,14 @@ export const handleSsrfReplay = async (
     {
       scopeDeps: deps.scopeDeps,
       auditEmitter: deps.auditEmitter,
-      httpClient: ssrfHttpClient,
-      oobCallbackLoader,
+      httpClient: deps.ssrfHttpClient,
+      oobCallbackLoader: deps.oobCallbackLoader,
       ...(deps.oobVerifyTimeoutMs !== undefined && { oobVerifyTimeoutMs: deps.oobVerifyTimeoutMs }),
     },
   );
 
   if (result.status === 'confirmed') {
-    // Insert confirmed finding.
+    // Insert confirmed finding using candidate.affectedUrl from DB.
     try {
       await deps.findingsWriter({
         tenantId: payload.tenantId,
@@ -542,7 +605,7 @@ export const handleSsrfReplay = async (
         type: 'ssrf',
         severity: 'high',
         confidence: 'high',
-        affectedUrl: payload.replayUrl,
+        affectedUrl: candidate.affectedUrl,
         reproduction: { token: payload.token, replayUrl: payload.replayUrl },
         validatorLog: [],
         validatedAt: (deps.clock ?? (() => new Date()))(),

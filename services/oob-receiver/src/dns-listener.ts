@@ -78,11 +78,12 @@ export const startDnsListener = (deps: OobDnsListenerDeps): OobDnsListenerHandle
       if (parsed_) {
         qname = parsed_.qname;
         qtypeStr = String(parsed_.qtype);
-        // Leftmost label is the potential token.
-        const firstLabel = qname.split('.')[0] ?? null;
-        if (firstLabel) {
-          rawToken = parseToken(firstLabel) ? firstLabel : null;
-          parsed = parseToken(firstLabel);
+        // Token spans the first 3 DNS labels: <candidateUUID>.<tenantUUID>.<hex8>
+        const labels = qname.split('.');
+        const threeLabel = labels.slice(0, 3).join('.');
+        if (threeLabel) {
+          rawToken = parseToken(threeLabel) ? threeLabel : null;
+          parsed = parseToken(threeLabel);
         }
       }
     } catch (err) {

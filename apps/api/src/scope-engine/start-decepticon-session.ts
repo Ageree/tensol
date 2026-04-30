@@ -497,7 +497,9 @@ export const startDecepticonSession = async (
           assessmentId: input.assessmentId,
           candidateFindingId,
           candidateType: 'ssrf',
-          replayUrl: candidate.affectedUrl,
+          replayUrl: candidate.affectedUrl.includes('?')
+            ? `${candidate.affectedUrl}&_cs_token=${ssrfToken}`
+            : `${candidate.affectedUrl}?_cs_token=${ssrfToken}`,
           token: ssrfToken,
           traceId: input.traceId,
         },
