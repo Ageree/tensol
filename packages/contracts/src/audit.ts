@@ -115,6 +115,10 @@ export const AUDIT_ACTIONS = [
   'browser.spa.route.skipped_oos',
   // Sprint 17 — credential read audit.
   'auth.credential.read.viewed',
+  // Sprint 18 — SSRF validator (3).
+  'validator.ssrf.replay_denied',
+  'validator.ssrf.confirmed',
+  'validator.ssrf.timeout',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

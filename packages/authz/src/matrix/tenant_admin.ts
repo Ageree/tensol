@@ -45,6 +45,9 @@ const SPEC: RoleSpec = {
 
   // Sprint 16 B19 — tenant_admin manages credential lifecycle within their tenant.
   target_credential: ['read', 'list', 'create', 'delete'],
+
+  // Sprint 18 — tenant_admin has no access to OOB callback logs (raw network data).
+  oob_callback: [],
 };
 
 export const tenantAdminMatrix: ReadonlyMap<string, Decision> = expandRoleSpec(

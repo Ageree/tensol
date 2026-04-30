@@ -36,6 +36,7 @@ import {
 } from '@cyberstrike/validators';
 import type { z } from 'zod';
 import type { ValidateFindingPayload } from './payload-schema.ts';
+import { validateSsrfCandidate } from './ssrf-validator.ts';
 
 const VALIDATOR_WORKER_ACTOR_ID: ServiceActorId = 'validator-worker';
 
@@ -164,6 +165,10 @@ export interface ValidatorWorkerDeps {
   readonly payloadSchema: z.ZodType<ValidateFindingPayload>;
   /** Test seam — defaults to () => new Date(). */
   readonly clock?: () => Date;
+  // Sprint 18 — SSRF replay deps.
+  readonly oobCallbackLoader?: (token: string) => Promise<boolean>;
+  readonly oobVerifyTimeoutMs?: number;
+  readonly ssrfHttpClient?: { get(url: string): Promise<void>; readonly callCount: number };
 }
 
 const STATUS_TO_ACTION: Record<string, AuditAction> = {
@@ -475,6 +480,83 @@ export const handleValidateFinding = async (
     severity: severityFor(candidate.severity),
     confidence: result.confidence,
   });
+
+  return { kind: 'ack' };
+};
+
+// ============================================================================
+// Sprint 18 — SSRF replay handler
+// ============================================================================
+
+export const handleSsrfReplay = async (
+  deps: ValidatorWorkerDeps,
+  envelope: JobEnvelope,
+): Promise<HandlerOutcome> => {
+  const { validateSsrfReplayPayloadSchema } = await import('./payload-schema.ts');
+  const parsed = validateSsrfReplayPayloadSchema.safeParse(envelope.payload);
+  if (!parsed.success) {
+    return {
+      kind: 'nack',
+      error: new ScopeDenyError('invalid_ssrf_replay_payload', [
+        'ssrf_replay_payload_schema_mismatch',
+      ]),
+    };
+  }
+  const payload = parsed.data;
+
+  const scope = await deps.buildScope(payload.assessmentId);
+
+  const oobCallbackLoader = deps.oobCallbackLoader ?? (async (_token: string) => false);
+  const ssrfHttpClient = deps.ssrfHttpClient ?? {
+    callCount: 0,
+    get: async (_url: string): Promise<void> => {},
+  };
+
+  const result = await validateSsrfCandidate(
+    {
+      candidateFindingId: payload.candidateFindingId,
+      tenantId: payload.tenantId,
+      assessmentId: payload.assessmentId,
+      projectId: payload.projectId,
+      replayUrl: payload.replayUrl,
+      token: payload.token,
+      scope: scope as EffectiveScope,
+      traceId: payload.traceId,
+    },
+    {
+      scopeDeps: deps.scopeDeps,
+      auditEmitter: deps.auditEmitter,
+      httpClient: ssrfHttpClient,
+      oobCallbackLoader,
+      ...(deps.oobVerifyTimeoutMs !== undefined && { oobVerifyTimeoutMs: deps.oobVerifyTimeoutMs }),
+    },
+  );
+
+  if (result.status === 'confirmed') {
+    // Insert confirmed finding.
+    try {
+      await deps.findingsWriter({
+        tenantId: payload.tenantId,
+        assessmentId: payload.assessmentId,
+        candidateFindingId: payload.candidateFindingId,
+        type: 'ssrf',
+        severity: 'high',
+        confidence: 'high',
+        affectedUrl: payload.replayUrl,
+        reproduction: { token: payload.token, replayUrl: payload.replayUrl },
+        validatorLog: [],
+        validatedAt: (deps.clock ?? (() => new Date()))(),
+        validatedBy: { status: 'confirmed' as const },
+      });
+    } catch (err) {
+      if (!isUniqueViolation(err)) {
+        return {
+          kind: 'nack',
+          error: err instanceof Error ? err : new Error('ssrf_findings_insert_unknown'),
+        };
+      }
+    }
+  }
 
   return { kind: 'ack' };
 };

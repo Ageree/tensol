@@ -70,6 +70,8 @@ export interface StartDecepticonDeps {
   readonly randomUUID?: () => string;
   /** Test seam — defaults to () => new Date().toISOString(). */
   readonly clockIso?: () => string;
+  /** Sprint 18 test seam — generates 8 hex chars for SSRF token suffix. */
+  readonly randomHex8?: () => string;
 }
 
 export interface StartDecepticonInput {
@@ -469,6 +471,38 @@ export const startDecepticonSession = async (
         },
       };
       await deps.queueAdapter.publish(validateEnvelope);
+    }
+
+    // Sprint 18 — publish a `validator.ssrf.replay` envelope for SSRF candidates.
+    // Token format: <candidateFindingId>.<tenantId>.<random8hex>.
+    if (candidate.type === 'ssrf') {
+      const randomHex8 =
+        deps.randomHex8?.() ??
+        (await import('node:crypto').then((m) => m.randomBytes(4).toString('hex')));
+      const ssrfToken = `${candidateFindingId}.${input.tenantId}.${randomHex8}`;
+      const ssrfEnvelope: JobEnvelope = {
+        jobId: randomUUID(),
+        tenantId: input.tenantId,
+        projectId: input.projectId ?? null,
+        assessmentId: input.assessmentId,
+        kind: 'validator.ssrf.replay',
+        idempotencyKey: `${input.parentEnvelope.idempotencyKey}:ssrf:${candidateFindingId}`,
+        createdAt: clockIso(),
+        attempt: 0,
+        maxAttempts: 3,
+        traceId: input.traceId,
+        payload: {
+          tenantId: input.tenantId,
+          projectId: input.projectId ?? null,
+          assessmentId: input.assessmentId,
+          candidateFindingId,
+          candidateType: 'ssrf',
+          replayUrl: candidate.affectedUrl,
+          token: ssrfToken,
+          traceId: input.traceId,
+        },
+      };
+      await deps.queueAdapter.publish(ssrfEnvelope);
     }
 
     await emitAudit(

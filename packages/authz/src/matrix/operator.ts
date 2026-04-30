@@ -33,6 +33,9 @@ const SPEC: RoleSpec = {
 
   // Sprint 16 B19 — operator can create and view credentials for targets they work.
   target_credential: ['read', 'list', 'create'],
+
+  // Sprint 18 — operator has no access to OOB callback logs.
+  oob_callback: [],
 };
 
 export const operatorMatrix: ReadonlyMap<string, Decision> = expandRoleSpec(

@@ -36,7 +36,7 @@ const baseEnvelope = {
 };
 
 describe('contracts :: AuditAction (A3)', () => {
-  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1) + Sprint 7 (1) + Sprint 8 decepticon (4) + Sprint 9 browser (5) + Sprint 10 validator (6) + Sprint 11 finding status (1) + Sprint 13 codex P1-A candidate scope gate (1) + Sprint 14 report builder (6) + Sprint 15 browser auth (4) + Sprint 16 SPA route discovery (2) + Sprint 17 credential read (1)', () => {
+  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1) + Sprint 7 (1) + Sprint 8 decepticon (4) + Sprint 9 browser (5) + Sprint 10 validator (6) + Sprint 11 finding status (1) + Sprint 13 codex P1-A candidate scope gate (1) + Sprint 14 report builder (6) + Sprint 15 browser auth (4) + Sprint 16 SPA route discovery (2) + Sprint 17 credential read (1) + Sprint 18 SSRF validator (3)', () => {
     const expected = [
       'auth.register',
       'auth.login.password',
@@ -116,10 +116,14 @@ describe('contracts :: AuditAction (A3)', () => {
       'browser.spa.route.skipped_oos',
       // Sprint 17 — credential read audit.
       'auth.credential.read.viewed',
+      // Sprint 18 — SSRF validator (3).
+      'validator.ssrf.replay_denied',
+      'validator.ssrf.confirmed',
+      'validator.ssrf.timeout',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // Sprint 17 cardinality: 60 → 61 (+1 auth.credential.read.viewed).
-    expect(AUDIT_ACTIONS.length).toBe(61);
+    // Sprint 18 cardinality: 61 + 3 = 64.
+    expect(AUDIT_ACTIONS.length).toBe(64);
   });
 
   test('zod rejects unknown action', () => {

@@ -399,6 +399,24 @@ export interface TargetCredentialsTable {
 }
 
 // Sprint 17 mig 020 — mutable usage tracking (sibling to append-only target_credentials).
+// =============== OOB callbacks (Sprint 18) ===============
+
+export interface OobCallbacksTable {
+  id: Generated<string>;
+  tenant_id: string | null;
+  candidate_id: string | null;
+  token: string | null;
+  kind: string; // CHECK ('http' | 'dns')
+  method: string | null;
+  path: string | null;
+  qname: string | null;
+  qtype: string | null;
+  headers: Json | null;
+  body: string | null;
+  source_ip: string | null;
+  created_at: DbDefault<Date>;
+}
+
 export interface TargetCredentialUsageTable {
   id: Generated<string>;
   credential_id: string;
@@ -436,6 +454,7 @@ export interface Database {
   reports: ReportsTable;
   target_credentials: TargetCredentialsTable;
   target_credential_usage: TargetCredentialUsageTable;
+  oob_callbacks: OobCallbacksTable;
 }
 
 // Used by tests (B3) to assert every table key is present.
@@ -466,6 +485,7 @@ export const ALL_TABLE_NAMES: ReadonlyArray<keyof Database> = [
   'reports',
   'target_credentials',
   'target_credential_usage',
+  'oob_callbacks',
 ] as const;
 
 export const APPEND_ONLY_TABLES: ReadonlyArray<keyof Database> = [
@@ -477,6 +497,7 @@ export const APPEND_ONLY_TABLES: ReadonlyArray<keyof Database> = [
   'llm_audit_events',
   'reports',
   'target_credentials',
+  'oob_callbacks',
 ] as const;
 
 /** Platform-scoped tables (no tenant_id column). */

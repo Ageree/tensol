@@ -33,6 +33,9 @@ const SPEC: RoleSpec = {
 
   // Sprint 16 B19 — platform_admin never touches tenant credential blobs.
   target_credential: [],
+
+  // Sprint 18 — platform_admin can inspect OOB callback logs for debugging.
+  oob_callback: ['read', 'list'],
 };
 
 export const platformAdminMatrix: ReadonlyMap<string, Decision> = expandRoleSpec(

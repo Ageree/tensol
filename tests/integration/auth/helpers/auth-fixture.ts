@@ -224,6 +224,8 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       ALTER TABLE reports DISABLE TRIGGER USER;
       -- Sprint 15: target_credentials is append-only. DISABLE before DELETE.
       ALTER TABLE target_credentials DISABLE TRIGGER USER;
+      -- Sprint 18: oob_callbacks is append-only; disable trigger before DELETE.
+      ALTER TABLE oob_callbacks DISABLE TRIGGER USER;
       -- Sprint 5 F3: audit_events references projects + assessments via FK
       -- (migration 011, no CASCADE). Delete it FIRST so subsequent DELETEs of
       -- assessments/projects don't violate audit_events_assessment_id_fkey or
@@ -245,6 +247,8 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       -- current migrations — no toggle needed.
       DELETE FROM finding_evidence;
       DELETE FROM findings;
+      -- Sprint 18: oob_callbacks has no FK to candidate_findings (soft pointer); delete after findings.
+      DELETE FROM oob_callbacks;
       -- Sprint 8 (P28): candidate_findings + decepticon_sessions + assessment_artifacts
       -- all have FK to assessments. Delete BEFORE assessments to avoid FK
       -- violations. Mirrors Sprint 7 jobs FK pitfall (P26) and Sprint 5 F3.
@@ -274,6 +278,7 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       ALTER TABLE finding_evidence ENABLE TRIGGER USER;
       ALTER TABLE reports ENABLE TRIGGER USER;
       ALTER TABLE target_credentials ENABLE TRIGGER USER;
+      ALTER TABLE oob_callbacks ENABLE TRIGGER USER;
     EXCEPTION WHEN OTHERS THEN
       ALTER TABLE audit_events ENABLE TRIGGER USER;
       ALTER TABLE assessment_approvals ENABLE TRIGGER USER;
@@ -282,6 +287,7 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       ALTER TABLE finding_evidence ENABLE TRIGGER USER;
       ALTER TABLE reports ENABLE TRIGGER USER;
       ALTER TABLE target_credentials ENABLE TRIGGER USER;
+      ALTER TABLE oob_callbacks ENABLE TRIGGER USER;
       RAISE;
     END $$;
   `)

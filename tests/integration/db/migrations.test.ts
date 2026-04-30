@@ -44,11 +44,11 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
   });
 
   test('B6 — rollback removes the latest migration (three-step: 019→018→017→re-apply)', async () => {
-    // Sprint 16: latest migration is 019 (observations_browser SPA columns). Three-step strategy:
+    // Sprint 16: latest migration was 019 (observations_browser SPA columns). Three-step strategy:
     // step-1 rolls back 019 (SPA columns gone, target_credentials still present),
     // step-2 rolls back 018 (target_credentials gone, langgraph_thread_id still present),
     // step-3 rolls back 017 (langgraph_thread_id gone).
-    // K = down(020) → down(019) → down(018) → down(017); pop 020 first so step-1 lands on 019.
+    // Sprint 18: 021 is now latest, so pop 021 + 020 first so step-1 lands on 019.
     await applyAllMigrations(f);
 
     // Verify 018 shape: target_credentials exists.
@@ -60,7 +60,10 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     `.execute(f.db);
     expect(beforeStep1.rows[0]?.exists).toBe(true);
 
-    // Pop mig 020 so subsequent steps land on the expected migrations.
+    // Pop mig 021 + 020 so step-1 lands on 019.
+    const r021pre = await f.migrator.migrateDown();
+    if (r021pre.error)
+      throw r021pre.error instanceof Error ? r021pre.error : new Error(String(r021pre.error));
     const r020 = await f.migrator.migrateDown();
     if (r020.error) throw r020.error instanceof Error ? r020.error : new Error(String(r020.error));
 
@@ -172,9 +175,9 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     expect(trigNames.has('reports_no_truncate')).toBe(true);
     expect(trigNames.has('reports_immutable_ready')).toBe(true);
 
-    // Roll back 8 migrations to revert through 013 (reports table drop).
-    // 8 = down(020)→down(019)→down(018)→down(017)→down(016)→down(015)→down(014)→down(013); reports table dropped at 013-down.
-    for (let i = 0; i < 8; i++) {
+    // Roll back 9 migrations to revert through 013 (reports table drop).
+    // 9 = down(021)→down(020)→down(019)→down(018)→down(017)→down(016)→down(015)→down(014)→down(013); oob_callbacks table dropped when 021 reverts, reports table dropped at 013-down.
+    for (let i = 0; i < 9; i++) {
       const r = await f.migrator.migrateDown();
       if (r.error) throw r.error instanceof Error ? r.error : new Error(String(r.error));
     }
@@ -193,7 +196,7 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
 
   test('B6 — observations_browser SPA columns present after migration 019, absent after rollback', async () => {
     // Sprint 16: migration 019 adds source_url/depth/discovery_method to observations_browser.
-    // K = down(020) → down(019); pop 020 first so migrateDown targets 019.
+    // Sprint 18: 021 is now latest, so pop 021 + 020 first so migrateDown targets 019.
     await applyAllMigrations(f);
 
     const cols = await sql<{ column_name: string }>`
@@ -204,7 +207,10 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     `.execute(f.db);
     expect(cols.rows).toHaveLength(3);
 
-    // Pop mig 020 so the next migrateDown targets 019.
+    // Pop mig 021 + 020 so the next migrateDown targets 019.
+    const r021pre = await f.migrator.migrateDown();
+    if (r021pre.error)
+      throw r021pre.error instanceof Error ? r021pre.error : new Error(String(r021pre.error));
     const r020pre = await f.migrator.migrateDown();
     if (r020pre.error)
       throw r020pre.error instanceof Error ? r020pre.error : new Error(String(r020pre.error));
@@ -223,8 +229,8 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
   });
 
   test('B6 — target_credentials table present after migration 018, absent after rollback', async () => {
-    // Sprint 15: migration 018 adds target_credentials. With 020 now latest,
-    // K = down(020) → down(019) → down(018); pop 020 first so steps land on 019/018.
+    // Sprint 15: migration 018 adds target_credentials. With 021 now latest,
+    // K = down(021) → down(020) → down(019) → down(018); pop 021+020 first so steps land on 019/018.
     await applyAllMigrations(f);
 
     const trigRows = await sql<{ tgname: string }>`
@@ -238,7 +244,10 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     expect(trigNames.has('target_credentials_no_update_delete_row')).toBe(true);
     expect(trigNames.has('target_credentials_no_truncate')).toBe(true);
 
-    // Pop mig 020 so subsequent steps land on the expected migrations.
+    // Pop mig 021 + 020 so subsequent steps land on the expected migrations.
+    const r021pre = await f.migrator.migrateDown();
+    if (r021pre.error)
+      throw r021pre.error instanceof Error ? r021pre.error : new Error(String(r021pre.error));
     const r020pre = await f.migrator.migrateDown();
     if (r020pre.error)
       throw r020pre.error instanceof Error ? r020pre.error : new Error(String(r020pre.error));
@@ -264,6 +273,7 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
 
   test('B6 — mig 020: target_credentials.name + target_credential_usage present after 020, absent after rollback', async () => {
     // Sprint 17: migration 020 adds name col to target_credentials and creates target_credential_usage.
+    // Sprint 18: 021 is now latest, pop 021 first so migrateDown targets 020.
     await applyAllMigrations(f);
 
     const cols = await sql<{ column_name: string }>`
@@ -278,6 +288,11 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
       WHERE table_schema = 'public' AND table_name = 'target_credential_usage'
     `.execute(f.db);
     expect(tables.rows).toHaveLength(1);
+
+    // Pop mig 021 so migrateDown targets 020.
+    const r021pre = await f.migrator.migrateDown();
+    if (r021pre.error)
+      throw r021pre.error instanceof Error ? r021pre.error : new Error(String(r021pre.error));
 
     const r020 = await f.migrator.migrateDown();
     if (r020.error) throw r020.error instanceof Error ? r020.error : new Error(String(r020.error));
@@ -295,6 +310,45 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     `.execute(f.db);
     expect(afterTables.rows).toHaveLength(0);
 
+    await applyAllMigrations(f);
+  });
+
+  test('B6 — oob_callbacks table present after migration 021, absent after rollback', async () => {
+    // Sprint 18: migration 021 adds oob_callbacks with two append-only triggers.
+    await applyAllMigrations(f);
+
+    const tableRows = await sql<{ exists: boolean }>`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'oob_callbacks'
+      ) AS exists
+    `.execute(f.db);
+    expect(tableRows.rows[0]?.exists).toBe(true);
+
+    // Verify append-only triggers are present.
+    const trigRows = await sql<{ tgname: string }>`
+      SELECT tgname FROM pg_trigger
+      WHERE tgrelid = 'public.oob_callbacks'::regclass
+        AND NOT tgisinternal
+      ORDER BY tgname
+    `.execute(f.db);
+    const trigNames = new Set(trigRows.rows.map((r) => r.tgname));
+    expect(trigNames.has('oob_callbacks_no_delete_stmt')).toBe(true);
+    expect(trigNames.has('oob_callbacks_no_truncate')).toBe(true);
+
+    // Roll back migration 021.
+    const r021 = await f.migrator.migrateDown();
+    if (r021.error) throw r021.error instanceof Error ? r021.error : new Error(String(r021.error));
+
+    const afterRollback = await sql<{ exists: boolean }>`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'oob_callbacks'
+      ) AS exists
+    `.execute(f.db);
+    expect(afterRollback.rows[0]?.exists).toBe(false);
+
+    // Re-apply all migrations for downstream tests.
     await applyAllMigrations(f);
   });
 

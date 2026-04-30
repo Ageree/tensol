@@ -138,4 +138,33 @@ describe.skipIf(skip)('append-only triggers (B14, B14b)', () => {
       }
     });
   }
+
+  // Sprint 18: oob_callbacks has DELETE + TRUNCATE triggers only (no UPDATE trigger —
+  // rows have no mutable fields). Test both per A-18-OobTableAppendOnly (R3).
+  test('B14 (S18) — oob_callbacks: DELETE is rejected (stmt trigger)', async () => {
+    // Seed a row so the trigger has something to target.
+    await sql`
+      INSERT INTO oob_callbacks (kind, source_ip)
+      VALUES ('http', '127.0.0.1')
+    `.execute(f.db);
+    try {
+      await sql.raw('DELETE FROM oob_callbacks WHERE 1=1').execute(f.db);
+      throw new Error('DELETE on oob_callbacks should have failed');
+    } catch (e) {
+      const msg = (e as Error).message;
+      expect(msg).toContain('append-only table');
+      expect(msg).toContain('oob_callbacks');
+    }
+  });
+
+  test('B14b (S18) — oob_callbacks: TRUNCATE is rejected (stmt trigger)', async () => {
+    try {
+      await sql.raw('TRUNCATE TABLE oob_callbacks').execute(f.db);
+      throw new Error('TRUNCATE on oob_callbacks should have failed');
+    } catch (e) {
+      const msg = (e as Error).message;
+      expect(msg).toContain('append-only table');
+      expect(msg).toContain('oob_callbacks');
+    }
+  });
 });

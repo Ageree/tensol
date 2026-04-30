@@ -6,21 +6,20 @@ import { RESOURCES, type Resource } from './resources.ts';
 import { ROLES, type Role } from './roles.ts';
 
 describe('packages/authz :: RBAC_MATRIX shape (C8)', () => {
-  test('cardinality is exactly 7 × 14 × 15 = 1470 entries (Sprint 16 added target_credential)', () => {
-    // Sprint 16 A-16-RbacMatrixCardinality: 14 resources × 15 actions × 7 roles = 1470.
-    expect(RBAC_MATRIX.size).toBe(1470);
-    expect(ROLES.length * RESOURCES.length * ACTIONS.length).toBe(1470);
+  test('cardinality is exactly 7 × 15 × 15 = 1575 entries (Sprint 18 added oob_callback)', () => {
+    // Sprint 18 A-18-RbacMatrix: 15 resources × 15 actions × 7 roles = 1575.
+    expect(RBAC_MATRIX.size).toBe(1575);
+    expect(ROLES.length * RESOURCES.length * ACTIONS.length).toBe(1575);
   });
 
   // Sprint 5 A-RBAC-2 / A-RBAC-3: allow count is the meaningful delta. The
-  // 1470 cardinality is structural (every cell exists with allowed=true|false);
+  // 1575 cardinality is structural (every cell exists with allowed=true|false);
   // what changes between sprints is the number of allow=true cells.
-  // Sprint 16: +14 allows for target_credential (tenant_admin×4 + security_lead×3 +
-  // operator×3 + developer×2 + auditor×2 = 14). 242 → 256.
-  test('Sprint 16 target_credential: total allow=true cells = 256 (was 242 + 14)', () => {
+  // Sprint 18: +6 allows for oob_callback (platform_admin×2 + security_lead×2 + auditor×2 = 6). 256 → 262.
+  test('Sprint 18 oob_callback: total allow=true cells = 262 (was 256 + 6)', () => {
     let allows = 0;
     for (const d of RBAC_MATRIX.values()) if (d.allowed) allows++;
-    expect(allows).toBe(256);
+    expect(allows).toBe(262);
   });
 
   test('every (role, resource, action) cell is present', () => {

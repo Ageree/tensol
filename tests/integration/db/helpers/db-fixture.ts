@@ -75,6 +75,7 @@ export const dropAllTables = async (f: DbFixture): Promise<void> => {
   // Used by afterAll to guarantee a clean slate even if migrations partial-applied.
   const { sql } = await import('kysely');
   const tables = [
+    'oob_callbacks',
     'target_credential_usage',
     'target_credentials',
     'reports',

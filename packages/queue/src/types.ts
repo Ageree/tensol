@@ -34,6 +34,8 @@ export const ENVELOPE_KINDS = [
   // Sprint 15 — browser-worker auth flow. Payload carries credentialId +
   // recipe JSON. Browser-worker decrypts, logs in, persists storageState.
   'browser.auth',
+  // Sprint 18 — validator-worker subscribes to replay SSRF candidates.
+  'validator.ssrf.replay',
 ] as const;
 
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];

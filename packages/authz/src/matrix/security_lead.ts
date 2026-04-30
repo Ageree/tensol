@@ -45,6 +45,9 @@ const SPEC: RoleSpec = {
 
   // Sprint 16 B19 — security_lead can create and view credentials for assessments they run.
   target_credential: ['read', 'list', 'create'],
+
+  // Sprint 18 — security_lead can inspect OOB callback logs for SSRF replay triage.
+  oob_callback: ['read', 'list'],
 };
 
 export const securityLeadMatrix: ReadonlyMap<string, Decision> = expandRoleSpec(

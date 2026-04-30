@@ -28,6 +28,9 @@ const SPEC: RoleSpec = {
 
   // Sprint 16 B19 — viewer has no access to credentials.
   target_credential: [],
+
+  // Sprint 18 — viewer has no access to OOB callback logs.
+  oob_callback: [],
 };
 
 export const viewerMatrix: ReadonlyMap<string, Decision> = expandRoleSpec(

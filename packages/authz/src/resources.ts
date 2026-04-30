@@ -18,6 +18,8 @@ export const RESOURCES = [
   'tool_catalog',
   // Sprint 16 — encrypted login credentials per target (B19).
   'target_credential',
+  // Sprint 18 — OOB callback log entries.
+  'oob_callback',
 ] as const;
 
 export type Resource = (typeof RESOURCES)[number];

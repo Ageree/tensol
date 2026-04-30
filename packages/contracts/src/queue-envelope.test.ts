@@ -13,8 +13,9 @@ describe('queue-envelope contract', () => {
       'validate.finding',
       'report.build',
       'browser.auth',
+      'validator.ssrf.replay',
     ]);
-    expect(ENVELOPE_KINDS.length).toBe(7);
+    expect(ENVELOPE_KINDS.length).toBe(8);
   });
 
   test('JOB_STATUSES matches the DB CHECK constraint state-machine', () => {
