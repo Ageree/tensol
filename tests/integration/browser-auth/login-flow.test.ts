@@ -110,18 +110,26 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
 
   const seedActors = async () => {
     const tenantSlug = uniqSlug('ba-tenant');
-    const { user, tenantId } = await seedLoggedInUser(authFx, {
+    const { tenantId, userId } = await seedLoggedInUser(authFx, {
       email: `${uniqSlug('ba-u')}@test.com`,
       tenantSlug,
     });
-    const project = await seedProject(dbFx, tenantId);
-    const target = await seedTarget(dbFx, { tenantId, projectId: project.id });
-    const assessment = await seedAssessment(dbFx, {
+    const projectId = await seedProject(dbFx, { tenantId, name: uniqSlug('ba-proj') });
+    const targetId = await seedTarget(dbFx, {
       tenantId,
-      projectId: project.id,
-      targetId: target.id,
+      projectId,
+      kind: 'url',
+      value: 'http://localhost/',
+      ownershipStatus: 'verified',
     });
-    return { tenantId, userId: user.id, project, target, assessment };
+    const assessmentId = await seedAssessment(dbFx, {
+      tenantId,
+      projectId,
+      createdBy: userId,
+      state: 'running',
+      targetIds: [targetId],
+    });
+    return { tenantId, userId, projectId, targetId, assessmentId };
   };
 
   const buildDeps = (opts: {
@@ -199,20 +207,20 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
   };
 
   test('A-15-LoginHappyPath: decrypt + executeRecipe + storageState persisted', async () => {
-    const { tenantId, userId, target, assessment } = await seedActors();
+    const { tenantId, userId, targetId, assessmentId } = await seedActors();
     const credentialId = await insertEncryptedCredential(dbFx.db, {
       tenantId,
-      targetId: target.id,
+      targetId: targetId,
       userId,
       username: LAB_USERNAME,
       password: LAB_PASSWORD,
     });
 
-    const deps = buildDeps({ db: dbFx.db, tenantId, assessmentId: assessment.id });
+    const deps = buildDeps({ db: dbFx.db, tenantId, assessmentId: assessmentId });
     const result = await handleBrowserAuth(deps, {
       jobId: crypto.randomUUID(),
       tenantId,
-      assessmentId: assessment.id,
+      assessmentId: assessmentId,
       kind: 'browser.auth' as const,
       idempotencyKey: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
@@ -221,8 +229,8 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
       traceId: '0'.repeat(32),
       payload: {
         tenantId,
-        assessmentId: assessment.id,
-        targetId: target.id,
+        assessmentId: assessmentId,
+        targetId: targetId,
         credentialId,
         targetUrl: `http://localhost:${authLab.port}/`,
         recipeJson: makeRecipeJson(authLab.port),
@@ -235,7 +243,7 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
     // Verify audit events emitted.
     const { sql } = await import('kysely');
     const auditRows = await sql<{ action: string }>`
-      SELECT action FROM audit_events WHERE assessment_id = ${assessment.id}
+      SELECT action FROM audit_events WHERE assessment_id = ${assessmentId}
       ORDER BY created_at
     `.execute(dbFx.db);
     const actions = auditRows.rows.map((r) => r.action);
@@ -243,7 +251,7 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
     expect(actions).toContain('auth.recipe.executed');
 
     // Verify storageState key in object storage.
-    const objectKey = `browser-auth/${assessment.id}/${credentialId}.json`;
+    const objectKey = `browser-auth/${assessmentId}/${credentialId}.json`;
     const bytes = await storage.get(objectKey);
     expect(bytes).not.toBeNull();
     const stateJson = JSON.parse(new TextDecoder().decode(bytes ?? new Uint8Array()));
@@ -253,20 +261,20 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
   });
 
   test('A-15-LoginFailed: wrong password → nack terminal + auth.login.failed', async () => {
-    const { tenantId, userId, target, assessment } = await seedActors();
+    const { tenantId, userId, targetId, assessmentId } = await seedActors();
     const credentialId = await insertEncryptedCredential(dbFx.db, {
       tenantId,
-      targetId: target.id,
+      targetId: targetId,
       userId,
       username: LAB_USERNAME,
       password: 'wrong-password',
     });
 
-    const deps = buildDeps({ db: dbFx.db, tenantId, assessmentId: assessment.id });
+    const deps = buildDeps({ db: dbFx.db, tenantId, assessmentId: assessmentId });
     const result = await handleBrowserAuth(deps, {
       jobId: crypto.randomUUID(),
       tenantId,
-      assessmentId: assessment.id,
+      assessmentId: assessmentId,
       kind: 'browser.auth' as const,
       idempotencyKey: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
@@ -275,8 +283,8 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
       traceId: '0'.repeat(32),
       payload: {
         tenantId,
-        assessmentId: assessment.id,
-        targetId: target.id,
+        assessmentId: assessmentId,
+        targetId: targetId,
         credentialId,
         targetUrl: `http://localhost:${authLab.port}/`,
         recipeJson: makeRecipeJson(authLab.port),
@@ -288,7 +296,7 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
 
     const { sql } = await import('kysely');
     const auditRows = await sql<{ action: string }>`
-      SELECT action FROM audit_events WHERE assessment_id = ${assessment.id}
+      SELECT action FROM audit_events WHERE assessment_id = ${assessmentId}
     `.execute(dbFx.db);
     const actions = auditRows.rows.map((r) => r.action);
     expect(actions).toContain('auth.login.failed');
@@ -298,20 +306,20 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
   });
 
   test('A-15-ScopeGuard: null scope → nack before decryption + auth.recipe.scope_denied audit', async () => {
-    const { tenantId, userId, target, assessment } = await seedActors();
+    const { tenantId, userId, targetId, assessmentId } = await seedActors();
     const credentialId = await insertEncryptedCredential(dbFx.db, {
       tenantId,
-      targetId: target.id,
+      targetId: targetId,
       userId,
       username: LAB_USERNAME,
       password: LAB_PASSWORD,
     });
 
-    const deps = buildDeps({ db: dbFx.db, tenantId, assessmentId: assessment.id, denyScope: true });
+    const deps = buildDeps({ db: dbFx.db, tenantId, assessmentId: assessmentId, denyScope: true });
     const result = await handleBrowserAuth(deps, {
       jobId: crypto.randomUUID(),
       tenantId,
-      assessmentId: assessment.id,
+      assessmentId: assessmentId,
       kind: 'browser.auth' as const,
       idempotencyKey: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
@@ -320,8 +328,8 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
       traceId: '0'.repeat(32),
       payload: {
         tenantId,
-        assessmentId: assessment.id,
-        targetId: target.id,
+        assessmentId: assessmentId,
+        targetId: targetId,
         credentialId,
         targetUrl: `http://localhost:${authLab.port}/`,
         recipeJson: makeRecipeJson(authLab.port),
@@ -333,7 +341,7 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
 
     const { sql } = await import('kysely');
     const auditRows = await sql<{ action: string }>`
-      SELECT action FROM audit_events WHERE assessment_id = ${assessment.id}
+      SELECT action FROM audit_events WHERE assessment_id = ${assessmentId}
     `.execute(dbFx.db);
     const actions = auditRows.rows.map((r) => r.action);
     expect(actions).toContain('auth.recipe.scope_denied');
@@ -344,7 +352,7 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
   });
 
   test('A-15-DecryptionFailure: tampered auth_tag → nack terminal', async () => {
-    const { tenantId, userId, target, assessment } = await seedActors();
+    const { tenantId, userId, targetId, assessmentId } = await seedActors();
     const plaintext = JSON.stringify({ username: LAB_USERNAME, password: LAB_PASSWORD });
     const blob = encryptCredential(plaintext, TEST_KEK);
     const tamperedTag = Buffer.from(blob.authTag);
@@ -353,7 +361,7 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
     const { id: credentialId } = await insertTargetCredential({
       db: dbFx.db,
       tenantId,
-      targetId: target.id,
+      targetId: targetId,
       recipeId: 'lab-form-post',
       encryptedBlob: blob.ciphertext,
       iv: blob.iv,
@@ -361,11 +369,11 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
       createdBy: userId,
     });
 
-    const deps = buildDeps({ db: dbFx.db, tenantId, assessmentId: assessment.id });
+    const deps = buildDeps({ db: dbFx.db, tenantId, assessmentId: assessmentId });
     const result = await handleBrowserAuth(deps, {
       jobId: crypto.randomUUID(),
       tenantId,
-      assessmentId: assessment.id,
+      assessmentId: assessmentId,
       kind: 'browser.auth' as const,
       idempotencyKey: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
@@ -374,8 +382,8 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
       traceId: '0'.repeat(32),
       payload: {
         tenantId,
-        assessmentId: assessment.id,
-        targetId: target.id,
+        assessmentId: assessmentId,
+        targetId: targetId,
         credentialId,
         targetUrl: `http://localhost:${authLab.port}/`,
         recipeJson: makeRecipeJson(authLab.port),
@@ -389,10 +397,10 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
   });
 
   test('A-15-CredentialRepo: DELETE FROM target_credentials raises error (append-only)', async () => {
-    const { tenantId, userId, target } = await seedActors();
+    const { tenantId, userId, targetId } = await seedActors();
     await insertEncryptedCredential(dbFx.db, {
       tenantId,
-      targetId: target.id,
+      targetId: targetId,
       userId,
       username: LAB_USERNAME,
       password: LAB_PASSWORD,

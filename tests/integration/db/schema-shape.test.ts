@@ -107,10 +107,16 @@ describe.skipIf(skip)('schema shape (B9-B12, B23, B23b, B24)', () => {
     }
   });
 
-  test('B23 — no BYTEA columns anywhere', async () => {
+  // Tables that intentionally use bytea for binary-by-nature data.
+  // AES-GCM ciphertext + IV + auth_tag are raw binary; hex-encoding wastes ~33%
+  // storage and adds encode/decode overhead without benefit. (P32)
+  const BYTEA_EXEMPT = ['target_credentials'];
+
+  test('B23 — no BYTEA columns anywhere (except exempt tables)', async () => {
     const r = await sql<{ table_name: string; column_name: string }>`
       SELECT table_name, column_name FROM information_schema.columns
       WHERE table_schema='public' AND data_type='bytea'
+        AND table_name != ALL(${BYTEA_EXEMPT})
     `.execute(f.db);
     expect(r.rows.length).toBe(0);
   });
