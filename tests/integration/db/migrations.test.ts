@@ -154,9 +154,9 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     expect(trigNames.has('reports_no_truncate')).toBe(true);
     expect(trigNames.has('reports_immutable_ready')).toBe(true);
 
-    // Roll back 5 migrations to revert through 013 (reports table drop).
-    // 017→016→015→014→013 = 5 migrateDown calls (each reverts one).
-    for (let i = 0; i < 5; i++) {
+    // Roll back 6 migrations to revert through 013 (reports table drop).
+    // 6 = down(018) → down(017) → down(016) → down(015) → down(014) → down(013); reports table dropped at 013-down.
+    for (let i = 0; i < 6; i++) {
       const r = await f.migrator.migrateDown();
       if (r.error) throw r.error instanceof Error ? r.error : new Error(String(r.error));
     }

@@ -142,25 +142,56 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
     objectStorage: storage,
     buildScope: async (assessmentId: string) => {
       if (opts.denyScope) return null;
-      const scopeRules = [
+      const rawRules = [
         {
+          id: 'r1',
           ruleKind: 'domain' as const,
           effect: 'allow' as const,
           payload: { pattern: 'localhost', matchSubdomains: false },
         },
-        { ruleKind: 'ip' as const, effect: 'allow' as const, payload: { ip: '203.0.113.7' } },
-        { ruleKind: 'protocol' as const, effect: 'allow' as const, payload: { protocol: 'http' } },
-        { ruleKind: 'port' as const, effect: 'allow' as const, payload: { port: authLab.port } },
-        { ruleKind: 'http_method' as const, effect: 'allow' as const, payload: { method: 'GET' } },
-        { ruleKind: 'http_method' as const, effect: 'allow' as const, payload: { method: 'POST' } },
+        {
+          id: 'r2',
+          ruleKind: 'ip' as const,
+          effect: 'allow' as const,
+          payload: { ip: '203.0.113.7' },
+        },
+        {
+          id: 'r3',
+          ruleKind: 'protocol' as const,
+          effect: 'allow' as const,
+          payload: { protocol: 'http' },
+        },
+        {
+          id: 'r4',
+          ruleKind: 'port' as const,
+          effect: 'allow' as const,
+          payload: { port: authLab.port },
+        },
+        {
+          id: 'r5',
+          ruleKind: 'http_method' as const,
+          effect: 'allow' as const,
+          payload: { method: 'GET' },
+        },
+        {
+          id: 'r6',
+          ruleKind: 'http_method' as const,
+          effect: 'allow' as const,
+          payload: { method: 'POST' },
+        },
       ];
       return buildEffectiveScope({
         assessmentId,
         tenantId: opts.tenantId,
-        rules: scopeRules,
-        toolPolicy: DEFAULT_PLATFORM_POLICY as unknown as ReturnType<
-          typeof buildEffectiveScope
-        >['toolPolicy'],
+        tenantPolicy: { tenantId: opts.tenantId },
+        platformPolicy: DEFAULT_PLATFORM_POLICY,
+        rawRules,
+        toolCatalog: new Map(),
+        assessmentFlags: {
+          highImpactCategories: [],
+          ownershipVerifiedTargetIds: new Set<string>(),
+        },
+        timeWindow: null,
       });
     },
     scopeDeps: stubScopeDeps,
