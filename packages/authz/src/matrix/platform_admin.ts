@@ -30,6 +30,9 @@ const SPEC: RoleSpec = {
   // Sprint 4 A15b — audit_log access restricted to auditor + tenant_admin
   // (platform_admin cross-tenant audit visibility deferred to Phase 9 / Q-4).
   audit_log: [],
+
+  // Sprint 16 B19 — platform_admin never touches tenant credential blobs.
+  target_credential: [],
 };
 
 export const platformAdminMatrix: ReadonlyMap<string, Decision> = expandRoleSpec(

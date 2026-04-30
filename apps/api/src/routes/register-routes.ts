@@ -54,6 +54,7 @@ import { handleBuildReport, handleDownloadReport, handleGetReport } from './repo
 import type { RouteDeps } from './shared.ts';
 import {
   handleCreateTarget,
+  handleCreateTargetCredential,
   handleDeleteTarget,
   handleGetTarget,
   handleListObservations,
@@ -173,6 +174,11 @@ export const registerRoutes = (app: Hono<SessionEnv>, deps: RouteDeps): void => 
     handleListFindingEvidence(deps, c),
   );
   app.get('/api/v1/evidence/:id', tenantGuard(), (c) => handleGetEvidence(deps, c));
+
+  // Sprint 16 B19 — target credentials (encrypt-at-insert, immutable).
+  app.post('/api/v1/assessments/:id/target-credentials', tenantGuard(), (c) =>
+    handleCreateTargetCredential(deps, c),
+  );
 
   // Sprint 14 — reports.
   app.post('/api/v1/assessments/:id/reports', tenantGuard(), idem, (c) =>

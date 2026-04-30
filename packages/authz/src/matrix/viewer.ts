@@ -25,6 +25,9 @@ const SPEC: RoleSpec = {
 
   skill: [],
   tool_catalog: [],
+
+  // Sprint 16 B19 — viewer has no access to credentials.
+  target_credential: [],
 };
 
 export const viewerMatrix: ReadonlyMap<string, Decision> = expandRoleSpec(

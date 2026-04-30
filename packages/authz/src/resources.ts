@@ -16,6 +16,8 @@ export const RESOURCES = [
   'audit_log',
   'skill',
   'tool_catalog',
+  // Sprint 16 — encrypted login credentials per target (B19).
+  'target_credential',
 ] as const;
 
 export type Resource = (typeof RESOURCES)[number];

@@ -28,6 +28,9 @@ const SPEC: RoleSpec = {
 
   skill: ['read', 'list'],
   tool_catalog: ['read', 'list'],
+
+  // Sprint 16 B19 — developer can view credentials but not create them.
+  target_credential: ['read', 'list'],
 };
 
 export const developerMatrix: ReadonlyMap<string, Decision> = expandRoleSpec(

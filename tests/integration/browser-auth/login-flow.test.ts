@@ -212,6 +212,26 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
       successCheck: { selector: '.dashboard', timeoutMs: 10000 },
     });
 
+  // B26 fix: cap navigate + successCheck timeouts so the test completes in ~5s
+  // even when run after another test that leaves Chromium/Bun HTTP connections
+  // in a partially-closed state (page.goto default is 30s — unsafe in a suite).
+  const makeShortTimeoutRecipeJson = (port: number): string =>
+    JSON.stringify({
+      name: 'lab-form-post',
+      kind: 'form-post',
+      steps: [
+        {
+          action: 'navigate',
+          value: `http://localhost:${port}/`,
+          waitFor: { selector: 'body', timeoutMs: 8000 },
+        },
+        { action: 'fill', selector: '#username', fillFromCred: 'username' },
+        { action: 'fill', selector: '#password', fillFromCred: 'password' },
+        { action: 'submit', selector: '#submit', waitFor: { selector: 'body', timeoutMs: 8000 } },
+      ],
+      successCheck: { selector: '.dashboard', timeoutMs: 2000 },
+    });
+
   const insertEncryptedCredential = async (
     db: Kysely<Database>,
     opts: {
@@ -236,6 +256,55 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
     });
     return id;
   };
+
+  // B26: run LoginFailed before LoginHappyPath — launching Chromium after a
+  // completed happy-path session causes page.goto to hang for 30 s (Chromium
+  // TCP TIME_WAIT on the Bun HTTP server). Running first avoids the issue.
+  // 30 s budget: navigate (8 s cap) + submit (8 s cap) + 2 s selector timeout.
+  test('A-15-LoginFailed: wrong password → nack terminal + auth.login.failed', async () => {
+    const { tenantId, userId, targetId, assessmentId } = await seedActors();
+    const credentialId = await insertEncryptedCredential(dbFx.db, {
+      tenantId,
+      targetId: targetId,
+      userId,
+      username: LAB_USERNAME,
+      password: 'wrong-password',
+    });
+
+    const deps = buildDeps({ db: dbFx.db, tenantId, assessmentId: assessmentId });
+    const result = await handleBrowserAuth(deps, {
+      jobId: crypto.randomUUID(),
+      tenantId,
+      assessmentId: assessmentId,
+      kind: 'browser.auth' as const,
+      idempotencyKey: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      attempt: 1,
+      maxAttempts: 3,
+      traceId: '0'.repeat(32),
+      payload: {
+        tenantId,
+        assessmentId: assessmentId,
+        targetId: targetId,
+        credentialId,
+        targetUrl: `http://localhost:${authLab.port}/`,
+        recipeJson: makeShortTimeoutRecipeJson(authLab.port),
+        traceId: '0'.repeat(32),
+      },
+    } as unknown as Parameters<typeof handleBrowserAuth>[1]);
+
+    expect(result.kind).toBe('nack');
+
+    const { sql } = await import('kysely');
+    const auditRows = await sql<{ action: string }>`
+      SELECT action FROM audit_events WHERE assessment_id = ${assessmentId}
+    `.execute(dbFx.db);
+    const actions = auditRows.rows.map((r) => r.action);
+    expect(actions).toContain('auth.login.failed');
+    expect(actions).not.toContain('auth.recipe.executed');
+
+    await resetAuthState(dbFx.db);
+  }, 30_000);
 
   test('A-15-LoginHappyPath: decrypt + executeRecipe + storageState persisted', async () => {
     const { tenantId, userId, targetId, assessmentId } = await seedActors();
@@ -287,51 +356,6 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
     expect(bytes).not.toBeNull();
     const stateJson = JSON.parse(new TextDecoder().decode(bytes ?? new Uint8Array()));
     expect(stateJson).toHaveProperty('cookies');
-
-    await resetAuthState(dbFx.db);
-  });
-
-  test('A-15-LoginFailed: wrong password → nack terminal + auth.login.failed', async () => {
-    const { tenantId, userId, targetId, assessmentId } = await seedActors();
-    const credentialId = await insertEncryptedCredential(dbFx.db, {
-      tenantId,
-      targetId: targetId,
-      userId,
-      username: LAB_USERNAME,
-      password: 'wrong-password',
-    });
-
-    const deps = buildDeps({ db: dbFx.db, tenantId, assessmentId: assessmentId });
-    const result = await handleBrowserAuth(deps, {
-      jobId: crypto.randomUUID(),
-      tenantId,
-      assessmentId: assessmentId,
-      kind: 'browser.auth' as const,
-      idempotencyKey: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-      attempt: 1,
-      maxAttempts: 3,
-      traceId: '0'.repeat(32),
-      payload: {
-        tenantId,
-        assessmentId: assessmentId,
-        targetId: targetId,
-        credentialId,
-        targetUrl: `http://localhost:${authLab.port}/`,
-        recipeJson: makeRecipeJson(authLab.port),
-        traceId: '0'.repeat(32),
-      },
-    } as unknown as Parameters<typeof handleBrowserAuth>[1]);
-
-    expect(result.kind).toBe('nack');
-
-    const { sql } = await import('kysely');
-    const auditRows = await sql<{ action: string }>`
-      SELECT action FROM audit_events WHERE assessment_id = ${assessmentId}
-    `.execute(dbFx.db);
-    const actions = auditRows.rows.map((r) => r.action);
-    expect(actions).toContain('auth.login.failed');
-    expect(actions).not.toContain('auth.recipe.executed');
 
     await resetAuthState(dbFx.db);
   });

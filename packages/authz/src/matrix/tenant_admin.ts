@@ -42,6 +42,9 @@ const SPEC: RoleSpec = {
   // Platform catalogs — read-only for tenant admins (browsing).
   skill: ['read', 'list'],
   tool_catalog: ['read', 'list'],
+
+  // Sprint 16 B19 — tenant_admin manages credential lifecycle within their tenant.
+  target_credential: ['read', 'list', 'create', 'delete'],
 };
 
 export const tenantAdminMatrix: ReadonlyMap<string, Decision> = expandRoleSpec(

@@ -54,6 +54,16 @@ export interface BrowserArtifactBytes {
   readonly httpStatus: number | null;
 }
 
+export interface DiscoveredSpaRoute {
+  readonly url: string;
+  readonly sourceUrl: string;
+  readonly depth: number;
+  readonly method: 'pushstate' | 'popstate';
+  readonly navigated: boolean;
+  /** Present when navigated=true — raw artifact bytes for observation insertion. */
+  readonly artifacts?: BrowserArtifactBytes;
+}
+
 export interface NavigationOutcome {
   readonly finalUrl: string;
   /** redirectChain[0] === startUrl, redirectChain[N] === finalUrl. */
@@ -61,6 +71,8 @@ export interface NavigationOutcome {
   readonly artifacts: BrowserArtifactBytes;
   /** Hyperlinks found on the rendered page (absolute URLs). depth-1 only. */
   readonly discoveredLinks: ReadonlyArray<string>;
+  /** Sprint 16 — SPA routes discovered via pushState/popstate observer. */
+  readonly spaRoutes: ReadonlyArray<DiscoveredSpaRoute>;
 }
 
 /** Inject point for the recording-fetch test stub used by A-BR-NavBeforeFetch. */

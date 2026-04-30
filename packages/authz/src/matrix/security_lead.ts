@@ -42,6 +42,9 @@ const SPEC: RoleSpec = {
 
   skill: ['read', 'list'],
   tool_catalog: ['read', 'list'],
+
+  // Sprint 16 B19 — security_lead can create and view credentials for assessments they run.
+  target_credential: ['read', 'list', 'create'],
 };
 
 export const securityLeadMatrix: ReadonlyMap<string, Decision> = expandRoleSpec(

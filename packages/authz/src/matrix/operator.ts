@@ -30,6 +30,9 @@ const SPEC: RoleSpec = {
 
   skill: ['read', 'list'],
   tool_catalog: ['read', 'list'],
+
+  // Sprint 16 B19 — operator can create and view credentials for targets they work.
+  target_credential: ['read', 'list', 'create'],
 };
 
 export const operatorMatrix: ReadonlyMap<string, Decision> = expandRoleSpec(

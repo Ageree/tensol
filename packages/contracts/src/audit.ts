@@ -110,6 +110,9 @@ export const AUDIT_ACTIONS = [
   'auth.credential.target_mismatch',
   // Sprint 15 codex adversarial — scope unavailable or target URL denied before recipe executes.
   'auth.recipe.scope_denied',
+  // Sprint 16 — SPA route discovery lifecycle.
+  'browser.spa.route.discovered',
+  'browser.spa.route.skipped_oos',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

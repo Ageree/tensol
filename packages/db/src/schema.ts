@@ -243,6 +243,10 @@ export interface ObservationsBrowserTable {
   trace_sha256: string;
   trace_size_bytes: string;
   console_messages: Json;
+  // Sprint 16 SPA route discovery columns (migration 019).
+  source_url: string | null;
+  depth: number;
+  discovery_method: string;
   observed_at: DbDefault<Date>;
   created_at: DbDefault<Date>;
   updated_at: DbDefault<Date>;

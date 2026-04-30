@@ -6,21 +6,21 @@ import { RESOURCES, type Resource } from './resources.ts';
 import { ROLES, type Role } from './roles.ts';
 
 describe('packages/authz :: RBAC_MATRIX shape (C8)', () => {
-  test('cardinality is exactly 7 × 13 × 15 = 1365 entries (Sprint 6 added scope_validate)', () => {
-    expect(RBAC_MATRIX.size).toBe(1365);
-    expect(ROLES.length * RESOURCES.length * ACTIONS.length).toBe(1365);
+  test('cardinality is exactly 7 × 14 × 15 = 1470 entries (Sprint 16 added target_credential)', () => {
+    // Sprint 16 A-16-RbacMatrixCardinality: 14 resources × 15 actions × 7 roles = 1470.
+    expect(RBAC_MATRIX.size).toBe(1470);
+    expect(ROLES.length * RESOURCES.length * ACTIONS.length).toBe(1470);
   });
 
   // Sprint 5 A-RBAC-2 / A-RBAC-3: allow count is the meaningful delta. The
-  // 1365 cardinality is structural (every cell exists with allowed=true|false);
+  // 1470 cardinality is structural (every cell exists with allowed=true|false);
   // what changes between sprints is the number of allow=true cells.
-  // Sprint 6 A-SE-RBAC-1: +3 allows (tenant_admin, security_lead, operator on
-  // assessment.scope_validate). 239 → 242. Auditor's C10 invariant preserved
-  // (no scope_validate grant — it's not a read/list action).
-  test('Sprint 6 A-SE-RBAC-1: total allow=true cells = 242 (was 239 + 3)', () => {
+  // Sprint 16: +14 allows for target_credential (tenant_admin×4 + security_lead×3 +
+  // operator×3 + developer×2 + auditor×2 = 14). 242 → 256.
+  test('Sprint 16 target_credential: total allow=true cells = 256 (was 242 + 14)', () => {
     let allows = 0;
     for (const d of RBAC_MATRIX.values()) if (d.allowed) allows++;
-    expect(allows).toBe(242);
+    expect(allows).toBe(256);
   });
 
   test('every (role, resource, action) cell is present', () => {

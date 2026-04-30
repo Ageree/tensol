@@ -8,6 +8,7 @@
 //   - DELETE /targets/:id                             hard-delete with reference-protection (A-Tgt-6)
 //   - POST /targets/:id/ownership-proof               record claim + flip status to 'pending' (A-Tgt-5)
 //   - GET  /targets/:id/observations                  Sprint 9 placeholder (A-Tgt-7)
+//   - POST /assessments/:id/target-credentials        Sprint 16 B19 (A-16-CredentialCreate)
 //
 // Security invariants:
 //   R1 — `evidence` capped at 8192 chars (zod schema).
@@ -15,11 +16,13 @@
 //   (.strict() on DTO; ownership-proof is the ONLY mutation path).
 
 import { RbacDenyError, assertCan } from '@cyberstrike/authz';
+import { CredentialSchema, encryptCredential, parseKek } from '@cyberstrike/browser-auth';
 import {
   ownershipProofSchema,
   targetCreateSchema,
   targetPatchSchema,
 } from '@cyberstrike/contracts';
+import { insertTargetCredential } from '@cyberstrike/db';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import { assertOwnership } from '../../middleware/assert-ownership.ts';
@@ -529,4 +532,100 @@ export const handleListObservations = async (
 
   // Sprint 9 lands real observation rows; this endpoint exists for UI stability.
   return c.json({ data: [], nextCursor: null });
+};
+
+// =============================================================================
+// POST /assessments/:id/target-credentials — B19 (A-16-CredentialCreate)
+// =============================================================================
+
+const targetCredentialBodySchema = CredentialSchema.extend({
+  targetId: z.string().uuid(),
+  recipeId: z.string().uuid(),
+}).strict();
+
+const loadAssessmentTenantById = async (
+  deps: RouteDeps,
+  id: string,
+): Promise<{ id: string; tenant_id: string } | null> => {
+  const row = await deps.db
+    .selectFrom('assessments')
+    .select(['id', 'tenant_id'])
+    .where('id', '=', id)
+    .executeTakeFirst();
+  return row ?? null;
+};
+
+export const handleCreateTargetCredential = async (
+  deps: RouteDeps,
+  c: Context<SessionEnv>,
+): Promise<Response> => {
+  const actor = requireActor(c);
+
+  // RBAC check — assertCan before any DB load (fail fast).
+  const decision = assertCan(actor, 'create', 'target_credential');
+  if (!decision.allowed) {
+    throw new RbacDenyError({
+      actorTenantId: actor.tenantId,
+      attemptedResourceType: 'target_credential',
+      reason: `rbac: ${decision.reason}`,
+    });
+  }
+
+  const assessmentId = idParam.safeParse(c.req.param('id'));
+  if (!assessmentId.success) return c.json({ error: 'not_found' }, 404);
+
+  // Cross-tenant ownership check.
+  const assessment = await loadAssessmentTenantById(deps, assessmentId.data);
+  if (!assessment) return c.json({ error: 'not_found' }, 404);
+  assertOwnership(actor.tenantId, {
+    resourceType: 'assessment',
+    resourceId: assessment.id,
+    resourceTenantId: assessment.tenant_id,
+  });
+
+  // Validate body.
+  const body = await safeJson(c);
+  if (!body) return c.json({ error: 'invalid_body' }, 400);
+  const parsed = targetCredentialBodySchema.safeParse(body);
+  if (!parsed.success) return c.json({ error: 'invalid_body' }, 400);
+
+  // KEK from env — 500 if absent (misconfiguration).
+  const { CREDENTIAL_KEK } = process.env;
+  const kek = parseKek(CREDENTIAL_KEK);
+
+  // Encrypt credentials (AES-256-GCM).
+  const blob = encryptCredential(
+    JSON.stringify({ username: parsed.data.username, password: parsed.data.password }),
+    kek,
+  );
+
+  // Persist — immutable row (trigger enforces no UPDATE/DELETE).
+  const { id } = await insertTargetCredential({
+    db: deps.db,
+    tenantId: actor.tenantId,
+    targetId: parsed.data.targetId,
+    recipeId: parsed.data.recipeId,
+    encryptedBlob: blob.ciphertext,
+    iv: blob.iv,
+    authTag: blob.authTag,
+    createdBy: actor.id,
+  });
+
+  await audit(deps, {
+    tenantId: actor.tenantId,
+    action: 'auth.credential.encrypted',
+    outcome: 'success',
+    actorType: 'user',
+    actorId: actor.id,
+    actorName: actor.email,
+    resourceType: 'target_credential',
+    resourceId: id,
+    assessmentId: assessment.id,
+    ip: sourceIp(c),
+    userAgent: userAgent(c),
+    traceId: newTraceId(),
+    metadata: { targetId: parsed.data.targetId, recipeId: parsed.data.recipeId },
+  });
+
+  return c.json({ id }, 201);
 };

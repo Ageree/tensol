@@ -4,9 +4,10 @@
 // Sprint 3 contract C8: every (role, resource, action) cell MUST have a Decision
 // — no implicit defaults. Per-role files declare ALLOWED actions per resource
 // as a sparse spec; the expander fills in `allowed: false` for every other
-// (resource, action) cell so the final matrix has 13 × 14 = 182 entries
-// per role and 7 × 182 = 1274 entries total. Each Decision is frozen at
+// (resource, action) cell so the final matrix has 14 × 15 = 210 entries
+// per role and 7 × 210 = 1470 entries total. Each Decision is frozen at
 // expansion time.
+// (Sprint 6 added scope_validate → 15 actions; Sprint 16 added target_credential → 14 resources.)
 
 import { ACTIONS, type Action } from '../actions.ts';
 import { type Decision, buildKey } from '../decision.ts';

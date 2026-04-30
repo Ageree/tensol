@@ -175,6 +175,8 @@ export class FakeBrowserDriver implements BrowserDriver {
         httpStatus: res.status,
       },
       discoveredLinks: extractLinks(body, finalUrl),
+      // Sprint 16: FakeBrowserDriver does not simulate SPA discovery (fetch-based, no JS engine).
+      spaRoutes: [],
     };
   }
 

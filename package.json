@@ -9,7 +9,8 @@
     "services/*",
     "packages/*",
     "tests/lab/xss-fixture",
-    "tests/lab/auth-fixture"
+    "tests/lab/auth-fixture",
+    "tests/lab/spa-fixture"
   ],
   "scripts": {
     "bun:assert-version": "bun scripts/assert-bun-version.ts",

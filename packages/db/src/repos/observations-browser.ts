@@ -30,6 +30,10 @@ export interface InsertObservationBrowserInput {
   readonly traceSha256: string;
   readonly traceSizeBytes: number;
   readonly consoleMessages: ReadonlyArray<ConsoleMessageInput>;
+  // Sprint 16 SPA route discovery fields (migration 019). Defaults apply when absent.
+  readonly sourceUrl?: string | null;
+  readonly depth?: number;
+  readonly discoveryMethod?: string;
 }
 
 export interface InsertObservationBrowserResult {
@@ -62,6 +66,9 @@ export const insertObservationBrowser = async (
       trace_sha256: input.traceSha256,
       trace_size_bytes: String(input.traceSizeBytes),
       console_messages: consoleMessagesJson,
+      source_url: input.sourceUrl ?? null,
+      depth: input.depth ?? 0,
+      discovery_method: input.discoveryMethod ?? 'initial_navigation',
     })
     .returning(['id'])
     .executeTakeFirstOrThrow();

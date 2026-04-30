@@ -93,6 +93,10 @@ export interface ObservationWriterInput {
   readonly traceSha256: string;
   readonly traceSizeBytes: number;
   readonly consoleMessages: ReadonlyArray<ConsoleMessage>;
+  /** Sprint 16 — SPA discovery fields (optional; initial navigation uses defaults). */
+  readonly sourceUrl?: string | null;
+  readonly depth?: number;
+  readonly discoveryMethod?: string;
 }
 
 export type ObservationWriter = (input: ObservationWriterInput) => Promise<{ readonly id: string }>;
@@ -327,6 +331,114 @@ export const handleReconBrowser = async (
         traceSha256: written.trace.sha256,
       },
     );
+
+    // Sprint 16 — SPA route audit + observation persistence.
+    for (const spaRoute of outcome.spaRoutes) {
+      if (!spaRoute.navigated || !spaRoute.artifacts) {
+        // Discovery-only (popstate) or OOS-skipped — emit skipped/discovered accordingly.
+        const action =
+          spaRoute.method === 'popstate' || spaRoute.navigated === false
+            ? spaRoute.method === 'popstate'
+              ? ('browser.spa.route.discovered' as const)
+              : ('browser.spa.route.skipped_oos' as const)
+            : ('browser.spa.route.discovered' as const);
+        await deps.auditEmitter({
+          tenantId: payload.tenantId,
+          action,
+          outcome: spaRoute.navigated ? 'success' : 'denied',
+          actorType: 'service',
+          actorId: BROWSER_WORKER_ACTOR_ID,
+          actorName: 'browser-worker',
+          resourceType: 'assessment',
+          resourceId: payload.assessmentId,
+          ...(payload.projectId ? { projectId: payload.projectId } : {}),
+          assessmentId: payload.assessmentId,
+          ip: 'browser-worker',
+          userAgent: null,
+          traceId: payload.traceId,
+          metadata: {
+            url: spaRoute.url,
+            sourceUrl: spaRoute.sourceUrl,
+            depth: spaRoute.depth,
+            method: spaRoute.method,
+            navigated: spaRoute.navigated,
+            jobId: envelope.jobId,
+          },
+        });
+        continue;
+      }
+
+      // Navigated SPA route — write artifacts + observation.
+      const spaHarJson = JSON.parse(new TextDecoder().decode(spaRoute.artifacts.har)) as Har;
+      const spaRedacted = redactCookies(spaHarJson);
+      const spaRedactedBytes = new TextEncoder().encode(JSON.stringify(spaRedacted));
+      let spaWritten: Awaited<ReturnType<typeof writeArtifacts>>;
+      try {
+        spaWritten = await writeArtifacts(deps.objectStorage, {
+          tenantId: payload.tenantId,
+          assessmentId: payload.assessmentId,
+          sessionId: `${session.sessionId}-spa-${spaRoute.depth}-${Date.now()}`,
+          screenshot: spaRoute.artifacts.screenshot,
+          har: spaRedactedBytes,
+          trace: spaRoute.artifacts.trace,
+        });
+      } catch (err) {
+        throw new StorageWriteError(
+          `spa_object_storage_put_failed:${err instanceof Error ? err.message : String(err)}`,
+          err,
+        );
+      }
+      try {
+        await deps.observationWriter({
+          tenantId: payload.tenantId,
+          assessmentId: payload.assessmentId,
+          url: spaRoute.url,
+          httpStatus: spaRoute.artifacts.httpStatus,
+          screenshotObjectKey: spaWritten.screenshot.key,
+          screenshotSha256: spaWritten.screenshot.sha256,
+          screenshotSizeBytes: spaWritten.screenshot.sizeBytes,
+          harObjectKey: spaWritten.har.key,
+          harSha256: spaWritten.har.sha256,
+          harSizeBytes: spaWritten.har.sizeBytes,
+          traceObjectKey: spaWritten.trace.key,
+          traceSha256: spaWritten.trace.sha256,
+          traceSizeBytes: spaWritten.trace.sizeBytes,
+          consoleMessages: spaRoute.artifacts.consoleMessages,
+          sourceUrl: spaRoute.sourceUrl,
+          depth: spaRoute.depth,
+          discoveryMethod: spaRoute.method,
+        });
+      } catch (err) {
+        throw new DbTransientError(
+          `spa_observation_insert_failed:${err instanceof Error ? err.message : String(err)}`,
+          err,
+        );
+      }
+      await deps.auditEmitter({
+        tenantId: payload.tenantId,
+        action: 'browser.spa.route.discovered',
+        outcome: 'success',
+        actorType: 'service',
+        actorId: BROWSER_WORKER_ACTOR_ID,
+        actorName: 'browser-worker',
+        resourceType: 'assessment',
+        resourceId: payload.assessmentId,
+        ...(payload.projectId ? { projectId: payload.projectId } : {}),
+        assessmentId: payload.assessmentId,
+        ip: 'browser-worker',
+        userAgent: null,
+        traceId: payload.traceId,
+        metadata: {
+          url: spaRoute.url,
+          sourceUrl: spaRoute.sourceUrl,
+          depth: spaRoute.depth,
+          method: spaRoute.method,
+          navigated: true,
+          screenshotSha256: spaWritten.screenshot.sha256,
+          jobId: envelope.jobId,
+        },
+      });
+    }
 
     // 10. Job completed audit.
     await emitJobLifecycle(deps, envelope, payload, 'recon.browser.job.completed', 'success', {
