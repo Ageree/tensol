@@ -353,7 +353,15 @@ describe.skipIf(skip)('browser-auth IT (A-15-*)', () => {
     });
 
     const { sql } = await import('kysely');
-    await expect(sql`DELETE FROM target_credentials WHERE 1=0`.execute(dbFx.db)).rejects.toThrow();
+    let threw = false;
+    try {
+      await sql`DELETE FROM target_credentials WHERE 1=0`.execute(dbFx.db);
+    } catch (e: unknown) {
+      threw = true;
+      // SQLSTATE 23514 = check_violation — same code emitted by append-only trigger.
+      expect((e as { code?: string }).code).toBe('23514');
+    }
+    if (!threw) throw new Error('expected SQLSTATE 23514 but no error was thrown');
 
     await resetAuthState(dbFx.db);
   });
