@@ -4,7 +4,7 @@
 
 import { RbacDenyError, assertCan } from '@cyberstrike/authz';
 import { type AssessmentState, transitionsAvailable } from '@cyberstrike/contracts';
-import { decodeCursor } from '@cyberstrike/db';
+import { decodeCursor, encodeCursor } from '@cyberstrike/db';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import { assertOwnership } from '../../middleware/assert-ownership.ts';
@@ -85,7 +85,20 @@ export const handleAssessmentStatus = async (
 
 // =============================================================================
 // GET /assessments/:id/timeline — A-Asm-11 / R7
+// Sprint 17: extended with ?kind=audit|browser|all and `items` key.
+// Backward compat: no kind param → audit-only, `rows` key preserved.
 // =============================================================================
+
+export interface TimelineItem {
+  readonly id: string;
+  readonly kind: 'audit' | 'browser';
+  readonly action: string;
+  readonly occurredAt: string;
+  readonly actorId: string | null;
+  readonly actorName: string | null;
+  readonly outcome: string;
+  readonly metadata: Record<string, unknown>;
+}
 
 export const handleAssessmentTimeline = async (
   deps: RouteDeps,
@@ -105,30 +118,132 @@ export const handleAssessmentTimeline = async (
         .string()
         .regex(/^[A-Za-z0-9+/=]+$/)
         .optional(),
+      kind: z.enum(['audit', 'browser', 'all']).optional(),
     })
     .strict();
   const parsedQ = queryParser.safeParse(rawQuery);
   if (!parsedQ.success) return c.json({ error: 'invalid_query' }, 400);
   const cursor = parsedQ.data.cursor ? decodeCursor(parsedQ.data.cursor) : null;
   if (parsedQ.data.cursor && !cursor) return c.json({ error: 'invalid_query' }, 400);
+  const kind = parsedQ.data.kind;
 
-  const page = await deps.repos.auditEventsForTenant.findForTenantPage({
-    tenantId: actorTenantId,
-    limit: parsedQ.data.limit,
-    ...(cursor ? { cursor } : {}),
-    resourceType: 'assessment',
-    resourceId: row.id,
-  });
+  // No kind param → S11 backward-compat path: audit only, `rows` key.
+  if (!kind) {
+    const page = await deps.repos.auditEventsForTenant.findForTenantPage({
+      tenantId: actorTenantId,
+      limit: parsedQ.data.limit,
+      ...(cursor ? { cursor } : {}),
+      resourceType: 'assessment',
+      resourceId: row.id,
+    });
+    return c.json({
+      rows: page.rows.map((rr) => ({
+        id: rr.id,
+        action: rr.action,
+        occurredAt: rr.occurred_at.toISOString(),
+        actorId: rr.actor_id,
+        actorName: rr.actor_name,
+        outcome: (rr.after_state as { outcome?: string } | null)?.outcome ?? '',
+      })),
+      nextCursor: page.nextCursor,
+    });
+  }
+
+  // With kind param → extended response with both `rows` and `items` keys.
+  // Fetch limit+1 from each source to detect hasMore for cursor generation.
+  const limit = Math.max(1, Math.min(100, parsedQ.data.limit));
+  const auditItems: TimelineItem[] = [];
+  const browserItems: TimelineItem[] = [];
+  let auditHasMore = false;
+  let browserHasMore = false;
+
+  if (kind === 'audit' || kind === 'all') {
+    const page = await deps.repos.auditEventsForTenant.findForTenantPage({
+      tenantId: actorTenantId,
+      limit,
+      ...(cursor ? { cursor } : {}),
+      resourceType: 'assessment',
+      resourceId: row.id,
+    });
+    auditHasMore = page.nextCursor !== null;
+    for (const rr of page.rows) {
+      auditItems.push({
+        id: rr.id,
+        kind: 'audit',
+        action: rr.action,
+        occurredAt: rr.occurred_at.toISOString(),
+        actorId: rr.actor_id,
+        actorName: rr.actor_name,
+        outcome: (rr.after_state as { outcome?: string } | null)?.outcome ?? '',
+        metadata: (rr.after_state as Record<string, unknown> | null) ?? {},
+      });
+    }
+  }
+
+  if (kind === 'browser' || kind === 'all') {
+    // observations_browser has direct assessment_id column (confirmed schema.ts:233).
+    // Fetch limit+1 to detect hasMore.
+    let q = deps.db
+      .selectFrom('observations_browser')
+      .select(['id', 'url', 'created_at', 'depth', 'discovery_method', 'source_url'])
+      .where('assessment_id', '=', row.id)
+      .where('tenant_id', '=', actorTenantId)
+      .orderBy('created_at', 'desc')
+      .orderBy('id', 'desc')
+      .limit(limit + 1);
+
+    if (cursor) {
+      const ts = new Date(cursor.occurredAt);
+      q = q.where((eb) =>
+        eb.or([
+          eb('created_at', '<', ts),
+          eb.and([eb('created_at', '=', ts), eb('id', '<', cursor.id)]),
+        ]),
+      );
+    }
+
+    const browserRows = await q.execute();
+    browserHasMore = browserRows.length > limit;
+    const sliced = browserHasMore ? browserRows.slice(0, limit) : browserRows;
+
+    for (const br of sliced) {
+      browserItems.push({
+        id: br.id,
+        kind: 'browser',
+        action: 'browser.observation',
+        occurredAt: br.created_at.toISOString(),
+        actorId: null,
+        actorName: null,
+        outcome: br.discovery_method,
+        metadata: {
+          url: br.url,
+          depth: br.depth,
+          sourceUrl: br.source_url,
+          discoveryMethod: br.discovery_method,
+        },
+      });
+    }
+  }
+
+  // Merge sources, sort for kind=all, then slice to limit and compute nextCursor.
+  const merged = [...auditItems, ...browserItems];
+  if (kind === 'all') {
+    merged.sort((a, b) => {
+      const td = new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime();
+      if (td !== 0) return td;
+      return b.id < a.id ? -1 : 1;
+    });
+  }
+  const slicedItems = merged.slice(0, limit);
+  const hasMore = auditHasMore || browserHasMore || merged.length > limit;
+  const last = slicedItems[slicedItems.length - 1];
+  const nextCursor =
+    hasMore && last ? encodeCursor({ occurredAt: last.occurredAt, id: last.id }) : null;
+
   return c.json({
-    rows: page.rows.map((rr) => ({
-      id: rr.id,
-      action: rr.action,
-      occurredAt: rr.occurred_at.toISOString(),
-      actorId: rr.actor_id,
-      actorName: rr.actor_name,
-      outcome: (rr.after_state as { outcome?: string } | null)?.outcome ?? '',
-    })),
-    nextCursor: page.nextCursor,
+    rows: slicedItems,
+    items: slicedItems,
+    nextCursor,
   });
 };
 

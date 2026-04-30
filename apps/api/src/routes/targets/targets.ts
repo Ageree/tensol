@@ -22,7 +22,7 @@ import {
   targetCreateSchema,
   targetPatchSchema,
 } from '@cyberstrike/contracts';
-import { insertTargetCredential } from '@cyberstrike/db';
+import { insertTargetCredential, listTargetCredentials } from '@cyberstrike/db';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import { assertOwnership } from '../../middleware/assert-ownership.ts';
@@ -532,6 +532,77 @@ export const handleListObservations = async (
 
   // Sprint 9 lands real observation rows; this endpoint exists for UI stability.
   return c.json({ data: [], nextCursor: null });
+};
+
+// =============================================================================
+// GET /targets/:id/credentials — Sprint 17 B (A-17-CredentialList)
+// =============================================================================
+
+const mapCredentialRowToListItem = (row: {
+  id: string;
+  targetId: string;
+  recipeId: string;
+  name: string;
+  createdBy: string;
+  createdAt: Date;
+  encryptedBlob: Buffer;
+}) => ({
+  id: row.id,
+  name: row.name,
+  recipeId: row.recipeId,
+  createdBy: row.createdBy,
+  createdAt: row.createdAt.toISOString(),
+  fingerprintHex: new Bun.CryptoHasher('sha256')
+    .update(row.encryptedBlob)
+    .digest('hex')
+    .slice(0, 16),
+  status: 'ready' as const,
+});
+
+export const handleListTargetCredentials = async (
+  deps: RouteDeps,
+  c: Context<SessionEnv>,
+): Promise<Response> => {
+  const actor = requireActor(c);
+  const decision = assertCan(actor, 'read', 'target_credential');
+  if (!decision.allowed) {
+    throw new RbacDenyError({
+      actorTenantId: actor.tenantId,
+      attemptedResourceType: 'target_credential',
+      reason: `rbac: ${decision.reason}`,
+    });
+  }
+
+  const id = idParam.safeParse(c.req.param('id'));
+  if (!id.success) return c.json({ error: 'not_found' }, 404);
+
+  const row = await loadTargetById(deps, id.data);
+  if (!row) return c.json({ error: 'not_found' }, 404);
+  assertOwnership(actor.tenantId, {
+    resourceType: 'target',
+    resourceId: row.id,
+    resourceTenantId: row.tenant_id,
+  });
+
+  const credentials = await listTargetCredentials(deps.db, actor.tenantId, row.id);
+  const items = credentials.map(mapCredentialRowToListItem);
+
+  await audit(deps, {
+    tenantId: actor.tenantId,
+    action: 'auth.credential.read.viewed',
+    outcome: 'success',
+    actorType: 'user',
+    actorId: actor.id,
+    actorName: actor.email,
+    resourceType: 'target_credential',
+    resourceId: row.id,
+    ip: sourceIp(c),
+    userAgent: userAgent(c),
+    traceId: newTraceId(),
+    metadata: { targetId: row.id, count: items.length },
+  });
+
+  return c.json({ credentials: items, total: items.length });
 };
 
 // =============================================================================

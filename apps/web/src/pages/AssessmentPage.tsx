@@ -29,7 +29,7 @@ export const AssessmentPage = ({ assessmentId, onFindingClick }: Props) => {
 
   const assessment = assessmentData?.assessment;
   const findings: Finding[] = (findingsData?.findings ?? []) as Finding[];
-  const events = timelineData?.events ?? [];
+  const events = timelineData?.rows ?? [];
 
   return (
     <div data-testid="assessment-page">

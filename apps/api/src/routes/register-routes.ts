@@ -58,6 +58,7 @@ import {
   handleDeleteTarget,
   handleGetTarget,
   handleListObservations,
+  handleListTargetCredentials,
   handleListTargets,
   handleOwnershipProof,
   handlePatchTarget,
@@ -111,6 +112,10 @@ export const registerRoutes = (app: Hono<SessionEnv>, deps: RouteDeps): void => 
   );
   app.get('/api/v1/targets/:id/observations', tenantGuard(), (c) =>
     handleListObservations(deps, c),
+  );
+  // Sprint 17 B — list stored credentials (no blob/iv/authTag in response).
+  app.get('/api/v1/targets/:id/credentials', tenantGuard(), (c) =>
+    handleListTargetCredentials(deps, c),
   );
 
   // Sprint 5 §5.4 — assessments.

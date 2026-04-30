@@ -167,9 +167,9 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     expect(trigNames.has('reports_no_truncate')).toBe(true);
     expect(trigNames.has('reports_immutable_ready')).toBe(true);
 
-    // Roll back 7 migrations to revert through 013 (reports table drop).
-    // 7 = down(019) → down(018) → down(017) → down(016) → down(015) → down(014) → down(013); reports table dropped at 013-down.
-    for (let i = 0; i < 7; i++) {
+    // Roll back 8 migrations to revert through 013 (reports table drop).
+    // 8 = down(020)→down(019)→down(018)→down(017)→down(016)→down(015)→down(014)→down(013); reports table dropped at 013-down.
+    for (let i = 0; i < 8; i++) {
       const r = await f.migrator.migrateDown();
       if (r.error) throw r.error instanceof Error ? r.error : new Error(String(r.error));
     }
@@ -243,6 +243,42 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
       ) AS exists
     `.execute(f.db);
     expect(afterRollback.rows[0]?.exists).toBe(false);
+
+    await applyAllMigrations(f);
+  });
+
+  test('B6 — mig 020: target_credentials.name + target_credential_usage present after 020, absent after rollback', async () => {
+    // Sprint 17: migration 020 adds name col to target_credentials and creates target_credential_usage.
+    await applyAllMigrations(f);
+
+    const cols = await sql<{ column_name: string }>`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'target_credentials'
+        AND column_name = 'name'
+    `.execute(f.db);
+    expect(cols.rows).toHaveLength(1);
+
+    const tables = await sql<{ table_name: string }>`
+      SELECT table_name FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = 'target_credential_usage'
+    `.execute(f.db);
+    expect(tables.rows).toHaveLength(1);
+
+    const r020 = await f.migrator.migrateDown();
+    if (r020.error) throw r020.error instanceof Error ? r020.error : new Error(String(r020.error));
+
+    const afterCols = await sql<{ column_name: string }>`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'target_credentials'
+        AND column_name = 'name'
+    `.execute(f.db);
+    expect(afterCols.rows).toHaveLength(0);
+
+    const afterTables = await sql<{ table_name: string }>`
+      SELECT table_name FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = 'target_credential_usage'
+    `.execute(f.db);
+    expect(afterTables.rows).toHaveLength(0);
 
     await applyAllMigrations(f);
   });

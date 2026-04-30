@@ -1,6 +1,6 @@
 # ADR 0007 — Browser Agent Driver: Semantic Action Layer for Autonomous Pentest
 
-- **Status:** Proposed
+- **Status:** Accepted (with deviation — see Outcome section)
 - **Supersedes:** N/A
 - **Superseded by:** N/A
 - **Tags:** browser-automation, stagehand, playwright, llm-agent, s15-auth, s16-spa-discovery
@@ -419,3 +419,23 @@ remains the primary fast-path unit test target.
   throughput).
 - `@playwright/mcp` as primary driver (pre-1.0 alpha, IPC overhead per action,
   not designed for library embedding).
+
+---
+
+## Outcome (2026-04-30)
+
+**Actual implementation:** Sprints 15 and 16 shipped recipe-driven auth and SPA route
+discovery using raw Playwright APIs (`page.goto`, `page.evaluate`, `context.route`,
+`page.addInitScript`) without `@browserbasehq/stagehand`.
+
+**Deviation from ADR recommendation:** The ADR recommended adopting Stagehand v3.
+Actual sprints chose raw Playwright because:
+1. S15 auth recipes were implementable with selector-based Playwright steps.
+2. S16 SPA observer injection (`page.addInitScript`) needed no semantic act() layer.
+3. Stagehand v3 was weeks old at ADR authoring time — deferred for stability.
+
+**Current state:** `RealBrowserDriver` (raw Playwright) is the active production driver.
+`StagehandBrowserDriver` remains unimplemented (Phase 4 scope).
+
+**Phase 4 reconsider:** When multi-step semantic form interaction beyond simple recipe
+steps is required, revisit Stagehand v3 adoption per this ADR's Option A rationale.

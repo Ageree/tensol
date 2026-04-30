@@ -113,6 +113,8 @@ export const AUDIT_ACTIONS = [
   // Sprint 16 — SPA route discovery lifecycle.
   'browser.spa.route.discovered',
   'browser.spa.route.skipped_oos',
+  // Sprint 17 — credential read audit.
+  'auth.credential.read.viewed',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

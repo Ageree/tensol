@@ -10,6 +10,8 @@ export interface TargetCredentialRow {
   readonly iv: Buffer;
   readonly authTag: Buffer;
   readonly createdBy: string;
+  // Sprint 17 mig 020: cosmetic display name (set once at INSERT).
+  readonly name: string;
   readonly createdAt: Date;
 }
 
@@ -22,6 +24,7 @@ export interface InsertTargetCredentialInput {
   readonly iv: Buffer;
   readonly authTag: Buffer;
   readonly createdBy: string;
+  readonly name?: string;
 }
 
 const mapRow = (r: {
@@ -33,6 +36,7 @@ const mapRow = (r: {
   iv: unknown;
   auth_tag: unknown;
   created_by: unknown;
+  name: unknown;
   created_at: unknown;
 }): TargetCredentialRow => ({
   id: r.id as string,
@@ -43,6 +47,7 @@ const mapRow = (r: {
   iv: r.iv as Buffer,
   authTag: r.auth_tag as Buffer,
   createdBy: r.created_by as string,
+  name: (r.name as string) ?? '',
   createdAt: r.created_at as Date,
 });
 
@@ -60,6 +65,7 @@ export const insertTargetCredential = async (
       iv: fields.iv,
       auth_tag: fields.authTag,
       created_by: fields.createdBy,
+      name: fields.name ?? '',
     })
     .returning('id')
     .executeTakeFirstOrThrow();

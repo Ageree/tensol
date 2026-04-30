@@ -34,7 +34,9 @@ export const getAssessment = (id: string) =>
   api.get<{ assessment: Assessment }>(`/api/v1/assessments/${id}`);
 
 export const getAssessmentTimeline = (id: string) =>
-  api.get<{ events: TimelineEvent[] }>(`/api/v1/assessments/${id}/timeline`);
+  api.get<{ rows: TimelineEvent[]; nextCursor: string | null }>(
+    `/api/v1/assessments/${id}/timeline`,
+  );
 
 export const getAssessmentFindings = (id: string) =>
   api.get<{ findings: Finding[] }>(`/api/v1/assessments/${id}/findings`);

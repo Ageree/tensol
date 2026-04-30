@@ -22,6 +22,9 @@ export const SPA_OBSERVER_SCRIPT = `(function() {
     }
     return orig(state, title, url);
   };
+  // popstate = back/forward navigation to a previously visited URL.
+  // Discovery-only: recorded for audit completeness, not re-navigated.
+  // Navigating would re-trigger pushState observers and create crawl loops. See ADR 0008.
   window.addEventListener('popstate', function() {
     window.__cs_spa_routes.push({
       url: location.href,

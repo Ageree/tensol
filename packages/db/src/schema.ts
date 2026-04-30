@@ -393,7 +393,18 @@ export interface TargetCredentialsTable {
   iv: Buffer;
   auth_tag: Buffer;
   created_by: string;
+  // Sprint 17 mig 020: cosmetic display name, set once at INSERT.
+  name: string;
   created_at: DbDefault<Date>;
+}
+
+// Sprint 17 mig 020 — mutable usage tracking (sibling to append-only target_credentials).
+export interface TargetCredentialUsageTable {
+  id: Generated<string>;
+  credential_id: string;
+  tenant_id: string;
+  last_used_at: Date;
+  use_count: number;
 }
 
 // =============== aggregate Database type ===============
@@ -424,6 +435,7 @@ export interface Database {
   llm_audit_events: LlmAuditEventsTable;
   reports: ReportsTable;
   target_credentials: TargetCredentialsTable;
+  target_credential_usage: TargetCredentialUsageTable;
 }
 
 // Used by tests (B3) to assert every table key is present.
@@ -453,6 +465,7 @@ export const ALL_TABLE_NAMES: ReadonlyArray<keyof Database> = [
   'llm_audit_events',
   'reports',
   'target_credentials',
+  'target_credential_usage',
 ] as const;
 
 export const APPEND_ONLY_TABLES: ReadonlyArray<keyof Database> = [

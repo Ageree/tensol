@@ -8,7 +8,7 @@
 // SPA_OBSERVER_SCRIPT is injected to patch history.pushState/popstate.
 // Discovered pushstate routes are scope-checked and crawled up to maxSpaDepth.
 
-import { chromium } from 'playwright';
+import { type BrowserContext, chromium } from 'playwright';
 import { SPA_OBSERVER_SCRIPT, parseSpaMaxDepth, parseSpaRoutes } from './spa-observer.ts';
 import type {
   BrowserDriver,
@@ -23,13 +23,7 @@ import { BrowserTimeoutError, StorageWriteError } from './types.ts';
 
 interface RealSession {
   readonly sessionId: string;
-  readonly browser: Awaited<ReturnType<typeof chromium.launch>>;
-  readonly context: Awaited<ReturnType<Awaited<ReturnType<typeof chromium.launch>>['newContext']>>;
-  readonly page: Awaited<
-    ReturnType<
-      Awaited<ReturnType<Awaited<ReturnType<typeof chromium.launch>>['newContext']>>['newPage']
-    >
-  >;
+  readonly page: Awaited<ReturnType<BrowserContext['newPage']>>;
 }
 
 export interface RealBrowserDriverDeps {
@@ -38,6 +32,9 @@ export interface RealBrowserDriverDeps {
   // Sprint 16: if provided, used directly; otherwise reads process.env.BROWSER_SPA_MAX_DEPTH.
   // Tests inject this directly — no process.env mutation needed.
   readonly maxSpaDepth?: number;
+  // SF1 S17: optional shared BrowserContext for unit testability.
+  // When injected, skip chromium.launch() + browser.newContext().
+  readonly browserContext?: BrowserContext;
 }
 
 export class RealBrowserDriver implements BrowserDriver {
@@ -45,6 +42,10 @@ export class RealBrowserDriver implements BrowserDriver {
   private readonly scopeCheck: ((url: string) => Promise<void>) | undefined;
   private readonly randomUUID: () => string;
   private readonly maxSpaDepth: number;
+  // Single BrowserContext per worker instance — eliminates TCP TIME_WAIT between jobs.
+  // Isolation via newPage()/page.close() per job. SF1 S17.
+  private sharedContext: BrowserContext | null;
+  private sharedBrowser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 
   constructor(deps: RealBrowserDriverDeps = {}) {
     this.scopeCheck = deps.scopeCheck;
@@ -53,16 +54,21 @@ export class RealBrowserDriver implements BrowserDriver {
     const { BROWSER_SPA_MAX_DEPTH } = process.env;
     this.maxSpaDepth =
       deps.maxSpaDepth !== undefined ? deps.maxSpaDepth : parseSpaMaxDepth(BROWSER_SPA_MAX_DEPTH);
+    this.sharedContext = deps.browserContext ?? null;
   }
 
-  async launch(input: BrowserLaunchInput): Promise<BrowserSession> {
-    const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({
-      userAgent: 'CyberStrike-BrowserWorker/1.0',
-    });
-    if (input.authCookies && input.authCookies.length > 0) {
-      await context.addCookies(
-        input.authCookies.map((c) => ({
+  private async getOrCreateContext(
+    authCookies?: BrowserLaunchInput['authCookies'],
+  ): Promise<BrowserContext> {
+    if (!this.sharedContext) {
+      this.sharedBrowser = await chromium.launch({ headless: true });
+      this.sharedContext = await this.sharedBrowser.newContext({
+        userAgent: 'CyberStrike-BrowserWorker/1.0',
+      });
+    }
+    if (authCookies && authCookies.length > 0) {
+      await this.sharedContext.addCookies(
+        authCookies.map((c) => ({
           name: c.name,
           value: c.value,
           domain: c.domain,
@@ -70,9 +76,25 @@ export class RealBrowserDriver implements BrowserDriver {
         })),
       );
     }
+    return this.sharedContext;
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.sharedContext) {
+      await this.sharedContext.close().catch(() => undefined);
+      this.sharedContext = null;
+    }
+    if (this.sharedBrowser) {
+      await this.sharedBrowser.close().catch(() => undefined);
+      this.sharedBrowser = null;
+    }
+  }
+
+  async launch(input: BrowserLaunchInput): Promise<BrowserSession> {
+    const context = await this.getOrCreateContext(input.authCookies);
     const page = await context.newPage();
     const sessionId = this.randomUUID();
-    this.sessions.set(sessionId, { sessionId, browser, context, page });
+    this.sessions.set(sessionId, { sessionId, page });
     return { sessionId, status: 'launched' };
   }
 
@@ -82,7 +104,11 @@ export class RealBrowserDriver implements BrowserDriver {
       throw new Error(`session_not_found:${sessionId}`);
     }
 
-    const { page, context } = session;
+    const { page } = session;
+    if (!this.sharedContext) {
+      throw new Error('navigate_called_before_launch');
+    }
+    const context = this.sharedContext;
     const startUrl = request.url;
 
     // Scope-first (P7): check BEFORE any page action.
@@ -274,7 +300,7 @@ export class RealBrowserDriver implements BrowserDriver {
     if (!session) return;
     this.sessions.delete(sessionId);
     try {
-      await session.browser.close();
+      await session.page.close();
     } catch {
       // best-effort close
     }

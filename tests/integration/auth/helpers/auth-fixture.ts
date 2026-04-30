@@ -234,6 +234,8 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       DELETE FROM jobs;
       -- Sprint 14: reports has FK to assessments; delete BEFORE assessments.
       DELETE FROM reports;
+      -- Sprint 17: target_credential_usage has FK to target_credentials; delete BEFORE target_credentials.
+      DELETE FROM target_credential_usage;
       -- Sprint 15: target_credentials has FK to targets; delete BEFORE targets.
       DELETE FROM target_credentials;
       -- Sprint 10 (P30): finding_evidence FK→findings, findings FK→
