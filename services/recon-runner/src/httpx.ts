@@ -75,10 +75,16 @@ const defaultSpawnFn: SpawnFn = async (cmd, { timeout }) => {
   }
 };
 
+export interface HttpxTmpdirFail {
+  readonly kind: 'fail';
+  readonly reason: 'tmpdir_setup';
+  readonly error: string;
+}
+
 export const probeHttpx = async (
   urls: readonly string[],
   deps: HttpxDeps,
-): Promise<HttpxProbeResult[]> => {
+): Promise<HttpxProbeResult[] | HttpxTmpdirFail> => {
   const timeoutMs = deps.timeoutMs ?? Number(process.env.HTTPX_TIMEOUT_MS ?? 30_000);
 
   if (deps.scope === null) {
@@ -128,10 +134,20 @@ export const probeHttpx = async (
   const mkdtemp = deps.mkdtempFn ?? ((prefix: string) => mkdtempSync(prefix));
   let tmpDir: string | null = null;
   let tmpFile: string | null = null;
+
+  // Tmpdir setup (P53): mkdtemp/write failure → typed fail so worker can nack.
   try {
     tmpDir = mkdtemp(join(tmpdir(), 'cs-httpx-'));
     tmpFile = join(tmpDir, `${randomUUID()}.txt`);
     await Bun.write(tmpFile, stdinInput);
+  } catch (err) {
+    await emitAudit(deps.auditEmitter, deps, 'recon.httpx.error', 'failure', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { kind: 'fail' as const, reason: 'tmpdir_setup' as const, error: String(err) };
+  }
+
+  try {
     ({ stdout, exitCode } = await spawn([deps.httpxBin, '-l', tmpFile, '-json', '-silent'], {
       timeout: timeoutMs,
     }));

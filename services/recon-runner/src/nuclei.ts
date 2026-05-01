@@ -76,10 +76,16 @@ const defaultSpawnFn: SpawnFn = async (cmd, { timeout }) => {
   }
 };
 
+export interface NucleiTmpdirFail {
+  readonly kind: 'fail';
+  readonly reason: 'tmpdir_setup';
+  readonly error: string;
+}
+
 export const runNuclei = async (
   urls: readonly string[],
   deps: NucleiDeps,
-): Promise<NucleiFinding[]> => {
+): Promise<NucleiFinding[] | NucleiTmpdirFail> => {
   const timeoutMs = deps.timeoutMs ?? Number(process.env.NUCLEI_TIMEOUT_MS ?? 120_000);
 
   if (deps.scope === null) {
@@ -129,10 +135,20 @@ export const runNuclei = async (
   const mkdtemp = deps.mkdtempFn ?? ((prefix: string) => mkdtempSync(prefix));
   let tmpDir: string | null = null;
   let tmpFile: string | null = null;
+
+  // Tmpdir setup (P53): mkdtemp/write failure → typed fail so worker can nack.
   try {
     tmpDir = mkdtemp(join(tmpdir(), 'cs-nuclei-'));
     tmpFile = join(tmpDir, `${randomUUID()}.txt`);
     await Bun.write(tmpFile, stdinInput);
+  } catch (err) {
+    await emitAudit(deps.auditEmitter, deps, 'recon.nuclei.error', 'failure', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { kind: 'fail' as const, reason: 'tmpdir_setup' as const, error: String(err) };
+  }
+
+  try {
     ({ stdout, exitCode } = await spawn(
       [
         deps.nucleiBin,

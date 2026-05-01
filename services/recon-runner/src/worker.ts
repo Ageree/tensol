@@ -214,15 +214,19 @@ export const handleReconSubfinderRun = async (
   // In that case nuclei must still run against the probeUrls fallback, not an empty set.
   // Track skip vs scope-deny separately so nuclei gets the right input.
   const httpxSkipped = !deps.httpxBin;
-  const aliveResults = await probeHttpx(probeUrls, {
+  const httpxResult = await probeHttpx(probeUrls, {
     ...commonDeps,
     httpxBin: deps.httpxBin,
     timeoutMs: deps.httpxTimeoutMs,
   });
 
+  // P53: infrastructure failure → nack so the job retries; not empty-success.
+  if (!Array.isArray(httpxResult)) {
+    return { kind: 'nack', error: new Error(`httpx tmpdir_setup: ${httpxResult.error}`) };
+  }
+  const aliveResults = httpxResult;
+
   // 7. Persist domain targets for SCOPE-APPROVED hosts only (HIGH-1 fix).
-  // aliveResults are already scope-gated by probeHttpx — reuse that approved set
-  // rather than persisting every raw subfinder yield (which may include OOS hosts).
   if (deps.targetWriter && aliveResults.length > 0) {
     for (const result of aliveResults) {
       const host = extractHost(result.url);
@@ -245,7 +249,7 @@ export const handleReconSubfinderRun = async (
   // to probeUrls so nuclei still runs rather than being silently disabled.
   const nucleiUrls = httpxSkipped ? probeUrls : aliveResults.map((r) => r.url);
   if (nucleiUrls.length > 0) {
-    await runNuclei(nucleiUrls, {
+    const nucleiResult = await runNuclei(nucleiUrls, {
       ...commonDeps,
       nucleiBin: deps.nucleiBin,
       timeoutMs: deps.nucleiTimeoutMs,
@@ -254,6 +258,10 @@ export const handleReconSubfinderRun = async (
       // HIGH-2: injectable spawn for test regression proof.
       spawnFn: deps.nucleiSpawnFn,
     });
+    // P53: infrastructure failure → nack.
+    if (!Array.isArray(nucleiResult)) {
+      return { kind: 'nack', error: new Error(`nuclei tmpdir_setup: ${nucleiResult.error}`) };
+    }
   }
 
   return { kind: 'ack' };

@@ -241,7 +241,7 @@ describe('nuclei :: B4 per-finding write failure', () => {
 });
 
 describe('nuclei :: mkdtemp failure (TMPDIR full/read-only)', () => {
-  test('mkdtempFn throws EPERM → nuclei.error audit emitted, returns [], no rejection', async () => {
+  test('mkdtempFn throws EPERM → nuclei.error audit emitted, returns tmpdir_setup fail, no rejection', async () => {
     const { emitter, emitted } = makeAuditCapture();
     const result = await runNuclei([ALLOWED_URL], {
       ...baseDeps,
@@ -254,7 +254,7 @@ describe('nuclei :: mkdtemp failure (TMPDIR full/read-only)', () => {
       auditEmitter: emitter,
       scope: makeAllowTargetScope(),
     });
-    expect(result).toEqual([]);
+    expect(result).toEqual({ kind: 'fail', reason: 'tmpdir_setup', error: expect.stringContaining('EPERM') });
     expect(emitted).toHaveLength(1);
     expect(emitted[0].action).toBe('recon.nuclei.error');
     expect((emitted[0].metadata as Record<string, unknown>).error).toContain('EPERM');

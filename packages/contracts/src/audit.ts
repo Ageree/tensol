@@ -143,6 +143,11 @@ export const AUDIT_ACTIONS = [
   'recon.nuclei.denied',
   'recon.nuclei.error',
   'recon.nuclei.template_match',
+  // S23 consolidated actions — tool/kind in metadata field.
+  'recon.run.started',
+  'recon.run.completed',
+  'validator.run.started',
+  'validator.run.completed',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -238,6 +243,7 @@ export const auditEventEnvelopeSchema = z
     traceId: traceIdSchema,
     outcome: auditOutcomeSchema,
     occurredAt: z.string().datetime(),
+    metadata: z.record(z.unknown()).optional(),
   })
   .strict();
 

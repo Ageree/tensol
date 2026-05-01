@@ -36,7 +36,7 @@ const baseEnvelope = {
 };
 
 describe('contracts :: AuditAction (A3)', () => {
-  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1) + Sprint 7 (1) + Sprint 8 decepticon (4) + Sprint 9 browser (5) + Sprint 10 validator (6) + Sprint 11 finding status (1) + Sprint 13 codex P1-A candidate scope gate (1) + Sprint 14 report builder (6) + Sprint 15 browser auth (4) + Sprint 16 SPA route discovery (2) + Sprint 17 credential read (1) + Sprint 18 SSRF validator (3) + Sprint 19 LFI validator (3) + Sprint 20 RCE (4) + Sprint 21 recon PD-stack (10)', () => {
+  test('AUDIT_ACTIONS is the exhaustive set (S23: 83 legacy + 4 consolidated = 87)', () => {
     const expected = [
       'auth.register',
       'auth.login.password',
@@ -142,10 +142,15 @@ describe('contracts :: AuditAction (A3)', () => {
       'recon.nuclei.denied',
       'recon.nuclei.error',
       'recon.nuclei.template_match',
+      // S23 consolidated actions — tool/kind in metadata field.
+      'recon.run.started',
+      'recon.run.completed',
+      'validator.run.started',
+      'validator.run.completed',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // Sprint 21: 73 + 10 = 83.
-    expect(AUDIT_ACTIONS.length).toBe(83);
+    // S23: 83 + 4 consolidated = 87.
+    expect(AUDIT_ACTIONS.length).toBe(87);
   });
 
   test('zod rejects unknown action', () => {
