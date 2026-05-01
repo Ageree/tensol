@@ -80,6 +80,8 @@ Session restarted mid-sprint. Both `generator-s23` and `evaluator-s23` agents te
 
 - **B-23-c1**: AUDIT_ACTIONS consolidation 87→13 (per the locked enumerated list). Requires updating validator-worker emit strings to `validator.run.{started,completed}` with metadata.{kind, outcome} + updating ~30 test assertions across `services/validator-worker/src/{ssrf,lfi,rce}-validator.test.ts` + `tests/integration/validator/{ssrf,lfi,rce}-pipeline.test.ts`. Mechanical 6-file change.
 - **B-23-c2**: Full-PG verification on `329ea4b` once Docker is available. Expected outcome: ≤3 baseline flakes (S11 PATCH 403 + maybe A-Proj-1).
+- **B-23-c3 (NEW from codex regular review)**: Browser crawl production dispatch missing. Codex (P1): "On the successful `assessment.start` path this now returns `ack` without publishing browser child jobs, and there is no replacement direct call to `handleReconBrowser` in production code (only tests import it)." Per deliverable D (browser-worker INLINE), need a direct in-process call to `handleReconBrowser` from `services/coordinator/src/start-handler.ts:201-203` after the recon envelope is published. Verify whether browser crawling is still needed for v1 SaaS — if YES, add direct call; if NO (deferred to post-v1), document the deferral explicitly.
+- **Codex regular review P1 #1 (all-allow RBAC)** — NOT a carry. Intentional per S23 deliverable B (user mandate "RBAC→admin"). Codex is flagging a behavior change it doesn't know was authorized. Document in S24 contract preamble.
 - Cumulative carries from S22: B-22-h1 (audit FK throw — closed), B-22-h2 (findingsWriter — closed), B-22-h3 (httpx-absent — closed), all addressed in S22 hardening.
 
 ---
