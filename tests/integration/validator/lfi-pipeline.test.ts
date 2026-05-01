@@ -601,4 +601,123 @@ describe.skipIf(!hasDatabaseUrl())('validator :: LFI pipeline (A-19-IT)', () => 
     expect(after?.reason).toBe('config_error');
     expect(after?.missing).toBe('lfiHttpClient');
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Path 5 — cross-assessment binding (codex HIGH fix)
+  // ─────────────────────────────────────────────────────────────────────────
+  test('cross-assessment: candidate from assessment A, envelope for assessment B → ack + assessment_mismatch audit, no httpClient call, no finding', async () => {
+    const userId = uniqUuid();
+    await fx.db
+      .insertInto('users')
+      .values({
+        id: userId,
+        tenant_id: tenantId,
+        email: `u-lfi-xassess-${userId.slice(0, 8)}@example.com`,
+        display_name: `u-lfi-xassess-${userId.slice(0, 8)}`,
+        status: 'active',
+        role: 'security_lead',
+        password_hash: 'x',
+      })
+      .execute();
+
+    const projectId = await seedProject(fx, { tenantId, name: 'P-lfi-xassess' });
+    const targetId = await seedTarget(fx, {
+      tenantId,
+      projectId,
+      kind: 'url',
+      value: 'http://lfi.xassess.local/',
+      ownershipStatus: 'verified',
+    });
+
+    // Assessment A — candidate seeded here.
+    const assessmentIdA = await seedAssessment(fx, {
+      tenantId,
+      projectId,
+      createdBy: userId,
+      state: 'running',
+      targetIds: [targetId],
+    });
+    // Assessment B — envelope will reference this one.
+    const assessmentIdB = await seedAssessment(fx, {
+      tenantId,
+      projectId,
+      createdBy: userId,
+      state: 'running',
+      targetIds: [targetId],
+    });
+
+    const candidateFindingId = await seedCandidateFinding(fx.db, {
+      tenantId,
+      assessmentId: assessmentIdA,
+      type: 'lfi',
+      affectedUrl: 'http://lfi.xassess.local/app?file=../../../etc/passwd',
+    });
+
+    const httpClient = new LfiMockHttpClient('root:x:0:0:root:/root:/bin/bash\n');
+    const { storage } = buildLocalStorage();
+
+    const deps: ValidatorWorkerDeps = {
+      driver: { replay: async () => ({}) } as unknown as ValidatorWorkerDeps['driver'],
+      objectStorage: storage,
+      buildScope: async () => null,
+      scopeDeps: stubValidatorScopeDeps,
+      auditEmitter: buildAuditEmitter(fx.db),
+      candidateLoader: buildCandidateLoader(fx.db),
+      assessmentLoader: buildAssessmentLoader(fx.db),
+      findingsWriter: buildFindingsWriter(fx.db),
+      findingEvidenceWriter: async () => ({ id: uniqUuid() }),
+      findingByCandidateLoader: buildFindingByCandidateLoader(fx.db),
+      evidenceCounter: async () => 0,
+      findingCreatedAuditChecker: async () => false,
+      payloadSchema: (await import('@cyberstrike/validator-worker')).validateFindingPayloadSchema,
+      lfiHttpClient: httpClient,
+    };
+
+    // Envelope references assessment B but candidate belongs to assessment A.
+    const envelope: JobEnvelope = {
+      jobId: uniqUuid(),
+      tenantId,
+      projectId,
+      assessmentId: assessmentIdB,
+      kind: 'validator.lfi.replay',
+      idempotencyKey: `lfi-xassess:${candidateFindingId}`,
+      createdAt: new Date().toISOString(),
+      attempt: 0,
+      maxAttempts: 3,
+      traceId: VALID_TRACE,
+      payload: {
+        tenantId,
+        projectId,
+        assessmentId: assessmentIdB,
+        candidateFindingId,
+        candidateType: 'lfi',
+        traceId: VALID_TRACE,
+      },
+    };
+
+    const result = await handleLfiReplay(deps, envelope);
+    expect(result.kind).toBe('ack');
+
+    // No HTTP call made.
+    expect(httpClient.callCount).toBe(0);
+
+    // No finding inserted into either assessment.
+    const findings = await fx.db
+      .selectFrom('findings')
+      .selectAll()
+      .where('tenant_id', '=', tenantId)
+      .execute();
+    expect(findings.length).toBe(0);
+
+    // assessment_mismatch denial audit emitted.
+    const deniedAudits = await fx.db
+      .selectFrom('audit_events')
+      .selectAll()
+      .where('tenant_id', '=', tenantId)
+      .where('action', '=', 'validator.lfi.replay_denied')
+      .execute();
+    expect(deniedAudits.length).toBeGreaterThanOrEqual(1);
+    const deniedAfter = deniedAudits[0]?.after_state as Record<string, unknown> | null;
+    expect(deniedAfter?.reason).toBe('assessment_mismatch');
+  });
 });

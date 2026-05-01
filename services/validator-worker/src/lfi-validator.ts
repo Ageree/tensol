@@ -40,7 +40,7 @@ export interface LfiValidatorDeps {
   readonly httpClient: { get(url: string): Promise<{ body: string }>; readonly callCount: number };
 }
 
-export type LfiValidationStatus = 'confirmed' | 'unmatched' | 'out_of_scope';
+export type LfiValidationStatus = 'confirmed' | 'unmatched' | 'out_of_scope' | 'fetch_failed';
 
 export interface LfiValidationResult {
   readonly status: LfiValidationStatus;
@@ -114,8 +114,17 @@ export const validateLfiCandidate = async (
     return { status: 'out_of_scope', reason: decision.reason };
   }
 
-  // 2. Fetch candidate URL.
-  const response = await deps.httpClient.get(input.affectedUrl);
+  // 2. Fetch candidate URL — bounded; degraded targets (timeout/reset) → fetch_failed terminal ack.
+  let response: { body: string };
+  try {
+    response = await deps.httpClient.get(input.affectedUrl);
+  } catch (err) {
+    await emitLfiAudit(deps.auditEmitter, input, 'validator.lfi.fetch_failed', 'denied', {
+      affectedUrl: input.affectedUrl,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { status: 'fetch_failed', reason: err instanceof Error ? err.message : String(err) };
+  }
 
   // 3. Truncate body at 1MB before regex (M3 — DoS guard).
   const safeBody = response.body.slice(0, BODY_CAP);

@@ -316,3 +316,48 @@ describe('lfi-validator :: linux_generic sentinel', () => {
     expect(result.sentinelKey).toBe('linux_generic');
   });
 });
+
+// ──────────────────────────────────────────────
+// Test 11 — fetch error (codex MED fix)
+// ──────────────────────────────────────────────
+describe('lfi-validator :: fetch_failed path', () => {
+  test('httpClient.get throws → fetch_failed status + lfi.fetch_failed audit', async () => {
+    const { emitter, audits } = makeAuditCapture();
+    const throwingClient = {
+      callCount: 0,
+      get: async (_url: string): Promise<{ body: string }> => {
+        throwingClient.callCount++;
+        throw new Error('connection refused');
+      },
+    };
+    const result = await validateLfiCandidate(makeInput(makeAllowScope()), {
+      scopeDeps: allowScopeDeps,
+      auditEmitter: emitter,
+      httpClient: throwingClient,
+    });
+    expect(result.status).toBe('fetch_failed');
+    expect(result.reason).toContain('connection refused');
+    expect(audits).toHaveLength(1);
+    expect(audits[0].action).toBe('validator.lfi.fetch_failed');
+    expect(audits[0].outcome).toBe('denied');
+  });
+
+  test('httpClient.get throws timeout → fetch_failed, callCount === 1', async () => {
+    const { emitter, audits } = makeAuditCapture();
+    const timeoutClient = {
+      callCount: 0,
+      get: async (_url: string): Promise<{ body: string }> => {
+        timeoutClient.callCount++;
+        throw new Error('request timeout');
+      },
+    };
+    const result = await validateLfiCandidate(makeInput(makeAllowScope()), {
+      scopeDeps: allowScopeDeps,
+      auditEmitter: emitter,
+      httpClient: timeoutClient,
+    });
+    expect(result.status).toBe('fetch_failed');
+    expect(timeoutClient.callCount).toBe(1);
+    expect(audits[0].metadata.error).toContain('timeout');
+  });
+});

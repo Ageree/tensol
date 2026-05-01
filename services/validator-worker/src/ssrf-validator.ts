@@ -96,10 +96,15 @@ export const validateSsrfCandidate = async (
 
   // 2. Replay — send GET to replayUrl. Any outgoing Authorization/Cookie headers
   //    are not set here (injected httpClient is a plain GET with no auth headers).
+  // Fetch error → terminal fetch_failed audit (no retry — degraded target).
   try {
     await deps.httpClient.get(input.replayUrl);
-  } catch (_err) {
-    // Replay send failure is non-fatal — the OOB callback may still arrive.
+  } catch (err) {
+    await emitSsrfAudit(deps, input, 'validator.ssrf.fetch_failed', 'denied', {
+      replayUrl: input.replayUrl,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { status: 'inconclusive', reason: 'fetch_failed' };
   }
 
   // 3. Poll for OOB callback match.

@@ -171,7 +171,10 @@ export interface ValidatorWorkerDeps {
   readonly oobVerifyTimeoutMs?: number;
   readonly ssrfHttpClient?: { get(url: string): Promise<void>; readonly callCount: number };
   // Sprint 19 — LFI replay deps.
-  readonly lfiHttpClient?: { get(url: string): Promise<{ body: string }>; readonly callCount: number };
+  readonly lfiHttpClient?: {
+    get(url: string): Promise<{ body: string }>;
+    readonly callCount: number;
+  };
 }
 
 const STATUS_TO_ACTION: Record<string, AuditAction> = {
@@ -546,6 +549,27 @@ export const handleSsrfReplay = async (
     };
   }
 
+  // HIGH (codex): cross-assessment binding — candidate must belong to the envelope assessment.
+  if (candidate.assessmentId !== payload.assessmentId || candidate.tenantId !== payload.tenantId) {
+    await deps.auditEmitter({
+      tenantId: payload.tenantId,
+      action: 'validator.ssrf.replay_denied',
+      outcome: 'denied',
+      actorType: 'service',
+      actorId: VALIDATOR_WORKER_ACTOR_ID,
+      actorName: 'validator-worker',
+      resourceType: 'candidate_finding',
+      resourceId: payload.candidateFindingId,
+      ...(payload.projectId ? { projectId: payload.projectId } : {}),
+      assessmentId: payload.assessmentId,
+      ip: null,
+      userAgent: null,
+      traceId: payload.traceId,
+      metadata: { reason: 'assessment_mismatch' },
+    });
+    return { kind: 'ack' };
+  }
+
   const assessment = await deps.assessmentLoader({
     tenantId: payload.tenantId,
     assessmentId: payload.assessmentId,
@@ -685,7 +709,9 @@ export const handleLfiReplay = async (
   if (!parsed.success) {
     return {
       kind: 'nack',
-      error: new ScopeDenyError('invalid_lfi_replay_payload', ['lfi_replay_payload_schema_mismatch']),
+      error: new ScopeDenyError('invalid_lfi_replay_payload', [
+        'lfi_replay_payload_schema_mismatch',
+      ]),
     };
   }
   const payload = parsed.data;
@@ -724,6 +750,27 @@ export const handleLfiReplay = async (
       kind: 'nack',
       error: new ScopeDenyError('lfi_candidate_not_found', ['lfi_candidate_not_found']),
     };
+  }
+
+  // HIGH (codex): cross-assessment binding — candidate must belong to the envelope assessment.
+  if (candidate.assessmentId !== payload.assessmentId || candidate.tenantId !== payload.tenantId) {
+    await deps.auditEmitter({
+      tenantId: payload.tenantId,
+      action: 'validator.lfi.replay_denied',
+      outcome: 'denied',
+      actorType: 'service',
+      actorId: VALIDATOR_WORKER_ACTOR_ID,
+      actorName: 'validator-worker',
+      resourceType: 'candidate_finding',
+      resourceId: payload.candidateFindingId,
+      ...(payload.projectId ? { projectId: payload.projectId } : {}),
+      assessmentId: payload.assessmentId,
+      ip: null,
+      userAgent: null,
+      traceId: payload.traceId,
+      metadata: { reason: 'assessment_mismatch' },
+    });
+    return { kind: 'ack' };
   }
 
   const assessment = await deps.assessmentLoader({
