@@ -10,13 +10,13 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import type { JobEnvelope } from '@cyberstrike/queue';
+import type { ReconWorkerDeps } from '@cyberstrike/recon-runner';
+import { handleReconSubfinderRun } from '@cyberstrike/recon-runner';
 import {
   DEFAULT_PLATFORM_POLICY,
   type ToolPolicy,
   buildEffectiveScope,
 } from '@cyberstrike/scope-engine';
-import type { ReconWorkerDeps } from '@cyberstrike/recon-runner';
-import { handleReconSubfinderRun } from '@cyberstrike/recon-runner';
 import { hasDatabaseUrl } from '../db/helpers/db-fixture.ts';
 import {
   type DbFixture,
@@ -26,8 +26,6 @@ import {
   seedAssessment,
   seedProject,
   seedTarget,
-  seedTenant,
-  seedUser,
 } from '../db/helpers/db-fixture.ts';
 import { buildAuditEmitter } from '../validator/helpers.ts';
 
@@ -85,7 +83,7 @@ const makeAllowScope = (
     timeWindow: null,
   });
 
-const makeDenyScope = (tenantId: string, assessmentId: string) =>
+const _makeDenyScope = (tenantId: string, assessmentId: string) =>
   buildEffectiveScope({
     tenantId,
     assessmentId,
@@ -205,7 +203,6 @@ describe.skipIf(!hasDatabaseUrl())('recon-runner :: pipeline IT (A-21-IT)', () =
     const scope = makeAllowScope(tenantId, assessmentId, 'example.com', targetId);
     const primaryDomain = 'example.com';
 
-    const discoveredHosts: string[] = [];
     const persistedTargets: Array<{ kind: string; value: string }> = [];
 
     const deps: ReconWorkerDeps = {
@@ -303,9 +300,10 @@ describe.skipIf(!hasDatabaseUrl())('recon-runner :: pipeline IT (A-21-IT)', () =
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Path 3 — tenant mismatch (B2): DB assessment.tenantId !== envelope.tenantId → nack
+  // Path 3 — tenant mismatch (B2): DB assessment.tenantId !== envelope.tenantId
+  //           → ack (NOT nack) + recon.subfinder.denied audit reason:assessment_mismatch
   // ─────────────────────────────────────────────────────────────────────────
-  test('tenant mismatch → nack + subfinder.error audit emitted', async () => {
+  test('tenant mismatch → ack + subfinder.denied audit reason:assessment_mismatch', async () => {
     const otherTenantId = uniqUuid();
     await fx.db
       .insertInto('tenants')
@@ -340,10 +338,15 @@ describe.skipIf(!hasDatabaseUrl())('recon-runner :: pipeline IT (A-21-IT)', () =
       targetIds: [targetId],
     });
 
-    // Loader loads with the correct tenant (otherTenantId), but envelope claims tenantId.
+    // Track denied audit via no-op emitter (no DB write — cross-tenant FK would violate).
+    const capturedActions: Array<{ action: string; reason: string }> = [];
     const deps: ReconWorkerDeps = {
-      // No-op emitter: cross-tenant audit would violate tenant_id FK in audit_events.
-      auditEmitter: async () => {},
+      auditEmitter: async (args) => {
+        capturedActions.push({
+          action: args.action,
+          reason: String((args.metadata as Record<string, unknown>).reason ?? ''),
+        });
+      },
       assessmentLoader: async ({ assessmentId }) => {
         // Returns the real row (otherTenantId) regardless of the queried tenantId,
         // simulating the cross-tenant check surface.
@@ -367,20 +370,29 @@ describe.skipIf(!hasDatabaseUrl())('recon-runner :: pipeline IT (A-21-IT)', () =
     const envelope = makeEnvelope(tenantId, realAssessmentId, projectId, 'example.com');
     const outcome = await handleReconSubfinderRun(envelope, deps);
 
-    expect(outcome.kind).toBe('nack');
-    expect(outcome.kind === 'nack' && outcome.error.message).toContain('tenant_mismatch');
+    // B2: forged/stale envelope must ack-and-drop, never retry.
+    expect(outcome.kind).toBe('ack');
+    const deniedAudit = capturedActions.find((a) => a.action === 'recon.subfinder.denied');
+    expect(deniedAudit).toBeDefined();
+    expect(deniedAudit?.reason).toBe('assessment_mismatch');
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Path 4 — assessment not found → nack
+  // Path 4 — assessment not found → ack + subfinder.denied audit
   // ─────────────────────────────────────────────────────────────────────────
-  test('assessment not found → nack', async () => {
+  test('assessment not found → ack + subfinder.denied audit reason:assessment_mismatch', async () => {
     const projectId = await seedProject(fx, { tenantId, name: 'P-notfound' });
     const ghostAssessmentId = uniqUuid();
 
+    const capturedActions: Array<{ action: string; reason: string }> = [];
     const deps: ReconWorkerDeps = {
       // No-op emitter: ghost assessmentId has no DB row → real emitter would FK-violate.
-      auditEmitter: async () => {},
+      auditEmitter: async (args) => {
+        capturedActions.push({
+          action: args.action,
+          reason: String((args.metadata as Record<string, unknown>).reason ?? ''),
+        });
+      },
       assessmentLoader: buildReconAssessmentLoader(fx.db),
       buildScope: async () => null,
       scopeDeps: makeScopeDeps('example.com'),
@@ -389,8 +401,11 @@ describe.skipIf(!hasDatabaseUrl())('recon-runner :: pipeline IT (A-21-IT)', () =
     const envelope = makeEnvelope(tenantId, ghostAssessmentId, projectId, 'example.com');
     const outcome = await handleReconSubfinderRun(envelope, deps);
 
-    expect(outcome.kind).toBe('nack');
-    expect(outcome.kind === 'nack' && outcome.error.message).toContain('assessment_not_found');
+    // B2: not found also collapses to denied+ack.
+    expect(outcome.kind).toBe('ack');
+    const deniedAudit = capturedActions.find((a) => a.action === 'recon.subfinder.denied');
+    expect(deniedAudit).toBeDefined();
+    expect(deniedAudit?.reason).toBe('assessment_mismatch');
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -477,13 +492,12 @@ describe.skipIf(!hasDatabaseUrl())('recon-runner :: pipeline IT (A-21-IT)', () =
       httpxBin: '/fake/httpx',
       spawnFn: async () => ({
         // Only sub.example.com passes scope — but we assert both url attempts were gated.
-        stdout:
-          JSON.stringify({
-            url: 'https://sub.example.com/',
-            status_code: 200,
-            title: '',
-            tech: [],
-          }) + '\n',
+        stdout: `${JSON.stringify({
+          url: 'https://sub.example.com/',
+          status_code: 200,
+          title: '',
+          tech: [],
+        })}\n`,
         exitCode: 0,
       }),
     });

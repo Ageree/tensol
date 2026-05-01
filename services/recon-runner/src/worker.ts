@@ -132,23 +132,21 @@ export const handleReconSubfinderRun = async (
   const { tenantId, assessmentId, projectId, primaryDomain, traceId } = payload;
 
   // 2. Load assessment + tenant binding (B2 — DB vs envelope cross-source check).
+  // Both not-found and tenant-mismatch collapse to denied+ack (not nack) — a forged
+  // or stale envelope must not retry, so we ack-and-drop with an audit trail.
   const assessment = await deps.assessmentLoader({ tenantId, assessmentId });
-  if (!assessment) {
+  if (!assessment || assessment.tenantId !== tenantId) {
     await emitAudit(
-      deps.auditEmitter, tenantId, assessmentId, projectId, traceId,
-      'recon.subfinder.error', 'failure', { reason: 'assessment_not_found' },
+      deps.auditEmitter,
+      tenantId,
+      assessmentId,
+      projectId,
+      traceId,
+      'recon.subfinder.denied',
+      'denied',
+      { reason: 'assessment_mismatch' },
     );
-    return { kind: 'nack', error: new Error('assessment_not_found') };
-  }
-  if (assessment.tenantId !== tenantId) {
-    await emitAudit(
-      deps.auditEmitter, tenantId, assessmentId, projectId, traceId,
-      'recon.subfinder.error', 'failure', { reason: 'tenant_mismatch' },
-    );
-    return {
-      kind: 'nack',
-      error: Object.assign(new Error('tenant_mismatch'), { __terminal: true }),
-    };
+    return { kind: 'ack' };
   }
 
   // 3. Build effective scope (injectable — matches validator-worker pattern).

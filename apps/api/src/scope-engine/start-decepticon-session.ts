@@ -82,6 +82,10 @@ export interface StartDecepticonInput {
   readonly traceId: string;
   /** Parent assessment.start envelope — used to chain idempotency keys. */
   readonly parentEnvelope: JobEnvelope;
+  /** Sprint 21 — when true, publish recon.subfinder.run after session completes. */
+  readonly triggerRecon?: boolean;
+  /** Sprint 21 — primary domain for recon; required when triggerRecon is true. */
+  readonly primaryDomain?: string;
 }
 
 export interface StartDecepticonResult {
@@ -653,6 +657,31 @@ export const startDecepticonSession = async (
       },
     },
   );
+
+  // Sprint 21 (C3) — additive recon dispatch. Skipped silently when
+  // triggerRecon is falsy or primaryDomain is absent (backward-compat).
+  if (input.triggerRecon && input.primaryDomain) {
+    const reconEnvelope: JobEnvelope = {
+      jobId: randomUUID(),
+      tenantId: input.tenantId,
+      projectId: input.projectId ?? null,
+      assessmentId: input.assessmentId,
+      kind: 'recon.subfinder.run',
+      idempotencyKey: `${input.parentEnvelope.idempotencyKey}:recon:${input.assessmentId}`,
+      createdAt: clockIso(),
+      attempt: 0,
+      maxAttempts: 3,
+      traceId: input.traceId,
+      payload: {
+        tenantId: input.tenantId,
+        projectId: input.projectId ?? null,
+        assessmentId: input.assessmentId,
+        primaryDomain: input.primaryDomain,
+        traceId: input.traceId,
+      },
+    };
+    await deps.queueAdapter.publish(reconEnvelope);
+  }
 
   return {
     sessionId: sessionHandle.sessionId,
