@@ -235,7 +235,7 @@ describe.skipIf(!hasDatabaseUrl())('validator :: LFI pipeline (A-19-IT)', () => 
       .where('action', '=', 'validator.lfi.confirmed')
       .execute();
     expect(confirmedAudits.length).toBeGreaterThanOrEqual(1);
-    expect(String(confirmedAudits[0]?.outcome)).toBe('success');
+    expect(String(confirmedAudits[0]?.after_state?.outcome)).toBe('success');
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -357,7 +357,7 @@ describe.skipIf(!hasDatabaseUrl())('validator :: LFI pipeline (A-19-IT)', () => 
       .where('action', '=', 'validator.lfi.replay_denied')
       .execute();
     expect(deniedAudits.length).toBeGreaterThanOrEqual(1);
-    expect(String(deniedAudits[0]?.outcome)).toBe('denied');
+    expect(String(deniedAudits[0]?.after_state?.outcome)).toBe('denied');
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -501,7 +501,7 @@ describe.skipIf(!hasDatabaseUrl())('validator :: LFI pipeline (A-19-IT)', () => 
       .where('action', '=', 'validator.lfi.unmatched')
       .execute();
     expect(unmatchedAudits.length).toBeGreaterThanOrEqual(1);
-    expect(String(unmatchedAudits[0]?.outcome)).toBe('success');
+    expect(String(unmatchedAudits[0]?.after_state?.outcome)).toBe('success');
     expect(String(unmatchedAudits[0]?.resource_type)).toBe('candidate_finding');
   });
 
@@ -597,8 +597,8 @@ describe.skipIf(!hasDatabaseUrl())('validator :: LFI pipeline (A-19-IT)', () => 
       .where('action', '=', 'validation.inconclusive')
       .execute();
     expect(inconclusiveAudits.length).toBeGreaterThanOrEqual(1);
-    const meta = inconclusiveAudits[0]?.metadata as Record<string, unknown> | null;
-    expect(meta?.reason).toBe('config_error');
-    expect(meta?.missing).toBe('lfiHttpClient');
+    const after = inconclusiveAudits[0]?.after_state as Record<string, unknown> | null;
+    expect(after?.reason).toBe('config_error');
+    expect(after?.missing).toBe('lfiHttpClient');
   });
 });
