@@ -45,7 +45,7 @@ export const classifyError = (err: unknown): RetryClass => {
   return 'terminal';
 };
 
-export interface NextDelayInputs {
+interface NextDelayInputs {
   readonly attempt: number;
   readonly baseMs?: number;
   readonly capMs?: number;
@@ -68,7 +68,7 @@ export const nextDelayMs = (inputs: NextDelayInputs): number => {
   return Math.max(0, Math.round(capped + jitter));
 };
 
-export interface RetryDecisionInputs {
+interface RetryDecisionInputs {
   readonly attempt: number;
   readonly maxAttempts: number;
   readonly error: unknown;

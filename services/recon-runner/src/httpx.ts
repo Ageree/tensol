@@ -75,7 +75,7 @@ const defaultSpawnFn: SpawnFn = async (cmd, { timeout }) => {
   }
 };
 
-export interface HttpxTmpdirFail {
+interface HttpxTmpdirFail {
   readonly kind: 'fail';
   readonly reason: 'tmpdir_setup';
   readonly error: string;

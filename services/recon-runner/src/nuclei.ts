@@ -76,7 +76,7 @@ const defaultSpawnFn: SpawnFn = async (cmd, { timeout }) => {
   }
 };
 
-export interface NucleiTmpdirFail {
+interface NucleiTmpdirFail {
   readonly kind: 'fail';
   readonly reason: 'tmpdir_setup';
   readonly error: string;

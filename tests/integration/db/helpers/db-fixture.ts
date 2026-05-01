@@ -222,7 +222,7 @@ export const seedMfaSecret = async (
  * AND the plaintext for tests that exercise the redemption flow. Defaults to
  * a 15-minute TTL.
  */
-export const seedPasswordResetToken = async (
+const seedPasswordResetToken = async (
   f: DbFixture,
   args: {
     tenantId: string;
@@ -249,7 +249,7 @@ export const seedPasswordResetToken = async (
  * consumed → 410 Gone" assertion. Migration 015 seeds the singleton row;
  * this helper just flips the column.
  */
-export const seedPlatformSettings = async (
+const seedPlatformSettings = async (
   f: DbFixture,
   args: { bootstrapConsumedAt?: Date | null },
 ): Promise<void> => {
@@ -421,7 +421,7 @@ export const seedAssessmentApproval = async (
  * this helper — it bypasses the 2xx-only guard. Tests use it to simulate
  * "what if a 4xx row somehow got into the table?" defence-in-depth scenarios.
  */
-export const seedIdempotencyKey = async (
+const seedIdempotencyKey = async (
   f: DbFixture,
   args: {
     tenantId: string;

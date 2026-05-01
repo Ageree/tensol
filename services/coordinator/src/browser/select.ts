@@ -9,7 +9,7 @@ import type { BrowserDriver } from './types.ts';
 
 export type BrowserDriverChoice = 'fake' | 'real';
 
-export interface SelectBrowserDriverOptions {
+interface SelectBrowserDriverOptions {
   readonly fakeDeps?: FakeBrowserDriverDeps;
 }
 

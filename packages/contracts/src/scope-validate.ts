@@ -80,8 +80,3 @@ export const scopeValidateRequestSchema = z
 export type ScopeValidateRequest = z.infer<typeof scopeValidateRequestSchema>;
 
 // ============================================================================
-// Response body alias for clarity
-// ============================================================================
-
-export const scopeValidateResponseSchema = decisionSchema;
-export type ScopeValidateResponse = Decision;

@@ -9,7 +9,7 @@
 const ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const NONCE_LENGTH = 32;
 
-export interface NonceDeps {
+interface NonceDeps {
   /** Test seam — defaults to crypto.getRandomValues over an internal buffer. */
   readonly randomBytes?: (n: number) => Uint8Array;
 }

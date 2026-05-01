@@ -3,7 +3,7 @@
 import type { DbFixture } from '../db/helpers/db-fixture.ts';
 import { seedAssessment, seedProject } from '../db/helpers/db-fixture.ts';
 
-export interface SeededAssessmentContext {
+interface SeededAssessmentContext {
   readonly tenantId: string;
   readonly projectId: string;
   readonly assessmentId: string;

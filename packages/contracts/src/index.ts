@@ -103,11 +103,9 @@ export {
   type Decision,
   type DecisionReason,
   type ScopeValidateRequest,
-  type ScopeValidateResponse,
   decisionReasonSchema,
   decisionSchema,
   scopeValidateRequestSchema,
-  scopeValidateResponseSchema,
 } from './scope-validate.ts';
 
 // Sprint 7 — queue envelope schema mirror.

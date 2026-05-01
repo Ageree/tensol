@@ -33,9 +33,9 @@ import {
 const _here = fileURLToPath(new URL('.', import.meta.url));
 
 export const TEST_COOKIE_NAME = 'cs_session';
-export const TEST_BCRYPT_COST = 4;
+const TEST_BCRYPT_COST = 4;
 
-export const buildTestConfig = (): AuthApiConfig =>
+const buildTestConfig = (): AuthApiConfig =>
   Object.freeze({
     appEnv: 'local' as const,
     bcryptCost: TEST_BCRYPT_COST,
@@ -85,7 +85,7 @@ export const buildAuthApp = (db: DbFixture['db']): AuthFixture => {
   };
 };
 
-export interface SeededLogin {
+interface SeededLogin {
   readonly tenantId: string;
   readonly userId: string;
   readonly email: string;

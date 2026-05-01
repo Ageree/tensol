@@ -20,7 +20,7 @@ type DbDefault<T> = ColumnType<T, T | undefined, T>;
 
 // =============== platform tables ===============
 
-export interface TenantsTable {
+interface TenantsTable {
   id: Generated<string>;
   name: string;
   slug: string;
@@ -56,7 +56,7 @@ export interface UserSessionsTable {
   updated_at: DbDefault<Date>;
 }
 
-export interface MfaSecretsTable {
+interface MfaSecretsTable {
   id: Generated<string>;
   tenant_id: string;
   user_id: string;
@@ -175,7 +175,7 @@ export interface IdempotencyKeysTable {
 
 // =============== append-only artifacts (NO updated_at) ===============
 
-export interface AssessmentArtifactsTable {
+interface AssessmentArtifactsTable {
   id: Generated<string>;
   tenant_id: string;
   assessment_id: string;
@@ -189,7 +189,7 @@ export interface AssessmentArtifactsTable {
 
 // =============== queue / coordinator ===============
 
-export interface JobsTable {
+interface JobsTable {
   id: Generated<string>;
   tenant_id: string;
   project_id: string | null;
@@ -209,7 +209,7 @@ export interface JobsTable {
 
 // =============== decepticon (sprint 8 minimal) ===============
 
-export interface DecepticonSessionsTable {
+interface DecepticonSessionsTable {
   id: Generated<string>;
   tenant_id: string;
   assessment_id: string;
@@ -344,7 +344,7 @@ export interface AuditEventsTable {
   created_at: DbDefault<Date>;
 }
 
-export interface LlmAuditEventsTable {
+interface LlmAuditEventsTable {
   id: Generated<string>;
   tenant_id: string;
   assessment_id: string | null;
@@ -361,7 +361,7 @@ export interface LlmAuditEventsTable {
 
 // =============== reports (sprint 14 — one snapshot row per build) ===============
 
-export interface ReportsTable {
+interface ReportsTable {
   id: Generated<string>;
   tenant_id: string;
   assessment_id: string;
@@ -400,7 +400,7 @@ export interface TargetCredentialsTable {
 // Sprint 17 mig 020 — mutable usage tracking (sibling to append-only target_credentials).
 // =============== OOB callbacks (Sprint 18) ===============
 
-export interface OobCallbacksTable {
+interface OobCallbacksTable {
   id: Generated<string>;
   tenant_id: string | null;
   candidate_id: string | null;
@@ -416,7 +416,7 @@ export interface OobCallbacksTable {
   created_at: DbDefault<Date>;
 }
 
-export interface TargetCredentialUsageTable {
+interface TargetCredentialUsageTable {
   id: Generated<string>;
   credential_id: string;
   tenant_id: string;

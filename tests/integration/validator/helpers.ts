@@ -146,7 +146,7 @@ export const buildFindingCreatedAuditChecker = (
   };
 };
 
-export interface BuildValidatorHandlerInput {
+interface BuildValidatorHandlerInput {
   readonly db: Kysely<Database>;
   readonly storage: LocalObjectStorage;
   readonly buildScope: (assessmentId: string) => Promise<unknown>;
@@ -171,7 +171,7 @@ export const buildValidatorHandlerDeps = (input: BuildValidatorHandlerInput): Va
     payloadSchema: validateFindingPayloadSchema,
   }) as ValidatorWorkerDeps;
 
-export interface LabHarness {
+interface LabHarness {
   readonly handle: XssLabHandle;
   readonly origin: string;
   readonly port: number;

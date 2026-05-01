@@ -11,9 +11,9 @@ export interface FileTotals {
   readonly branchesHit: number;
 }
 
-export type Metric = 'line' | 'function' | 'branch' | 'statement';
+type Metric = 'line' | 'function' | 'branch' | 'statement';
 
-export interface GateRatios {
+interface GateRatios {
   readonly line: number;
   readonly function: number;
   readonly branch: number;

@@ -24,7 +24,7 @@ const envInputShape = z.object({
   SENTRY_DSN: optionalString,
 });
 
-export type EnvInput = z.infer<typeof envInputShape>;
+type EnvInput = z.infer<typeof envInputShape>;
 
 const databaseSchema = z.object({
   url: z.string().min(1),

@@ -32,7 +32,7 @@ interface RealSession {
   >;
 }
 
-export interface RealBrowserDriverDeps {
+interface RealBrowserDriverDeps {
   readonly scopeCheck?: (url: string) => Promise<void>;
   readonly randomUUID?: () => string;
   // Sprint 16: if provided, used directly; otherwise reads process.env.BROWSER_SPA_MAX_DEPTH.

@@ -34,7 +34,7 @@ export const SPA_OBSERVER_SCRIPT = `(function() {
   });
 })();`;
 
-export interface SpaRoute {
+interface SpaRoute {
   readonly url: string;
   readonly sourceUrl: string;
   readonly method: 'pushstate' | 'popstate';

@@ -12,7 +12,7 @@ import {
 import { LocalObjectStorage } from '@cyberstrike/object-storage';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const FIXTURES_DIR = path.join(here, '..', '..', 'fixtures', 'decepticon');
+const FIXTURES_DIR = path.join(here, '..', '..', 'fixtures', 'decepticon');
 
 /**
  * Stub scope deps for IT. Resolves `example.com` to a public IP so the
