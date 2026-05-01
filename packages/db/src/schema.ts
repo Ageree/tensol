@@ -389,9 +389,8 @@ export interface TargetCredentialsTable {
   tenant_id: string;
   target_id: string;
   recipe_id: string;
-  encrypted_blob: Buffer;
-  iv: Buffer;
-  auth_tag: Buffer;
+  // Sprint 23 mig 022: replaced encrypted_blob/iv/auth_tag bytea columns.
+  recipe_text: string;
   created_by: string;
   // Sprint 17 mig 020: cosmetic display name, set once at INSERT.
   name: string;

@@ -13,10 +13,5 @@ export {
   type ExecutorPage,
   type LoginResult,
 } from './executor.ts';
-export {
-  decryptCredential,
-  encryptCredential,
-  parseKek,
-  type EncryptedBlob,
-} from './crypto.ts';
+export { encryptCredential, parseKek, type EncryptedBlob } from './encrypt-shim.ts';
 export { ConfigError, DecryptionError, LoginFailedError } from './errors.ts';

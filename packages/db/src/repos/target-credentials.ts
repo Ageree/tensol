@@ -6,9 +6,10 @@ export interface TargetCredentialRow {
   readonly tenantId: string;
   readonly targetId: string;
   readonly recipeId: string;
+  // Sprint 23 mig 022: recipe stored as plain text (bytea dropped).
+  readonly recipeText: string;
+  // Sprint 23 G shim: encryptedBlob = Buffer.from(recipeText) so targets.ts diff === 0.
   readonly encryptedBlob: Buffer;
-  readonly iv: Buffer;
-  readonly authTag: Buffer;
   readonly createdBy: string;
   // Sprint 17 mig 020: cosmetic display name (set once at INSERT).
   readonly name: string;
@@ -20,6 +21,7 @@ export interface InsertTargetCredentialInput {
   readonly tenantId: string;
   readonly targetId: string;
   readonly recipeId: string;
+  // targets.ts passes encryptedBlob (via shim = plaintext); stored as recipe_text.
   readonly encryptedBlob: Buffer;
   readonly iv: Buffer;
   readonly authTag: Buffer;
@@ -32,24 +34,24 @@ const mapRow = (r: {
   tenant_id: unknown;
   target_id: unknown;
   recipe_id: unknown;
-  encrypted_blob: unknown;
-  iv: unknown;
-  auth_tag: unknown;
+  recipe_text: unknown;
   created_by: unknown;
   name: unknown;
   created_at: unknown;
-}): TargetCredentialRow => ({
-  id: r.id as string,
-  tenantId: r.tenant_id as string,
-  targetId: r.target_id as string,
-  recipeId: r.recipe_id as string,
-  encryptedBlob: r.encrypted_blob as Buffer,
-  iv: r.iv as Buffer,
-  authTag: r.auth_tag as Buffer,
-  createdBy: r.created_by as string,
-  name: (r.name as string) ?? '',
-  createdAt: r.created_at as Date,
-});
+}): TargetCredentialRow => {
+  const recipeText = (r.recipe_text as string) ?? '';
+  return {
+    id: r.id as string,
+    tenantId: r.tenant_id as string,
+    targetId: r.target_id as string,
+    recipeId: r.recipe_id as string,
+    recipeText,
+    encryptedBlob: Buffer.from(recipeText, 'utf8'),
+    createdBy: r.created_by as string,
+    name: (r.name as string) ?? '',
+    createdAt: r.created_at as Date,
+  };
+};
 
 export const insertTargetCredential = async (
   input: InsertTargetCredentialInput,
@@ -61,9 +63,8 @@ export const insertTargetCredential = async (
       tenant_id: fields.tenantId,
       target_id: fields.targetId,
       recipe_id: fields.recipeId,
-      encrypted_blob: fields.encryptedBlob,
-      iv: fields.iv,
-      auth_tag: fields.authTag,
+      // encryptedBlob is the shim output (plaintext bytes); store as recipe_text.
+      recipe_text: fields.encryptedBlob.toString('utf8'),
       created_by: fields.createdBy,
       name: fields.name ?? '',
     })

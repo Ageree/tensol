@@ -175,9 +175,9 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     expect(trigNames.has('reports_no_truncate')).toBe(true);
     expect(trigNames.has('reports_immutable_ready')).toBe(true);
 
-    // Roll back 9 migrations to revert through 013 (reports table drop).
-    // 9 = down(021)→down(020)→down(019)→down(018)→down(017)→down(016)→down(015)→down(014)→down(013); oob_callbacks table dropped when 021 reverts, reports table dropped at 013-down.
-    for (let i = 0; i < 9; i++) {
+    // Roll back 10 migrations to revert through 013 (reports table drop).
+    // 10 = down(022)→down(021)→down(020)→down(019)→down(018)→down(017)→down(016)→down(015)→down(014)→down(013); oob_callbacks table dropped when 021 reverts, reports table dropped at 013-down.
+    for (let i = 0; i < 10; i++) {
       const r = await f.migrator.migrateDown();
       if (r.error) throw r.error instanceof Error ? r.error : new Error(String(r.error));
     }
@@ -207,7 +207,10 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     `.execute(f.db);
     expect(cols.rows).toHaveLength(3);
 
-    // Pop mig 021 + 020 so the next migrateDown targets 019.
+    // Pop mig 022 + 021 + 020 so the next migrateDown targets 019.
+    const r022pre = await f.migrator.migrateDown();
+    if (r022pre.error)
+      throw r022pre.error instanceof Error ? r022pre.error : new Error(String(r022pre.error));
     const r021pre = await f.migrator.migrateDown();
     if (r021pre.error)
       throw r021pre.error instanceof Error ? r021pre.error : new Error(String(r021pre.error));
@@ -244,7 +247,10 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     expect(trigNames.has('target_credentials_no_update_delete_row')).toBe(true);
     expect(trigNames.has('target_credentials_no_truncate')).toBe(true);
 
-    // Pop mig 021 + 020 so subsequent steps land on the expected migrations.
+    // Pop mig 022 + 021 + 020 so subsequent steps land on the expected migrations.
+    const r022pre = await f.migrator.migrateDown();
+    if (r022pre.error)
+      throw r022pre.error instanceof Error ? r022pre.error : new Error(String(r022pre.error));
     const r021pre = await f.migrator.migrateDown();
     if (r021pre.error)
       throw r021pre.error instanceof Error ? r021pre.error : new Error(String(r021pre.error));
@@ -289,7 +295,10 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     `.execute(f.db);
     expect(tables.rows).toHaveLength(1);
 
-    // Pop mig 021 so migrateDown targets 020.
+    // Pop mig 022 + 021 so migrateDown targets 020.
+    const r022pre = await f.migrator.migrateDown();
+    if (r022pre.error)
+      throw r022pre.error instanceof Error ? r022pre.error : new Error(String(r022pre.error));
     const r021pre = await f.migrator.migrateDown();
     if (r021pre.error)
       throw r021pre.error instanceof Error ? r021pre.error : new Error(String(r021pre.error));
@@ -336,7 +345,9 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     expect(trigNames.has('oob_callbacks_no_delete_stmt')).toBe(true);
     expect(trigNames.has('oob_callbacks_no_truncate')).toBe(true);
 
-    // Roll back migration 021.
+    // Roll back migration 022 then 021.
+    const r022 = await f.migrator.migrateDown();
+    if (r022.error) throw r022.error instanceof Error ? r022.error : new Error(String(r022.error));
     const r021 = await f.migrator.migrateDown();
     if (r021.error) throw r021.error instanceof Error ? r021.error : new Error(String(r021.error));
 
@@ -349,6 +360,31 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     expect(afterRollback.rows[0]?.exists).toBe(false);
 
     // Re-apply all migrations for downstream tests.
+    await applyAllMigrations(f);
+  });
+
+  test('B6 — mig 022: recipe_text column present after 022, absent after rollback', async () => {
+    // Sprint 23 G: migration 022 drops bytea columns and adds recipe_text text column.
+    await applyAllMigrations(f);
+
+    const colsAfter = await sql<{ column_name: string }>`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'target_credentials'
+        AND column_name = 'recipe_text'
+    `.execute(f.db);
+    expect(colsAfter.rows).toHaveLength(1);
+
+    // Roll back migration 022.
+    const r022 = await f.migrator.migrateDown();
+    if (r022.error) throw r022.error instanceof Error ? r022.error : new Error(String(r022.error));
+
+    const colsBefore = await sql<{ column_name: string }>`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'target_credentials'
+        AND column_name = 'recipe_text'
+    `.execute(f.db);
+    expect(colsBefore.rows).toHaveLength(0);
+
     await applyAllMigrations(f);
   });
 

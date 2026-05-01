@@ -25,9 +25,7 @@ import {
   LoginFailedError,
   LoginRecipeSchema,
   type LoginResult,
-  decryptCredential,
   executeRecipe,
-  parseKek,
 } from '@cyberstrike/browser-auth';
 import type { AuditAction, AuditOutcome, ServiceActorId } from '@cyberstrike/contracts';
 import type { Database } from '@cyberstrike/db';
@@ -78,8 +76,6 @@ export interface BrowserAuthDeps {
   readonly buildScope: (assessmentId: string) => Promise<EffectiveScope | null>;
   readonly scopeDeps: ScopeGuardDeps;
   readonly auditEmitter: BrowserAuthAuditEmitter;
-  /** Test seam — defaults to process.env.CREDENTIAL_KEK. */
-  readonly credentialKekHex?: string;
 }
 
 const sha256Hex = (data: string): string => createHash('sha256').update(data, 'utf8').digest('hex');
@@ -159,22 +155,10 @@ export const handleBrowserAuth = async (
     return nack(new ScopeDenyError(targetUrl, decision.matchedDenyRuleIds));
   }
 
-  // Decrypt credential — KEK never logged.
-  const { CREDENTIAL_KEK } = process.env;
-  let kek: Buffer;
-  try {
-    kek = parseKek(deps.credentialKekHex ?? CREDENTIAL_KEK);
-  } catch (err) {
-    return nack(err);
-  }
-
+  // Sprint 23 G: credentials stored as plain recipe_text (bytea dropped).
   let credential: Credential;
   try {
-    const plaintext = decryptCredential(
-      { iv: credRow.iv, ciphertext: credRow.encryptedBlob, authTag: credRow.authTag },
-      kek,
-    );
-    credential = CredentialSchema.parse(JSON.parse(plaintext));
+    credential = CredentialSchema.parse(JSON.parse(credRow.recipeText));
   } catch (err) {
     return nack(err);
   }

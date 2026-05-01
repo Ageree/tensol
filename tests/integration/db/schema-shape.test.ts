@@ -107,10 +107,8 @@ describe.skipIf(skip)('schema shape (B9-B12, B23, B23b, B24)', () => {
     }
   });
 
-  // Tables that intentionally use bytea for binary-by-nature data.
-  // AES-GCM ciphertext + IV + auth_tag are raw binary; hex-encoding wastes ~33%
-  // storage and adds encode/decode overhead without benefit. (P32)
-  const BYTEA_EXEMPT = ['target_credentials'];
+  // Sprint 23 G: target_credentials bytea columns removed (recipe_text text).
+  const BYTEA_EXEMPT: string[] = [];
 
   test('B23 — no BYTEA columns anywhere (except exempt tables)', async () => {
     const r = await sql<{ table_name: string; column_name: string }>`
