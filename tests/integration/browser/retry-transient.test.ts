@@ -158,7 +158,7 @@ describe.skipIf(!hasDatabaseUrl())('browser :: retry-transient (A-BR-RetryPolicy
         tenantId,
         projectId,
         assessmentId,
-        kind: 'recon.browser',
+        kind: 'assessment.start',
         idempotencyKey: 'recon.browser:retry-q-1',
         createdAt: new Date().toISOString(),
         attempt: 0,

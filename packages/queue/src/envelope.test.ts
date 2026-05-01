@@ -31,8 +31,8 @@ describe('parseEnvelope (A-Q-Env-1, A-Q-Env-2)', () => {
     }
   });
 
-  it('accepts the recon.browser.placeholder kind', () => {
-    const env = { ...validEnvelope(), kind: 'recon.browser.placeholder' };
+  it('accepts the validate.finding kind', () => {
+    const env = { ...validEnvelope(), kind: 'validate.finding' };
     const result = parseEnvelope(env);
     expect(result.ok).toBe(true);
   });

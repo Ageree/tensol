@@ -85,7 +85,7 @@ const allowExampleScope = (): EffectiveScope =>
 const buildEnvelope = (payload: ReconBrowserPayload): JobEnvelope =>
   ({
     jobId: JOB_ID,
-    kind: 'recon.browser',
+    kind: 'assessment.start',
     tenantId: payload.tenantId,
     projectId: payload.projectId,
     assessmentId: payload.assessmentId,

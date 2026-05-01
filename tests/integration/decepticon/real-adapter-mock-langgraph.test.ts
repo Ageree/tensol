@@ -239,15 +239,7 @@ describe.skipIf(!hasDatabaseUrl())(
         .execute();
       expect(findings.length).toBe(0);
 
-      // A-13-Flow: decepticon.findings job enqueued per candidate.
-      const decepticonJobs = await fx.db
-        .selectFrom('jobs')
-        .selectAll()
-        .where('tenant_id', '=', tenantId)
-        .where('assessment_id', '=', assessmentId)
-        .where('kind', '=', 'decepticon.findings')
-        .execute();
-      expect(decepticonJobs.length).toBe(1);
+      // Sprint 23 F: decepticon.findings kind removed; validate.finding published instead.
 
       // A-13-Flow: validate.finding job enqueued for xss_reflected candidate.
       const validateJobs = await fx.db
@@ -398,15 +390,7 @@ describe.skipIf(!hasDatabaseUrl())(
         .execute();
       expect(validateJobs.length).toBe(0);
 
-      // A-13-Scope P1-A: ZERO decepticon.findings jobs published for denied candidate.
-      const decepticonJobs = await fx.db
-        .selectFrom('jobs')
-        .selectAll()
-        .where('tenant_id', '=', tenantId)
-        .where('assessment_id', '=', assessmentId)
-        .where('kind', '=', 'decepticon.findings')
-        .execute();
-      expect(decepticonJobs.length).toBe(0);
+      // Sprint 23 F: decepticon.findings kind removed; no such jobs exist.
 
       // A-13-Scope P1-A: ONE decepticon.candidate.denied audit event.
       const deniedAuditRows = await fx.db

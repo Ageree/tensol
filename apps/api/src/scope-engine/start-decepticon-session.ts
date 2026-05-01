@@ -423,33 +423,9 @@ export const startDecepticonSession = async (
       })
       .execute();
 
-    // Republish as decepticon.findings envelope (Sprint 10 validator will
-    // subscribe). Idempotency key chains parent.envelope.idempotencyKey + the
-    // candidateFindingId so retries stay deduped.
-    const childEnvelope: JobEnvelope = {
-      jobId: randomUUID(),
-      tenantId: input.tenantId,
-      projectId: input.projectId ?? null,
-      assessmentId: input.assessmentId,
-      kind: 'decepticon.findings',
-      idempotencyKey: `${input.parentEnvelope.idempotencyKey}:cand:${candidateFindingId}`,
-      createdAt: clockIso(),
-      attempt: 0,
-      maxAttempts: 3,
-      traceId: input.traceId,
-      payload: {
-        sessionId: sessionHandle.sessionId,
-        candidateId: candidate.candidateId,
-        candidateFindingId,
-        type: candidate.type,
-        severity: candidate.severity,
-        affectedUrl: candidate.affectedUrl,
-        source: candidate.source,
-      },
-    };
-    await deps.queueAdapter.publish(childEnvelope);
+    // Sprint 23 F: decepticon.findings queue kind removed (no subscriber existed).
 
-    // Sprint 10 — also publish a `validate.finding` envelope so the
+    // Sprint 10 — publish a `validate.finding` envelope so the
     // validator-worker can replay the candidate and gate findings creation.
     // Only XSS-reflected candidates are wired in Sprint 10; other types
     // skip the publish until later sprints add their validators.

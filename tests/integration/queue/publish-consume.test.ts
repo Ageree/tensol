@@ -49,7 +49,7 @@ describe.skipIf(!hasDatabaseUrl())('queue :: publish-consume happy path (A-Q-Loc
     tenantId,
     projectId: null,
     assessmentId,
-    kind: 'recon.browser.placeholder',
+    kind: 'validate.finding',
     idempotencyKey: idem,
     createdAt: new Date().toISOString(),
     attempt: 0,
@@ -118,7 +118,7 @@ describe.skipIf(!hasDatabaseUrl())('queue :: publish-consume happy path (A-Q-Loc
       jobId: env.jobId,
       tenantId: env.tenantId,
       assessmentId: env.assessmentId,
-      kind: 'recon.browser.placeholder',
+      kind: 'validate.finding',
       idempotencyKey: 'idem-payload-roundtrip',
     });
 

@@ -3,9 +3,8 @@ import {
   assessmentStartPayloadSchema,
   createCoordinator,
   handleAssessmentStart,
-  publishReconChildJobs,
-  reconPlaceholderHandler,
-  reconPlaceholderPayloadSchema,
+  reconBrowserPayloadSchema,
+  validateFindingPayloadSchema,
 } from './index.ts';
 
 describe('services/coordinator :: public surface', () => {
@@ -17,16 +16,9 @@ describe('services/coordinator :: public surface', () => {
     expect(typeof handleAssessmentStart).toBe('function');
   });
 
-  test('exports publishReconChildJobs', () => {
-    expect(typeof publishReconChildJobs).toBe('function');
-  });
-
-  test('exports reconPlaceholderHandler', () => {
-    expect(typeof reconPlaceholderHandler).toBe('function');
-  });
-
   test('exports payload schemas', () => {
     expect(assessmentStartPayloadSchema).toBeDefined();
-    expect(reconPlaceholderPayloadSchema).toBeDefined();
+    expect(reconBrowserPayloadSchema).toBeDefined();
+    expect(validateFindingPayloadSchema).toBeDefined();
   });
 });

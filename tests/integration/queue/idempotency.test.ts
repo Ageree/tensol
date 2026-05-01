@@ -49,7 +49,7 @@ describe.skipIf(!hasDatabaseUrl())('queue :: idempotency (A-Q-Idem-1)', () => {
       tenantId,
       projectId: null,
       assessmentId,
-      kind: 'recon.browser.placeholder',
+      kind: 'validate.finding',
       idempotencyKey: 'idem-dup-1',
       createdAt: new Date().toISOString(),
       attempt: 0,

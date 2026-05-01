@@ -1,7 +1,7 @@
 // Sprint 7 §5.4 A-Q-Coord-1 (F2) — createCoordinator factory unit test.
 //
-// Verifies that start() subscribes to BOTH `assessment.start` and
-// `recon.browser.placeholder` queues, and that stop() drains cleanly.
+// Verifies that start() subscribes to `assessment.start` queue,
+// and that stop() drains cleanly.
 
 import { describe, expect, test } from 'bun:test';
 import type {
@@ -63,7 +63,7 @@ const stubScopeDeps = {
 };
 
 describe('createCoordinator factory (A-Q-Coord-1)', () => {
-  test('start() subscribes to both queues; stop() drains both', async () => {
+  test('start() subscribes to assessment.start queue; stop() drains cleanly', async () => {
     const { adapter, calls } = stubAdapter();
     const coord = createCoordinator({
       // biome-ignore lint/suspicious/noExplicitAny: stub DB for unit test
@@ -77,13 +77,10 @@ describe('createCoordinator factory (A-Q-Coord-1)', () => {
     coord.start();
 
     const queueNames = calls.map((c) => c.queue).sort();
-    expect(queueNames).toEqual(['assessment.start', 'recon.browser.placeholder']);
-    expect(calls.length).toBe(2);
+    expect(queueNames).toEqual(['assessment.start']);
+    expect(calls.length).toBe(1);
 
     await coord.stop({ timeoutMs: 50 });
-    // Stop should have been called on both subscriptions.
-    // (The stub's `stopped` counter is increment-on-stop; both subs' stop()
-    // should have fired in parallel via Promise.all.)
   });
 
   test('start() can run twice without throwing; stop() resolves either way', async () => {

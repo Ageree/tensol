@@ -119,7 +119,7 @@ describe.skipIf(!hasDatabaseUrl())('browser :: timeline (A-BR-Timeline)', () => 
         tenantId,
         projectId,
         assessmentId,
-        kind: 'recon.browser',
+        kind: 'assessment.start',
         idempotencyKey: 'recon.browser:timeline-1',
         createdAt: new Date().toISOString(),
         attempt: 0,

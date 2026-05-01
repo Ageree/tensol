@@ -206,13 +206,13 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(actions).not.toContain('decepticon.session.failed');
       expect(actions).not.toContain('assessment.failed');
 
-      // Sprint 8 also republishes one decepticon.findings envelope per candidate.
+      // Sprint 23 F: decepticon.findings queue kind removed; validate.finding published instead.
       const childJobs = await fx.db
         .selectFrom('jobs')
         .selectAll()
         .where('tenant_id', '=', tenantId)
         .where('assessment_id', '=', assessmentId)
-        .where('kind', '=', 'decepticon.findings')
+        .where('kind', '=', 'validate.finding')
         .execute();
       expect(childJobs.length).toBe(1);
 

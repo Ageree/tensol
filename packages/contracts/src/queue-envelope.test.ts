@@ -7,19 +7,15 @@ describe('queue-envelope contract', () => {
   test('ENVELOPE_KINDS matches the canonical packages/queue list', () => {
     expect([...ENVELOPE_KINDS]).toEqual([
       'assessment.start',
-      'recon.browser.placeholder',
-      'decepticon.findings',
-      'recon.browser',
       'validate.finding',
       'report.build',
-      'browser.auth',
       'validator.ssrf.replay',
       'validator.lfi.replay',
       'validator.rce.replay',
       // Sprint 21 — recon-runner PD-stack.
       'recon.subfinder.run',
     ]);
-    expect(ENVELOPE_KINDS.length).toBe(11);
+    expect(ENVELOPE_KINDS.length).toBe(7);
   });
 
   test('JOB_STATUSES matches the DB CHECK constraint state-machine', () => {

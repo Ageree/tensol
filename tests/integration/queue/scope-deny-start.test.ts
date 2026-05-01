@@ -134,7 +134,6 @@ describe.skipIf(!hasDatabaseUrl())(
       const outcome = await handleAssessmentStart(
         {
           db: fx.db,
-          adapter,
           scopeDeps: stubScopeDeps,
           buildScope: (id) => buildScopeForAssessment(fx.db, id),
         },
@@ -170,12 +169,12 @@ describe.skipIf(!hasDatabaseUrl())(
         .executeTakeFirstOrThrow();
       expect(Number(auditPostCount.c) - auditPreCount).toBe(2);
 
-      // Assert NO child recon.browser.placeholder jobs published (A-Q-Scope-2).
+      // Assert NO child validate.finding jobs published on scope deny (A-Q-Scope-2).
       const childCount = await fx.db
         .selectFrom('jobs')
         .select((eb) => eb.fn.countAll<string>().as('c'))
         .where('tenant_id', '=', tenantId)
-        .where('kind', '=', 'recon.browser.placeholder')
+        .where('kind', '=', 'validate.finding')
         .where('assessment_id', '=', assessmentId)
         .executeTakeFirstOrThrow();
       expect(Number(childCount.c)).toBe(0);

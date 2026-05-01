@@ -52,7 +52,7 @@ describe.skipIf(!hasDatabaseUrl())('queue :: tenant isolation (A-Q-Tenant-1)', (
       tenantId: t1,
       projectId: null,
       assessmentId: t1AssessmentId,
-      kind: 'recon.browser.placeholder',
+      kind: 'validate.finding',
       idempotencyKey: 't1-isolation',
       createdAt: new Date().toISOString(),
       attempt: 0,

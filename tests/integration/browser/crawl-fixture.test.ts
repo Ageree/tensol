@@ -142,7 +142,7 @@ describe.skipIf(!hasDatabaseUrl())(
           tenantId,
           projectId,
           assessmentId,
-          kind: 'recon.browser',
+          kind: 'assessment.start',
           idempotencyKey: 'recon.browser:crawl-1',
           createdAt: new Date().toISOString(),
           attempt: 0,

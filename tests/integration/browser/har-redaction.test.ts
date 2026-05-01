@@ -144,7 +144,7 @@ describe.skipIf(!hasDatabaseUrl())('browser :: har-redaction (A-BR-Cookie)', () 
         tenantId,
         projectId,
         assessmentId,
-        kind: 'recon.browser',
+        kind: 'assessment.start',
         idempotencyKey: 'recon.browser:har-1',
         createdAt: new Date().toISOString(),
         attempt: 0,

@@ -51,7 +51,7 @@ describe.skipIf(!hasDatabaseUrl())('queue :: concurrent subscribers (A-Q-Concurr
         tenantId,
         projectId: null,
         assessmentId,
-        kind: 'recon.browser.placeholder',
+        kind: 'validate.finding',
         idempotencyKey: `idem-${i}`,
         createdAt: new Date().toISOString(),
         attempt: 0,

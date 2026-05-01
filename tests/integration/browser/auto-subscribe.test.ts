@@ -158,7 +158,7 @@ describe.skipIf(!hasDatabaseUrl())('browser :: auto-subscribe (codex iter-3 P1)'
         tenantId,
         projectId,
         assessmentId,
-        kind: 'recon.browser',
+        kind: 'assessment.start',
         idempotencyKey: 'recon.browser:auto-1',
         createdAt: new Date().toISOString(),
         attempt: 0,
