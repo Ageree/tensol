@@ -4,7 +4,6 @@
     { "path": "./apps/api" },
     { "path": "./apps/web" },
     { "path": "./services/coordinator" },
-    { "path": "./services/browser-worker" },
     { "path": "./services/validator-worker" },
     { "path": "./services/report-builder" },
     { "path": "./services/http-worker" },

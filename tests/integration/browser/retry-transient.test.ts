@@ -21,7 +21,7 @@ import {
   FakeBrowserDriver,
   handleReconBrowser,
   reconBrowserPayloadSchema,
-} from '@cyberstrike/browser-worker';
+} from '@cyberstrike/coordinator/browser';
 import { type JobEnvelope, LocalQueueAdapter } from '@cyberstrike/queue';
 import {
   DEFAULT_PLATFORM_POLICY,

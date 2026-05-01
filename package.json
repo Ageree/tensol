@@ -37,11 +37,9 @@
   "dependencies": {
     "@cyberstrike/api": "workspace:*",
     "@cyberstrike/browser-auth": "workspace:*",
-    "@cyberstrike/browser-driver": "workspace:*",
     "@cyberstrike/lab-auth-fixture": "workspace:*",
     "@cyberstrike/audit": "workspace:*",
     "@cyberstrike/authz": "workspace:*",
-    "@cyberstrike/browser-worker": "workspace:*",
     "@cyberstrike/contracts": "workspace:*",
     "@cyberstrike/coordinator": "workspace:*",
     "@cyberstrike/db": "workspace:*",

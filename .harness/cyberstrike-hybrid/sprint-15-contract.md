@@ -148,7 +148,14 @@ rows are fully immutable (no status field), consistent with the spec.
 ### packages/db/src/schema.ts
 - Add `TargetCredentialsTable` interface (encrypted fields as `Buffer`).
 - Add `target_credentials` to `ALL_TABLE_NAMES`.
-- Add `target_credentials` to `APPEND_ONLY_TABLES`.
+- Add `target_credentials` to `APPEND_ONLY_TABLES` (line ~440 — the prod runtime constant).
+
+### tests/integration/db/schema-shape.test.ts (UPDATE — R1)
+- `TENANT_OWNED` array (line ~15): add `'target_credentials'` (test-local constant, NOT in schema.ts).
+- `APPEND_ONLY` array (line ~40): add `'target_credentials'` (test-local constant, NOT in schema.ts).
+
+Note: `TENANT_OWNED` and `APPEND_ONLY` are test-local arrays in `schema-shape.test.ts`, distinct
+from `APPEND_ONLY_TABLES` in `schema.ts`. All three must be updated.
 
 ### packages/db/src/repos/target-credentials.ts (NEW)
 - `insertTargetCredential`, `getTargetCredential`, `listTargetCredentials` — tenant-scoped, immutable.
@@ -156,18 +163,20 @@ rows are fully immutable (no status field), consistent with the spec.
 ### packages/db/src/index.ts
 - Export new repo functions and `TargetCredentialsTable`.
 
-### packages/contracts/src/audit.ts — AUDIT_ACTIONS bump (52 → 56)
+### packages/contracts/src/audit.ts — AUDIT_ACTIONS bump (52 → 58)
 
-New actions (+4):
+New actions (+6):
 ```
-'auth.recipe.executed'       — login recipe ran to completion
-'auth.credential.encrypted'  — credential stored (API insert)
-'auth.credential.decrypted'  — credential retrieved (browser-worker only)
-'auth.login.failed'          — executeRecipe threw LoginFailedError
+'auth.recipe.executed'             — login recipe ran to completion
+'auth.credential.encrypted'        — credential stored (S16: API insert)
+'auth.credential.decrypted'        — credential retrieved (browser-worker only)
+'auth.login.failed'                — executeRecipe threw LoginFailedError
+'auth.credential.target_mismatch'  — credRow.targetId !== payload.targetId (codex P2)
+'auth.recipe.scope_denied'         — scope unavailable or targetUrl denied (codex P1)
 ```
 
 ### packages/contracts/src/audit.test.ts
-- Update cardinality assertion: `52 → 56`.
+- Update cardinality assertion: `52 → 58` and update exhaustive array with all 6 new actions.
 
 ### packages/contracts/src/queue-envelope.ts + packages/queue/src/types.ts
 - Add `'report.build'` and `'browser.auth'` to `ENVELOPE_KINDS` (5 → 7) in both canonical files.
@@ -294,7 +303,8 @@ GET  /healthz      — 200 always
 
 ## tests/integration/browser-auth/login-flow.test.ts (NEW)
 
-4 IT cases (A-15-LoginHappyPath, A-15-LoginFailed, A-15-DecryptionFailure, A-15-CredentialRepo).
+5 IT cases: A-15-LoginHappyPath, A-15-LoginFailed, A-15-ScopeGuard, A-15-DecryptionFailure,
+A-15-CredentialRepo (which contains the mandatory `A-15-AppendOnly` named sub-case).
 `skipIf(!hasDatabaseUrl())` guard. P27: `resetAuthState` in `afterAll` + `beforeEach` + explicit
 in each test (`grep -c resetAuthState` ≥ 2 confirmed).
 
@@ -312,30 +322,58 @@ Pattern matches `tests/integration/audit/append-only-runtime.test.ts:23,36`.
 
 ---
 
-## tests/integration/db/migrations.test.ts (UPDATE)
+## tests/integration/db/migrations.test.ts (UPDATE — R4)
 
 **B5 spot-check**: `target_credentials` in the table existence query.
 
 **B6 target_credentials rollback test** (NEW, lines ~152-180):
 1. `applyAllMigrations(f)` — ensure 018 is applied.
-2. Query `pg_trigger WHERE tgrelid = 'public.target_credentials'::regclass` — assert 3 trigger names:
+2. Query `pg_trigger WHERE tgrelid = 'public.target_credentials'::regclass AND NOT tgisinternal`
+   — assert 3 trigger names (consistent with `reports_*` precedent):
    `target_credentials_no_update_delete_stmt`, `target_credentials_no_update_delete_row`, `target_credentials_no_truncate`.
-3. `f.migrator.migrateDown()` — rolls back 018 only.
-4. Query `information_schema.tables` — assert `target_credentials` absent.
-5. `applyAllMigrations(f)` — re-apply for downstream tests.
-6. Existing langgraph B6 test (017 check) left intact — no regression.
+   (Add these to the existing B6-trigger block at `migrations.test.ts:118-130`.)
+3. **Step-1 migrateDown** (`f.migrator.migrateDown()`) — rolls back 018 only:
+   - Assert `target_credentials` table absent (query `information_schema.tables`).
+   - Assert `decepticon_sessions.langgraph_thread_id` column IS STILL PRESENT (017 not rolled back — regression guard).
+4. **Step-2 migrateDown** (`f.migrator.migrateDown()`) — rolls back 017:
+   - Assert `decepticon_sessions.langgraph_thread_id` column now absent.
+5. `applyAllMigrations(f)` — re-apply both for downstream tests.
+
+Note: existing B6 test at `migrations.test.ts:50-75` checks `langgraph_thread_id` after a single
+`migrateDown()`. With 018 shipping, that one-step down now drops `target_credentials` instead.
+The strategy above replaces the single-step assertion with explicit two-step coverage so both
+018 and 017 are verified independently.
 
 ---
 
-## tests/integration/auth/helpers/auth-fixture.ts (UPDATE)
+## tests/integration/auth/helpers/auth-fixture.ts (UPDATE — R2)
 
-Add to `resetAuthState`:
-- `ALTER TABLE target_credentials DISABLE TRIGGER USER` alongside existing DISABLE block
-  (after `ALTER TABLE reports DISABLE TRIGGER USER`).
-- `DELETE FROM target_credentials` BEFORE `DELETE FROM targets` (FK order — `target_credentials`
-  has FK → `targets`). Insert after `DELETE FROM assessment_targets`, before `DELETE FROM targets`.
-- `ALTER TABLE target_credentials ENABLE TRIGGER USER` in `finally` block alongside other ENABLE
-  statements.
+Add to `resetAuthState` following the S14 ALTER TRIGGER pattern
+(`auth-fixture.ts:223-224, 233-234, 269, 276`):
+
+1. **DISABLE (before DELETE block, alongside existing DISABLE statements at lines 223-224, 233-234):**
+   ```sql
+   ALTER TABLE target_credentials DISABLE TRIGGER USER
+   ```
+   Place immediately after `ALTER TABLE reports DISABLE TRIGGER USER`.
+
+2. **DELETE (between `assessment_targets` and `targets`, ~line 254):**
+   ```sql
+   DELETE FROM target_credentials
+   ```
+   Precise order in DELETE block:
+   - `DELETE FROM audit_events` (existing, line 229 — runs first per S5 F3 lesson)
+   - `DELETE FROM assessment_targets` (existing, ~line 253)
+   - **`DELETE FROM target_credentials`** ← INSERT HERE (FK → targets, must precede targets delete)
+   - `DELETE FROM targets` (existing, ~line 256)
+   - `DELETE FROM user_sessions` (existing, ~line 258)
+   - `DELETE FROM tenants` (existing, ~line 262)
+
+3. **ENABLE (in `finally` block alongside existing ENABLE statements at lines 264-276):**
+   ```sql
+   ALTER TABLE target_credentials ENABLE TRIGGER USER
+   ```
+   Place alongside existing `reports` / `audit_events` ENABLE statements.
 
 ---
 
@@ -424,11 +462,45 @@ hex. Unit tests in `packages/browser-auth/src/crypto.test.ts`.
 
 ### A-15-CredentialRepo
 `insertTargetCredential` → `getTargetCredential` round-trips. Cross-tenant returns `null`.
-Append-only probe: SQLSTATE `23514` asserted explicitly (not just `.rejects.toThrow()`).
+
+Append-only probe — **mandatory named test case** (R5): either a dedicated file
+`tests/integration/db/target-credentials-append-only.test.ts` (mirroring
+`tests/integration/audit/append-only-runtime.test.ts:23-101` pattern) **OR** an explicitly-named
+embedded case `'A-15-AppendOnly: DELETE FROM target_credentials WHERE 1=0 raises PG check_violation'`
+inside `login-flow.test.ts`. "Embedded or separate" is not acceptable — the case must be named so it
+is grep-able and cannot be silently dropped. SQLSTATE `23514` (check_violation) must be asserted
+explicitly (not just `.rejects.toThrow()`).
+
+```typescript
+test('A-15-AppendOnly: DELETE FROM target_credentials WHERE 1=0 raises PG check_violation', async () => {
+  let threw = false;
+  try {
+    await sql`DELETE FROM target_credentials WHERE 1=0`.execute(db);
+  } catch (e: unknown) {
+    threw = true;
+    expect((e as { code?: string }).code).toBe('23514');
+  }
+  if (!threw) throw new Error('expected SQLSTATE 23514 but no error was thrown');
+});
+```
 
 ### A-15-Integration
-`tests/integration/browser-auth/login-flow.test.ts` — 4 cases pass or skip on no-DB.
-`grep -c resetAuthState login-flow.test.ts` ≥ 2.
+`tests/integration/browser-auth/login-flow.test.ts` — 5 cases (A-15-LoginHappyPath,
+A-15-LoginFailed, A-15-ScopeGuard, A-15-DecryptionFailure, A-15-CredentialRepo) pass or skip on
+no-DB. `grep -c resetAuthState login-flow.test.ts` ≥ 2.
+
+**A-15-ScopeGuard** (mandatory): `buildScope()` returns null → handler nacks with
+`'scope_unavailable'` BEFORE any `decryptCredential` call or browser launch. Audit event
+`auth.recipe.scope_denied` (outcome: `'denied'`) emitted. Asserts `result.kind === 'nack'`,
+`actions` contains `'auth.recipe.scope_denied'`, `actions` does NOT contain
+`'auth.credential.decrypted'` or `'auth.recipe.executed'`.
+
+### A-15-CredentialInsertAPI (DEFERRED to S16 — explicit)
+The `POST /assessments/:id/target-credentials` API route that calls `encryptCredential` and emits
+`auth.credential.encrypted` is **explicitly deferred to S16**. IT in S15 seeds credentials
+directly via `insertTargetCredential` repo helper with a test KEK constant. This is documented in
+the S16 backlog below. `auth.credential.encrypted` is registered in AUDIT_ACTIONS now so the S16
+commit is additive only.
 
 ### A-15-FixtureReset
 `target_credentials` in `resetAuthState`: DISABLE before DELETE, DELETE before targets (FK),
@@ -439,7 +511,10 @@ ENABLE in finally block.
 `handleBrowserAuth` wires full flow. Existing `FakeBrowserDriver` unit tests pass (no regression).
 
 ### A-15-Audit
-4 new actions, `AUDIT_ACTIONS.length === 56` asserted in `packages/contracts/src/audit.test.ts`.
+6 new actions (+4 base S15 + 2 codex adversarial fixes), `AUDIT_ACTIONS.length === 58` asserted
+in `packages/contracts/src/audit.test.ts`. Actions: `auth.recipe.executed`,
+`auth.credential.encrypted`, `auth.credential.decrypted`, `auth.login.failed`,
+`auth.credential.target_mismatch`, `auth.recipe.scope_denied`.
 
 ### A-15-SecurityInvariants
 - AES-256-GCM random 96-bit IV per record.
@@ -480,13 +555,15 @@ No-DB suite: 0 failures. Full-PG suite: 0 failures OR ≤3 known flakes.
 
 ---
 
-## AUDIT_ACTIONS Delta (52 → 56)
+## AUDIT_ACTIONS Delta (52 → 58)
 
 ```
-auth.recipe.executed       — login recipe ran to completion (browser-worker)
-auth.credential.encrypted  — credential stored encrypted (S16: apps/api insert route)
-auth.credential.decrypted  — credential retrieved and decrypted (browser-worker only)
-auth.login.failed          — executeRecipe threw LoginFailedError
+auth.recipe.executed             — login recipe ran to completion (browser-worker)
+auth.credential.encrypted        — credential stored encrypted (S16: apps/api insert route)
+auth.credential.decrypted        — credential retrieved and decrypted (browser-worker only)
+auth.login.failed                — executeRecipe threw LoginFailedError
+auth.credential.target_mismatch  — credRow.targetId !== payload.targetId before decrypt
+auth.recipe.scope_denied         — scope unavailable or targetUrl denied before recipe runs
 ```
 
 ---

@@ -6,7 +6,7 @@
 // artefacts, JSONB console_messages round-trip, lifecycle audit rows.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { handleReconBrowser } from '@cyberstrike/browser-worker';
+import { handleReconBrowser } from '@cyberstrike/coordinator/browser';
 import type { JobEnvelope } from '@cyberstrike/queue';
 import {
   DEFAULT_PLATFORM_POLICY,

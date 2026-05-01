@@ -1,0 +1,160 @@
+Unused files (34)
+.harness/cyberstrike-hybrid/evaluator-probe-fixes.ts                            
+.harness/cyberstrike-hybrid/evaluator-probe-sprint2.ts                          
+.harness/cyberstrike-hybrid/evaluator-probe-sprint3.ts                          
+.harness/cyberstrike-hybrid/evaluator-probe-sprint6-codex-fixes.ts              
+.harness/cyberstrike-hybrid/evaluator-probe.ts                                  
+packages/db/migrations/_common.ts                                               
+packages/db/migrations/001packages/db    .  Create knip.json configuration file with workspaces["packages/db"] object (27 unused files)
+. (root)       .  Create knip.json configuration file with workspaces["."] object (6 unused files)           
+_tenants.ts                                           
+packages/db/migrations/002_users_sessions_mfa.ts                                
+packages/db/migrations/003_projects_targets.ts                                  
+packages/db/migrations/004_assessments_scope_rules.ts                           
+packages/db/migrations/005_assessment_artifacts.ts                              
+packages/db/migrations/006_jobs.ts                                              
+packages/db/migrations/007_decepticon_sessions.ts                               
+packages/db/migrations/008_observations_browser.ts                              
+packages/db/migrations/009_candidate_findings.ts                                
+packages/db/migrations/010_findings_evidence.ts                                 
+packages/db/migrations/011_audit_events.ts                                      
+packages/db/migrations/012_llm_audit_events.ts                                  
+packages/db/migrations/013_reports.ts                                           
+packages/db/migrations/014_password_reset_tokens.ts                             
+packages/db/migrations/015_platform_settings.ts                                 
+packages/db/migrations/016_assessment_targets_idempotency_ownership_approvals.ts
+packages/db/migrations/017_decepticon_sessions_thread_id.ts                     
+packages/db/migrations/018_target_credentials.ts                                
+packages/db/migrations/019_observations_browser_spa.ts                          
+packages/db/migrations/020_target_credentials_meta.ts                           
+packages/db/migrations/021_oob_callbacks.ts                                     
+packages/db/scripts/migrate-check.ts                                            
+packages/db/scripts/migrate.ts                                                  
+packages/db/scripts/migrator.ts                                                 
+packages/db/scripts/redo.ts                                                     
+packages/db/scripts/rollback.ts                                                 
+scripts/scaffold-workspace.ts                                                   
+tests/lab/xss-fixture/bin/run.ts                                                
+Unused dependencies (19)
+@tanstack/react-router         apps/web/package.json:16:6                   
+@cyberstrike/browser-driver    package.json:40:6                            
+@cyberstrike/lab-auth-fixture  package.json:41:6                            
+@cyberstrike/contracts         package.json:45:6                            
+@cyberstrike/lab-xss-fixture   package.json:49:6                            
+@cyberstrike/reports           package.json:54:6                            
+pg                             package.json:58:6                            
+zod                            package.json:59:6                            
+zod                            packages/audit/package.json:18:6             
+@cyberstrike/scope-engine      packages/browser-driver/package.json:16:6    
+@cyberstrike/contracts         packages/decepticon-adapter/package.json:14:6
+@cyberstrike/contracts         packages/queue/package.json:14:6             
+zod                            packages/scope-engine/package.json:15:6      
+@browserbasehq/stagehand       services/browser-worker/package.json:14:6    
+zod                            services/oob-receiver/package.json:15:6      
+@cyberstrike/audit             services/recon-runner/package.json:14:6      
+@cyberstrike/db                services/recon-runner/package.json:16:6      
+@cyberstrike/db                services/report-builder/package.json:15:6    
+@cyberstrike/audit             services/validator-worker/package.json:14:6  
+Unused devDependencies (1)
+@types/pg  package.json:34:6
+Unlisted dependencies (3)
+@vitest/coverage-v8        apps/web/vite.config.ts                                               
+@langchain/langgraph-sdk   tests/integration/decepticon/real-adapter-mock-langgraph.test.ts:28:29
+@cyberstrike/recon-runner  tests/integration/recon/recon-pipeline.test.ts:13:15                  
+Unused exports (25)
+BCRYPT_DEFAULT_COST        apps/api/src/config.ts:113:3                             
+BCRYPT_MIN_COST_NON_LOCAL  apps/api/src/config.ts:114:3                             
+BOOTSTRAP_MIN_BYTES        apps/api/src/config.ts:115:3                             
+BOOTSTRAP_MIN_HEX_CHARS    apps/api/src/config.ts:116:3                             
+cookieNameForEnv           apps/api/src/config.ts:117:3                             
+cookieSecureForEnv         apps/api/src/config.ts:118:3                             
+_hashResetTokenForTest     apps/api/src/routes/auth/password-reset-request.ts:102:14
+inMemoryDnsResolver        apps/api/src/scope-engine/dns-resolver.ts:27:14          
+NON_LOCAL_ENVS             packages/config/src/app-env.ts:6:14                      
+ASSESSMENT_STATES          packages/contracts/src/assessments.ts:65:10              
+matchAnyAllRules           packages/scope-engine/src/rules/matchers.ts:193:14       
+hostMatchesPattern         packages/scope-engine/src/rules/matchers.ts:199:10       
+isSubdomainOf              packages/scope-engine/src/rules/matchers.ts:199:30       
+ipInCidr                   packages/scope-engine/src/rules/matchers.ts:199:45       
+globToRegex                packages/scope-engine/src/rules/matchers.ts:199:55       
+URL_RUNS                   packages/scope-engine/src/test-utils/fc-opts.ts:4:14     
+IP_RUNS                    packages/scope-engine/src/test-utils/fc-opts.ts:5:14     
+HOST_RUNS                  packages/scope-engine/src/test-utils/fc-opts.ts:6:14     
+TEST_BCRYPT_COST           tests/integration/auth/helpers/auth-fixture.ts:36:14     
+buildTestConfig            tests/integration/auth/helpers/auth-fixture.ts:38:14     
+validatePayloadShape       tests/integration/browser/helpers.ts:118:14              
+seedPasswordResetToken     tests/integration/db/helpers/db-fixture.ts:225:14        
+seedPlatformSettings       tests/integration/db/helpers/db-fixture.ts:252:14        
+seedIdempotencyKey         tests/integration/db/helpers/db-fixture.ts:424:14        
+FIXTURES_DIR               tests/integration/decepticon/helpers.ts:15:14            
+Unused exported types (67)
+MintedSessionToken             interface  apps/api/src/cookies.ts:17:18                              
+AuditDeps                      type       apps/api/src/middleware/audit.ts:12:8                      
+SessionMiddlewareDeps          interface  apps/api/src/middleware/session.ts:19:18                   
+ListCursor                     interface  apps/api/src/routes/_helpers/pagination.ts:9:18            
+TimelineItem                   interface  apps/api/src/routes/assessments/queries.ts:92:18           
+ScopeValidateDeps              interface  apps/api/src/routes/assessments/scope-validate.ts:155:18   
+AssessmentTerminalState        interface  apps/api/src/scope-engine/build-scope.ts:171:18            
+DecepticonRunnerDeps           interface  apps/api/src/scope-engine/create-decepticon-runner.ts:21:18
+BoundDecepticonRunner          type       apps/api/src/scope-engine/create-decepticon-runner.ts:37:13
+StartDecepticonDeps            interface  apps/api/src/scope-engine/start-decepticon-session.ts:57:18
+StartDecepticonResult          interface  apps/api/src/scope-engine/start-decepticon-session.ts:91:18
+SessionRepoOptions             interface  apps/api/src/session-repo.ts:22:18                         
+TimelinePage                   interface  apps/web/src/api/timeline.ts:14:18                         
+ServiceActorId                 type       packages/audit/src/service-actors.ts:53:34                 
+AuditAction                    type       packages/audit/src/writer.ts:19:15                         
+AuditOutcome                   type       packages/audit/src/writer.ts:19:28                         
+ServiceActorId                 type       packages/audit/src/writer.ts:107:15                        
+EnvInput                       type       packages/config/src/base-schema.ts:27:13                   
+AssessmentState                type       packages/contracts/src/assessments.ts:65:34                
+TenantsTable                   interface  packages/db/src/schema.ts:23:18                            
+MfaSecretsTable                interface  packages/db/src/schema.ts:59:18                            
+AssessmentArtifactsTable       interface  packages/db/src/schema.ts:178:18                           
+JobsTable                      interface  packages/db/src/schema.ts:192:18                           
+DecepticonSessionsTable        interface  packages/db/src/schema.ts:212:18                           
+LlmAuditEventsTable            interface  packages/db/src/schema.ts:347:18                           
+ReportsTable                   interface  packages/db/src/schema.ts:364:18                           
+OobCallbacksTable              interface  packages/db/src/schema.ts:404:18                           
+TargetCredentialUsageTable     interface  packages/db/src/schema.ts:420:18                           
+RealDecepticonAdapterDeps      interface  packages/decepticon-adapter/src/real.ts:43:18              
+NextDelayInputs                interface  packages/queue/src/retry-classifier.ts:48:18               
+RetryDecisionInputs            interface  packages/queue/src/retry-classifier.ts:71:18               
+LegacyLike                     type       packages/scope-engine/src/effective-scope.ts:301:15        
+NormalizedHost                 interface  packages/scope-engine/src/normalize/host.ts:11:18          
+NonceDeps                      interface  packages/validators/src/nonce.ts:12:18                     
+Metric                         type       scripts/coverage-gate-lib.ts:14:13                         
+GateRatios                     interface  scripts/coverage-gate-lib.ts:16:18                         
+HarCookie                      interface  services/browser-worker/src/har-redactor.ts:19:18          
+HarRequest                     interface  services/browser-worker/src/har-redactor.ts:25:18          
+HarResponse                    interface  services/browser-worker/src/har-redactor.ts:31:18          
+HarEntry                       interface  services/browser-worker/src/har-redactor.ts:37:18          
+HarLog                         interface  services/browser-worker/src/har-redactor.ts:43:18          
+RealBrowserDriverDeps          interface  services/browser-worker/src/real-driver.ts:35:18           
+SelectBrowserDriverOptions     interface  services/browser-worker/src/select.ts:12:18                
+SpaRoute                       interface  services/browser-worker/src/spa-observer.ts:37:18          
+PublishBrowserChildJobsInputs  interface  services/coordinator/src/browser-child-job.ts:18:18        
+PublishChildJobsInputs         interface  services/coordinator/src/child-job.ts:17:18                
+DecepticonRunnerInput          interface  services/coordinator/src/start-handler.ts:43:18            
+DecepticonRunnerResult         interface  services/coordinator/src/start-handler.ts:52:18            
+StartHandlerDeps               interface  services/coordinator/src/start-handler.ts:65:18            
+LfiValidatorDeps               interface  services/validator-worker/src/lfi-validator.ts:37:18       
+LfiValidationStatus            type       services/validator-worker/src/lfi-validator.ts:43:13       
+LfiValidationResult            interface  services/validator-worker/src/lfi-validator.ts:45:18       
+RceValidatorDeps               interface  services/validator-worker/src/rce-validator.ts:41:18       
+RceValidationStatus            type       services/validator-worker/src/rce-validator.ts:49:13       
+RceValidationResult            interface  services/validator-worker/src/rce-validator.ts:56:18       
+SsrfValidatorInput             interface  services/validator-worker/src/ssrf-validator.ts:18:18      
+SsrfValidatorDeps              interface  services/validator-worker/src/ssrf-validator.ts:29:18      
+SsrfValidationStatus           type       services/validator-worker/src/ssrf-validator.ts:37:13      
+SsrfValidationResult           interface  services/validator-worker/src/ssrf-validator.ts:39:18      
+FindingByCandidateLoader       type       services/validator-worker/src/worker.ts:126:13             
+EvidenceCounter                type       services/validator-worker/src/worker.ts:136:13             
+FindingCreatedAuditChecker     type       services/validator-worker/src/worker.ts:147:13             
+SeededLogin                    interface  tests/integration/auth/helpers/auth-fixture.ts:88:18       
+LabHarness                     interface  tests/integration/browser/helpers.ts:121:18                
+SeededAssessmentContext        interface  tests/integration/queue/helpers.ts:6:18                    
+BuildValidatorHandlerInput     interface  tests/integration/validator/helpers.ts:149:18              
+LabHarness                     interface  tests/integration/validator/helpers.ts:174:18              
+Duplicate exports (1)
+decisionSchema|scopeValidateResponseSchema  packages/contracts/src/scope-validate.ts
+Configuration hints (2)

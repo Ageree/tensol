@@ -6,8 +6,8 @@
 // the redactor.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { FakeBrowserDriver, handleReconBrowser } from '@cyberstrike/browser-worker';
-import { reconBrowserPayloadSchema } from '@cyberstrike/browser-worker';
+import { FakeBrowserDriver, handleReconBrowser } from '@cyberstrike/coordinator/browser';
+import { reconBrowserPayloadSchema } from '@cyberstrike/coordinator/browser';
 import type { JobEnvelope } from '@cyberstrike/queue';
 import {
   DEFAULT_PLATFORM_POLICY,

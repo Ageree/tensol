@@ -9,8 +9,6 @@
         "@cyberstrike/audit": "workspace:*",
         "@cyberstrike/authz": "workspace:*",
         "@cyberstrike/browser-auth": "workspace:*",
-        "@cyberstrike/browser-driver": "workspace:*",
-        "@cyberstrike/browser-worker": "workspace:*",
         "@cyberstrike/contracts": "workspace:*",
         "@cyberstrike/coordinator": "workspace:*",
         "@cyberstrike/db": "workspace:*",
@@ -198,31 +196,20 @@
         "zod": "^3.23.8",
       },
     },
-    "services/browser-worker": {
-      "name": "@cyberstrike/browser-worker",
+    "services/coordinator": {
+      "name": "@cyberstrike/coordinator",
       "version": "0.1.0",
       "dependencies": {
         "@browserbasehq/stagehand": "^3.3.0",
+        "@cyberstrike/audit": "workspace:*",
         "@cyberstrike/browser-auth": "workspace:*",
         "@cyberstrike/contracts": "workspace:*",
         "@cyberstrike/db": "workspace:*",
         "@cyberstrike/object-storage": "workspace:*",
         "@cyberstrike/queue": "workspace:*",
         "@cyberstrike/scope-engine": "workspace:*",
-        "playwright": "^1.49.0",
-        "zod": "^3.23.8",
-      },
-    },
-    "services/coordinator": {
-      "name": "@cyberstrike/coordinator",
-      "version": "0.1.0",
-      "dependencies": {
-        "@cyberstrike/audit": "workspace:*",
-        "@cyberstrike/contracts": "workspace:*",
-        "@cyberstrike/db": "workspace:*",
-        "@cyberstrike/queue": "workspace:*",
-        "@cyberstrike/scope-engine": "workspace:*",
         "kysely": "^0.27.4",
+        "playwright": "^1.49.0",
         "zod": "^3.23.8",
       },
     },
@@ -237,6 +224,27 @@
     "services/llm-gateway": {
       "name": "@cyberstrike/llm-gateway",
       "version": "0.1.0",
+    },
+    "services/oob-receiver": {
+      "name": "@cyberstrike/oob-receiver",
+      "version": "0.1.0",
+      "dependencies": {
+        "@cyberstrike/db": "workspace:*",
+        "zod": "^3.23.8",
+      },
+    },
+    "services/recon-runner": {
+      "name": "@cyberstrike/recon-runner",
+      "version": "0.1.0",
+      "dependencies": {
+        "@cyberstrike/audit": "workspace:*",
+        "@cyberstrike/contracts": "workspace:*",
+        "@cyberstrike/db": "workspace:*",
+        "@cyberstrike/queue": "workspace:*",
+        "@cyberstrike/scope-engine": "workspace:*",
+        "@cyberstrike/validators": "workspace:*",
+        "zod": "^3.23.8",
+      },
     },
     "services/report-builder": {
       "name": "@cyberstrike/report-builder",
@@ -418,8 +426,6 @@
 
     "@cyberstrike/browser-driver": ["@cyberstrike/browser-driver@workspace:packages/browser-driver"],
 
-    "@cyberstrike/browser-worker": ["@cyberstrike/browser-worker@workspace:services/browser-worker"],
-
     "@cyberstrike/config": ["@cyberstrike/config@workspace:packages/config"],
 
     "@cyberstrike/contracts": ["@cyberstrike/contracts@workspace:packages/contracts"],
@@ -444,7 +450,11 @@
 
     "@cyberstrike/object-storage": ["@cyberstrike/object-storage@workspace:packages/object-storage"],
 
+    "@cyberstrike/oob-receiver": ["@cyberstrike/oob-receiver@workspace:services/oob-receiver"],
+
     "@cyberstrike/queue": ["@cyberstrike/queue@workspace:packages/queue"],
+
+    "@cyberstrike/recon-runner": ["@cyberstrike/recon-runner@workspace:services/recon-runner"],
 
     "@cyberstrike/report-builder": ["@cyberstrike/report-builder@workspace:services/report-builder"],
 

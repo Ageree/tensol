@@ -1,5 +1,5 @@
 {
-  "last_turn_at": "2026-04-29T12:46:23.830Z",
-  "turn_count": 80,
-  "last_agent_output": "{\n  \"findings\": [\n    {\n      \"title\": \"[P1] Recover evidence before acking duplicate findings\",\n   "
+  "last_turn_at": "2026-05-01T05:02:19.978Z",
+  "turn_count": 96,
+  "last_agent_output": "{\"verdict\":\"needs-attention\",\"summary\":\"No-ship: tempdir allocation failures are now converted into "
 }

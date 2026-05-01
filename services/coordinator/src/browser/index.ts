@@ -1,6 +1,6 @@
-// Sprint 9 — services/browser-worker public surface.
+// Public surface of the inlined browser-worker module (moved from services/browser-worker in S23).
 
-export const name = 'services/browser-worker' as const;
+export const name = 'services/coordinator/browser' as const;
 
 export type {
   AuthCookie,

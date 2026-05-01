@@ -8,7 +8,7 @@
 // skipIf: requires DATABASE_URL (Playwright tests skipped in sandbox).
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { RealBrowserDriver, handleReconBrowser } from '@cyberstrike/browser-worker';
+import { RealBrowserDriver, handleReconBrowser } from '@cyberstrike/coordinator/browser';
 import type { JobEnvelope } from '@cyberstrike/queue';
 import {
   DEFAULT_PLATFORM_POLICY,
@@ -141,7 +141,7 @@ describe.skipIf(skip)('browser :: spa-discovery (A-16-Spa*)', () => {
         maxSpaDepth: 1,
         scopeCheck: async (url) => {
           const scope = await buildScope();
-          const { checkNavigation } = await import('@cyberstrike/browser-worker');
+          const { checkNavigation } = await import('@cyberstrike/coordinator/browser');
           const decision = await checkNavigation(scope, url, stubBrowserScopeDeps);
           if (!decision.allowed) throw new Error(`oos:${url}`);
         },
@@ -177,7 +177,7 @@ describe.skipIf(skip)('browser :: spa-discovery (A-16-Spa*)', () => {
           scopeDeps: stubBrowserScopeDeps,
           auditEmitter: buildAuditEmitter(fx.db),
           observationWriter: buildObservationWriter(fx.db),
-          payloadSchema: (await import('@cyberstrike/browser-worker')).reconBrowserPayloadSchema,
+          payloadSchema: (await import('@cyberstrike/coordinator/browser')).reconBrowserPayloadSchema,
         },
         env,
       );
@@ -283,7 +283,7 @@ describe.skipIf(skip)('browser :: spa-discovery (A-16-Spa*)', () => {
         maxSpaDepth: 1,
         scopeCheck: async (url) => {
           const scope = await buildScope();
-          const { checkNavigation } = await import('@cyberstrike/browser-worker');
+          const { checkNavigation } = await import('@cyberstrike/coordinator/browser');
           const decision = await checkNavigation(scope, url, stubBrowserScopeDeps);
           if (!decision.allowed) throw new Error(`oos:${url}`);
         },
@@ -318,7 +318,7 @@ describe.skipIf(skip)('browser :: spa-discovery (A-16-Spa*)', () => {
           scopeDeps: stubBrowserScopeDeps,
           auditEmitter: buildAuditEmitter(fx.db),
           observationWriter: buildObservationWriter(fx.db),
-          payloadSchema: (await import('@cyberstrike/browser-worker')).reconBrowserPayloadSchema,
+          payloadSchema: (await import('@cyberstrike/coordinator/browser')).reconBrowserPayloadSchema,
         },
         env,
       );
@@ -440,7 +440,7 @@ describe.skipIf(skip)('browser :: spa-discovery (A-16-Spa*)', () => {
           scopeDeps: stubBrowserScopeDeps,
           auditEmitter: buildAuditEmitter(fx.db),
           observationWriter: buildObservationWriter(fx.db),
-          payloadSchema: (await import('@cyberstrike/browser-worker')).reconBrowserPayloadSchema,
+          payloadSchema: (await import('@cyberstrike/coordinator/browser')).reconBrowserPayloadSchema,
         },
         env,
       );
@@ -544,7 +544,7 @@ describe.skipIf(skip)('browser :: spa-discovery (A-16-Spa*)', () => {
         maxSpaDepth: 1,
         scopeCheck: async (url) => {
           const scope = await buildScope();
-          const { checkNavigation } = await import('@cyberstrike/browser-worker');
+          const { checkNavigation } = await import('@cyberstrike/coordinator/browser');
           const decision = await checkNavigation(scope, url, stubBrowserScopeDeps);
           if (!decision.allowed) throw new Error(`oos:${url}`);
         },
@@ -579,7 +579,7 @@ describe.skipIf(skip)('browser :: spa-discovery (A-16-Spa*)', () => {
           scopeDeps: stubBrowserScopeDeps,
           auditEmitter: buildAuditEmitter(fx.db),
           observationWriter: buildObservationWriter(fx.db),
-          payloadSchema: (await import('@cyberstrike/browser-worker')).reconBrowserPayloadSchema,
+          payloadSchema: (await import('@cyberstrike/coordinator/browser')).reconBrowserPayloadSchema,
         },
         env,
       );

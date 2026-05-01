@@ -6,8 +6,8 @@
 //   3. maxSpaDepth dep — injected value used at construction time
 
 import { describe, expect, mock, test } from 'bun:test';
-import { RealBrowserDriver } from '../../../services/browser-worker/src/real-driver.ts';
-import { parseSpaRoutes } from '../../../services/browser-worker/src/spa-observer.ts';
+import { RealBrowserDriver } from '../../../services/coordinator/src/browser/real-driver.ts';
+import { parseSpaRoutes } from '../../../services/coordinator/src/browser/spa-observer.ts';
 
 describe('RealBrowserDriver SF3 coverage', () => {
   test('scopeCheck rejection is propagated from navigate via injected session', async () => {

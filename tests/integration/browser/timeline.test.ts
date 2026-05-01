@@ -5,7 +5,7 @@
 // on the existing timeline route — no route-layer changes required.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { handleReconBrowser } from '@cyberstrike/browser-worker';
+import { handleReconBrowser } from '@cyberstrike/coordinator/browser';
 import type { JobEnvelope } from '@cyberstrike/queue';
 import {
   DEFAULT_PLATFORM_POLICY,

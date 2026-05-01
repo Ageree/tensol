@@ -16,7 +16,7 @@ import {
   type ObservationWriter,
   type ReconBrowserPayload,
   reconBrowserPayloadSchema,
-} from '@cyberstrike/browser-worker';
+} from '@cyberstrike/coordinator/browser';
 import type { Database } from '@cyberstrike/db';
 import { insertObservationBrowser } from '@cyberstrike/db';
 import { LocalObjectStorage } from '@cyberstrike/object-storage';
