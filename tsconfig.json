@@ -22,7 +22,6 @@
     { "path": "./packages/validators" },
     { "path": "./packages/reports" },
     { "path": "./packages/browser-auth" },
-    { "path": "./packages/browser-driver" },
     { "path": "./packages/skill-library" },
     { "path": "./tests/lab/xss-fixture" },
     { "path": "./tests/lab/auth-fixture" }
