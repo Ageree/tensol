@@ -658,9 +658,9 @@ export const startDecepticonSession = async (
     },
   );
 
-  // Sprint 21 (C3) — additive recon dispatch. Skipped silently when
-  // triggerRecon is falsy or primaryDomain is absent (backward-compat).
-  if (input.triggerRecon && input.primaryDomain) {
+  // Sprint 21 (C3) — additive recon dispatch. Skipped silently when triggerRecon is falsy,
+  // primaryDomain is absent, or projectId is null (null projectId fails schema validation).
+  if (input.triggerRecon && input.primaryDomain && input.projectId) {
     const reconEnvelope: JobEnvelope = {
       jobId: randomUUID(),
       tenantId: input.tenantId,

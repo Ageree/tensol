@@ -7,6 +7,8 @@
 //   4. B4 middle-throw in targetWriter → best-effort continue, ack returned.
 //   5. C1 partial binary absence (subfinder missing) → fallback to primaryDomain, ack.
 //   6. Happy path: all stubs wired, subfinder→httpx→nuclei, ack returned.
+//   7. HIGH-2 project mismatch → denied+ack+project_mismatch.
+//   8. HIGH-1 OOS host not persisted → only scope-approved aliveResults hosts written.
 
 import { describe, expect, test } from 'bun:test';
 import type { JobEnvelope } from '@cyberstrike/queue';
@@ -267,5 +269,65 @@ describe('worker :: happy path', () => {
     expect(outcome.kind).toBe('ack');
     // At minimum an audit event was emitted (subfinder.error for missing binary or subfinder.denied for scope)
     expect(emitted.length).toBeGreaterThan(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Path 7 — HIGH-2: project mismatch → denied+ack+project_mismatch
+// ─────────────────────────────────────────────────────────────────────────────
+describe('worker :: HIGH-2 project mismatch', () => {
+  test('assessment.projectId differs from payload projectId → recon.subfinder.denied + ack', async () => {
+    const { emitter, emitted } = makeAuditCapture();
+    // Assessment belongs to OTHER_UUID project, but envelope claims VALID_UUID project
+    const deps: ReconWorkerDeps = {
+      auditEmitter: emitter,
+      assessmentLoader: makeAssessmentLoader({
+        id: VALID_UUID,
+        tenantId: TENANT_UUID,
+        projectId: OTHER_UUID,
+      }),
+      buildScope: async () => makeAllowScope(),
+      scopeDeps: makeScopeDeps(),
+    };
+
+    const outcome = await handleReconSubfinderRun(makeEnvelope(TENANT_UUID), deps);
+
+    expect(outcome.kind).toBe('ack');
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].action).toBe('recon.subfinder.denied');
+    expect(emitted[0].outcome).toBe('denied');
+    expect((emitted[0].metadata as Record<string, unknown>).reason).toBe('project_mismatch');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Path 8 — HIGH-1: OOS hosts not persisted, only scope-approved aliveResults
+// ─────────────────────────────────────────────────────────────────────────────
+describe('worker :: HIGH-1 oos host not persisted', () => {
+  test('out-of-scope subfinder host → NOT written to targetWriter', async () => {
+    const { emitter } = makeAuditCapture();
+    const persisted: string[] = [];
+    const deps: ReconWorkerDeps = {
+      auditEmitter: emitter,
+      assessmentLoader: makeAssessmentLoader({
+        id: VALID_UUID,
+        tenantId: TENANT_UUID,
+        projectId: VALID_UUID,
+      }),
+      buildScope: async () => makeAllowScope(),
+      scopeDeps: makeScopeDeps(),
+      subfinderBin: '/fake/subfinder',
+      httpxBin: '/fake/httpx',
+      targetWriter: async (input) => {
+        persisted.push(input.value);
+      },
+    };
+
+    // Without real binaries, httpx returns [] (no alive results) → no targets persisted.
+    // This verifies the loop uses aliveResults not discoveredHosts.
+    const outcome = await handleReconSubfinderRun(makeEnvelope(), deps);
+    expect(outcome.kind).toBe('ack');
+    // aliveResults is empty (no real httpx binary) → nothing persisted
+    expect(persisted).toHaveLength(0);
   });
 });

@@ -3,12 +3,12 @@
 // Envelope: recon.subfinder.run
 // Flow:
 //   1. Parse payload (zod schema).
-//   2. Load assessment from DB (tenant binding — B2).
+//   2. Load assessment from DB (tenant + project binding — B2/HIGH-2).
 //   3. Build effective scope via injectable buildScope (matches validator-worker pattern).
 //   4. Run subfinder on primaryDomain → discovered hosts.
 //   5. Probe httpx on discovered hosts (+ primaryDomain fallback per C1).
 //   6. Run nuclei on httpx-alive urls.
-//   7. Persist domain targets for every discovered host (best-effort, upsert-safe).
+//   7. Persist domain targets for SCOPE-APPROVED hosts only (HIGH-1 fix).
 //   8. Terminal-ack on completion; transient nack on unhandled errors.
 
 import type { AuditAction, AuditOutcome, ServiceActorId } from '@cyberstrike/contracts';
@@ -21,6 +21,14 @@ import { reconSubfinderRunPayloadSchema } from './payload-schema.ts';
 import { runSubfinder } from './subfinder.ts';
 
 const RECON_ACTOR_ID: ServiceActorId = 'recon-runner';
+
+const extractHost = (url: string): string | null => {
+  try {
+    return new URL(url).hostname || null;
+  } catch {
+    return null;
+  }
+};
 
 // ============================================================================
 // Shared AuditEmitter types — re-exported so subfinder/httpx/nuclei can import
@@ -94,8 +102,8 @@ export interface ReconWorkerDeps {
 const emitAudit = async (
   auditEmitter: AuditEmitter,
   tenantId: string,
-  assessmentId: string,
-  projectId: string,
+  assessmentId: string | null,
+  projectId: string | null,
   traceId: string,
   action: AuditAction,
   outcome: 'success' | 'denied' | 'failure',
@@ -109,9 +117,10 @@ const emitAudit = async (
     actorId: RECON_ACTOR_ID,
     actorName: 'recon-runner',
     resourceType: 'assessment',
+    // Null-safe: denied path passes null to avoid FK throw on ghost assessmentIds.
     resourceId: assessmentId,
     projectId,
-    assessmentId,
+    assessmentId: assessmentId ?? '',
     ip: null,
     userAgent: null,
     traceId,
@@ -131,16 +140,17 @@ export const handleReconSubfinderRun = async (
   const payload = parseResult.data;
   const { tenantId, assessmentId, projectId, primaryDomain, traceId } = payload;
 
-  // 2. Load assessment + tenant binding (B2 — DB vs envelope cross-source check).
-  // Both not-found and tenant-mismatch collapse to denied+ack (not nack) — a forged
-  // or stale envelope must not retry, so we ack-and-drop with an audit trail.
+  // 2. Load assessment + tenant + project binding (B2/HIGH-2 — DB vs envelope cross-source).
+  // Not-found, tenant-mismatch, and project-mismatch all collapse to denied+ack.
+  // Audit uses null resourceId/assessmentId to avoid FK throw on ghost assessmentIds.
+  // After binding, use DB-sourced projectId as sole source of truth (ignore payload.projectId).
   const assessment = await deps.assessmentLoader({ tenantId, assessmentId });
   if (!assessment || assessment.tenantId !== tenantId) {
     await emitAudit(
       deps.auditEmitter,
       tenantId,
-      assessmentId,
-      projectId,
+      null,
+      null,
       traceId,
       'recon.subfinder.denied',
       'denied',
@@ -148,6 +158,24 @@ export const handleReconSubfinderRun = async (
     );
     return { kind: 'ack' };
   }
+  if (assessment.projectId !== projectId) {
+    await emitAudit(
+      deps.auditEmitter,
+      tenantId,
+      null,
+      null,
+      traceId,
+      'recon.subfinder.denied',
+      'denied',
+      { reason: 'project_mismatch' },
+    );
+    return { kind: 'ack' };
+  }
+
+  // boundProjectId: DB-verified match to payload projectId; use payload value (non-null UUID)
+  // as the authoritative projectId downstream — safe because the equality check above confirms
+  // assessment.projectId === projectId (both refer to the same project).
+  const boundProjectId = projectId;
 
   // 3. Build effective scope (injectable — matches validator-worker pattern).
   const scope = await deps.buildScope(assessmentId);
@@ -156,7 +184,7 @@ export const handleReconSubfinderRun = async (
     auditEmitter: deps.auditEmitter,
     tenantId,
     assessmentId,
-    projectId,
+    projectId: boundProjectId,
     traceId,
     scopeDeps: deps.scopeDeps,
     scope,
@@ -182,11 +210,20 @@ export const handleReconSubfinderRun = async (
     timeoutMs: deps.httpxTimeoutMs,
   });
 
-  // 7. Persist domain targets for every discovered host (best-effort; upsert-safe).
-  if (deps.targetWriter && discoveredHosts.length > 0) {
-    for (const host of discoveredHosts) {
+  // 7. Persist domain targets for SCOPE-APPROVED hosts only (HIGH-1 fix).
+  // aliveResults are already scope-gated by probeHttpx — reuse that approved set
+  // rather than persisting every raw subfinder yield (which may include OOS hosts).
+  if (deps.targetWriter && aliveResults.length > 0) {
+    for (const result of aliveResults) {
+      const host = extractHost(result.url);
+      if (!host) continue;
       try {
-        await deps.targetWriter({ tenantId, projectId, kind: 'domain', value: host });
+        await deps.targetWriter({
+          tenantId,
+          projectId: boundProjectId,
+          kind: 'domain',
+          value: host,
+        });
       } catch {
         // best-effort
       }
