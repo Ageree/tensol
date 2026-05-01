@@ -125,6 +125,11 @@ export const AUDIT_ACTIONS = [
   'validator.lfi.unmatched',
   'validator.lfi.fetch_failed',
   'validator.ssrf.fetch_failed',
+  // Sprint 20 — RCE validator (4).
+  'validator.rce.replay_denied',
+  'validator.rce.confirmed',
+  'validator.rce.unmatched',
+  'validator.rce.fetch_failed',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

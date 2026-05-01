@@ -38,6 +38,8 @@ export const ENVELOPE_KINDS = [
   'validator.ssrf.replay',
   // Sprint 19 — validator-worker subscribes to replay LFI candidates.
   'validator.lfi.replay',
+  // Sprint 20 — validator-worker subscribes to replay RCE candidates.
+  'validator.rce.replay',
 ] as const;
 
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];

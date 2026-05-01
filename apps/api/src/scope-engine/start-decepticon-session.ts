@@ -533,6 +533,42 @@ export const startDecepticonSession = async (
       await deps.queueAdapter.publish(lfiEnvelope);
     }
 
+    // Sprint 20 — publish a `validator.rce.replay` envelope for RCE candidates.
+    // Token format: <candidateFindingId>.<tenantId>.<random8hex> (mirrors SSRF).
+    // OOB token embedded in affectedUrl via _cs_token= query param (S18 HIGH-2 fix mirror).
+    if (candidate.type === 'rce') {
+      const randomHex8 =
+        deps.randomHex8?.() ??
+        (await import('node:crypto').then((m) => m.randomBytes(4).toString('hex')));
+      const rceToken = `${candidateFindingId}.${input.tenantId}.${randomHex8}`;
+      const rceReplayUrl = candidate.affectedUrl.includes('?')
+        ? `${candidate.affectedUrl}&_cs_token=${rceToken}`
+        : `${candidate.affectedUrl}?_cs_token=${rceToken}`;
+      const rceEnvelope: JobEnvelope = {
+        jobId: randomUUID(),
+        tenantId: input.tenantId,
+        projectId: input.projectId ?? null,
+        assessmentId: input.assessmentId,
+        kind: 'validator.rce.replay',
+        idempotencyKey: `${input.parentEnvelope.idempotencyKey}:rce:${candidateFindingId}`,
+        createdAt: clockIso(),
+        attempt: 0,
+        maxAttempts: 3,
+        traceId: input.traceId,
+        payload: {
+          tenantId: input.tenantId,
+          projectId: input.projectId ?? null,
+          assessmentId: input.assessmentId,
+          candidateFindingId,
+          candidateType: 'rce',
+          affectedUrl: rceReplayUrl,
+          token: rceToken,
+          traceId: input.traceId,
+        },
+      };
+      await deps.queueAdapter.publish(rceEnvelope);
+    }
+
     await emitAudit(
       { db: deps.db },
       {

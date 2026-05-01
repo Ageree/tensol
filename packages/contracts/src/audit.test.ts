@@ -126,10 +126,15 @@ describe('contracts :: AuditAction (A3)', () => {
       'validator.lfi.unmatched',
       'validator.lfi.fetch_failed',
       'validator.ssrf.fetch_failed',
+      // Sprint 20 — RCE validator (4).
+      'validator.rce.replay_denied',
+      'validator.rce.confirmed',
+      'validator.rce.unmatched',
+      'validator.rce.fetch_failed',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // Sprint 19 codex: 67 + 2 fetch_failed = 69.
-    expect(AUDIT_ACTIONS.length).toBe(69);
+    // Sprint 20: 69 + 4 = 73.
+    expect(AUDIT_ACTIONS.length).toBe(73);
   });
 
   test('zod rejects unknown action', () => {

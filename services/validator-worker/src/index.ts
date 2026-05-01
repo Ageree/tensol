@@ -6,6 +6,7 @@ export {
   handleValidateFinding,
   handleSsrfReplay,
   handleLfiReplay,
+  handleRceReplay,
   type AssessmentLoader,
   type AssessmentRow,
   type AuditEmitter,
@@ -26,4 +27,6 @@ export {
   type ValidateSsrfReplayPayload,
   validateLfiReplayPayloadSchema,
   type ValidateLfiReplayPayload,
+  validateRceReplayPayloadSchema,
+  type ValidateRceReplayPayload,
 } from './payload-schema.ts';

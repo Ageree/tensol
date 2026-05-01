@@ -37,6 +37,7 @@ import {
 import type { z } from 'zod';
 import { validateLfiCandidate } from './lfi-validator.ts';
 import type { ValidateFindingPayload } from './payload-schema.ts';
+import { validateRceCandidate } from './rce-validator.ts';
 import { validateSsrfCandidate } from './ssrf-validator.ts';
 
 const VALIDATOR_WORKER_ACTOR_ID: ServiceActorId = 'validator-worker';
@@ -175,6 +176,8 @@ export interface ValidatorWorkerDeps {
     get(url: string): Promise<{ body: string }>;
     readonly callCount: number;
   };
+  // Sprint 20 — RCE replay deps.
+  readonly rceHttpClient?: { get(url: string): Promise<void>; readonly callCount: number };
 }
 
 const STATUS_TO_ACTION: Record<string, AuditAction> = {
@@ -847,6 +850,168 @@ export const handleLfiReplay = async (
         return {
           kind: 'nack',
           error: err instanceof Error ? err : new Error('lfi_findings_insert_unknown'),
+        };
+      }
+    }
+  }
+
+  return { kind: 'ack' };
+};
+
+// ============================================================================
+// Sprint 20 — RCE replay handler
+// ============================================================================
+
+export const handleRceReplay = async (
+  deps: ValidatorWorkerDeps,
+  envelope: JobEnvelope,
+): Promise<HandlerOutcome> => {
+  const { validateRceReplayPayloadSchema } = await import('./payload-schema.ts');
+  const parsed = validateRceReplayPayloadSchema.safeParse(envelope.payload);
+  if (!parsed.success) {
+    return {
+      kind: 'nack',
+      error: new ScopeDenyError('invalid_rce_replay_payload', [
+        'rce_replay_payload_schema_mismatch',
+      ]),
+    };
+  }
+  const payload = parsed.data;
+
+  // MED-2 (S18 lesson): require rce deps — fail-visible on missing config.
+  if (!deps.rceHttpClient || !deps.oobCallbackLoader) {
+    await deps.auditEmitter({
+      tenantId: payload.tenantId,
+      action: 'validation.inconclusive',
+      outcome: 'failure',
+      actorType: 'service',
+      actorId: VALIDATOR_WORKER_ACTOR_ID,
+      actorName: 'validator-worker',
+      resourceType: 'candidate_finding',
+      resourceId: payload.candidateFindingId,
+      ...(payload.projectId ? { projectId: payload.projectId } : {}),
+      assessmentId: payload.assessmentId,
+      ip: null,
+      userAgent: null,
+      traceId: payload.traceId,
+      metadata: {
+        reason: 'config_error',
+        missing: !deps.rceHttpClient ? 'rceHttpClient' : 'oobCallbackLoader',
+      },
+    });
+    return {
+      kind: 'nack',
+      error: new ScopeDenyError('rce_config_error', ['rce_deps_not_configured']),
+    };
+  }
+
+  // HIGH-1 (S18 lesson): load candidate from DB and verify type.
+  const candidate = await deps.candidateLoader({
+    tenantId: payload.tenantId,
+    candidateFindingId: payload.candidateFindingId,
+  });
+  if (!candidate || candidate.type !== 'rce') {
+    return {
+      kind: 'nack',
+      error: new ScopeDenyError('rce_candidate_not_found', ['rce_candidate_not_found']),
+    };
+  }
+
+  // HIGH (codex): cross-assessment binding — candidate must belong to the envelope assessment.
+  // This check is BEFORE buildScope (mirrors worker.ts SSRF :553-571 and LFI :756-773).
+  if (candidate.assessmentId !== payload.assessmentId || candidate.tenantId !== payload.tenantId) {
+    await deps.auditEmitter({
+      tenantId: payload.tenantId,
+      action: 'validator.rce.replay_denied',
+      outcome: 'denied',
+      actorType: 'service',
+      actorId: VALIDATOR_WORKER_ACTOR_ID,
+      actorName: 'validator-worker',
+      resourceType: 'candidate_finding',
+      resourceId: payload.candidateFindingId,
+      ...(payload.projectId ? { projectId: payload.projectId } : {}),
+      assessmentId: payload.assessmentId,
+      ip: null,
+      userAgent: null,
+      traceId: payload.traceId,
+      metadata: { reason: 'assessment_mismatch' },
+    });
+    return { kind: 'ack' };
+  }
+
+  const assessment = await deps.assessmentLoader({
+    tenantId: payload.tenantId,
+    assessmentId: payload.assessmentId,
+  });
+  if (!assessment) {
+    return {
+      kind: 'nack',
+      error: new ScopeDenyError('rce_assessment_not_found', ['rce_assessment_not_found']),
+    };
+  }
+
+  // Worker owns null-scope audit + ack (M1 — validator is NOT called on null scope).
+  const scope = await deps.buildScope(payload.assessmentId);
+  if (!scope) {
+    await deps.auditEmitter({
+      tenantId: payload.tenantId,
+      action: 'validator.rce.replay_denied',
+      outcome: 'denied',
+      actorType: 'service',
+      actorId: VALIDATOR_WORKER_ACTOR_ID,
+      actorName: 'validator-worker',
+      resourceType: 'candidate_finding',
+      resourceId: payload.candidateFindingId,
+      ...(payload.projectId ? { projectId: payload.projectId } : {}),
+      assessmentId: payload.assessmentId,
+      ip: null,
+      userAgent: null,
+      traceId: payload.traceId,
+      metadata: { reason: 'no_scope' },
+    });
+    return { kind: 'ack' };
+  }
+
+  const result = await validateRceCandidate(
+    {
+      candidateFindingId: payload.candidateFindingId,
+      tenantId: payload.tenantId,
+      assessmentId: payload.assessmentId,
+      projectId: payload.projectId,
+      affectedUrl: payload.affectedUrl,
+      token: payload.token,
+      scope: scope as EffectiveScope,
+      traceId: payload.traceId,
+    },
+    {
+      scopeDeps: deps.scopeDeps,
+      auditEmitter: deps.auditEmitter,
+      httpClient: deps.rceHttpClient,
+      oobCallbackLoader: deps.oobCallbackLoader,
+      ...(deps.oobVerifyTimeoutMs !== undefined && { oobVerifyTimeoutMs: deps.oobVerifyTimeoutMs }),
+    },
+  );
+
+  if (result.status === 'confirmed') {
+    try {
+      await deps.findingsWriter({
+        tenantId: payload.tenantId,
+        assessmentId: payload.assessmentId,
+        candidateFindingId: payload.candidateFindingId,
+        type: 'rce',
+        severity: 'critical',
+        confidence: 'high',
+        affectedUrl: candidate.affectedUrl,
+        reproduction: { token: payload.token, affectedUrl: payload.affectedUrl },
+        validatorLog: [],
+        validatedAt: (deps.clock ?? (() => new Date()))(),
+        validatedBy: { status: 'confirmed' as const },
+      });
+    } catch (err) {
+      if (!isUniqueViolation(err)) {
+        return {
+          kind: 'nack',
+          error: err instanceof Error ? err : new Error('rce_findings_insert_unknown'),
         };
       }
     }

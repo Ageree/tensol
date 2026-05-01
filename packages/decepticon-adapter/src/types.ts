@@ -72,6 +72,7 @@ export const CANDIDATE_TYPES = [
   'ssrf',
   'misconfig',
   'lfi',
+  'rce',
 ] as const;
 
 export type CandidateType = (typeof CANDIDATE_TYPES)[number];
