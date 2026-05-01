@@ -46,7 +46,12 @@ export interface RceValidatorDeps {
   readonly oobVerifyTimeoutMs?: number;
 }
 
-export type RceValidationStatus = 'confirmed' | 'unmatched' | 'out_of_scope' | 'fetch_failed';
+export type RceValidationStatus =
+  | 'confirmed'
+  | 'unmatched'
+  | 'out_of_scope'
+  | 'fetch_failed'
+  | 'inconclusive';
 
 export interface RceValidationResult {
   readonly status: RceValidationStatus;
@@ -115,9 +120,22 @@ export const validateRceCandidate = async (
   }
 
   // 3. Poll for OOB callback match — shell execution on target calls back to OOB receiver.
+  //    oobCallbackLoader is wrapped in try/catch (codex MED/P2): if the OOB store is
+  //    unavailable the shell command has already fired; we must NOT re-queue (that would
+  //    re-execute the shell payload). Return terminal inconclusive instead.
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const matched = await deps.oobCallbackLoader(input.token);
+    let matched: boolean;
+    try {
+      matched = await deps.oobCallbackLoader(input.token);
+    } catch (pollErr) {
+      await emitRceAudit(deps.auditEmitter, input, 'validator.rce.replay_denied', 'denied', {
+        reason: 'oob_lookup_error',
+        error: pollErr instanceof Error ? pollErr.message : String(pollErr),
+        affectedUrl: input.affectedUrl,
+      });
+      return { status: 'inconclusive', reason: 'oob_lookup_error' };
+    }
     if (matched) {
       await emitRceAudit(deps.auditEmitter, input, 'validator.rce.confirmed', 'success', {
         token: input.token,

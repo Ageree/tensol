@@ -306,3 +306,35 @@ describe('rce-validator :: cross-assessment mismatch (worker)', () => {
     expect(denialAudit?.metadata.reason).toBe('assessment_mismatch');
   });
 });
+
+// ──────────────────────────────────────────────
+// Test 6 — OOB poll failure (codex MED/P2)
+// ──────────────────────────────────────────────
+describe('rce-validator :: oob poll failure → inconclusive (no re-execution)', () => {
+  test('oobCallbackLoader throws after httpClient.get succeeds → inconclusive + callCount=1 + replay_denied audit', async () => {
+    const { emitter, audits } = makeAuditCapture();
+    // httpClient succeeds (shell cmd fired once).
+    const httpClient = makeHttpClient();
+    const pollError = new Error('DB_UNAVAILABLE');
+    const result = await validateRceCandidate(makeInput(makeAllowScope()), {
+      scopeDeps: allowScopeDeps,
+      auditEmitter: emitter,
+      httpClient,
+      oobCallbackLoader: async () => {
+        throw pollError;
+      },
+      oobVerifyTimeoutMs: 1000,
+    });
+    // Shell command ran exactly once — NOT retried.
+    expect(httpClient.callCount).toBe(1);
+    // Result is terminal inconclusive — caller must ack, not nack.
+    expect(result.status).toBe('inconclusive');
+    expect(result.reason).toBe('oob_lookup_error');
+    // Exactly one audit emitted (replay_denied reason:oob_lookup_error).
+    expect(audits).toHaveLength(1);
+    expect(audits[0]?.action).toBe('validator.rce.replay_denied');
+    expect(audits[0]?.outcome).toBe('denied');
+    expect(audits[0]?.metadata.reason).toBe('oob_lookup_error');
+    expect(audits[0]?.metadata.error).toBe('DB_UNAVAILABLE');
+  });
+});

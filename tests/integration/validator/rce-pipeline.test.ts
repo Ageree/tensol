@@ -170,6 +170,10 @@ describe.skipIf(!hasDatabaseUrl())('validator :: RCE pipeline (A-20-IT)', () => 
 
     const { storage } = buildLocalStorage();
 
+    // Track which tokens the OOB callback loader is queried with — proves OOB receiver
+    // actually observes the token embedded in the shell payload (codex HIGH/P1 regression).
+    const oobQueriedTokens: string[] = [];
+
     const deps: ValidatorWorkerDeps = {
       driver: { replay: async () => ({}) } as unknown as ValidatorWorkerDeps['driver'],
       objectStorage: storage,
@@ -185,7 +189,10 @@ describe.skipIf(!hasDatabaseUrl())('validator :: RCE pipeline (A-20-IT)', () => 
       findingCreatedAuditChecker: async () => false,
       payloadSchema: (await import('@cyberstrike/validator-worker')).validateFindingPayloadSchema,
       rceHttpClient: httpClient,
-      oobCallbackLoader: async (_token: string) => true, // immediate match
+      oobCallbackLoader: async (token: string) => {
+        oobQueriedTokens.push(token);
+        return true; // immediate match
+      },
       oobVerifyTimeoutMs: 1000,
     };
 
@@ -218,6 +225,11 @@ describe.skipIf(!hasDatabaseUrl())('validator :: RCE pipeline (A-20-IT)', () => 
 
     // S18 HIGH-2 regression: outbound URL must contain the OOB token.
     expect(httpClient.calledUrls[0]).toContain(rceToken);
+
+    // Codex HIGH/P1 regression: OOB receiver must be queried with the correct token —
+    // proves the token embedded in the shell URL reaches the OOB callback mechanism.
+    expect(oobQueriedTokens.length).toBeGreaterThanOrEqual(1);
+    expect(oobQueriedTokens[0]).toBe(rceToken);
 
     // findings row created with type='rce', severity='critical'.
     const findings = await fx.db
