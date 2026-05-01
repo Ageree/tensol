@@ -23,6 +23,8 @@ export const SERVICE_ACTOR_IDS = [
   'browser-worker',
   'validator-worker',
   'report-builder',
+  // Sprint 21 — recon-runner PD-stack service.
+  'recon-runner',
 ] as const;
 
 export type ServiceActorId = (typeof SERVICE_ACTOR_IDS)[number];
@@ -130,6 +132,17 @@ export const AUDIT_ACTIONS = [
   'validator.rce.confirmed',
   'validator.rce.unmatched',
   'validator.rce.fetch_failed',
+  // Sprint 21 — recon-runner PD-stack (10).
+  'recon.subfinder.run',
+  'recon.subfinder.denied',
+  'recon.subfinder.error',
+  'recon.httpx.run',
+  'recon.httpx.denied',
+  'recon.httpx.error',
+  'recon.nuclei.run',
+  'recon.nuclei.denied',
+  'recon.nuclei.error',
+  'recon.nuclei.template_match',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

@@ -21,6 +21,8 @@ const SERVICE_ACTOR_NAMES: Readonly<Record<ServiceActorId, string>> = Object.fre
   'browser-worker': 'Browser Worker',
   'validator-worker': 'Validator Worker',
   'report-builder': 'Report Builder',
+  // Sprint 21 — recon-runner PD-stack service.
+  'recon-runner': 'Recon Runner',
 });
 
 export const SERVICE_ACTORS: ReadonlyArray<{

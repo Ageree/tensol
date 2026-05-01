@@ -36,7 +36,7 @@ const baseEnvelope = {
 };
 
 describe('contracts :: AuditAction (A3)', () => {
-  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1) + Sprint 7 (1) + Sprint 8 decepticon (4) + Sprint 9 browser (5) + Sprint 10 validator (6) + Sprint 11 finding status (1) + Sprint 13 codex P1-A candidate scope gate (1) + Sprint 14 report builder (6) + Sprint 15 browser auth (4) + Sprint 16 SPA route discovery (2) + Sprint 17 credential read (1) + Sprint 18 SSRF validator (3) + Sprint 19 LFI validator (3)', () => {
+  test('AUDIT_ACTIONS is the exhaustive set including Sprint 5 lifecycle (16) + Sprint 6 (1) + Sprint 7 (1) + Sprint 8 decepticon (4) + Sprint 9 browser (5) + Sprint 10 validator (6) + Sprint 11 finding status (1) + Sprint 13 codex P1-A candidate scope gate (1) + Sprint 14 report builder (6) + Sprint 15 browser auth (4) + Sprint 16 SPA route discovery (2) + Sprint 17 credential read (1) + Sprint 18 SSRF validator (3) + Sprint 19 LFI validator (3) + Sprint 20 RCE (4) + Sprint 21 recon PD-stack (10)', () => {
     const expected = [
       'auth.register',
       'auth.login.password',
@@ -131,10 +131,21 @@ describe('contracts :: AuditAction (A3)', () => {
       'validator.rce.confirmed',
       'validator.rce.unmatched',
       'validator.rce.fetch_failed',
+      // Sprint 21 — recon-runner PD-stack (10).
+      'recon.subfinder.run',
+      'recon.subfinder.denied',
+      'recon.subfinder.error',
+      'recon.httpx.run',
+      'recon.httpx.denied',
+      'recon.httpx.error',
+      'recon.nuclei.run',
+      'recon.nuclei.denied',
+      'recon.nuclei.error',
+      'recon.nuclei.template_match',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // Sprint 20: 69 + 4 = 73.
-    expect(AUDIT_ACTIONS.length).toBe(73);
+    // Sprint 21: 73 + 10 = 83.
+    expect(AUDIT_ACTIONS.length).toBe(83);
   });
 
   test('zod rejects unknown action', () => {
@@ -166,12 +177,14 @@ describe('contracts :: AuditOutcome (A4)', () => {
 });
 
 describe('contracts :: ServiceActor closed enum (A5)', () => {
-  test('SERVICE_ACTOR_IDS contains exactly the 4 reserved IDs', () => {
+  test('SERVICE_ACTOR_IDS contains exactly the 5 reserved IDs', () => {
     const expected: ServiceActorId[] = [
       'coordinator',
       'browser-worker',
       'validator-worker',
       'report-builder',
+      // Sprint 21 — recon-runner PD-stack service.
+      'recon-runner',
     ];
     expect([...SERVICE_ACTOR_IDS]).toEqual(expected);
   });

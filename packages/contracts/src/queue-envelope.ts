@@ -35,6 +35,9 @@ export const ENVELOPE_KINDS = [
   'validator.lfi.replay',
   // Sprint 20 — validator-worker subscribes to replay RCE candidates.
   'validator.rce.replay',
+  // Sprint 21 — coordinator publishes one envelope per recon job.
+  // Recon-runner worker subscribes and orchestrates subfinder+httpx+nuclei.
+  'recon.subfinder.run',
 ] as const;
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];
 

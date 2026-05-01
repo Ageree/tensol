@@ -16,8 +16,10 @@ describe('queue-envelope contract', () => {
       'validator.ssrf.replay',
       'validator.lfi.replay',
       'validator.rce.replay',
+      // Sprint 21 — recon-runner PD-stack.
+      'recon.subfinder.run',
     ]);
-    expect(ENVELOPE_KINDS.length).toBe(10);
+    expect(ENVELOPE_KINDS.length).toBe(11);
   });
 
   test('JOB_STATUSES matches the DB CHECK constraint state-machine', () => {

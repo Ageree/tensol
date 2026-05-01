@@ -8,9 +8,9 @@ import {
 } from './service-actors.ts';
 
 describe('packages/audit :: service-actors (A5/A20)', () => {
-  test('SERVICE_ACTORS contains exactly 4 entries — closed set', () => {
-    expect(SERVICE_ACTORS).toHaveLength(4);
-    expect(SERVICE_ACTOR_IDS).toHaveLength(4);
+  test('SERVICE_ACTORS contains exactly 5 entries — closed set', () => {
+    expect(SERVICE_ACTORS).toHaveLength(5);
+    expect(SERVICE_ACTOR_IDS).toHaveLength(5);
   });
 
   test('serviceActor() builds a typed AuditActor for each registered id', () => {
