@@ -119,6 +119,10 @@ export const AUDIT_ACTIONS = [
   'validator.ssrf.replay_denied',
   'validator.ssrf.confirmed',
   'validator.ssrf.timeout',
+  // Sprint 19 — LFI validator (3).
+  'validator.lfi.replay_denied',
+  'validator.lfi.confirmed',
+  'validator.lfi.unmatched',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

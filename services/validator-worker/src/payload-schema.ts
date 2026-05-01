@@ -2,7 +2,8 @@
 // envelopes. Mirrors the canonical schema in coordinator/src/payloads.ts.
 //
 // Sprint 18 — additive export for `validator.ssrf.replay` envelopes.
-// coordinator/src/payloads.ts stays frozen per M2; schema lives here only.
+// Sprint 19 — additive export for `validator.lfi.replay` envelopes.
+// coordinator/src/payloads.ts stays frozen per M2; schemas live here only.
 
 import { z } from 'zod';
 
@@ -35,3 +36,18 @@ export const validateSsrfReplayPayloadSchema = z
   .strict();
 
 export type ValidateSsrfReplayPayload = z.infer<typeof validateSsrfReplayPayloadSchema>;
+
+// Sprint 19 — LFI replay envelope payload schema (additive).
+// affectedUrl intentionally absent — loaded from DB by worker (HIGH-1 S18 lesson).
+export const validateLfiReplayPayloadSchema = z
+  .object({
+    tenantId: z.string().uuid(),
+    projectId: z.string().uuid().nullable(),
+    assessmentId: z.string().uuid(),
+    candidateFindingId: z.string().uuid(),
+    candidateType: z.literal('lfi'),
+    traceId: z.string().regex(/^[0-9a-f]{32}$/),
+  })
+  .strict();
+
+export type ValidateLfiReplayPayload = z.infer<typeof validateLfiReplayPayloadSchema>;

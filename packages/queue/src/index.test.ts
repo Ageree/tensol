@@ -23,8 +23,9 @@ describe('packages/queue :: public surface', () => {
       'report.build',
       'browser.auth',
       'validator.ssrf.replay',
+      'validator.lfi.replay',
     ]);
-    expect(ENVELOPE_KINDS.length).toBe(8);
+    expect(ENVELOPE_KINDS.length).toBe(9);
   });
 
   test('exports job statuses enum (matches DB CHECK constraint)', () => {

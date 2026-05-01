@@ -507,6 +507,32 @@ export const startDecepticonSession = async (
       await deps.queueAdapter.publish(ssrfEnvelope);
     }
 
+    // Sprint 19 — publish a `validator.lfi.replay` envelope for LFI candidates.
+    // No OOB token — LFI validator fetches affectedUrl from DB and matches response body.
+    if (candidate.type === 'lfi') {
+      const lfiEnvelope: JobEnvelope = {
+        jobId: randomUUID(),
+        tenantId: input.tenantId,
+        projectId: input.projectId ?? null,
+        assessmentId: input.assessmentId,
+        kind: 'validator.lfi.replay',
+        idempotencyKey: `${input.parentEnvelope.idempotencyKey}:lfi:${candidateFindingId}`,
+        createdAt: clockIso(),
+        attempt: 0,
+        maxAttempts: 3,
+        traceId: input.traceId,
+        payload: {
+          tenantId: input.tenantId,
+          projectId: input.projectId ?? null,
+          assessmentId: input.assessmentId,
+          candidateFindingId,
+          candidateType: 'lfi',
+          traceId: input.traceId,
+        },
+      };
+      await deps.queueAdapter.publish(lfiEnvelope);
+    }
+
     await emitAudit(
       { db: deps.db },
       {

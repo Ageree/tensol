@@ -35,6 +35,7 @@ import {
   validateXssReflected,
 } from '@cyberstrike/validators';
 import type { z } from 'zod';
+import { validateLfiCandidate } from './lfi-validator.ts';
 import type { ValidateFindingPayload } from './payload-schema.ts';
 import { validateSsrfCandidate } from './ssrf-validator.ts';
 
@@ -169,6 +170,8 @@ export interface ValidatorWorkerDeps {
   readonly oobCallbackLoader?: (token: string) => Promise<boolean>;
   readonly oobVerifyTimeoutMs?: number;
   readonly ssrfHttpClient?: { get(url: string): Promise<void>; readonly callCount: number };
+  // Sprint 19 — LFI replay deps.
+  readonly lfiHttpClient?: { get(url: string): Promise<{ body: string }>; readonly callCount: number };
 }
 
 const STATUS_TO_ACTION: Record<string, AuditAction> = {
@@ -667,4 +670,140 @@ const persistEvidence = async (
       metadata: { attempt: blob.attempt, contentType: blob.contentType },
     });
   }
+};
+
+// ============================================================================
+// Sprint 19 — LFI replay handler
+// ============================================================================
+
+export const handleLfiReplay = async (
+  deps: ValidatorWorkerDeps,
+  envelope: JobEnvelope,
+): Promise<HandlerOutcome> => {
+  const { validateLfiReplayPayloadSchema } = await import('./payload-schema.ts');
+  const parsed = validateLfiReplayPayloadSchema.safeParse(envelope.payload);
+  if (!parsed.success) {
+    return {
+      kind: 'nack',
+      error: new ScopeDenyError('invalid_lfi_replay_payload', ['lfi_replay_payload_schema_mismatch']),
+    };
+  }
+  const payload = parsed.data;
+
+  // Required deps — fail-visible on missing config (mirrors S18 MED-2).
+  if (!deps.lfiHttpClient) {
+    await deps.auditEmitter({
+      tenantId: payload.tenantId,
+      action: 'validation.inconclusive',
+      outcome: 'failure',
+      actorType: 'service',
+      actorId: VALIDATOR_WORKER_ACTOR_ID,
+      actorName: 'validator-worker',
+      resourceType: 'candidate_finding',
+      resourceId: payload.candidateFindingId,
+      ...(payload.projectId ? { projectId: payload.projectId } : {}),
+      assessmentId: payload.assessmentId,
+      ip: null,
+      userAgent: null,
+      traceId: payload.traceId,
+      metadata: { reason: 'config_error', missing: 'lfiHttpClient' },
+    });
+    return {
+      kind: 'nack',
+      error: new ScopeDenyError('lfi_config_error', ['lfi_deps_not_configured']),
+    };
+  }
+
+  // HIGH-1 (S18 lesson): load candidate from DB and verify type.
+  const candidate = await deps.candidateLoader({
+    tenantId: payload.tenantId,
+    candidateFindingId: payload.candidateFindingId,
+  });
+  if (!candidate || candidate.type !== 'lfi') {
+    return {
+      kind: 'nack',
+      error: new ScopeDenyError('lfi_candidate_not_found', ['lfi_candidate_not_found']),
+    };
+  }
+
+  const assessment = await deps.assessmentLoader({
+    tenantId: payload.tenantId,
+    assessmentId: payload.assessmentId,
+  });
+  if (!assessment) {
+    return {
+      kind: 'nack',
+      error: new ScopeDenyError('lfi_assessment_not_found', ['lfi_assessment_not_found']),
+    };
+  }
+
+  // Worker owns null-scope audit + ack (M1 — validator is NOT called on null scope).
+  const scope = await deps.buildScope(payload.assessmentId);
+  if (!scope) {
+    await deps.auditEmitter({
+      tenantId: payload.tenantId,
+      action: 'validator.lfi.replay_denied',
+      outcome: 'denied',
+      actorType: 'service',
+      actorId: VALIDATOR_WORKER_ACTOR_ID,
+      actorName: 'validator-worker',
+      resourceType: 'candidate_finding',
+      resourceId: payload.candidateFindingId,
+      ...(payload.projectId ? { projectId: payload.projectId } : {}),
+      assessmentId: payload.assessmentId,
+      ip: null,
+      userAgent: null,
+      traceId: payload.traceId,
+      metadata: { reason: 'no_scope' },
+    });
+    return { kind: 'ack' };
+  }
+
+  const result = await validateLfiCandidate(
+    {
+      candidateFindingId: payload.candidateFindingId,
+      tenantId: payload.tenantId,
+      assessmentId: payload.assessmentId,
+      projectId: payload.projectId,
+      affectedUrl: candidate.affectedUrl,
+      scope: scope as EffectiveScope,
+      traceId: payload.traceId,
+    },
+    {
+      scopeDeps: deps.scopeDeps,
+      auditEmitter: deps.auditEmitter,
+      httpClient: deps.lfiHttpClient,
+    },
+  );
+
+  if (result.status === 'confirmed') {
+    try {
+      await deps.findingsWriter({
+        tenantId: payload.tenantId,
+        assessmentId: payload.assessmentId,
+        candidateFindingId: payload.candidateFindingId,
+        type: 'lfi',
+        severity: 'high',
+        confidence: 'high',
+        affectedUrl: candidate.affectedUrl,
+        reproduction: {
+          sentinelKey: result.sentinelKey ?? null,
+          affectedUrl: candidate.affectedUrl,
+          matchedSnippet: result.matchedSnippet ?? null,
+        },
+        validatorLog: [],
+        validatedAt: (deps.clock ?? (() => new Date()))(),
+        validatedBy: { status: 'confirmed' as const },
+      });
+    } catch (err) {
+      if (!isUniqueViolation(err)) {
+        return {
+          kind: 'nack',
+          error: err instanceof Error ? err : new Error('lfi_findings_insert_unknown'),
+        };
+      }
+    }
+  }
+
+  return { kind: 'ack' };
 };

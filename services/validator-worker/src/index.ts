@@ -5,6 +5,7 @@ export const name = 'services/validator-worker' as const;
 export {
   handleValidateFinding,
   handleSsrfReplay,
+  handleLfiReplay,
   type AssessmentLoader,
   type AssessmentRow,
   type AuditEmitter,
@@ -23,4 +24,6 @@ export {
   type ValidateFindingPayload,
   validateSsrfReplayPayloadSchema,
   type ValidateSsrfReplayPayload,
+  validateLfiReplayPayloadSchema,
+  type ValidateLfiReplayPayload,
 } from './payload-schema.ts';

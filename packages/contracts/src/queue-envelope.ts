@@ -31,6 +31,8 @@ export const ENVELOPE_KINDS = [
   'browser.auth',
   // Sprint 18 — validator-worker subscribes to replay SSRF candidates.
   'validator.ssrf.replay',
+  // Sprint 19 — validator-worker subscribes to replay LFI candidates.
+  'validator.lfi.replay',
 ] as const;
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];
 
