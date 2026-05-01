@@ -115,7 +115,7 @@ export const buildBrowserHandlerDeps = (input: {
   payloadSchema: reconBrowserPayloadSchema,
 });
 
-const validatePayloadShape = (p: unknown): ReconBrowserPayload =>
+const _validatePayloadShape = (p: unknown): ReconBrowserPayload =>
   reconBrowserPayloadSchema.parse(p);
 
 interface LabHarness {

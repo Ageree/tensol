@@ -15,11 +15,7 @@ import { isIP } from 'node:net';
 import { emitAudit } from '@cyberstrike/audit';
 import type { ScopeActionInput } from '@cyberstrike/contracts';
 import type { Database } from '@cyberstrike/db';
-import {
-  type HandlerOutcome,
-  type JobEnvelope,
-  ScopeDenyError,
-} from '@cyberstrike/queue';
+import { type HandlerOutcome, type JobEnvelope, ScopeDenyError } from '@cyberstrike/queue';
 import type {
   Clock,
   DnsResolver,

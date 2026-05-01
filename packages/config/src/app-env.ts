@@ -8,4 +8,4 @@ export const isNonLocal = (env: AppEnv): boolean => env !== 'local';
 export const SESSION_SECRET_MIN_LENGTH = 32;
 
 export const DEFAULT_TENANT_ID =
-  process.env['DEFAULT_TENANT_ID'] ?? '00000000-0000-0000-0000-000000000001';
+  process.env.DEFAULT_TENANT_ID ?? '00000000-0000-0000-0000-000000000001';

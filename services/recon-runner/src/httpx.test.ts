@@ -225,7 +225,11 @@ describe('httpx :: mkdtemp failure (TMPDIR full/read-only)', () => {
       auditEmitter: emitter,
       scope: makeAllowExampleScope(),
     });
-    expect(result).toEqual({ kind: 'fail', reason: 'tmpdir_setup', error: expect.stringContaining('EPERM') });
+    expect(result).toEqual({
+      kind: 'fail',
+      reason: 'tmpdir_setup',
+      error: expect.stringContaining('EPERM'),
+    });
     expect(emitted).toHaveLength(1);
     expect(emitted[0].action).toBe('recon.httpx.error');
     expect((emitted[0].metadata as Record<string, unknown>).error).toContain('EPERM');

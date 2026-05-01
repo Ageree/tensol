@@ -8,8 +8,10 @@ import { adminMatrix } from './matrix/admin.ts';
 import type { Resource } from './resources.ts';
 import type { Role } from './roles.ts';
 
-export const RBAC_MATRIX: ReadonlyMap<RoleResourceActionKey, Decision> =
-  adminMatrix as ReadonlyMap<RoleResourceActionKey, Decision>;
+export const RBAC_MATRIX: ReadonlyMap<RoleResourceActionKey, Decision> = adminMatrix as ReadonlyMap<
+  RoleResourceActionKey,
+  Decision
+>;
 
 export const lookupDecision = (
   role: Role,

@@ -4,9 +4,9 @@
 // role now gets unconditional allow on every resource×action cell.
 // Role names are preserved for backward-compat with DB seeds and fixtures.
 
+import { ACTIONS } from '../actions.ts';
 import type { Decision } from '../decision.ts';
 import { buildKey } from '../decision.ts';
-import { ACTIONS } from '../actions.ts';
 import { RESOURCES } from '../resources.ts';
 import { ROLES } from '../roles.ts';
 

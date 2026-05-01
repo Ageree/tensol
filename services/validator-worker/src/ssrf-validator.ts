@@ -87,7 +87,9 @@ export const validateSsrfCandidate = async (
   );
 
   if (!decision.allowed) {
-    await emitSsrfAudit(deps, input, 'validator.ssrf.replay_denied', 'denied', {
+    await emitSsrfAudit(deps, input, 'validator.run.completed', 'denied', {
+      kind: 'ssrf',
+      outcome: 'replay_denied',
       reason: decision.reason,
       replayUrl: input.replayUrl,
     });
@@ -100,7 +102,9 @@ export const validateSsrfCandidate = async (
   try {
     await deps.httpClient.get(input.replayUrl);
   } catch (err) {
-    await emitSsrfAudit(deps, input, 'validator.ssrf.fetch_failed', 'denied', {
+    await emitSsrfAudit(deps, input, 'validator.run.completed', 'denied', {
+      kind: 'ssrf',
+      outcome: 'fetch_failed',
       replayUrl: input.replayUrl,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -112,7 +116,9 @@ export const validateSsrfCandidate = async (
   while (Date.now() < deadline) {
     const matched = await deps.oobCallbackLoader(input.token);
     if (matched) {
-      await emitSsrfAudit(deps, input, 'validator.ssrf.confirmed', 'success', {
+      await emitSsrfAudit(deps, input, 'validator.run.completed', 'success', {
+        kind: 'ssrf',
+        outcome: 'confirmed',
         token: input.token,
         replayUrl: input.replayUrl,
       });
@@ -124,7 +130,9 @@ export const validateSsrfCandidate = async (
   }
 
   // 4. Timeout — no callback arrived.
-  await emitSsrfAudit(deps, input, 'validator.ssrf.timeout', 'success', {
+  await emitSsrfAudit(deps, input, 'validator.run.completed', 'success', {
+    kind: 'ssrf',
+    outcome: 'timeout',
     token: input.token,
     replayUrl: input.replayUrl,
     timeoutMs,

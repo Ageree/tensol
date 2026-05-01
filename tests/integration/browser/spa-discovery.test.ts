@@ -177,7 +177,8 @@ describe.skipIf(skip)('browser :: spa-discovery (A-16-Spa*)', () => {
           scopeDeps: stubBrowserScopeDeps,
           auditEmitter: buildAuditEmitter(fx.db),
           observationWriter: buildObservationWriter(fx.db),
-          payloadSchema: (await import('@cyberstrike/coordinator/browser')).reconBrowserPayloadSchema,
+          payloadSchema: (await import('@cyberstrike/coordinator/browser'))
+            .reconBrowserPayloadSchema,
         },
         env,
       );
@@ -318,7 +319,8 @@ describe.skipIf(skip)('browser :: spa-discovery (A-16-Spa*)', () => {
           scopeDeps: stubBrowserScopeDeps,
           auditEmitter: buildAuditEmitter(fx.db),
           observationWriter: buildObservationWriter(fx.db),
-          payloadSchema: (await import('@cyberstrike/coordinator/browser')).reconBrowserPayloadSchema,
+          payloadSchema: (await import('@cyberstrike/coordinator/browser'))
+            .reconBrowserPayloadSchema,
         },
         env,
       );
@@ -440,7 +442,8 @@ describe.skipIf(skip)('browser :: spa-discovery (A-16-Spa*)', () => {
           scopeDeps: stubBrowserScopeDeps,
           auditEmitter: buildAuditEmitter(fx.db),
           observationWriter: buildObservationWriter(fx.db),
-          payloadSchema: (await import('@cyberstrike/coordinator/browser')).reconBrowserPayloadSchema,
+          payloadSchema: (await import('@cyberstrike/coordinator/browser'))
+            .reconBrowserPayloadSchema,
         },
         env,
       );
@@ -579,7 +582,8 @@ describe.skipIf(skip)('browser :: spa-discovery (A-16-Spa*)', () => {
           scopeDeps: stubBrowserScopeDeps,
           auditEmitter: buildAuditEmitter(fx.db),
           observationWriter: buildObservationWriter(fx.db),
-          payloadSchema: (await import('@cyberstrike/coordinator/browser')).reconBrowserPayloadSchema,
+          payloadSchema: (await import('@cyberstrike/coordinator/browser'))
+            .reconBrowserPayloadSchema,
         },
         env,
       );

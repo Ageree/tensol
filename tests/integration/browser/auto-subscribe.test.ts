@@ -10,9 +10,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:tes
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createCoordinator } from '@cyberstrike/coordinator';
 import { handleReconBrowser, reconBrowserPayloadSchema } from '@cyberstrike/coordinator/browser';
 import { FakeBrowserDriver } from '@cyberstrike/coordinator/browser';
-import { createCoordinator } from '@cyberstrike/coordinator';
 import { type JobEnvelope, LocalQueueAdapter } from '@cyberstrike/queue';
 import {
   DEFAULT_PLATFORM_POLICY,

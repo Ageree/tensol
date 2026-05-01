@@ -76,7 +76,7 @@ export const createCoordinator = (deps: CoordinatorDeps): CoordinatorHandle => {
       );
     },
     stop: async (opts?: { timeoutMs?: number }): Promise<void> => {
-      await assessmentStartSub?.stop(opts ?? {}) ?? Promise.resolve();
+      (await assessmentStartSub?.stop(opts ?? {})) ?? Promise.resolve();
       assessmentStartSub = null;
     },
   };
