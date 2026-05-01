@@ -1,21 +1,19 @@
 // Sprint 15 — handleBrowserAuth: the browser.auth envelope handler.
+// Sprint 23 G: credentials stored as plain recipe_text (AES-256-GCM bytea dropped).
 //
 // Flow:
 //   1. Parse payload (defence in depth).
 //   2. Load TargetCredentialRow from DB (tenant-scoped).
-//   3. Decrypt credential using AES-256-GCM + CREDENTIAL_KEK env var.
-//   4. Parse decrypted JSON → Credential.
-//   5. Parse LoginRecipe from payload (recipe JSON passed inline).
-//   6. Scope-guard: validate target URL before any browser action.
-//   7. Launch RealBrowserDriver context + executeRecipe.
-//   8. Emit auth.credential.decrypted + auth.recipe.executed audit events.
-//   9. Compute sha256 of storageState; PUT to object storage.
-//  10. Emit auth.login.failed on LoginFailedError (terminal nack via __terminal marker).
-//  11. Zero-out credential reference.
+//   3. Parse recipe_text JSON → Credential.
+//   4. Parse LoginRecipe from payload (recipe JSON passed inline).
+//   5. Scope-guard: validate target URL before any browser action.
+//   6. Launch RealBrowserDriver context + executeRecipe.
+//   7. Emit auth.credential.decrypted + auth.recipe.executed audit events.
+//   8. Compute sha256 of storageState; PUT to object storage.
+//   9. Emit auth.login.failed on LoginFailedError (terminal nack via __terminal marker).
+//  10. Zero-out credential reference.
 //
 // Security invariants:
-//   - Decryption ONLY here, never in apps/api.
-//   - KEK never logged.
 //   - storageState never included in audit event payloads.
 
 import { createHash } from 'node:crypto';

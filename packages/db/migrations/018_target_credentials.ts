@@ -6,7 +6,7 @@ import { attachAppendOnlyTriggers, dropAppendOnlyTriggers } from './_common.ts';
 // Stores AES-256-GCM encrypted login credentials per target per tenant.
 // Rows are fully immutable (no status machine, no content updates) — full
 // append-only trigger set (UPDATE+DELETE+TRUNCATE) is applied.
-// Decryption key (CREDENTIAL_KEK) is read only inside services/browser-worker.
+// Sprint 23 mig 022: bytea columns dropped; recipe_text (plaintext) used instead.
 
 // biome-ignore lint/suspicious/noExplicitAny: migrations operate on the structural db handle.
 export const up = async (db: Kysely<any>): Promise<void> => {
