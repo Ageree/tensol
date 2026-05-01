@@ -64,7 +64,7 @@ describe.skipIf(!hasDatabaseUrl())('queue :: concurrent subscribers (A-Q-Concurr
 
     const seen = new Map<string, number>();
     const subA = adapter.subscribe(
-      'recon.browser.placeholder',
+      'validate.finding',
       async (env) => {
         seen.set(env.jobId, (seen.get(env.jobId) ?? 0) + 1);
         return { kind: 'ack' };
@@ -72,7 +72,7 @@ describe.skipIf(!hasDatabaseUrl())('queue :: concurrent subscribers (A-Q-Concurr
       { tenantId, pollIntervalMs: 20, batchSize: 5 },
     );
     const subB = adapter.subscribe(
-      'recon.browser.placeholder',
+      'validate.finding',
       async (env) => {
         seen.set(env.jobId, (seen.get(env.jobId) ?? 0) + 1);
         return { kind: 'ack' };

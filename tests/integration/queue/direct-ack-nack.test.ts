@@ -167,7 +167,7 @@ describe.skipIf(!hasDatabaseUrl())('queue :: direct ack/nack (A-Q-Local-4)', () 
 
     let invocations = 0;
     const sub = adapter.subscribe(
-      'recon.browser.placeholder',
+      'validate.finding',
       async () => {
         invocations += 1;
         return { kind: 'ack' };

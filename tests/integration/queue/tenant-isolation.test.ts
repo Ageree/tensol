@@ -64,7 +64,7 @@ describe.skipIf(!hasDatabaseUrl())('queue :: tenant isolation (A-Q-Tenant-1)', (
 
     const t2seen: JobEnvelope[] = [];
     const t2sub = adapter.subscribe(
-      'recon.browser.placeholder',
+      'validate.finding',
       async (env) => {
         t2seen.push(env);
         return { kind: 'ack' };
@@ -79,7 +79,7 @@ describe.skipIf(!hasDatabaseUrl())('queue :: tenant isolation (A-Q-Tenant-1)', (
     // Now confirm T1 subscriber DOES receive it.
     const t1seen: JobEnvelope[] = [];
     const t1sub = adapter.subscribe(
-      'recon.browser.placeholder',
+      'validate.finding',
       async (env) => {
         t1seen.push(env);
         return { kind: 'ack' };

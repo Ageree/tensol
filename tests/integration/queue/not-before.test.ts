@@ -63,7 +63,7 @@ describe.skipIf(!hasDatabaseUrl())('queue :: notBefore (A-Q-Local-5)', () => {
 
     let invocations = 0;
     const sub = adapter.subscribe(
-      'recon.browser.placeholder',
+      'validate.finding',
       async () => {
         invocations += 1;
         return { kind: 'ack' };
@@ -104,7 +104,7 @@ describe.skipIf(!hasDatabaseUrl())('queue :: notBefore (A-Q-Local-5)', () => {
 
     let invocations = 0;
     const sub = adapter.subscribe(
-      'recon.browser.placeholder',
+      'validate.finding',
       async () => {
         invocations += 1;
         return { kind: 'ack' };

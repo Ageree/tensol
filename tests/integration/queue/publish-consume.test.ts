@@ -80,7 +80,7 @@ describe.skipIf(!hasDatabaseUrl())('queue :: publish-consume happy path (A-Q-Loc
     // Subscribe + ack.
     const seen: JobEnvelope[] = [];
     const sub = adapter.subscribe(
-      'recon.browser.placeholder',
+      'validate.finding',
       async (env_) => {
         seen.push(env_);
         return { kind: 'ack' };

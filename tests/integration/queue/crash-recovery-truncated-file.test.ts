@@ -78,7 +78,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // ancillary reason.
       let invocations = 0;
       const sub = adapter.subscribe(
-        'recon.browser.placeholder',
+        'validate.finding',
         async () => {
           invocations += 1;
           return { kind: 'ack' };
@@ -131,7 +131,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // Subscribe should claim normally.
       let invocations = 0;
       const sub = adapterB.subscribe(
-        'recon.browser.placeholder',
+        'validate.finding',
         async () => {
           invocations += 1;
           return { kind: 'ack' };

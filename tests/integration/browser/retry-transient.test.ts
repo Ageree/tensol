@@ -177,7 +177,7 @@ describe.skipIf(!hasDatabaseUrl())('browser :: retry-transient (A-BR-RetryPolicy
       const jobId = publishResult.jobId;
 
       const sub = queueAdapter.subscribe(
-        'recon.browser',
+        'assessment.start',
         async (e) => handleReconBrowser(deps, e),
         { tenantId, pollIntervalMs: 25 },
       );
