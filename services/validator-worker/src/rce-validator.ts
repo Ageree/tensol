@@ -100,9 +100,7 @@ export const validateRceCandidate = async (
   );
 
   if (!decision.allowed) {
-    await emitRceAudit(deps.auditEmitter, input, 'validator.run.completed', 'denied', {
-      kind: 'rce',
-      outcome: 'replay_denied',
+    await emitRceAudit(deps.auditEmitter, input, 'validator.rce.replay_denied', 'denied', {
       reason: decision.reason,
       affectedUrl: input.affectedUrl,
     });
@@ -114,9 +112,7 @@ export const validateRceCandidate = async (
   try {
     await deps.httpClient.get(input.affectedUrl);
   } catch (err) {
-    await emitRceAudit(deps.auditEmitter, input, 'validator.run.completed', 'denied', {
-      kind: 'rce',
-      outcome: 'fetch_failed',
+    await emitRceAudit(deps.auditEmitter, input, 'validator.rce.fetch_failed', 'denied', {
       affectedUrl: input.affectedUrl,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -133,9 +129,7 @@ export const validateRceCandidate = async (
     try {
       matched = await deps.oobCallbackLoader(input.token);
     } catch (pollErr) {
-      await emitRceAudit(deps.auditEmitter, input, 'validator.run.completed', 'denied', {
-        kind: 'rce',
-        outcome: 'replay_denied',
+      await emitRceAudit(deps.auditEmitter, input, 'validator.rce.replay_denied', 'denied', {
         reason: 'oob_lookup_error',
         error: pollErr instanceof Error ? pollErr.message : String(pollErr),
         affectedUrl: input.affectedUrl,
@@ -143,9 +137,7 @@ export const validateRceCandidate = async (
       return { status: 'inconclusive', reason: 'oob_lookup_error' };
     }
     if (matched) {
-      await emitRceAudit(deps.auditEmitter, input, 'validator.run.completed', 'success', {
-        kind: 'rce',
-        outcome: 'confirmed',
+      await emitRceAudit(deps.auditEmitter, input, 'validator.rce.confirmed', 'success', {
         token: input.token,
         affectedUrl: input.affectedUrl,
       });

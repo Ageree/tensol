@@ -107,9 +107,7 @@ export const validateLfiCandidate = async (
   );
 
   if (!decision.allowed) {
-    await emitLfiAudit(deps.auditEmitter, input, 'validator.run.completed', 'denied', {
-      kind: 'lfi',
-      outcome: 'replay_denied',
+    await emitLfiAudit(deps.auditEmitter, input, 'validator.lfi.replay_denied', 'denied', {
       reason: decision.reason,
       affectedUrl: input.affectedUrl,
     });
@@ -121,9 +119,7 @@ export const validateLfiCandidate = async (
   try {
     response = await deps.httpClient.get(input.affectedUrl);
   } catch (err) {
-    await emitLfiAudit(deps.auditEmitter, input, 'validator.run.completed', 'denied', {
-      kind: 'lfi',
-      outcome: 'fetch_failed',
+    await emitLfiAudit(deps.auditEmitter, input, 'validator.lfi.fetch_failed', 'denied', {
       affectedUrl: input.affectedUrl,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -137,9 +133,7 @@ export const validateLfiCandidate = async (
   const hit = matchSentinel(safeBody);
 
   if (hit) {
-    await emitLfiAudit(deps.auditEmitter, input, 'validator.run.completed', 'success', {
-      kind: 'lfi',
-      outcome: 'confirmed',
+    await emitLfiAudit(deps.auditEmitter, input, 'validator.lfi.confirmed', 'success', {
       sentinelKey: hit.key,
       affectedUrl: input.affectedUrl,
     });
@@ -147,9 +141,7 @@ export const validateLfiCandidate = async (
   }
 
   // 5. No sentinel match.
-  await emitLfiAudit(deps.auditEmitter, input, 'validator.run.completed', 'success', {
-    kind: 'lfi',
-    outcome: 'unmatched',
+  await emitLfiAudit(deps.auditEmitter, input, 'validator.lfi.unmatched', 'success', {
     affectedUrl: input.affectedUrl,
   });
   return { status: 'unmatched' };
