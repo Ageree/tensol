@@ -13,9 +13,9 @@
 import type { AuditAction } from '@cyberstrike/contracts';
 import { type EffectiveScope, decide } from '@cyberstrike/scope-engine';
 import type { ValidatorScopeDeps } from '@cyberstrike/validators';
+import type { SpawnFn } from './subfinder.ts';
 import type { HttpxProbeResult } from './types.ts';
 import type { AuditEmitter, AuditEmitterArgs } from './worker.ts';
-import type { SpawnFn } from './subfinder.ts';
 
 const RECON_ACTOR_ID = 'recon-runner' as const;
 
@@ -127,12 +127,15 @@ export const probeHttpx = async (
     // In prod, we pass urls via a temp file approach using -list flag.
     const tmpFile = `/tmp/cs-httpx-${Date.now()}.txt`;
     await Bun.write(tmpFile, stdinInput);
-    ({ stdout, exitCode } = await spawn(
-      [deps.httpxBin, '-l', tmpFile, '-json', '-silent'],
-      { timeout: timeoutMs },
-    ));
+    ({ stdout, exitCode } = await spawn([deps.httpxBin, '-l', tmpFile, '-json', '-silent'], {
+      timeout: timeoutMs,
+    }));
     // Clean up temp file (best-effort)
-    try { await Bun.file(tmpFile).exists() && (await import('node:fs/promises')).unlink(tmpFile); } catch { /* ok */ }
+    try {
+      (await Bun.file(tmpFile).exists()) && (await import('node:fs/promises')).unlink(tmpFile);
+    } catch {
+      /* ok */
+    }
   } catch (err) {
     await emitAudit(deps.auditEmitter, deps, 'recon.httpx.error', 'failure', {
       error: err instanceof Error ? err.message : String(err),
@@ -156,7 +159,9 @@ export const probeHttpx = async (
           url: parsed.url,
           statusCode: typeof parsed.status_code === 'number' ? parsed.status_code : 0,
           title: typeof parsed.title === 'string' ? parsed.title : '',
-          tech: Array.isArray(parsed.tech) ? (parsed.tech as string[]).filter(t => typeof t === 'string') : [],
+          tech: Array.isArray(parsed.tech)
+            ? (parsed.tech as string[]).filter((t) => typeof t === 'string')
+            : [],
           webServer: typeof parsed.webserver === 'string' ? parsed.webserver : undefined,
         });
       }

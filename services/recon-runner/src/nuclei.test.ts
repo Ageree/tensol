@@ -16,9 +16,9 @@ import {
   type ToolPolicy,
   buildEffectiveScope,
 } from '@cyberstrike/scope-engine';
+import { runNuclei } from './nuclei.ts';
 import type { NucleiFinding } from './types.ts';
 import type { AuditEmitterArgs } from './worker.ts';
-import { runNuclei } from './nuclei.ts';
 
 const VALID_UUID = '44444444-4444-4444-8444-444444444444';
 const VALID_TRACE = '00112233445566778899aabbccddeeff';
@@ -31,7 +31,9 @@ const makeAuditCapture = (): {
 } => {
   const emitted: AuditEmitterArgs[] = [];
   return {
-    emitter: async (args: AuditEmitterArgs): Promise<void> => { emitted.push(args); },
+    emitter: async (args: AuditEmitterArgs): Promise<void> => {
+      emitted.push(args);
+    },
     emitted,
   };
 };
@@ -47,13 +49,18 @@ const SCOPE_BASE = {
   timeWindow: null,
 } as const;
 
-const makeDenyScope = (): EffectiveScope => buildEffectiveScope({ ...SCOPE_BASE, rawRules: [] });
+const _makeDenyScope = (): EffectiveScope => buildEffectiveScope({ ...SCOPE_BASE, rawRules: [] });
 
 const makeAllowTargetScope = (): EffectiveScope =>
   buildEffectiveScope({
     ...SCOPE_BASE,
     rawRules: [
-      { id: 'r1', ruleKind: 'domain', effect: 'allow', payload: { pattern: 'target.example.com', matchSubdomains: false } },
+      {
+        id: 'r1',
+        ruleKind: 'domain',
+        effect: 'allow',
+        payload: { pattern: 'target.example.com', matchSubdomains: false },
+      },
       { id: 'r2', ruleKind: 'protocol', effect: 'allow', payload: { protocol: 'https' } },
       { id: 'r3', ruleKind: 'port', effect: 'allow', payload: { port: 443 } },
       { id: 'r4', ruleKind: 'http_method', effect: 'allow', payload: { method: 'GET' } },
@@ -68,7 +75,10 @@ const makeScopeDeps = () => ({
   },
   clock: { now: (): Date => new Date() },
   rateLimit: {
-    consume: async (): Promise<{ ok: true; retryAfterMs: number }> => ({ ok: true, retryAfterMs: 0 }),
+    consume: async (): Promise<{ ok: true; retryAfterMs: number }> => ({
+      ok: true,
+      retryAfterMs: 0,
+    }),
   },
 });
 
@@ -94,7 +104,10 @@ describe('nuclei :: null scope path', () => {
     const result = await runNuclei([ALLOWED_URL, DENIED_URL], {
       ...baseDeps,
       nucleiBin: '/usr/bin/nuclei',
-      spawnFn: async () => { spawnCalled = true; return { stdout: '', exitCode: 0 }; },
+      spawnFn: async () => {
+        spawnCalled = true;
+        return { stdout: '', exitCode: 0 };
+      },
       auditEmitter: emitter,
       scope: null,
     });
@@ -150,7 +163,10 @@ describe('nuclei :: per-url scope gate (B3 invariant)', () => {
     const result = await runNuclei([DENIED_URL], {
       ...baseDeps,
       nucleiBin: '/usr/bin/nuclei',
-      spawnFn: async () => { spawnCalled = true; return { stdout: '', exitCode: 0 }; },
+      spawnFn: async () => {
+        spawnCalled = true;
+        return { stdout: '', exitCode: 0 };
+      },
       auditEmitter: emitter,
       scope: makeAllowTargetScope(),
     });
@@ -164,8 +180,8 @@ describe('nuclei :: happy path', () => {
   test('parses findings, emits template_match per finding + run audit', async () => {
     const { emitter, emitted } = makeAuditCapture();
     const nucleiOut = [
-      makeFindingLine('cve-2021-1234', ALLOWED_URL + 'vuln', 'high'),
-      makeFindingLine('exposed-config', ALLOWED_URL + '.env', 'medium'),
+      makeFindingLine('cve-2021-1234', `${ALLOWED_URL}vuln`, 'high'),
+      makeFindingLine('exposed-config', `${ALLOWED_URL}.env`, 'medium'),
       'not-json',
       '',
     ].join('\n');
@@ -176,7 +192,9 @@ describe('nuclei :: happy path', () => {
       spawnFn: async () => ({ stdout: nucleiOut, exitCode: 0 }),
       auditEmitter: emitter,
       scope: makeAllowTargetScope(),
-      findingsWriter: async (f) => { findings.push(f); },
+      findingsWriter: async (f) => {
+        findings.push(f);
+      },
     });
     expect(result).toHaveLength(2);
     expect(result[0].templateId).toBe('cve-2021-1234');
@@ -195,8 +213,8 @@ describe('nuclei :: B4 per-finding write failure', () => {
   test('findingsWriter throws → finding_write_failed audit + loop continues', async () => {
     const { emitter, emitted } = makeAuditCapture();
     const nucleiOut = [
-      makeFindingLine('t1', ALLOWED_URL + 'a'),
-      makeFindingLine('t2', ALLOWED_URL + 'b'),
+      makeFindingLine('t1', `${ALLOWED_URL}a`),
+      makeFindingLine('t2', `${ALLOWED_URL}b`),
     ].join('\n');
     let writeCount = 0;
     const result = await runNuclei([ALLOWED_URL], {
@@ -214,7 +232,8 @@ describe('nuclei :: B4 per-finding write failure', () => {
     expect(result).toHaveLength(2);
     expect(writeCount).toBe(2);
     const writeErrors = emitted.filter(
-      (e) => e.action === 'recon.nuclei.error' &&
+      (e) =>
+        e.action === 'recon.nuclei.error' &&
         (e.metadata as Record<string, unknown>).reason === 'finding_write_failed',
     );
     expect(writeErrors).toHaveLength(2);

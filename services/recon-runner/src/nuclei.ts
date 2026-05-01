@@ -13,9 +13,9 @@
 import type { AuditAction } from '@cyberstrike/contracts';
 import { type EffectiveScope, decide } from '@cyberstrike/scope-engine';
 import type { ValidatorScopeDeps } from '@cyberstrike/validators';
+import type { SpawnFn } from './subfinder.ts';
 import type { NucleiFinding } from './types.ts';
 import type { AuditEmitter, AuditEmitterArgs } from './worker.ts';
-import type { SpawnFn } from './subfinder.ts';
 
 const RECON_ACTOR_ID = 'recon-runner' as const;
 
@@ -125,10 +125,22 @@ export const runNuclei = async (
     const tmpFile = `/tmp/cs-nuclei-${Date.now()}.txt`;
     await Bun.write(tmpFile, stdinInput);
     ({ stdout, exitCode } = await spawn(
-      [deps.nucleiBin, '-l', tmpFile, '-json', '-silent', '-severity', 'info,low,medium,high,critical'],
+      [
+        deps.nucleiBin,
+        '-l',
+        tmpFile,
+        '-json',
+        '-silent',
+        '-severity',
+        'info,low,medium,high,critical',
+      ],
       { timeout: timeoutMs },
     ));
-    try { await (await import('node:fs/promises')).unlink(tmpFile); } catch { /* ok */ }
+    try {
+      await (await import('node:fs/promises')).unlink(tmpFile);
+    } catch {
+      /* ok */
+    }
   } catch (err) {
     await emitAudit(deps.auditEmitter, deps, 'recon.nuclei.error', 'failure', {
       error: err instanceof Error ? err.message : String(err),
@@ -154,7 +166,10 @@ export const runNuclei = async (
 
     const templateId = typeof parsed['template-id'] === 'string' ? parsed['template-id'] : '';
     const matched = typeof parsed.matched === 'string' ? parsed.matched : '';
-    const infoRaw = parsed.info !== null && typeof parsed.info === 'object' ? parsed.info as Record<string, unknown> : {};
+    const infoRaw =
+      parsed.info !== null && typeof parsed.info === 'object'
+        ? (parsed.info as Record<string, unknown>)
+        : {};
     const severityRaw = typeof infoRaw.severity === 'string' ? infoRaw.severity : 'info';
     const severity = (['info', 'low', 'medium', 'high', 'critical'] as const).includes(
       severityRaw as 'info' | 'low' | 'medium' | 'high' | 'critical',

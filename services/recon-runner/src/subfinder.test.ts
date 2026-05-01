@@ -15,8 +15,8 @@ import {
   type ToolPolicy,
   buildEffectiveScope,
 } from '@cyberstrike/scope-engine';
-import type { AuditEmitterArgs } from './worker.ts';
 import { runSubfinder } from './subfinder.ts';
+import type { AuditEmitterArgs } from './worker.ts';
 
 const VALID_UUID = '22222222-2222-4222-8222-222222222222';
 const VALID_TRACE = 'aabbccddeeff00112233445566778899';
@@ -28,7 +28,9 @@ const makeAuditCapture = (): {
 } => {
   const emitted: AuditEmitterArgs[] = [];
   return {
-    emitter: async (args: AuditEmitterArgs): Promise<void> => { emitted.push(args); },
+    emitter: async (args: AuditEmitterArgs): Promise<void> => {
+      emitted.push(args);
+    },
     emitted,
   };
 };
@@ -50,7 +52,12 @@ const makeAllowScope = (): EffectiveScope =>
   buildEffectiveScope({
     ...SCOPE_BASE,
     rawRules: [
-      { id: 'r1', ruleKind: 'domain', effect: 'allow', payload: { pattern: 'example.com', matchSubdomains: true } },
+      {
+        id: 'r1',
+        ruleKind: 'domain',
+        effect: 'allow',
+        payload: { pattern: 'example.com', matchSubdomains: true },
+      },
       { id: 'r2', ruleKind: 'protocol', effect: 'allow', payload: { protocol: 'https' } },
       { id: 'r3', ruleKind: 'port', effect: 'allow', payload: { port: 443 } },
       { id: 'r4', ruleKind: 'http_method', effect: 'allow', payload: { method: 'GET' } },
@@ -65,7 +72,10 @@ const makeScopeDeps = () => ({
   },
   clock: { now: (): Date => new Date() },
   rateLimit: {
-    consume: async (): Promise<{ ok: true; retryAfterMs: number }> => ({ ok: true, retryAfterMs: 0 }),
+    consume: async (): Promise<{ ok: true; retryAfterMs: number }> => ({
+      ok: true,
+      retryAfterMs: 0,
+    }),
   },
 });
 
@@ -80,7 +90,9 @@ const baseReconDeps = {
 describe('subfinder :: null scope path', () => {
   test('emits recon.subfinder.denied with reason no_scope, returns []', async () => {
     const { emitter, emitted } = makeAuditCapture();
-    const spawnFn = async () => { throw new Error('should not spawn'); };
+    const spawnFn = async () => {
+      throw new Error('should not spawn');
+    };
     const result = await runSubfinder(TEST_DOMAIN, {
       ...baseReconDeps,
       subfinderBin: '/usr/bin/subfinder',
@@ -116,7 +128,10 @@ describe('subfinder :: scope deny path', () => {
   test('decide denies domain → denied audit, no spawn, returns []', async () => {
     const { emitter, emitted } = makeAuditCapture();
     let spawnCalled = false;
-    const spawnFn = async () => { spawnCalled = true; return { stdout: '', exitCode: 0 }; };
+    const spawnFn = async () => {
+      spawnCalled = true;
+      return { stdout: '', exitCode: 0 };
+    };
     const result = await runSubfinder(TEST_DOMAIN, {
       ...baseReconDeps,
       subfinderBin: '/usr/bin/subfinder',
@@ -177,7 +192,9 @@ describe('subfinder :: subprocess error path', () => {
 
   test('spawn throws → subfinder.error audit, returns []', async () => {
     const { emitter, emitted } = makeAuditCapture();
-    const spawnFn = async () => { throw new Error('ENOENT'); };
+    const spawnFn = async () => {
+      throw new Error('ENOENT');
+    };
     const result = await runSubfinder(TEST_DOMAIN, {
       ...baseReconDeps,
       subfinderBin: '/usr/bin/subfinder',

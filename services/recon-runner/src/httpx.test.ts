@@ -16,8 +16,8 @@ import {
   type ToolPolicy,
   buildEffectiveScope,
 } from '@cyberstrike/scope-engine';
-import type { AuditEmitterArgs } from './worker.ts';
 import { probeHttpx } from './httpx.ts';
+import type { AuditEmitterArgs } from './worker.ts';
 
 const VALID_UUID = '33333333-3333-4333-8333-333333333333';
 const VALID_TRACE = 'ffeeddccbbaa99887766554433221100';
@@ -30,7 +30,9 @@ const makeAuditCapture = (): {
 } => {
   const emitted: AuditEmitterArgs[] = [];
   return {
-    emitter: async (args: AuditEmitterArgs): Promise<void> => { emitted.push(args); },
+    emitter: async (args: AuditEmitterArgs): Promise<void> => {
+      emitted.push(args);
+    },
     emitted,
   };
 };
@@ -46,13 +48,18 @@ const SCOPE_BASE = {
   timeWindow: null,
 } as const;
 
-const makeDenyScope = (): EffectiveScope => buildEffectiveScope({ ...SCOPE_BASE, rawRules: [] });
+const _makeDenyScope = (): EffectiveScope => buildEffectiveScope({ ...SCOPE_BASE, rawRules: [] });
 
 const makeAllowExampleScope = (): EffectiveScope =>
   buildEffectiveScope({
     ...SCOPE_BASE,
     rawRules: [
-      { id: 'r1', ruleKind: 'domain', effect: 'allow', payload: { pattern: 'example.com', matchSubdomains: false } },
+      {
+        id: 'r1',
+        ruleKind: 'domain',
+        effect: 'allow',
+        payload: { pattern: 'example.com', matchSubdomains: false },
+      },
       { id: 'r2', ruleKind: 'protocol', effect: 'allow', payload: { protocol: 'https' } },
       { id: 'r3', ruleKind: 'port', effect: 'allow', payload: { port: 443 } },
       { id: 'r4', ruleKind: 'http_method', effect: 'allow', payload: { method: 'GET' } },
@@ -67,7 +74,10 @@ const makeScopeDeps = () => ({
   },
   clock: { now: (): Date => new Date() },
   rateLimit: {
-    consume: async (): Promise<{ ok: true; retryAfterMs: number }> => ({ ok: true, retryAfterMs: 0 }),
+    consume: async (): Promise<{ ok: true; retryAfterMs: number }> => ({
+      ok: true,
+      retryAfterMs: 0,
+    }),
   },
 });
 
@@ -86,7 +96,10 @@ describe('httpx :: null scope path', () => {
     const result = await probeHttpx([ALLOWED_URL, DENIED_URL], {
       ...baseDeps,
       httpxBin: '/usr/bin/httpx',
-      spawnFn: async () => { spawnCalled = true; return { stdout: '', exitCode: 0 }; },
+      spawnFn: async () => {
+        spawnCalled = true;
+        return { stdout: '', exitCode: 0 };
+      },
       auditEmitter: emitter,
       scope: null,
     });
@@ -124,7 +137,7 @@ describe('httpx :: per-url scope gate (B3 invariant)', () => {
       spawnArgs.push(cmd);
       // httpx response for the approved url
       return {
-        stdout: JSON.stringify({ url: ALLOWED_URL, status_code: 200, title: 'Example', tech: [] }) + '\n',
+        stdout: `${JSON.stringify({ url: ALLOWED_URL, status_code: 200, title: 'Example', tech: [] })}\n`,
         exitCode: 0,
       };
     };
@@ -151,7 +164,10 @@ describe('httpx :: per-url scope gate (B3 invariant)', () => {
     const result = await probeHttpx([DENIED_URL], {
       ...baseDeps,
       httpxBin: '/usr/bin/httpx',
-      spawnFn: async () => { spawnCalled = true; return { stdout: '', exitCode: 0 }; },
+      spawnFn: async () => {
+        spawnCalled = true;
+        return { stdout: '', exitCode: 0 };
+      },
       auditEmitter: emitter,
       scope: makeAllowExampleScope(),
     });
@@ -165,7 +181,13 @@ describe('httpx :: happy path', () => {
   test('parses JSON-lines, emits run audit with aliveCount', async () => {
     const { emitter, emitted } = makeAuditCapture();
     const httpxOut = [
-      JSON.stringify({ url: ALLOWED_URL, status_code: 200, title: 'Example Domain', tech: ['Nginx'], webserver: 'nginx' }),
+      JSON.stringify({
+        url: ALLOWED_URL,
+        status_code: 200,
+        title: 'Example Domain',
+        tech: ['Nginx'],
+        webserver: 'nginx',
+      }),
       'malformed',
       '',
     ].join('\n');
@@ -209,7 +231,9 @@ describe('httpx :: error paths', () => {
     const result = await probeHttpx([ALLOWED_URL], {
       ...baseDeps,
       httpxBin: '/usr/bin/httpx',
-      spawnFn: async () => { throw new Error('spawn_failed'); },
+      spawnFn: async () => {
+        throw new Error('spawn_failed');
+      },
       auditEmitter: emitter,
       scope: makeAllowExampleScope(),
     });
