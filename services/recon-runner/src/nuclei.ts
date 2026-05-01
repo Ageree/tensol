@@ -26,6 +26,7 @@ const RECON_ACTOR_ID = 'recon-runner' as const;
 export interface NucleiDeps {
   readonly nucleiBin: string | undefined;
   readonly spawnFn?: SpawnFn;
+  readonly mkdtempFn?: (prefix: string) => string;
   readonly auditEmitter: AuditEmitter;
   readonly tenantId: string;
   readonly assessmentId: string;
@@ -125,9 +126,12 @@ export const runNuclei = async (
 
   let stdout: string;
   let exitCode: number;
-  const tmpDir = mkdtempSync(join(tmpdir(), 'cs-nuclei-'));
-  const tmpFile = join(tmpDir, `${randomUUID()}.txt`);
+  const mkdtemp = deps.mkdtempFn ?? ((prefix: string) => mkdtempSync(prefix));
+  let tmpDir: string | null = null;
+  let tmpFile: string | null = null;
   try {
+    tmpDir = mkdtemp(join(tmpdir(), 'cs-nuclei-'));
+    tmpFile = join(tmpDir, `${randomUUID()}.txt`);
     await Bun.write(tmpFile, stdinInput);
     ({ stdout, exitCode } = await spawn(
       [
@@ -147,15 +151,19 @@ export const runNuclei = async (
     });
     return [];
   } finally {
-    try {
-      unlinkSync(tmpFile);
-    } catch {
-      /* ok */
+    if (tmpFile) {
+      try {
+        unlinkSync(tmpFile);
+      } catch {
+        /* ok */
+      }
     }
-    try {
-      rmdirSync(tmpDir);
-    } catch {
-      /* ok */
+    if (tmpDir) {
+      try {
+        rmdirSync(tmpDir);
+      } catch {
+        /* ok */
+      }
     }
   }
 

@@ -240,6 +240,27 @@ describe('nuclei :: B4 per-finding write failure', () => {
   });
 });
 
+describe('nuclei :: mkdtemp failure (TMPDIR full/read-only)', () => {
+  test('mkdtempFn throws EPERM → nuclei.error audit emitted, returns [], no rejection', async () => {
+    const { emitter, emitted } = makeAuditCapture();
+    const result = await runNuclei([ALLOWED_URL], {
+      ...baseDeps,
+      nucleiBin: '/usr/bin/nuclei',
+      mkdtempFn: () => {
+        const err = new Error('EPERM: operation not permitted, mkdtemp') as NodeJS.ErrnoException;
+        err.code = 'EPERM';
+        throw err;
+      },
+      auditEmitter: emitter,
+      scope: makeAllowTargetScope(),
+    });
+    expect(result).toEqual([]);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].action).toBe('recon.nuclei.error');
+    expect((emitted[0].metadata as Record<string, unknown>).error).toContain('EPERM');
+  });
+});
+
 describe('nuclei :: error paths', () => {
   test('non-zero exit → nuclei.error, returns []', async () => {
     const { emitter, emitted } = makeAuditCapture();

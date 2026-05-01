@@ -211,6 +211,27 @@ describe('httpx :: happy path', () => {
   });
 });
 
+describe('httpx :: mkdtemp failure (TMPDIR full/read-only)', () => {
+  test('mkdtempFn throws EPERM → httpx.error audit emitted, returns [], no rejection', async () => {
+    const { emitter, emitted } = makeAuditCapture();
+    const result = await probeHttpx([ALLOWED_URL], {
+      ...baseDeps,
+      httpxBin: '/usr/bin/httpx',
+      mkdtempFn: () => {
+        const err = new Error('EPERM: operation not permitted, mkdtemp') as NodeJS.ErrnoException;
+        err.code = 'EPERM';
+        throw err;
+      },
+      auditEmitter: emitter,
+      scope: makeAllowExampleScope(),
+    });
+    expect(result).toEqual([]);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].action).toBe('recon.httpx.error');
+    expect((emitted[0].metadata as Record<string, unknown>).error).toContain('EPERM');
+  });
+});
+
 describe('httpx :: error paths', () => {
   test('non-zero exit → httpx.error, returns []', async () => {
     const { emitter, emitted } = makeAuditCapture();
