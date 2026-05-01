@@ -15,8 +15,8 @@ import {
   type ToolPolicy,
   buildEffectiveScope,
 } from '@cyberstrike/scope-engine';
-import type { AuditEmitterArgs } from './worker.ts';
 import { type LfiValidatorInput, validateLfiCandidate } from './lfi-validator.ts';
+import type { AuditEmitterArgs } from './worker.ts';
 
 const VALID_TRACE = '0123456789abcdef0123456789abcdef';
 const TENANT = '11111111-1111-1111-1111-111111111111';
@@ -72,24 +72,35 @@ interface CapturedAudit {
   metadata: Record<string, unknown>;
 }
 
-const makeAuditCapture = (): { emitter: (args: AuditEmitterArgs) => Promise<void>; audits: CapturedAudit[] } => {
+const makeAuditCapture = (): {
+  emitter: (args: AuditEmitterArgs) => Promise<void>;
+  audits: CapturedAudit[];
+} => {
   const audits: CapturedAudit[] = [];
   return {
     emitter: async (args: AuditEmitterArgs) => {
-      audits.push({ action: String(args.action), outcome: String(args.outcome), metadata: args.metadata });
+      audits.push({
+        action: String(args.action),
+        outcome: String(args.outcome),
+        metadata: args.metadata,
+      });
     },
     audits,
   };
 };
 
-const makeHttpClient = (body: string): { get: (url: string) => Promise<{ body: string }>; callCount: number } => {
+const makeHttpClient = (
+  body: string,
+): { get: (url: string) => Promise<{ body: string }>; callCount: number } => {
   let callCount = 0;
   return {
     get: async (_url: string) => {
       callCount++;
       return { body };
     },
-    get callCount() { return callCount; },
+    get callCount() {
+      return callCount;
+    },
   };
 };
 
@@ -141,7 +152,9 @@ describe('lfi-validator :: confirmed path', () => {
     const result = await validateLfiCandidate(makeInput(makeAllowScope()), {
       scopeDeps: allowScopeDeps,
       auditEmitter: emitter,
-      httpClient: makeHttpClient('root:x:0:0:root:/root:/bin/bash\nbin:x:1:1:bin:/bin:/sbin/nologin\n'),
+      httpClient: makeHttpClient(
+        'root:x:0:0:root:/root:/bin/bash\nbin:x:1:1:bin:/bin:/sbin/nologin\n',
+      ),
     });
     expect(result.status).toBe('confirmed');
     expect(result.sentinelKey).toBe('unix_passwd');
@@ -177,7 +190,7 @@ describe('lfi-validator :: body cap (M3)', () => {
   test('sentinel only beyond 1MB mark → unmatched (truncated)', async () => {
     const { emitter } = makeAuditCapture();
     // Sentinel string at byte position 2MB — well past the 1MB cap.
-    const oversized = 'A'.repeat(2_097_152) + 'root:x:0:0:root:/root:/bin/bash\n';
+    const oversized = `${'A'.repeat(2_097_152)}root:x:0:0:root:/root:/bin/bash\n`;
     const result = await validateLfiCandidate(makeInput(makeAllowScope()), {
       scopeDeps: allowScopeDeps,
       auditEmitter: emitter,
@@ -245,7 +258,8 @@ describe('lfi-validator :: windows_hosts sentinel', () => {
 describe('lfi-validator :: windows_boot_ini sentinel', () => {
   test('boot.ini body → sentinelKey windows_boot_ini', async () => {
     const { emitter } = makeAuditCapture();
-    const body = '[boot loader]\ntimeout=30\ndefault=multi(0)disk(0)rdisk(0)partition(1)\\WINDOWS\n';
+    const body =
+      '[boot loader]\ntimeout=30\ndefault=multi(0)disk(0)rdisk(0)partition(1)\\WINDOWS\n';
     const result = await validateLfiCandidate(makeInput(makeAllowScope()), {
       scopeDeps: allowScopeDeps,
       auditEmitter: emitter,

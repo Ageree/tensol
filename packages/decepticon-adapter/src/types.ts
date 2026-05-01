@@ -71,6 +71,7 @@ export const CANDIDATE_TYPES = [
   'open_redirect',
   'ssrf',
   'misconfig',
+  'lfi',
 ] as const;
 
 export type CandidateType = (typeof CANDIDATE_TYPES)[number];

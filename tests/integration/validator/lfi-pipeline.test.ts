@@ -150,7 +150,12 @@ describe.skipIf(!hasDatabaseUrl())('validator :: LFI pipeline (A-19-IT)', () => 
       tenantPolicy: { tenantId },
       platformPolicy: DEFAULT_PLATFORM_POLICY,
       rawRules: [
-        { id: 'r1', ruleKind: 'domain', effect: 'allow', payload: { pattern: 'lfi.lab.local', matchSubdomains: false } },
+        {
+          id: 'r1',
+          ruleKind: 'domain',
+          effect: 'allow',
+          payload: { pattern: 'lfi.lab.local', matchSubdomains: false },
+        },
         { id: 'r2', ruleKind: 'protocol', effect: 'allow', payload: { protocol: 'http' } },
         { id: 'r3', ruleKind: 'port', effect: 'allow', payload: { port: 80 } },
         { id: 'r4', ruleKind: 'http_method', effect: 'allow', payload: { method: 'GET' } },
@@ -412,7 +417,12 @@ describe.skipIf(!hasDatabaseUrl())('validator :: LFI pipeline (A-19-IT)', () => 
       tenantPolicy: { tenantId },
       platformPolicy: DEFAULT_PLATFORM_POLICY,
       rawRules: [
-        { id: 'r1', ruleKind: 'domain', effect: 'allow', payload: { pattern: 'lfi.unmatch.local', matchSubdomains: false } },
+        {
+          id: 'r1',
+          ruleKind: 'domain',
+          effect: 'allow',
+          payload: { pattern: 'lfi.unmatch.local', matchSubdomains: false },
+        },
         { id: 'r2', ruleKind: 'protocol', effect: 'allow', payload: { protocol: 'http' } },
         { id: 'r3', ruleKind: 'port', effect: 'allow', payload: { port: 80 } },
         { id: 'r4', ruleKind: 'http_method', effect: 'allow', payload: { method: 'GET' } },
@@ -428,7 +438,9 @@ describe.skipIf(!hasDatabaseUrl())('validator :: LFI pipeline (A-19-IT)', () => 
     });
 
     // Returns a generic response — no sentinel pattern.
-    const httpClient = new LfiMockHttpClient('HTTP/1.1 200 OK\nContent-Type: text/html\n\n<html><body>Hello</body></html>');
+    const httpClient = new LfiMockHttpClient(
+      'HTTP/1.1 200 OK\nContent-Type: text/html\n\n<html><body>Hello</body></html>',
+    );
     const { storage } = buildLocalStorage();
 
     const deps: ValidatorWorkerDeps = {
