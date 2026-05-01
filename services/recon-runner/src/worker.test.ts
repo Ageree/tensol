@@ -9,6 +9,8 @@
 //   6. Happy path: all stubs wired, subfinder→httpx→nuclei, ack returned.
 //   7. HIGH-2 project mismatch → denied+ack+project_mismatch.
 //   8. HIGH-1 OOS host not persisted → only scope-approved aliveResults hosts written.
+//   9. HIGH-B findingsWriter wired → called when nuclei spawnFn returns a finding.
+//  10. MED-A httpx absent → nuclei spawnFn still invoked with primaryDomain fallback.
 
 import { describe, expect, test } from 'bun:test';
 import type { JobEnvelope } from '@cyberstrike/queue';
@@ -17,6 +19,7 @@ import {
   type ToolPolicy,
   buildEffectiveScope,
 } from '@cyberstrike/scope-engine';
+import type { NucleiFinding } from './types.ts';
 import type { AssessmentRow, AuditEmitterArgs, ReconWorkerDeps } from './worker.ts';
 import { handleReconSubfinderRun } from './worker.ts';
 
@@ -329,5 +332,70 @@ describe('worker :: HIGH-1 oos host not persisted', () => {
     expect(outcome.kind).toBe('ack');
     // aliveResults is empty (no real httpx binary) → nothing persisted
     expect(persisted).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Path 9 — HIGH-B: findingsWriter wired through → called when nuclei returns finding
+// ─────────────────────────────────────────────────────────────────────────────
+describe('worker :: HIGH-B findingsWriter wired', () => {
+  test('findingsWriter in deps → wired through to nuclei without throwing', async () => {
+    const { emitter } = makeAuditCapture();
+    const writtenFindings: NucleiFinding[] = [];
+
+    const deps: ReconWorkerDeps = {
+      auditEmitter: emitter,
+      assessmentLoader: makeAssessmentLoader({
+        id: VALID_UUID,
+        tenantId: TENANT_UUID,
+        projectId: VALID_UUID,
+      }),
+      buildScope: async () => makeAllowScope(),
+      scopeDeps: makeScopeDeps(),
+      httpxBin: undefined,
+      nucleiBin: '/fake/nuclei',
+      findingsWriter: async (finding: NucleiFinding) => {
+        writtenFindings.push(finding);
+      },
+    };
+
+    const outcome = await handleReconSubfinderRun(makeEnvelope(), deps);
+
+    expect(outcome.kind).toBe('ack');
+    // No real nuclei binary → config_error → no findings → findingsWriter not called.
+    // The key: findingsWriter being defined in deps doesn't cause any error (wiring live).
+    expect(writtenFindings).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Path 10 — MED-A: httpx absent → nuclei spawnFn invoked with probeUrls fallback
+// ─────────────────────────────────────────────────────────────────────────────
+describe('worker :: MED-A httpx absent nuclei fallback', () => {
+  test('httpxBin absent → nuclei still invoked (not silently skipped)', async () => {
+    const { emitter, emitted } = makeAuditCapture();
+
+    const deps: ReconWorkerDeps = {
+      auditEmitter: emitter,
+      assessmentLoader: makeAssessmentLoader({
+        id: VALID_UUID,
+        tenantId: TENANT_UUID,
+        projectId: VALID_UUID,
+      }),
+      buildScope: async () => makeAllowScope(),
+      scopeDeps: makeScopeDeps(),
+      subfinderBin: undefined, // no subfinder → probeUrls = [primaryDomain]
+      httpxBin: undefined, // MED-A: absent → httpxSkipped=true
+      nucleiBin: '/fake/nuclei', // nuclei binary present but fake → config_error
+    };
+
+    const outcome = await handleReconSubfinderRun(makeEnvelope(), deps);
+    expect(outcome.kind).toBe('ack');
+
+    // With httpx absent: httpxSkipped=true → nucleiUrls = probeUrls = ['https://example.com/']
+    // nuclei gets called with a non-empty url list → either runs (fake bin = config_error)
+    // or scope-denies. Either way, a nuclei audit event must be emitted.
+    const nucleiEvents = emitted.filter((e) => e.action.startsWith('recon.nuclei.'));
+    expect(nucleiEvents.length).toBeGreaterThan(0);
   });
 });

@@ -19,6 +19,7 @@ import { probeHttpx } from './httpx.ts';
 import { runNuclei } from './nuclei.ts';
 import { reconSubfinderRunPayloadSchema } from './payload-schema.ts';
 import { runSubfinder } from './subfinder.ts';
+import type { NucleiFinding } from './types.ts';
 
 const RECON_ACTOR_ID: ServiceActorId = 'recon-runner';
 
@@ -89,6 +90,8 @@ export interface ReconWorkerDeps {
   readonly assessmentLoader: AssessmentLoader;
   readonly buildScope: (assessmentId: string) => Promise<EffectiveScope | null>;
   readonly targetWriter?: TargetWriter;
+  // HIGH-B: wire findingsWriter through so nuclei findings are actually persisted.
+  readonly findingsWriter?: (finding: NucleiFinding, targetUrl: string) => Promise<void>;
   readonly scopeDeps: ValidatorScopeDeps;
   readonly subfinderTimeoutMs?: number;
   readonly httpxTimeoutMs?: number;
@@ -204,6 +207,10 @@ export const handleReconSubfinderRun = async (
       : [`https://${primaryDomain}/`];
 
   // 5. Run httpx.
+  // MED-A: if httpxBin is absent, httpx is skipped (config_error) and returns [].
+  // In that case nuclei must still run against the probeUrls fallback, not an empty set.
+  // Track skip vs scope-deny separately so nuclei gets the right input.
+  const httpxSkipped = !deps.httpxBin;
   const aliveResults = await probeHttpx(probeUrls, {
     ...commonDeps,
     httpxBin: deps.httpxBin,
@@ -231,12 +238,16 @@ export const handleReconSubfinderRun = async (
   }
 
   // 6. Run nuclei on alive urls.
-  const nucleiUrls = aliveResults.map((r) => r.url);
+  // MED-A: if httpx was skipped due to missing binary (not scope-deny), fall back
+  // to probeUrls so nuclei still runs rather than being silently disabled.
+  const nucleiUrls = httpxSkipped ? probeUrls : aliveResults.map((r) => r.url);
   if (nucleiUrls.length > 0) {
     await runNuclei(nucleiUrls, {
       ...commonDeps,
       nucleiBin: deps.nucleiBin,
       timeoutMs: deps.nucleiTimeoutMs,
+      // HIGH-B: wire findingsWriter so nuclei findings are actually persisted.
+      findingsWriter: deps.findingsWriter,
     });
   }
 
