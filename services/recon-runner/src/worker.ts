@@ -19,6 +19,7 @@ import { probeHttpx } from './httpx.ts';
 import { runNuclei } from './nuclei.ts';
 import { reconSubfinderRunPayloadSchema } from './payload-schema.ts';
 import { runSubfinder } from './subfinder.ts';
+import type { SpawnFn } from './subfinder.ts';
 import type { NucleiFinding } from './types.ts';
 
 const RECON_ACTOR_ID: ServiceActorId = 'recon-runner';
@@ -92,6 +93,8 @@ export interface ReconWorkerDeps {
   readonly targetWriter?: TargetWriter;
   // HIGH-B: wire findingsWriter through so nuclei findings are actually persisted.
   readonly findingsWriter?: (finding: NucleiFinding, targetUrl: string) => Promise<void>;
+  // Inject a fake spawn function for nuclei in tests (HIGH-2 regression proof).
+  readonly nucleiSpawnFn?: SpawnFn;
   readonly scopeDeps: ValidatorScopeDeps;
   readonly subfinderTimeoutMs?: number;
   readonly httpxTimeoutMs?: number;
@@ -248,6 +251,8 @@ export const handleReconSubfinderRun = async (
       timeoutMs: deps.nucleiTimeoutMs,
       // HIGH-B: wire findingsWriter so nuclei findings are actually persisted.
       findingsWriter: deps.findingsWriter,
+      // HIGH-2: injectable spawn for test regression proof.
+      spawnFn: deps.nucleiSpawnFn,
     });
   }
 

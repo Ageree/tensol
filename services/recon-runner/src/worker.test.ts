@@ -336,12 +336,25 @@ describe('worker :: HIGH-1 oos host not persisted', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Path 9 — HIGH-B: findingsWriter wired through → called when nuclei returns finding
+// Path 9 — HIGH-B: findingsWriter wired through → called when nuclei produces output
+// Regression proof: removing `findingsWriter: deps.findingsWriter` from worker.ts
+// must cause this test to FAIL (writtenFindings stays empty).
 // ─────────────────────────────────────────────────────────────────────────────
 describe('worker :: HIGH-B findingsWriter wired', () => {
-  test('findingsWriter in deps → wired through to nuclei without throwing', async () => {
+  test('findingsWriter in deps → called exactly once when nucleiSpawnFn returns a finding', async () => {
     const { emitter } = makeAuditCapture();
     const writtenFindings: NucleiFinding[] = [];
+
+    // Fake nuclei output: one JSON-lines finding.
+    const fakeFinding = JSON.stringify({
+      'template-id': 'cve-2021-test',
+      matched: 'https://example.com/vuln',
+      info: { name: 'Test CVE', severity: 'high' },
+    });
+    const fakeSpawnFn = async (_cmd: string[], _opts: { timeout: number }) => ({
+      stdout: `${fakeFinding}\n`,
+      exitCode: 0,
+    });
 
     const deps: ReconWorkerDeps = {
       auditEmitter: emitter,
@@ -352,8 +365,9 @@ describe('worker :: HIGH-B findingsWriter wired', () => {
       }),
       buildScope: async () => makeAllowScope(),
       scopeDeps: makeScopeDeps(),
-      httpxBin: undefined,
-      nucleiBin: '/fake/nuclei',
+      httpxBin: undefined, // httpxSkipped=true → nucleiUrls = probeUrls (non-empty)
+      nucleiBin: '/fake/nuclei', // required to pass the !nucleiBin guard
+      nucleiSpawnFn: fakeSpawnFn, // injects fake output so findingsWriter gets called
       findingsWriter: async (finding: NucleiFinding) => {
         writtenFindings.push(finding);
       },
@@ -362,9 +376,10 @@ describe('worker :: HIGH-B findingsWriter wired', () => {
     const outcome = await handleReconSubfinderRun(makeEnvelope(), deps);
 
     expect(outcome.kind).toBe('ack');
-    // No real nuclei binary → config_error → no findings → findingsWriter not called.
-    // The key: findingsWriter being defined in deps doesn't cause any error (wiring live).
-    expect(writtenFindings).toHaveLength(0);
+    // fakeSpawnFn returns one finding → findingsWriter must have been called exactly once.
+    // If `findingsWriter: deps.findingsWriter` is removed from worker.ts, this fails.
+    expect(writtenFindings).toHaveLength(1);
+    expect(writtenFindings[0]?.templateId).toBe('cve-2021-test');
   });
 });
 

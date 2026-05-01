@@ -10,6 +10,10 @@
 //      reason:finding_write_failed + continue loop. Never short-circuit.
 //   7. template_match audit per confirmed finding.
 
+import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmdirSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AuditAction } from '@cyberstrike/contracts';
 import { type EffectiveScope, decide } from '@cyberstrike/scope-engine';
 import type { ValidatorScopeDeps } from '@cyberstrike/validators';
@@ -121,8 +125,9 @@ export const runNuclei = async (
 
   let stdout: string;
   let exitCode: number;
+  const tmpDir = mkdtempSync(join(tmpdir(), 'cs-nuclei-'));
+  const tmpFile = join(tmpDir, `${randomUUID()}.txt`);
   try {
-    const tmpFile = `/tmp/cs-nuclei-${Date.now()}.txt`;
     await Bun.write(tmpFile, stdinInput);
     ({ stdout, exitCode } = await spawn(
       [
@@ -136,16 +141,22 @@ export const runNuclei = async (
       ],
       { timeout: timeoutMs },
     ));
-    try {
-      await (await import('node:fs/promises')).unlink(tmpFile);
-    } catch {
-      /* ok */
-    }
   } catch (err) {
     await emitAudit(deps.auditEmitter, deps, 'recon.nuclei.error', 'failure', {
       error: err instanceof Error ? err.message : String(err),
     });
     return [];
+  } finally {
+    try {
+      unlinkSync(tmpFile);
+    } catch {
+      /* ok */
+    }
+    try {
+      rmdirSync(tmpDir);
+    } catch {
+      /* ok */
+    }
   }
 
   if (exitCode !== 0) {

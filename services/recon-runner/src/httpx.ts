@@ -10,6 +10,10 @@
 //   Null scope → recon.httpx.denied per url reason:no_scope. Zero subprocess calls.
 //   Missing binary → recon.httpx.error reason:config_error. Zero subprocess calls.
 
+import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmdirSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AuditAction } from '@cyberstrike/contracts';
 import { type EffectiveScope, decide } from '@cyberstrike/scope-engine';
 import type { ValidatorScopeDeps } from '@cyberstrike/validators';
@@ -118,29 +122,31 @@ export const probeHttpx = async (
   const spawn = deps.spawnFn ?? defaultSpawnFn;
   const stdinInput = approvedUrls.join('\n');
 
-  // Pass urls via stdin: echo urls | httpx -json -silent
   let stdout: string;
   let exitCode: number;
+  const tmpDir = mkdtempSync(join(tmpdir(), 'cs-httpx-'));
+  const tmpFile = join(tmpDir, `${randomUUID()}.txt`);
   try {
-    // For stdin-pipe with default Bun.spawn we write via a temp approach:
-    // Use the spawnFn abstraction which handles stdin for us in tests.
-    // In prod, we pass urls via a temp file approach using -list flag.
-    const tmpFile = `/tmp/cs-httpx-${Date.now()}.txt`;
     await Bun.write(tmpFile, stdinInput);
     ({ stdout, exitCode } = await spawn([deps.httpxBin, '-l', tmpFile, '-json', '-silent'], {
       timeout: timeoutMs,
     }));
-    // Clean up temp file (best-effort)
-    try {
-      (await Bun.file(tmpFile).exists()) && (await import('node:fs/promises')).unlink(tmpFile);
-    } catch {
-      /* ok */
-    }
   } catch (err) {
     await emitAudit(deps.auditEmitter, deps, 'recon.httpx.error', 'failure', {
       error: err instanceof Error ? err.message : String(err),
     });
     return [];
+  } finally {
+    try {
+      unlinkSync(tmpFile);
+    } catch {
+      /* ok */
+    }
+    try {
+      rmdirSync(tmpDir);
+    } catch {
+      /* ok */
+    }
   }
 
   if (exitCode !== 0) {
