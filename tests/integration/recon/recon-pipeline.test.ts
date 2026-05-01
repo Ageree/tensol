@@ -3,8 +3,8 @@
 // 5 paths (B3 contract):
 //   1. Happy path — subfinder → hosts → httpx → nuclei → targets persisted + run audits.
 //   2. Null scope → all urls denied, recon.subfinder.denied audit, ack returned.
-//   3. Tenant mismatch (B2) — assessment.tenantId !== envelope.tenantId → nack + error audit.
-//   4. Assessment not found → nack + error audit.
+//   3. Tenant mismatch (B2) — assessment.tenantId !== envelope.tenantId → recon.subfinder.denied + ack.
+//   4. Assessment not found → recon.subfinder.denied + ack.
 //   5. Per-url scope deny (B3 — untrusted subfinder yields): out-of-scope hosts denied
 //      via httpx.denied audit (NOT silent drop), only in-scope urls probe.
 
