@@ -191,7 +191,7 @@ export const handleSelfRegister = async (
       ip,
       userAgent: ua,
       traceId,
-      metadata: { reason: 'tx_failed' },
+      metadata: { reason: 'session_issue_failed' },
     });
     return c.json({ error: 'internal_error' }, 500);
   }

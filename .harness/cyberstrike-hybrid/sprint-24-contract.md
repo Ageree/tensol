@@ -24,7 +24,7 @@ Sprint S24 delivers the SaaS registration foundation:
 3. **Migration 023**: `users.email_verified` + `subscriptions` + `invoices`
 4. **`POST /auth/self-register`**: New route — creates tenant + user in single TX, issues session cookie
 5. **`/register` page**: Extend existing `apps/web` (Vite + React 19 + TanStack Router) with registration form
-6. **`/app/*` protected layout**: Auth guard using TanStack Router `beforeLoad`, no content flash
+6. **`/app/*` protected layout**: Auth guard using `useState` state-machine + `ProtectedLayout` component
 
 **Out of scope for S24:**
 - Domain verification, scan launch, billing real integration (S25-S26)
@@ -111,7 +111,7 @@ Sprint S24 delivers the SaaS registration foundation:
 3. `subscriptions` UNIQUE(tenant_id) is correct; add `trial_ends_at timestamptz NULL`
 4. `invoices.status` CHECK must include `'pending'`
 5. Tenant slug collision: use `${base}-${randomHex(4)}` not timestamp (timing leak)
-6. TanStack Router `beforeLoad` guard (not useEffect polling — avoids content flash)
+6. `useState` state-machine + `ProtectedLayout` component (not TanStack Router beforeLoad)
 7. `auth.self_register` only new AUDIT_ACTION in S24; other 5 SaaS actions deferred
 8. Self-register must NOT touch `platform_settings` (bootstrap route guard)
 
@@ -335,7 +335,7 @@ Rationale: Wiring TanStack Router from scratch (Option A) is a large-scope rewri
 | invalid body → 400 | same file | Zod validation |
 | audit emission | same file | `auth.self_register` rows in audit_events |
 | tenant isolation | same file | New tenant's data not visible to other tenants |
-| B6 rollback | `tests/integration/db/migrations.test.ts` | K=23 loop passes |
+| B6 rollback | `tests/integration/db/migrations.test.ts` | K=11 loop passes |
 
 ### E2E (Playwright)
 
@@ -358,7 +358,7 @@ Deferred to S27 (spec: E2E for full flow). S24 has IT coverage for the auth flow
 | A-24-9 | Audit event emitted for success + failure paths | IT: audit_events table count |
 | A-24-10 | `tenantId` on audit event = new tenant's id | IT: audit row field check |
 | A-24-11 | `platform_settings` untouched after self-register | IT: bootstrap_consumed_at unchanged |
-| A-24-12 | Migration 023 up/down idempotent | B6 rollback test K=23 |
+| A-24-12 | Migration 023 up/down idempotent | B6 rollback test K=11 |
 | A-24-13 | No BYTEA columns in mig 023 | Schema inspection |
 | A-24-14 | `/register` page renders + submits | Manual smoke test (no E2E in S24) |
 | A-24-15 | `/app/*` routes redirect to `/login` when unauthenticated | Manual smoke test |
@@ -376,7 +376,7 @@ Deferred to S27 (spec: E2E for full flow). S24 has IT coverage for the auth flow
 | **P36** — generator-no-verdict | No PASS/FAIL in this file | APPLIED |
 | **P37** — contract pure-fn values code-verified | Migration column types verified against schema.ts + mig 002 | APPLIED |
 | **BYTEA exempt** | No BYTEA in mig 023 — JSONB metadata only | APPLIED |
-| **B6 loop bump** | K=22→23 (22 migrations exist before mig 023) | APPLIED |
+| **B6 loop bump** | K=10→11 (10 was baseline before mig 023) | APPLIED |
 | **FULL-suite counts** | Report NEW pass/total AND FULL pass/total at handoff | COMMITTED |
 | **gitnexus_impact before edits** | Run for registerRoutes, SessionRepo, AUDIT_ACTIONS | APPLIED |
 | **mempalace_search before contract** | Searched cyberstrike + cyberstrike-hybrid wings | APPLIED |
