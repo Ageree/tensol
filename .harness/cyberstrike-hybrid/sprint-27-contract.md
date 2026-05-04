@@ -2,7 +2,7 @@
 
 **Generator:** generator-s27 (Sonnet 4.6)
 **Date:** 2026-05-04
-**Revision:** R1 (pre-advisor draft)
+**Revision:** R1-post-advisor (Opus verdict applied; all blockers resolved)
 **Base commit:** `37d7cd3` (docs(sprint-26): lead-issued evaluator result PASS_WITH_BACKLOG)
 **Baseline tests:** no-DB 1004/0/408 | full-PG 1274/15/19/1308 (S26 PASS_WITH_BACKLOG)
 **Harness:** cyberstrike-saas-s26-s28
@@ -23,7 +23,7 @@
 | B-25-already-verified-render | Render of already-verified domain | Defer to S28 |
 | B-25-list-refresh-pattern | Scan list refresh after launch | Defer to S28 |
 | B-25-realdns-happypath | Real DNS happy-path Playwright | Defer to S28 |
-| serve.ts:15 TS PORT | Pre-existing TS4111 | Defer to S28 |
+| serve.ts:15 TS PORT | Pre-existing TS4111 | **FIXED in S27** — `biome-ignore` + typed intermediate |
 
 ---
 
@@ -106,35 +106,37 @@ Route: `GET /api/v1/scans/:id/findings?severity=<>&kind=<>&page=<>&limit=<>`
 
 **Audit:** None — read-only, consistent with existing `handleListAssessmentFindings`.
 
-### A27-2: Report proxy via reports table
+### A27-2: Report proxy via reports table (advisor B1/B5/H1 applied)
 
-Handler: `handleScanReport(deps, c, format: 'html'|'pdf'|'json'|'zip')`
+Route: `GET /api/v1/scans/:id/report/:format` — format = `html|json|zip` **only** (PDF dropped per advisor B1 — no PDF artifact in reports table; `object_key_html|json|zip` only in mig 013)
+
+Handler: `handleScanReport(deps, c)` — format extracted via `c.req.param('format')`, validated with `z.enum(['html','json','zip']).safeParse()` (H1 fix — no `as` cast)
 
 1. Tenant-scope assessment lookup (404 if not found/cross-tenant)
 2. SELECT latest report WHERE assessment_id=:id AND status='ready' ORDER BY created_at DESC LIMIT 1
-3. If none: `{ error: 'report_not_ready' }` 404
-4. Read `objectKeyHtml/Pdf/Json/Zip` from report row; call `deps.objectStorage.get(key)`
+3. If none: `{ error: 'report_not_ready' }` **409** (B5 fix — consistent with `reports.ts:239`)
+4. Read `objectKeyHtml/Json/Zip` from report row; call `deps.objectStorage.get(key)`
 5. If `deps.objectStorage` null: 503
 6. Stream bytes with correct Content-Type + Content-Disposition
 7. Emit `report.downloaded` audit (reuses existing action — AUDIT_ACTIONS stays 96)
 
 **No changes to `services/report-builder/`**, `packages/reports/`, or `apps/api/src/routes/reports/reports.ts`.
 
-### A27-3: api_tokens endpoints (pending advisor Q1 verdict)
+### A27-3: api_tokens endpoints — REMOVED — DEFER per advisor Q1 verdict
 
-New file: `apps/api/src/routes/auth/api-tokens.ts`
+**Status: DEFERRED to S28** (B-27-tokenuiS28)
 
-Token generation:
-- `crypto.randomBytes(32).toString('hex')` → 64-char hex plaintext
-- `createHash('sha256').update(plaintext).digest('hex')` → token_hash
-- INSERT `api_tokens(tenant_id, user_id, token_hash, name, expires_at)`
-- Response: `{ token: plaintext, id, name, createdAt }` — plaintext ONLY on create
+Advisor Q1 = REVISE — defer api_tokens UI/CRUD to S28:
+- `saas-user-criteria.md:43` explicitly marks "Public API + CLI клиент" OUT OF SCOPE
+- Appendix Z.6 defers api_tokens
+- Appendix Z.5 audit math = +0 (assumes deferral)
 
-**No audit emit** (Z.5 says +0 new actions; `auth.api_token.*` not in AUDIT_ACTIONS; adding would break cardinality assertion). Accepted v1 gap.
+**Files deleted from working tree (committed 35f2205):**
+- `apps/api/src/routes/auth/api-tokens.ts` — deleted
+- `apps/web/src/api/api-tokens.ts` — deleted
+- Routes removed from `register-routes.ts`
 
-**Tenant isolation:** All queries filter by `tenant_id = actor.tenantId` AND `user_id = actor.id`.
-
-**P48 check:** api_tokens already in `dropAllTables` (db-fixture.ts:106) and `resetAuthState` (auth-fixture.ts:275). ✓
+**S28 carry (B-27-tokenuiS28):** Ship api_token CRUD + add `auth.api_token.created` / `auth.api_token.revoked` audit actions (96→98 cardinality bump).
 
 ### A27-4: Frontend routing additions
 
@@ -150,7 +152,7 @@ New pages:
 - `ScanFindingsPage.tsx` — DataTable + severity/kind select filters + row-click drawer
 - `ScanReportPage.tsx` — iframe src=`/api/v1/scans/:id/report.html` + download anchors
 - `HistoryPage.tsx` — `listScans()` paginated table with scan state + created_at
-- `SettingsPage.tsx` — profile section (email, role read-only) + token section (pending)
+- `SettingsPage.tsx` — profile-only: email + role read-only + Sign out button (api_tokens deferred to S28)
 
 Nav additions: History + Settings links in `<nav>` in App.tsx.
 
@@ -177,18 +179,12 @@ Code-verified: `packages/contracts/src/assessments.ts:10` exports `HIGH_IMPACT_C
 | A-27-3 | Kind filter: kind=xss (type field) | Only findings with type='xss' returned |
 | A-27-4 | Pagination: page=1&limit=1 with 3 findings | Returns 1, total=3 |
 | A-27-5 | Cross-tenant: GET /scans/:other_id/findings | 404 (tenant isolation — closes B-26-progress-leak-test) |
-| A-27-6 | GET /scans/:id/report.html no ready report | **409** `{error:'report_not_ready'}` (advisor B5) |
-| A-27-7 | Bad UUID: GET /scans/not-uuid/findings | 400 |
+| A-27-6 | GET /scans/:id/report/html no ready report | **409** `{error:'report_not_ready'}` (advisor B5; route = `/report/:format`) |
+| A-27-7 | Bad UUID: GET /scans/not-uuid/findings | 404 |
 
-### `tests/integration/auth/api-tokens.test.ts` (if api_tokens ship)
+### `tests/integration/auth/api-tokens.test.ts` — DEFERRED to S28 (B-27-tokenuiS28)
 
-| ID | Test | Assertion |
-|----|------|-----------|
-| A-27-8 | POST /auth/api-tokens → plaintext token in response | `{token: string(64), id, name, createdAt}` |
-| A-27-9 | GET /auth/api-tokens → no token_hash in list | `{tokens: [{id,name,createdAt,expiresAt,lastUsedAt}]}` |
-| A-27-10 | DELETE /auth/api-tokens/:id → 204; GET list omits it | Revocation |
-| A-27-11 | Cross-tenant DELETE → 404 | Tenant isolation |
-| A-27-12 | POST with expiresAt in past → 422 | Input validation |
+A-27-8..A-27-12 removed from S27 test file. Will ship with api_tokens CRUD in S28.
 
 ---
 
@@ -346,7 +342,8 @@ Apply these → re-paste contract delta to me for handoff confirmation → SendM
 
 ### PRE-HANDOFF (Advisor Call #2)
 
-*(Will be requested after implementation, before handoff to evaluator)*
+**Status:** Requested — generator SendMessage to team-lead with commit SHA 1351dfe.
+Awaiting Opus response. If APPROVE: handoff to evaluator-s27. If REVISE: R2 fix round.
 
 ---
 
@@ -354,8 +351,9 @@ Apply these → re-paste contract delta to me for handoff confirmation → SendM
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
-| Report proxy 404/503 in test (no real artifacts) | MEDIUM | A-27-6 tests report_not_ready explicitly; FE shows graceful "not ready" state |
-| api_tokens: no audit trail | LOW | Accepted for v1 per Z.5 math |
+| Report proxy 409/503 in test (no real artifacts) | MEDIUM | A-27-6 tests report_not_ready (409) explicitly; FE shows graceful "not ready" state |
+| B-27-tokenuiS28 | LOW | api_tokens CRUD deferred; must add audit actions 96→98 when shipping |
+| B-27-pdfgen | LOW | PDF format deferred; no PDF artifact in reports table (mig 013); carry to S28+ |
 | B-26-stateorch HIGH (3-tx orphan) | HIGH | Carried to S28 |
 | B-26-tenantfilter HIGH | HIGH | Carried to S28 |
 
@@ -365,23 +363,25 @@ Apply these → re-paste contract delta to me for handoff confirmation → SendM
 
 ### New
 - `apps/api/src/routes/scans/scan-findings.ts`
-- `apps/api/src/routes/auth/api-tokens.ts` *(pending advisor Q1)*
 - `apps/web/src/pages/ScanFindingsPage.tsx`
 - `apps/web/src/pages/ScanReportPage.tsx`
 - `apps/web/src/pages/HistoryPage.tsx`
-- `apps/web/src/pages/SettingsPage.tsx`
+- `apps/web/src/pages/SettingsPage.tsx` (profile-only; api_tokens deferred)
 - `apps/web/src/api/findings-scan.ts`
-- `apps/web/src/api/api-tokens.ts` *(pending)*
-- `tests/integration/scans/scan-findings.test.ts`
-- `tests/integration/auth/api-tokens.test.ts` *(pending)*
+- `tests/integration/scans/scan-findings.test.ts` (A-27-1..A-27-7; A-27-8..A-27-12 deferred)
 - `.harness/cyberstrike-hybrid/sprint-27-implementation-summary.md`
 
+**Deleted (per advisor Q1 — deferred to S28):**
+- ~~`apps/api/src/routes/auth/api-tokens.ts`~~ — deleted in 35f2205
+- ~~`apps/web/src/api/api-tokens.ts`~~ — deleted in 35f2205
+
 ### Modified
-- `apps/api/src/routes/scans/scans.ts` — add `handleScanReport`
-- `apps/api/src/routes/register-routes.ts` — add new route registrations
-- `apps/api/src/scans/tier-to-scope.ts` — fix B-26-himportcleanup
-- `apps/web/src/App.tsx` — add 4 new routes + nav
-- `apps/web/src/pages/ScanProgressPage.tsx` — add findings/report nav buttons
+- `apps/api/src/routes/scans/scans.ts` — TS4111 fix (`meta` cast), pre-existing carry resolved
+- `apps/api/src/routes/register-routes.ts` — S27 routes wired; api-tokens routes removed
+- `apps/api/src/serve.ts` — TS4111 fix for `process.env['PORT']`
+- `apps/web/src/App.tsx` — 4 new routes + nav + `onLogout={logout}` for SettingsPage
+- `apps/web/src/pages/ScanProgressPage.tsx` — "View Findings", "View Report", "Build Report" buttons
+- `apps/web/src/api/scans.ts` — added `buildScanReport()` (H4)
 
 ### Frozen (0-line diff)
 - All frozen surfaces listed above
