@@ -35,4 +35,5 @@ export const api = {
       method: 'PATCH',
       ...(data !== undefined ? { body: JSON.stringify(data) } : {}),
     }),
+  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };

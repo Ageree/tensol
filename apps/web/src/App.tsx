@@ -5,12 +5,16 @@ import { AssessmentPage } from './pages/AssessmentPage.tsx';
 import { AssessmentTimelinePage } from './pages/AssessmentTimelinePage.tsx';
 import { EvidenceViewerPage } from './pages/EvidenceViewerPage.tsx';
 import { FindingDetailPage } from './pages/FindingDetailPage.tsx';
+import { HistoryPage } from './pages/HistoryPage.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
 import { ProjectDetailPage } from './pages/ProjectDetailPage.tsx';
 import { ProjectsPage } from './pages/ProjectsPage.tsx';
 import { RegisterPage } from './pages/RegisterPage.tsx';
+import { ScanFindingsPage } from './pages/ScanFindingsPage.tsx';
 import { ScanProgressPage } from './pages/ScanProgressPage.tsx';
+import { ScanReportPage } from './pages/ScanReportPage.tsx';
 import { ScanWizardPage } from './pages/ScanWizardPage.tsx';
+import { SettingsPage } from './pages/SettingsPage.tsx';
 import { TargetCredentialsPage } from './pages/TargetCredentialsPage.tsx';
 
 type Route =
@@ -25,6 +29,10 @@ type Route =
   | { name: 'target-credentials'; id: string }
   | { name: 'scan-wizard'; projectId: string }
   | { name: 'scan-progress'; scanId: string }
+  | { name: 'scan-findings'; scanId: string }
+  | { name: 'scan-report'; scanId: string }
+  | { name: 'history' }
+  | { name: 'settings' }
   | { name: 'app-projects' };
 
 export const App = () => {
@@ -72,6 +80,12 @@ export const App = () => {
         <button type="button" onClick={() => nav({ name: 'projects' })}>
           Projects
         </button>
+        <button type="button" onClick={() => nav({ name: 'history' })} data-testid="nav-history">
+          History
+        </button>
+        <button type="button" onClick={() => nav({ name: 'settings' })} data-testid="nav-settings">
+          Settings
+        </button>
         <span data-testid="current-user">
           {user.actor.email} ({user.actor.role})
         </span>
@@ -116,7 +130,30 @@ export const App = () => {
         />
       )}
       {route.name === 'scan-progress' && (
-        <ScanProgressPage scanId={route.scanId} onBack={() => nav({ name: 'projects' })} />
+        <ScanProgressPage
+          scanId={route.scanId}
+          onBack={() => nav({ name: 'projects' })}
+          onFindingsClick={(id) => nav({ name: 'scan-findings', scanId: id })}
+          onReportClick={(id) => nav({ name: 'scan-report', scanId: id })}
+        />
+      )}
+      {route.name === 'scan-findings' && (
+        <ScanFindingsPage
+          scanId={route.scanId}
+          onBack={() => nav({ name: 'scan-progress', scanId: route.scanId })}
+        />
+      )}
+      {route.name === 'scan-report' && (
+        <ScanReportPage
+          scanId={route.scanId}
+          onBack={() => nav({ name: 'scan-progress', scanId: route.scanId })}
+        />
+      )}
+      {route.name === 'history' && (
+        <HistoryPage onScanClick={(id) => nav({ name: 'scan-progress', scanId: id })} />
+      )}
+      {route.name === 'settings' && (
+        <SettingsPage email={user.actor.email} role={user.actor.role} />
       )}
     </div>
   );

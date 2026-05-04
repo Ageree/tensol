@@ -1,3 +1,4 @@
+import { HIGH_IMPACT_CATEGORIES } from '@cyberstrike/contracts';
 import type { StrictScopeRule, ToolCategory } from '@cyberstrike/contracts';
 
 export type ScanTier = 'light' | 'medium' | 'aggressive';
@@ -14,11 +15,11 @@ const AGGRESSIVE_CATEGORIES: ToolCategory[] = [
   'credential_audit',
 ];
 
-// HIGH_IMPACT_CATEGORIES from decide.ts:38-43 — aggressive only; others get empty list.
-const HIGH_IMPACT_MAP: Record<ScanTier, string[]> = {
+// HIGH_IMPACT_CATEGORIES imported from @cyberstrike/contracts — B-26-himportcleanup.
+const HIGH_IMPACT_MAP: Record<ScanTier, readonly string[]> = {
   light: [],
   medium: [],
-  aggressive: ['c2', 'post_exploit', 'ad', 'credential_audit'],
+  aggressive: HIGH_IMPACT_CATEGORIES,
 };
 
 const categoryMap: Record<ScanTier, ToolCategory[]> = {
@@ -27,7 +28,7 @@ const categoryMap: Record<ScanTier, ToolCategory[]> = {
   aggressive: AGGRESSIVE_CATEGORIES,
 };
 
-export function tierToHighImpactCategories(tier: ScanTier): string[] {
+export function tierToHighImpactCategories(tier: ScanTier): readonly string[] {
   return HIGH_IMPACT_MAP[tier];
 }
 

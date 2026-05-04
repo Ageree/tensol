@@ -4,9 +4,11 @@ import { type ScanDetail, type ScanProgress, getScan, getScanProgress } from '..
 interface Props {
   scanId: string;
   onBack: () => void;
+  onFindingsClick?: (scanId: string) => void;
+  onReportClick?: (scanId: string) => void;
 }
 
-export const ScanProgressPage = ({ scanId, onBack }: Props) => {
+export const ScanProgressPage = ({ scanId, onBack, onFindingsClick, onReportClick }: Props) => {
   const [scan, setScan] = useState<ScanDetail | null>(null);
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +43,20 @@ export const ScanProgressPage = ({ scanId, onBack }: Props) => {
       <button type="button" onClick={onBack} data-testid="scan-progress-back">
         Back
       </button>
+      {onFindingsClick && (
+        <button
+          type="button"
+          onClick={() => onFindingsClick(scanId)}
+          data-testid="view-findings-btn"
+        >
+          View Findings
+        </button>
+      )}
+      {onReportClick && (
+        <button type="button" onClick={() => onReportClick(scanId)} data-testid="view-report-btn">
+          View Report
+        </button>
+      )}
       <h1>Scan Progress</h1>
 
       {error && (

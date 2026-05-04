@@ -462,6 +462,19 @@ export interface DomainVerificationsTable {
   updated_at: DbDefault<Date>;
 }
 
+// =============== S25 api_tokens (mig 025) ===============
+
+export interface ApiTokensTable {
+  id: Generated<string>;
+  tenant_id: string;
+  user_id: string;
+  name: string;
+  token_hash: string; // sha256(plaintext) — NEVER store plaintext
+  last_used_at: Date | null;
+  expires_at: Date | null;
+  created_at: DbDefault<Date>;
+}
+
 // =============== aggregate Database type ===============
 
 export interface Database {
@@ -495,6 +508,7 @@ export interface Database {
   subscriptions: SubscriptionsTable;
   invoices: InvoicesTable;
   domain_verifications: DomainVerificationsTable;
+  api_tokens: ApiTokensTable;
 }
 
 // Used by tests (B3) to assert every table key is present.
@@ -529,6 +543,7 @@ export const ALL_TABLE_NAMES: ReadonlyArray<keyof Database> = [
   'subscriptions',
   'invoices',
   'domain_verifications',
+  'api_tokens',
 ] as const;
 
 export const APPEND_ONLY_TABLES: ReadonlyArray<keyof Database> = [

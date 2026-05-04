@@ -27,6 +27,11 @@ import {
 import { handleListAssessmentJobs } from './assessments/jobs.ts';
 import { handleScopeValidate } from './assessments/scope-validate.ts';
 import { handleListAuditEvents } from './audit/events.ts';
+import {
+  handleCreateApiToken,
+  handleDeleteApiToken,
+  handleListApiTokens,
+} from './auth/api-tokens.ts';
 import { handleLoginMfa } from './auth/login-mfa.ts';
 import { handleLogin } from './auth/login.ts';
 import { handleLogout } from './auth/logout.ts';
@@ -54,6 +59,7 @@ import {
   handleProjectSummary,
 } from './projects/projects.ts';
 import { handleBuildReport, handleDownloadReport, handleGetReport } from './reports/reports.ts';
+import { handleListScanFindings, handleScanReport } from './scans/scan-findings.ts';
 import {
   handleGetScan,
   handleLaunchScan,
@@ -214,6 +220,17 @@ export const registerRoutes = (app: Hono<SessionEnv>, deps: RouteDeps): void => 
   app.get('/api/v1/scans', tenantGuard(), (c) => handleListScans(deps, c));
   app.get('/api/v1/scans/:id', tenantGuard(), (c) => handleGetScan(deps, c));
   app.get('/api/v1/scans/:id/progress', tenantGuard(), (c) => handleScanProgress(deps, c));
+
+  // S27 — findings + report proxy for scan alias.
+  app.get('/api/v1/scans/:id/findings', tenantGuard(), (c) => handleListScanFindings(deps, c));
+  app.get('/api/v1/scans/:id/report.:format', tenantGuard(), (c) => handleScanReport(deps, c));
+
+  // S27 — API tokens (generate + list + revoke for settings page).
+  app.post('/api/v1/auth/api-tokens', tenantGuard(), (c) => handleCreateApiToken(deps, c));
+  app.get('/api/v1/auth/api-tokens', tenantGuard(), (c) => handleListApiTokens(deps, c));
+  app.delete('/api/v1/auth/api-tokens/:tokenId', tenantGuard(), (c) =>
+    handleDeleteApiToken(deps, c),
+  );
 
   // S26 — billing stub. POST checkout is a state-mutating call; idem prevents
   // duplicate subscription UPSERT races on retry.

@@ -42,12 +42,12 @@ export const ScanWizardPage = ({ projectId, onScanLaunched, onBack }: Props) => 
     setLaunching(true);
     setError(null);
     try {
-      await checkout(tier);
       const result = await launchScan({
         project_id: projectId,
         tier,
         target_ids: selectedTargetIds,
       });
+      await checkout(tier);
       onScanLaunched(result.scan_id);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Launch failed';
