@@ -459,4 +459,43 @@ describe.skipIf(!hasDatabaseUrl())('integration :: scan launch (A-26-1..A-26-10)
       .executeTakeFirstOrThrow();
     expect(Number(count.count)).toBe(1);
   });
+
+  // =========================================================================
+  // A-26-12: aggressive tier writes high_impact_categories to assessment row
+  // =========================================================================
+
+  test('A-26-12 — POST /scans tier=aggressive writes high_impact_categories=[c2,post_exploit,ad,credential_audit]', async () => {
+    const targetId = await seedTarget(fx, {
+      tenantId: t1TenantId,
+      projectId: t1ProjectId,
+      kind: 'domain',
+      value: 'hic-test.com',
+      ownershipStatus: 'verified',
+    });
+
+    const res = await auth.app.request('/api/v1/scans', {
+      method: 'POST',
+      headers: {
+        cookie: t1Cookie,
+        'content-type': 'application/json',
+        'idempotency-key': `a26-12-${Date.now()}`,
+      },
+      body: JSON.stringify({ project_id: t1ProjectId, tier: 'aggressive', target_ids: [targetId] }),
+    });
+    expect(res.status).toBe(200);
+    const { scan_id } = (await res.json()) as { scan_id: string };
+
+    const row = await fx.db
+      .selectFrom('assessments')
+      .select('high_impact_categories')
+      .where('id', '=', scan_id)
+      .executeTakeFirstOrThrow();
+
+    const hic = row.high_impact_categories as string[];
+    expect(hic).toContain('c2');
+    expect(hic).toContain('post_exploit');
+    expect(hic).toContain('ad');
+    expect(hic).toContain('credential_audit');
+    expect(hic.length).toBe(4);
+  });
 });

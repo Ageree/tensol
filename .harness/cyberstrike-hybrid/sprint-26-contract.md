@@ -320,3 +320,29 @@ The loop itself (`for (let i = 0; i < 13; i++)`) is the authoritative count. If 
 - The `scan_id` returned by POST /scans is `assessment.id` (uuid). The frontend `GET /scans/:id` must use the same uuid — no mismatch risk.
 - P48 compliance: api_tokens FK→tenants+users (NOT targets). resetAuthState must DELETE api_tokens before DELETE users. Confirmed in contract §7.
 - `assessmentCreateSchema` requires `scopeRules.length >= 1` — scan launch handler does NOT use this schema. Generator builds scope rules inline from tier-to-scope.ts. No schema conflict.
+
+---
+
+### Pre-handoff lead-dispatched advisor (post-REVISE-resolution)
+
+**Reason for lead-dispatch:** Generator subagent context does not expose `Agent` tool (verified via ToolSearch). Tool-routing constraint, NOT API-key issue. Lead spawned Opus 4.7 advisor from team-lead context to red-team commit `656351f` against S26 contract.
+
+**Verdict:** REVISE → downgraded to APPROVE WITH BACKLOG after lead correctness audit.
+
+**Lead correctness audit of advisor findings (verified line-by-line):**
+
+| Advisor finding | Severity claim | Lead verification | Final |
+|---|---|---|---|
+| BLOCKER-1: idempotency middleware blocks all S26 ITs (no Idempotency-Key header) | BLOCKER | FALSE POSITIVE — tests at scan-launch.test.ts:79,117,152 etc. all set `'idempotency-key': 'a26-N-${Date.now()}'`. Live PG run: 11/11 pass. | DROPPED |
+| HIGH-1: cross-tenant SELECT loads rows before tenant check (defence-in-depth) | HIGH | VALID but breaks A-26-3 contract (test asserts 403 forbidden, query-filter would return 422 invalid_targets). Test is the contract; route honors it. | B-26-tenantfilter (backlog) |
+| HIGH-2: 3 separate transactions, partial-failure orphan state | HIGH | VALID — generator self-review Q1 acknowledged. Outer try/catch returns 500; no reconciler. | B-26-stateorch (backlog) |
+| HIGH-3: tier-to-scope.ts hardcodes high-impact set; tierToHighImpactCategories is dead code | HIGH | PARTIAL FALSE POSITIVE — `tierToHighImpactCategories` IS called at scans.ts:84 and result IS persisted at scans.ts:99 to `assessments.high_impact_categories`. Hardcode duplication is real but cosmetic. | B-26-himportcleanup (backlog) |
+| MEDIUM-1: requireActor throws Error instead of 401 | MEDIUM | VALID — tenantGuard always runs first so unreachable in practice. | backlog |
+| MEDIUM-2: submit step missing optimistic-lock predicate | MEDIUM | VALID — small race window, idempotency middleware mostly mitigates. | backlog |
+| MEDIUM-3: FE adapter divergence (scans returns {items,total}, projects returns {data,nextCursor}) | MEDIUM | API design inconsistency, surfaced at S25 P49 too. | backlog (envelope unification sprint) |
+| MEDIUM-4: progress endpoint tenant test only checks 404, not findings_count leak | MEDIUM | VALID test gap. | backlog (S27) |
+| MEDIUM-5: billing.subscription.cancelled registered but never emitted | MEDIUM | Intentional forward-compat. | accepted |
+| LOW-1/3: minor polish | LOW | accepted | accepted |
+| LOW-2: ScanWizard checkout-before-launch order | LOW | VALID — should reorder. | backlog |
+
+**Net advisor delta:** 0 BLOCKERS, 8 backlog items. S26 contract substance + implementation hold. Phase B may proceed.

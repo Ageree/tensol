@@ -112,7 +112,7 @@ export const dropAllTables = async (f: DbFixture): Promise<void> => {
   for (const t of tables) {
     await sql.raw(`DROP TABLE IF EXISTS "${t}" CASCADE`).execute(f.db);
   }
-  await sql.raw('DROP FUNCTION IF EXISTS enforce_append_only()').execute(f.db);
+  await sql.raw('DROP FUNCTION IF EXISTS enforce_append_only() CASCADE').execute(f.db);
 };
 
 export const seedTenant = async (

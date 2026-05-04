@@ -20,5 +20,4 @@ export const listTargets = async (
 export const createTarget = async (
   projectId: string,
   data: { kind: string; value: string },
-): Promise<Target> =>
-  api.post<Target>(`/api/v1/projects/${projectId}/targets`, data);
+): Promise<Target> => api.post<Target>(`/api/v1/projects/${projectId}/targets`, data);

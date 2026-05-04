@@ -163,27 +163,25 @@ export const ProjectDetailPage = ({ projectId, onAssessmentClick, onCredentialsC
       <h2>Targets</h2>
       <AddTargetForm projectId={projectId} />
       {targets.length > 0 && (
-        <>
-          <ul data-testid="target-list">
-            {targets.map((t) => (
-              <li key={t.id} data-testid={`target-item-${t.id}`}>
-                <span>
-                  {t.kind}: {t.value}
-                </span>{' '}
-                {t.kind === 'domain' && <DomainWizard targetId={t.id} />}
-                {onCredentialsClick && (
-                  <button
-                    type="button"
-                    data-testid={`credentials-btn-${t.id}`}
-                    onClick={() => onCredentialsClick(t.id)}
-                  >
-                    Credentials
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </>
+        <ul data-testid="target-list">
+          {targets.map((t) => (
+            <li key={t.id} data-testid={`target-item-${t.id}`}>
+              <span>
+                {t.kind}: {t.value}
+              </span>{' '}
+              {t.kind === 'domain' && <DomainWizard targetId={t.id} />}
+              {onCredentialsClick && (
+                <button
+                  type="button"
+                  data-testid={`credentials-btn-${t.id}`}
+                  onClick={() => onCredentialsClick(t.id)}
+                >
+                  Credentials
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
