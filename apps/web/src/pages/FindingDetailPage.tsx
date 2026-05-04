@@ -25,7 +25,7 @@ interface Props {
 export const FindingDetailPage = ({ findingId, onEvidenceClick }: Props) => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const isAuditor = user?.role === 'auditor';
+  const isAuditor = user?.actor.role === 'auditor';
 
   const { data: findingData, isLoading } = useQuery({
     queryKey: ['finding', findingId],

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from './auth/context.tsx';
+import { ProtectedLayout } from './layouts/ProtectedLayout.tsx';
 import { AssessmentPage } from './pages/AssessmentPage.tsx';
 import { AssessmentTimelinePage } from './pages/AssessmentTimelinePage.tsx';
 import { EvidenceViewerPage } from './pages/EvidenceViewerPage.tsx';
@@ -7,17 +8,20 @@ import { FindingDetailPage } from './pages/FindingDetailPage.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
 import { ProjectDetailPage } from './pages/ProjectDetailPage.tsx';
 import { ProjectsPage } from './pages/ProjectsPage.tsx';
+import { RegisterPage } from './pages/RegisterPage.tsx';
 import { TargetCredentialsPage } from './pages/TargetCredentialsPage.tsx';
 
 type Route =
   | { name: 'login' }
+  | { name: 'register' }
   | { name: 'projects' }
   | { name: 'project'; id: string }
   | { name: 'assessment'; id: string }
   | { name: 'assessment-timeline'; id: string }
   | { name: 'finding'; id: string }
   | { name: 'evidence'; id: string }
-  | { name: 'target-credentials'; id: string };
+  | { name: 'target-credentials'; id: string }
+  | { name: 'app-projects' };
 
 export const App = () => {
   const { user, loading, logout } = useAuth();
@@ -25,11 +29,38 @@ export const App = () => {
 
   if (loading) return <p data-testid="app-loading">Loading...</p>;
 
+  if (route.name === 'register') {
+    return (
+      <RegisterPage
+        onSuccess={() => setRoute({ name: 'app-projects' })}
+        onLoginClick={() => setRoute({ name: 'login' })}
+      />
+    );
+  }
+
   if (!user) {
-    return <LoginPage onSuccess={() => setRoute({ name: 'projects' })} />;
+    return (
+      <div>
+        <LoginPage onSuccess={() => setRoute({ name: 'projects' })} />
+        <p style={{ textAlign: 'center', marginTop: '1rem' }}>
+          {"Don't have an account? "}
+          <button type="button" onClick={() => setRoute({ name: 'register' })}>
+            Sign up
+          </button>
+        </p>
+      </div>
+    );
   }
 
   const nav = (r: Route) => setRoute(r);
+
+  if (route.name === 'app-projects') {
+    return (
+      <ProtectedLayout onLogout={logout} email={user.actor.email} role={user.actor.role}>
+        <ProjectsPage onProjectClick={(id) => nav({ name: 'project', id })} />
+      </ProtectedLayout>
+    );
+  }
 
   return (
     <div data-testid="app">
@@ -38,7 +69,7 @@ export const App = () => {
           Projects
         </button>
         <span data-testid="current-user">
-          {user.email} ({user.role})
+          {user.actor.email} ({user.actor.role})
         </span>
         <button type="button" onClick={logout} data-testid="logout-btn">
           Logout

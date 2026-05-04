@@ -148,6 +148,8 @@ export const AUDIT_ACTIONS = [
   'recon.run.completed',
   'validator.run.started',
   'validator.run.completed',
+  // S24 SaaS self-registration.
+  'auth.self_register',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

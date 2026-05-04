@@ -269,6 +269,9 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       DELETE FROM mfa_secrets;
       DELETE FROM projects;
       DELETE FROM users;
+      -- S24 mig 023: subscriptions + invoices have FK → tenants; delete before tenants.
+      DELETE FROM invoices;
+      DELETE FROM subscriptions;
       DELETE FROM tenants;
       UPDATE platform_settings SET bootstrap_consumed_at = NULL WHERE lock = 'x';
       ALTER TABLE audit_events ENABLE TRIGGER USER;

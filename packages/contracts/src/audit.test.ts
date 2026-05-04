@@ -36,7 +36,7 @@ const baseEnvelope = {
 };
 
 describe('contracts :: AuditAction (A3)', () => {
-  test('AUDIT_ACTIONS is the exhaustive set (S23: 83 legacy + 4 consolidated = 87)', () => {
+  test('AUDIT_ACTIONS is the exhaustive set (S24: 87 legacy + 1 saas = 88)', () => {
     const expected = [
       'auth.register',
       'auth.login.password',
@@ -147,10 +147,12 @@ describe('contracts :: AuditAction (A3)', () => {
       'recon.run.completed',
       'validator.run.started',
       'validator.run.completed',
+      // S24 SaaS self-registration.
+      'auth.self_register',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // S23: 83 + 4 consolidated = 87.
-    expect(AUDIT_ACTIONS.length).toBe(87);
+    // S24: 87 legacy + 1 (auth.self_register) = 88.
+    expect(AUDIT_ACTIONS.length).toBe(88);
   });
 
   test('zod rejects unknown action', () => {

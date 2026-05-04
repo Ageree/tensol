@@ -36,6 +36,7 @@ import { handleMfaVerify } from './auth/mfa-verify.ts';
 import { handlePasswordResetConfirm } from './auth/password-reset-confirm.ts';
 import { handlePasswordResetRequest } from './auth/password-reset-request.ts';
 import { handleRegister } from './auth/register.ts';
+import { handleSelfRegister } from './auth/self-register.ts';
 import { handleGetEvidence, handleListFindingEvidence } from './evidence/evidence.ts';
 import {
   handleGetFinding,
@@ -67,6 +68,9 @@ import {
 export const registerRoutes = (app: Hono<SessionEnv>, deps: RouteDeps): void => {
   // Bootstrap (no auth — gated by token + consume-once).
   app.post('/auth/register', (c) => handleRegister(deps, c));
+
+  // SaaS self-registration (no auth — rate-limited per IP).
+  app.post('/auth/self-register', (c) => handleSelfRegister(deps, c));
 
   // Step-1 + step-2 login (no auth — issues the cookie).
   app.post('/auth/login', (c) => handleLogin(deps, c));

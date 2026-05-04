@@ -40,6 +40,8 @@ export interface UsersTable {
   status: string; // CHECK ('active'|'disabled'|'pending')
   role: string; // platform_admin|tenant_admin|security_lead|operator|developer|auditor|viewer
   mfa_enrolled: DbDefault<boolean>;
+  // S24 mig 023: mock email-verified flag (always true until SMTP phase).
+  email_verified: DbDefault<boolean>;
   created_at: DbDefault<Date>;
   updated_at: DbDefault<Date>;
 }
@@ -424,6 +426,27 @@ interface TargetCredentialUsageTable {
   use_count: number;
 }
 
+// =============== S24 SaaS billing stubs (mig 023) ===============
+
+export interface SubscriptionsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  tier: string; // CHECK ('light'|'medium'|'aggressive')
+  status: string; // CHECK ('trial'|'active'|'cancelled')
+  trial_ends_at: Date | null;
+  created_at: DbDefault<Date>;
+  updated_at: DbDefault<Date>;
+}
+
+export interface InvoicesTable {
+  id: Generated<string>;
+  tenant_id: string;
+  amount_kopecks: number; // bigint — overflow-safe for RUB amounts
+  status: string; // CHECK ('mock'|'pending'|'paid'|'failed')
+  metadata: Json;
+  created_at: DbDefault<Date>;
+}
+
 // =============== aggregate Database type ===============
 
 export interface Database {
@@ -454,6 +477,8 @@ export interface Database {
   target_credentials: TargetCredentialsTable;
   target_credential_usage: TargetCredentialUsageTable;
   oob_callbacks: OobCallbacksTable;
+  subscriptions: SubscriptionsTable;
+  invoices: InvoicesTable;
 }
 
 // Used by tests (B3) to assert every table key is present.
@@ -485,6 +510,8 @@ export const ALL_TABLE_NAMES: ReadonlyArray<keyof Database> = [
   'target_credentials',
   'target_credential_usage',
   'oob_callbacks',
+  'subscriptions',
+  'invoices',
 ] as const;
 
 export const APPEND_ONLY_TABLES: ReadonlyArray<keyof Database> = [
