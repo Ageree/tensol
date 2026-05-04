@@ -3,7 +3,11 @@ import { sql } from 'kysely';
 import { z } from 'zod';
 import { assertOwnership } from '../../middleware/assert-ownership.ts';
 import type { SessionEnv } from '../../middleware/session.ts';
-import { type ScanTier, tierToScopeRules } from '../../scans/tier-to-scope.ts';
+import {
+  type ScanTier,
+  tierToHighImpactCategories,
+  tierToScopeRules,
+} from '../../scans/tier-to-scope.ts';
 import { type RouteDeps, audit, newTraceId, sourceIp, userAgent } from '../shared.ts';
 
 const requireActor = (c: Context<SessionEnv>) => {
@@ -74,9 +78,10 @@ export const handleLaunchScan = async (
     }
   }
 
-  // Build scope rules from tier — use target values as domain patterns.
+  // Build scope rules and high-impact gate list from tier.
   const domains = targetRows.map((t) => t.value).filter(Boolean) as string[];
   const scopeRules = tierToScopeRules(tier as ScanTier, domains);
+  const highImpactCategories = tierToHighImpactCategories(tier as ScanTier);
 
   // Step 1: Insert assessment in draft state.
   const traceId = newTraceId();
@@ -91,7 +96,7 @@ export const handleLaunchScan = async (
         testing_window_start: null,
         testing_window_end: null,
         // biome-ignore lint/suspicious/noExplicitAny: Json boundary; pg expects text for jsonb.
-        high_impact_categories: JSON.stringify([]) as any,
+        high_impact_categories: JSON.stringify(highImpactCategories) as any,
         // biome-ignore lint/suspicious/noExplicitAny: Json boundary; pg expects text for jsonb.
         metadata: JSON.stringify({ tier }) as any,
       })

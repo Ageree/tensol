@@ -98,18 +98,20 @@ Source: `packages/scope-engine/src/types.ts` TOOL_CATEGORIES = `['recon', 'web',
 ### Tier rule sets in `tier-to-scope.ts`
 
 ```typescript
-// light — recon only
+// light — recon + web
 allowedToolCategories: ['recon', 'web']
 highImpactCategories: []  // gate disabled
 
-// medium — web + recon; ownership required for high-impact
-allowedToolCategories: ['recon', 'web']
-highImpactCategories: []  // no high-impact categories for medium tier (web/recon not in HIGH_IMPACT_CATEGORIES set)
+// medium — recon + web + cloud (cloud added in REVISE round; intentional differentiation from light)
+allowedToolCategories: ['recon', 'web', 'cloud']
+highImpactCategories: []  // no high-impact categories for medium (recon/web/cloud not in HIGH_IMPACT_CATEGORIES set)
 
 // aggressive — all categories including c2/post_exploit/ad/credential_audit
 allowedToolCategories: ['recon', 'web', 'cloud', 'ad', 'c2', 'post_exploit', 'credential_audit']
 highImpactCategories: ['c2', 'post_exploit', 'ad', 'credential_audit']  // from HIGH_IMPACT_CATEGORIES
 ```
+
+**Blocker D resolution (REVISE round):** Medium tier now includes `cloud` to differentiate it from light. Light vs medium previously produced identical scope rules (both ['recon','web']); this was a silent UX lie — medium billed as "more capable." Adding `cloud` to medium is the minimal differentiation that makes tier semantics honest without adding high-impact categories.
 
 **Scope rules built per tier** (StrictScopeRule[]):
 - One `tool_category` allow rule per allowed category with `effect: 'allow'`
@@ -260,6 +262,7 @@ Tests:
 - `A-26-8`: GET /billing/subscription — returns current tier+status
 - `A-26-9`: POST /billing/checkout then GET /billing/subscription — round-trip consistency
 - `A-26-10`: Tenant isolation — scan from tenantA not visible to tenantB
+- `A-26-11`: POST /scans idempotent — same Idempotency-Key returns same scan_id, exactly 1 assessment row (added in REVISE round per Blocker A fix)
 
 ---
 
@@ -281,9 +284,23 @@ Tests:
 
 ## Advisor Calls
 
-**Note:** ANTHROPIC_API_KEY not present in shell env; Opus 4.7 API call returned auth error. Generator performed self-conducted red-team on the 5 contract questions.
+**REVISE round (2026-05-04):** Evaluator REVISE phase returned 4 blockers. Agent tool not available in this agent context (tool-routing error, confirmed via ToolSearch — tool not in deferred tools list). Team-lead was notified; evaluator waived auto-fail for this round. Self-review below covers all 4 blockers raised by evaluator.
 
-### Red-team analysis (generator self-review)
+### REVISE Round Blocker Resolution
+
+**Blocker A — Idempotency-Key missing from POST /scans + POST /billing/checkout:**
+Fixed. Both routes now carry `idem` middleware (requireKey: true, default). All 10 existing tests updated to include `idempotency-key` headers. A-26-11 added to verify idempotent behavior (same key → same scan_id, 1 assessment row).
+
+**Blocker B — high_impact_categories hardcoded [] for all tiers:**
+Fixed. `tier-to-scope.ts` exports `tierToHighImpactCategories(tier)`. Aggressive returns `['c2','post_exploit','ad','credential_audit']`; light/medium return `[]`. `handleLaunchScan` now derives value from tier and writes it to `assessments.high_impact_categories` JSONB column.
+
+**Blocker C — api_tokens missing from dropAllTables + resetAuthState:**
+Evaluator's claim is stale — both fixtures were already edited in the original S26 commit (656351f). Verified by reading current state: `dropAllTables` has `'api_tokens'` before `'users'` at line 106; `resetAuthState` has `DELETE FROM api_tokens` before `DELETE FROM users` at line 275.
+
+**Blocker D — light/medium identical scope rules:**
+Fixed by adding `cloud` to medium tier (see §3 above). Alternative (contract-documents-intentional-collapse) rejected — the UX promises medium > light; silent equivalence is a product defect.
+
+### Red-team analysis (original, pre-REVISE)
 
 **Q1 — Inline scan launch calling state machine handlers:**
 Risk identified: `handleApproveAssessment` calls `verifyTargetDomains` internally which does DB reads. Calling inline within a single HTTP request means all 3 transitions (submit→approve→start) run in one Express handler. The `handleStartAssessment` enqueues the BullMQ job rather than running it synchronously, so no long-running work blocks the response. However, if the queue enqueue fails, we'll have an assessment stuck in `approved` state with a 500 returned to the client. **Decision:** Accept this risk for v1 SaaS — the contract documents it. The scan launch handler wraps all transitions in a try/catch; on error it returns 500. No silent state corruption.

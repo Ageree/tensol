@@ -208,13 +208,15 @@ export const registerRoutes = (app: Hono<SessionEnv>, deps: RouteDeps): void => 
   app.post('/api/v1/domains/verify/start', tenantGuard(), (c) => handleVerifyStart(deps, c));
   app.get('/api/v1/domains/verify/check', tenantGuard(), (c) => handleVerifyCheck(deps, c));
 
-  // S26 — scan launch + live progress.
-  app.post('/api/v1/scans', tenantGuard(), (c) => handleLaunchScan(deps, c));
+  // S26 — scan launch + live progress. POST /scans creates + runs state machine
+  // in one request; idem prevents duplicate assessment rows on retry (R6/§5.7).
+  app.post('/api/v1/scans', tenantGuard(), idem, (c) => handleLaunchScan(deps, c));
   app.get('/api/v1/scans', tenantGuard(), (c) => handleListScans(deps, c));
   app.get('/api/v1/scans/:id', tenantGuard(), (c) => handleGetScan(deps, c));
   app.get('/api/v1/scans/:id/progress', tenantGuard(), (c) => handleScanProgress(deps, c));
 
-  // S26 — billing stub.
-  app.post('/api/v1/billing/checkout', tenantGuard(), (c) => handleBillingCheckout(deps, c));
+  // S26 — billing stub. POST checkout is a state-mutating call; idem prevents
+  // duplicate subscription UPSERT races on retry.
+  app.post('/api/v1/billing/checkout', tenantGuard(), idem, (c) => handleBillingCheckout(deps, c));
   app.get('/api/v1/billing/subscription', tenantGuard(), (c) => handleGetSubscription(deps, c));
 };

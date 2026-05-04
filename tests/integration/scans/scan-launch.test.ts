@@ -73,7 +73,11 @@ describe.skipIf(!hasDatabaseUrl())('integration :: scan launch (A-26-1..A-26-10)
 
     const res = await auth.app.request('/api/v1/scans', {
       method: 'POST',
-      headers: { cookie: t1Cookie, 'content-type': 'application/json' },
+      headers: {
+        cookie: t1Cookie,
+        'content-type': 'application/json',
+        'idempotency-key': `a26-1-${Date.now()}`,
+      },
       body: JSON.stringify({ project_id: t1ProjectId, tier: 'light', target_ids: [targetId] }),
     });
     expect(res.status).toBe(200);
@@ -107,7 +111,11 @@ describe.skipIf(!hasDatabaseUrl())('integration :: scan launch (A-26-1..A-26-10)
 
     const res = await auth.app.request('/api/v1/scans', {
       method: 'POST',
-      headers: { cookie: t1Cookie, 'content-type': 'application/json' },
+      headers: {
+        cookie: t1Cookie,
+        'content-type': 'application/json',
+        'idempotency-key': `a26-2-${Date.now()}`,
+      },
       body: JSON.stringify({ project_id: t1ProjectId, tier: 'light', target_ids: [targetId] }),
     });
     expect(res.status).toBe(422);
@@ -138,7 +146,11 @@ describe.skipIf(!hasDatabaseUrl())('integration :: scan launch (A-26-1..A-26-10)
 
     const res = await auth.app.request('/api/v1/scans', {
       method: 'POST',
-      headers: { cookie: t1Cookie, 'content-type': 'application/json' },
+      headers: {
+        cookie: t1Cookie,
+        'content-type': 'application/json',
+        'idempotency-key': `a26-3-${Date.now()}`,
+      },
       body: JSON.stringify({ project_id: t1ProjectId, tier: 'light', target_ids: [t2TargetId] }),
     });
     expect(res.status).toBe(403);
@@ -158,7 +170,11 @@ describe.skipIf(!hasDatabaseUrl())('integration :: scan launch (A-26-1..A-26-10)
     });
     await auth.app.request('/api/v1/scans', {
       method: 'POST',
-      headers: { cookie: t1Cookie, 'content-type': 'application/json' },
+      headers: {
+        cookie: t1Cookie,
+        'content-type': 'application/json',
+        'idempotency-key': `a26-4-${Date.now()}`,
+      },
       body: JSON.stringify({ project_id: t1ProjectId, tier: 'medium', target_ids: [targetId] }),
     });
 
@@ -194,7 +210,11 @@ describe.skipIf(!hasDatabaseUrl())('integration :: scan launch (A-26-1..A-26-10)
     });
     const launchRes = await auth.app.request('/api/v1/scans', {
       method: 'POST',
-      headers: { cookie: t1Cookie, 'content-type': 'application/json' },
+      headers: {
+        cookie: t1Cookie,
+        'content-type': 'application/json',
+        'idempotency-key': `a26-5-${Date.now()}`,
+      },
       body: JSON.stringify({ project_id: t1ProjectId, tier: 'aggressive', target_ids: [targetId] }),
     });
     const { scan_id } = (await launchRes.json()) as { scan_id: string };
@@ -224,7 +244,11 @@ describe.skipIf(!hasDatabaseUrl())('integration :: scan launch (A-26-1..A-26-10)
     });
     const launchRes = await auth.app.request('/api/v1/scans', {
       method: 'POST',
-      headers: { cookie: t1Cookie, 'content-type': 'application/json' },
+      headers: {
+        cookie: t1Cookie,
+        'content-type': 'application/json',
+        'idempotency-key': `a26-6-${Date.now()}`,
+      },
       body: JSON.stringify({ project_id: t1ProjectId, tier: 'light', target_ids: [targetId] }),
     });
     const { scan_id } = (await launchRes.json()) as { scan_id: string };
@@ -251,7 +275,11 @@ describe.skipIf(!hasDatabaseUrl())('integration :: scan launch (A-26-1..A-26-10)
   test('A-26-7 — POST /billing/checkout sets subscription tier+status=active', async () => {
     const res = await auth.app.request('/api/v1/billing/checkout', {
       method: 'POST',
-      headers: { cookie: t1Cookie, 'content-type': 'application/json' },
+      headers: {
+        cookie: t1Cookie,
+        'content-type': 'application/json',
+        'idempotency-key': `a26-7-${Date.now()}`,
+      },
       body: JSON.stringify({ tier: 'aggressive' }),
     });
     expect(res.status).toBe(200);
@@ -286,7 +314,11 @@ describe.skipIf(!hasDatabaseUrl())('integration :: scan launch (A-26-1..A-26-10)
     // After checkout.
     await auth.app.request('/api/v1/billing/checkout', {
       method: 'POST',
-      headers: { cookie: t1Cookie, 'content-type': 'application/json' },
+      headers: {
+        cookie: t1Cookie,
+        'content-type': 'application/json',
+        'idempotency-key': `a26-8-${Date.now()}`,
+      },
       body: JSON.stringify({ tier: 'medium' }),
     });
 
@@ -305,14 +337,23 @@ describe.skipIf(!hasDatabaseUrl())('integration :: scan launch (A-26-1..A-26-10)
   // =========================================================================
 
   test('A-26-9 — billing checkout round-trip: UPSERT updates existing subscription tier', async () => {
+    const ts = Date.now();
     await auth.app.request('/api/v1/billing/checkout', {
       method: 'POST',
-      headers: { cookie: t1Cookie, 'content-type': 'application/json' },
+      headers: {
+        cookie: t1Cookie,
+        'content-type': 'application/json',
+        'idempotency-key': `a26-9a-${ts}`,
+      },
       body: JSON.stringify({ tier: 'light' }),
     });
     await auth.app.request('/api/v1/billing/checkout', {
       method: 'POST',
-      headers: { cookie: t1Cookie, 'content-type': 'application/json' },
+      headers: {
+        cookie: t1Cookie,
+        'content-type': 'application/json',
+        'idempotency-key': `a26-9b-${ts}`,
+      },
       body: JSON.stringify({ tier: 'aggressive' }),
     });
 
@@ -347,7 +388,11 @@ describe.skipIf(!hasDatabaseUrl())('integration :: scan launch (A-26-1..A-26-10)
     });
     const launchRes = await auth.app.request('/api/v1/scans', {
       method: 'POST',
-      headers: { cookie: t1Cookie, 'content-type': 'application/json' },
+      headers: {
+        cookie: t1Cookie,
+        'content-type': 'application/json',
+        'idempotency-key': `a26-10-${Date.now()}`,
+      },
       body: JSON.stringify({ project_id: t1ProjectId, tier: 'light', target_ids: [targetId] }),
     });
     const { scan_id } = (await launchRes.json()) as { scan_id: string };
@@ -365,5 +410,53 @@ describe.skipIf(!hasDatabaseUrl())('integration :: scan launch (A-26-1..A-26-10)
       headers: { cookie: t2Cookie },
     });
     expect(res2.status).toBe(404);
+  });
+
+  // =========================================================================
+  // A-26-11: POST /scans is idempotent under same Idempotency-Key
+  // =========================================================================
+
+  test('A-26-11 — POST /scans with same Idempotency-Key returns same scan_id, no duplicate assessment', async () => {
+    const targetId = await seedTarget(fx, {
+      tenantId: t1TenantId,
+      projectId: t1ProjectId,
+      kind: 'domain',
+      value: 'idem-test.com',
+      ownershipStatus: 'verified',
+    });
+
+    const idemKey = `idem-test-${Date.now()}`;
+    const payload = JSON.stringify({
+      project_id: t1ProjectId,
+      tier: 'light',
+      target_ids: [targetId],
+    });
+
+    const res1 = await auth.app.request('/api/v1/scans', {
+      method: 'POST',
+      headers: { cookie: t1Cookie, 'content-type': 'application/json', 'idempotency-key': idemKey },
+      body: payload,
+    });
+    expect(res1.status).toBe(200);
+    const body1 = (await res1.json()) as { scan_id: string; state: string };
+    expect(body1.state).toBe('running');
+
+    // Second request with same key — must return same scan_id without creating new assessment.
+    const res2 = await auth.app.request('/api/v1/scans', {
+      method: 'POST',
+      headers: { cookie: t1Cookie, 'content-type': 'application/json', 'idempotency-key': idemKey },
+      body: payload,
+    });
+    expect(res2.status).toBe(200);
+    const body2 = (await res2.json()) as { scan_id: string; state: string };
+    expect(body2.scan_id).toBe(body1.scan_id);
+
+    // Exactly one assessment row must exist.
+    const count = await fx.db
+      .selectFrom('assessments')
+      .select((eb) => eb.fn.countAll<string>().as('count'))
+      .where('tenant_id', '=', t1TenantId)
+      .executeTakeFirstOrThrow();
+    expect(Number(count.count)).toBe(1);
   });
 });
