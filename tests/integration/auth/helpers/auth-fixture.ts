@@ -271,6 +271,8 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       DELETE FROM user_sessions;
       DELETE FROM mfa_secrets;
       DELETE FROM projects;
+      -- S26 mig 025: api_tokens has FK → tenants + users; delete before users.
+      DELETE FROM api_tokens;
       DELETE FROM users;
       -- S24 mig 023: subscriptions + invoices have FK → tenants; delete before tenants.
       DELETE FROM invoices;

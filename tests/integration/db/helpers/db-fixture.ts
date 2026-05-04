@@ -103,6 +103,7 @@ export const dropAllTables = async (f: DbFixture): Promise<void> => {
     'user_sessions',
     'invoices',
     'subscriptions',
+    'api_tokens',
     'users',
     'tenants',
     'kysely_migration',

@@ -9,6 +9,8 @@ import { LoginPage } from './pages/LoginPage.tsx';
 import { ProjectDetailPage } from './pages/ProjectDetailPage.tsx';
 import { ProjectsPage } from './pages/ProjectsPage.tsx';
 import { RegisterPage } from './pages/RegisterPage.tsx';
+import { ScanProgressPage } from './pages/ScanProgressPage.tsx';
+import { ScanWizardPage } from './pages/ScanWizardPage.tsx';
 import { TargetCredentialsPage } from './pages/TargetCredentialsPage.tsx';
 
 type Route =
@@ -21,6 +23,8 @@ type Route =
   | { name: 'finding'; id: string }
   | { name: 'evidence'; id: string }
   | { name: 'target-credentials'; id: string }
+  | { name: 'scan-wizard'; projectId: string }
+  | { name: 'scan-progress'; scanId: string }
   | { name: 'app-projects' };
 
 export const App = () => {
@@ -104,6 +108,16 @@ export const App = () => {
       )}
       {route.name === 'evidence' && <EvidenceViewerPage evidenceId={route.id} />}
       {route.name === 'target-credentials' && <TargetCredentialsPage targetId={route.id} />}
+      {route.name === 'scan-wizard' && (
+        <ScanWizardPage
+          projectId={route.projectId}
+          onScanLaunched={(scanId) => nav({ name: 'scan-progress', scanId })}
+          onBack={() => nav({ name: 'project', id: route.projectId })}
+        />
+      )}
+      {route.name === 'scan-progress' && (
+        <ScanProgressPage scanId={route.scanId} onBack={() => nav({ name: 'projects' })} />
+      )}
     </div>
   );
 };

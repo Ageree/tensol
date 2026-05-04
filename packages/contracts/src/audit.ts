@@ -156,6 +156,10 @@ export const AUDIT_ACTIONS = [
   'domain.verify.confirmed',
   'domain.verify.failed',
   'domain.verify.expired',
+  // S26 scan launch + billing.
+  'scan.launched',
+  'billing.checkout.completed',
+  'billing.subscription.cancelled',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

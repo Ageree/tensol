@@ -50,6 +50,7 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     // step-3 rolls back 017 (langgraph_thread_id gone).
     // Sprint 18: 021 is now latest, so pop 021 + 020 first so step-1 lands on 019.
     // Sprint 25: 024 is now latest, so pop 024 first.
+    // Sprint 26: 025 is now latest, so pop 025 first.
     await applyAllMigrations(f);
 
     // Verify 018 shape: target_credentials exists.
@@ -61,7 +62,10 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     `.execute(f.db);
     expect(beforeStep1.rows[0]?.exists).toBe(true);
 
-    // Pop mig 024 + 023 + 022 + 021 + 020 so step-1 lands on 019.
+    // Pop mig 025 + 024 + 023 + 022 + 021 + 020 so step-1 lands on 019.
+    const r025pre = await f.migrator.migrateDown();
+    if (r025pre.error)
+      throw r025pre.error instanceof Error ? r025pre.error : new Error(String(r025pre.error));
     const r024pre = await f.migrator.migrateDown();
     if (r024pre.error)
       throw r024pre.error instanceof Error ? r024pre.error : new Error(String(r024pre.error));
@@ -186,9 +190,9 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     expect(trigNames.has('reports_no_truncate')).toBe(true);
     expect(trigNames.has('reports_immutable_ready')).toBe(true);
 
-    // Roll back 12 migrations to revert through 013 (reports table drop).
-    // 12 = down(024)→down(023)→down(022)→down(021)→…→down(013); reports table dropped at 013-down.
-    for (let i = 0; i < 12; i++) {
+    // Roll back 13 migrations to revert through 013 (reports table drop).
+    // 13 = down(025)→down(024)→down(023)→down(022)→down(021)→…→down(013); reports table dropped at 013-down.
+    for (let i = 0; i < 13; i++) {
       const r = await f.migrator.migrateDown();
       if (r.error) throw r.error instanceof Error ? r.error : new Error(String(r.error));
     }
@@ -219,7 +223,10 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     `.execute(f.db);
     expect(cols.rows).toHaveLength(3);
 
-    // Pop mig 024 + 023 + 022 + 021 + 020 so the next migrateDown targets 019.
+    // Pop mig 025 + 024 + 023 + 022 + 021 + 020 so the next migrateDown targets 019.
+    const r025pre = await f.migrator.migrateDown();
+    if (r025pre.error)
+      throw r025pre.error instanceof Error ? r025pre.error : new Error(String(r025pre.error));
     const r024pre = await f.migrator.migrateDown();
     if (r024pre.error)
       throw r024pre.error instanceof Error ? r024pre.error : new Error(String(r024pre.error));
@@ -266,7 +273,10 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     expect(trigNames.has('target_credentials_no_update_delete_row')).toBe(true);
     expect(trigNames.has('target_credentials_no_truncate')).toBe(true);
 
-    // Pop mig 024 + 023 + 022 + 021 + 020 so subsequent steps land on the expected migrations.
+    // Pop mig 025 + 024 + 023 + 022 + 021 + 020 so subsequent steps land on the expected migrations.
+    const r025pre = await f.migrator.migrateDown();
+    if (r025pre.error)
+      throw r025pre.error instanceof Error ? r025pre.error : new Error(String(r025pre.error));
     const r024pre = await f.migrator.migrateDown();
     if (r024pre.error)
       throw r024pre.error instanceof Error ? r024pre.error : new Error(String(r024pre.error));
@@ -321,7 +331,10 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     `.execute(f.db);
     expect(tables.rows).toHaveLength(1);
 
-    // Pop mig 024 + 023 + 022 + 021 so migrateDown targets 020.
+    // Pop mig 025 + 024 + 023 + 022 + 021 so migrateDown targets 020.
+    const r025pre = await f.migrator.migrateDown();
+    if (r025pre.error)
+      throw r025pre.error instanceof Error ? r025pre.error : new Error(String(r025pre.error));
     const r024pre = await f.migrator.migrateDown();
     if (r024pre.error)
       throw r024pre.error instanceof Error ? r024pre.error : new Error(String(r024pre.error));
@@ -378,7 +391,10 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     expect(trigNames.has('oob_callbacks_no_delete_stmt')).toBe(true);
     expect(trigNames.has('oob_callbacks_no_truncate')).toBe(true);
 
-    // Roll back migration 024 then 023 then 022 then 021.
+    // Roll back migration 025 then 024 then 023 then 022 then 021.
+    const r025pre = await f.migrator.migrateDown();
+    if (r025pre.error)
+      throw r025pre.error instanceof Error ? r025pre.error : new Error(String(r025pre.error));
     const r024pre = await f.migrator.migrateDown();
     if (r024pre.error)
       throw r024pre.error instanceof Error ? r024pre.error : new Error(String(r024pre.error));
@@ -414,7 +430,10 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     `.execute(f.db);
     expect(colsAfter.rows).toHaveLength(1);
 
-    // Roll back migration 024 then 023 then 022.
+    // Roll back migration 025 then 024 then 023 then 022.
+    const r025pre = await f.migrator.migrateDown();
+    if (r025pre.error)
+      throw r025pre.error instanceof Error ? r025pre.error : new Error(String(r025pre.error));
     const r024pre = await f.migrator.migrateDown();
     if (r024pre.error)
       throw r024pre.error instanceof Error ? r024pre.error : new Error(String(r024pre.error));

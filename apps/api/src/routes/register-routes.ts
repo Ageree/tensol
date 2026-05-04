@@ -37,6 +37,7 @@ import { handlePasswordResetConfirm } from './auth/password-reset-confirm.ts';
 import { handlePasswordResetRequest } from './auth/password-reset-request.ts';
 import { handleRegister } from './auth/register.ts';
 import { handleSelfRegister } from './auth/self-register.ts';
+import { handleBillingCheckout, handleGetSubscription } from './billing/billing.ts';
 import { handleVerifyCheck, handleVerifyStart } from './domains/domain-verify.ts';
 import { handleGetEvidence, handleListFindingEvidence } from './evidence/evidence.ts';
 import {
@@ -53,6 +54,12 @@ import {
   handleProjectSummary,
 } from './projects/projects.ts';
 import { handleBuildReport, handleDownloadReport, handleGetReport } from './reports/reports.ts';
+import {
+  handleGetScan,
+  handleLaunchScan,
+  handleListScans,
+  handleScanProgress,
+} from './scans/scans.ts';
 import type { RouteDeps } from './shared.ts';
 import {
   handleCreateTarget,
@@ -200,4 +207,14 @@ export const registerRoutes = (app: Hono<SessionEnv>, deps: RouteDeps): void => 
   // S25 — domain ownership verification via DNS-TXT.
   app.post('/api/v1/domains/verify/start', tenantGuard(), (c) => handleVerifyStart(deps, c));
   app.get('/api/v1/domains/verify/check', tenantGuard(), (c) => handleVerifyCheck(deps, c));
+
+  // S26 — scan launch + live progress.
+  app.post('/api/v1/scans', tenantGuard(), (c) => handleLaunchScan(deps, c));
+  app.get('/api/v1/scans', tenantGuard(), (c) => handleListScans(deps, c));
+  app.get('/api/v1/scans/:id', tenantGuard(), (c) => handleGetScan(deps, c));
+  app.get('/api/v1/scans/:id/progress', tenantGuard(), (c) => handleScanProgress(deps, c));
+
+  // S26 — billing stub.
+  app.post('/api/v1/billing/checkout', tenantGuard(), (c) => handleBillingCheckout(deps, c));
+  app.get('/api/v1/billing/subscription', tenantGuard(), (c) => handleGetSubscription(deps, c));
 };
