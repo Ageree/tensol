@@ -41,3 +41,18 @@ export const getScan = async (id: string): Promise<ScanDetail> => {
 export const getScanProgress = async (id: string): Promise<ScanProgress> => {
   return api.get(`/api/v1/scans/${id}/progress`);
 };
+
+export const buildScanReport = async (
+  assessmentId: string,
+): Promise<{ reportId: string; status: string }> => {
+  const idempotencyKey = `report.build:${assessmentId}:${Date.now()}`;
+  const res = await fetch(`/api/v1/assessments/${assessmentId}/reports`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'idempotency-key': idempotencyKey },
+    body: JSON.stringify({}),
+  });
+  const body = (await res.json().catch(() => ({}))) as { reportId: string; status: string };
+  if (!res.ok) throw new Error(`build report failed: ${res.status}`);
+  return body;
+};

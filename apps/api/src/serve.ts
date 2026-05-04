@@ -12,7 +12,9 @@ import { createApp } from './factory.ts';
 import { DEFAULT_LOGIN_RATE_LIMIT, createRateLimiter } from './middleware/rate-limit.ts';
 import { createPreAuthStore } from './pre-auth-tokens.ts';
 
-const PORT = Number(process.env.PORT ?? '3000');
+// biome-ignore lint/complexity/useLiteralKeys: bracket access required by noPropertyAccessFromIndexSignature
+const envPort: string | undefined = (process.env as Record<string, string | undefined>)['PORT'];
+const PORT = Number(envPort ?? '3000');
 
 const main = async (): Promise<void> => {
   const config = loadAuthApiConfig();
