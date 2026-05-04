@@ -10,6 +10,7 @@
 //     so every cross-tenant-row touch from a `MutableRepository` produces
 //     a deny audit row attributed to the actor's tenant (R3).
 
+import * as dnsPromises from 'node:dns/promises';
 import { denyAudit } from '@cyberstrike/audit';
 import { type PasswordHasher, RbacDenyError, type TotpVerifier } from '@cyberstrike/authz';
 import { type Database, type Repositories, buildRepositories } from '@cyberstrike/db';
@@ -20,6 +21,7 @@ import type { AuthApiConfig } from './config.ts';
 import type { RateLimiter } from './middleware/rate-limit.ts';
 import { type SessionEnv, sessionMiddleware } from './middleware/session.ts';
 import type { PreAuthStore } from './pre-auth-tokens.ts';
+import type { TxtDnsResolver } from './routes/domains/domain-verify.ts';
 import { registerRoutes } from './routes/register-routes.ts';
 import { ensurePlatformTenantId } from './routes/shared.ts';
 import { SessionRepo } from './session-repo.ts';
@@ -39,6 +41,8 @@ export interface AppOptions {
   readonly preAuthStore: PreAuthStore;
   readonly rateLimiter: RateLimiter;
   readonly objectStorage?: ObjectStorage;
+  /** Optional DNS resolver override — tests inject a mock, production omits (defaults to node:dns/promises). P46. */
+  readonly dnsResolver?: TxtDnsResolver;
 }
 
 const newTraceId = (): string => {
@@ -163,6 +167,7 @@ export const createApp = (options: AppOptions) => {
     preAuthStore: options.preAuthStore,
     rateLimiter: options.rateLimiter,
     sessionRepo,
+    dnsResolver: options.dnsResolver ?? { resolveTxt: dnsPromises.resolveTxt.bind(dnsPromises) },
     ...(options.objectStorage !== undefined ? { objectStorage: options.objectStorage } : {}),
   };
   registerRoutes(app, routeDeps);

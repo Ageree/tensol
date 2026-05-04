@@ -36,7 +36,7 @@ const baseEnvelope = {
 };
 
 describe('contracts :: AuditAction (A3)', () => {
-  test('AUDIT_ACTIONS is the exhaustive set (S24: 87 legacy + 1 saas = 88)', () => {
+  test('AUDIT_ACTIONS is the exhaustive set (S25: 88 post-S24 + 5 domain.verify = 93)', () => {
     const expected = [
       'auth.register',
       'auth.login.password',
@@ -149,10 +149,16 @@ describe('contracts :: AuditAction (A3)', () => {
       'validator.run.completed',
       // S24 SaaS self-registration.
       'auth.self_register',
+      // S25 domain ownership verification via DNS-TXT.
+      'domain.verify.requested',
+      'domain.verify.checked',
+      'domain.verify.confirmed',
+      'domain.verify.failed',
+      'domain.verify.expired',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // S24: 87 legacy + 1 (auth.self_register) = 88.
-    expect(AUDIT_ACTIONS.length).toBe(88);
+    // S25: 88 post-S24 + 5 (domain.verify.*) = 93.
+    expect(AUDIT_ACTIONS.length).toBe(93);
   });
 
   test('zod rejects unknown action', () => {

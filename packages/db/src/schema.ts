@@ -447,6 +447,21 @@ export interface InvoicesTable {
   created_at: DbDefault<Date>;
 }
 
+// =============== S25 domain verification (mig 024) ===============
+
+export interface DomainVerificationsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  target_id: string;
+  domain: string;
+  token: string; // 'cs-verify=<hex32>'
+  status: string; // CHECK ('pending'|'verified'|'expired')
+  verified_at: Date | null;
+  expires_at: Date;
+  created_at: DbDefault<Date>;
+  updated_at: DbDefault<Date>;
+}
+
 // =============== aggregate Database type ===============
 
 export interface Database {
@@ -479,6 +494,7 @@ export interface Database {
   oob_callbacks: OobCallbacksTable;
   subscriptions: SubscriptionsTable;
   invoices: InvoicesTable;
+  domain_verifications: DomainVerificationsTable;
 }
 
 // Used by tests (B3) to assert every table key is present.
@@ -512,6 +528,7 @@ export const ALL_TABLE_NAMES: ReadonlyArray<keyof Database> = [
   'oob_callbacks',
   'subscriptions',
   'invoices',
+  'domain_verifications',
 ] as const;
 
 export const APPEND_ONLY_TABLES: ReadonlyArray<keyof Database> = [

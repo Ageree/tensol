@@ -42,3 +42,4 @@ export {
   ensurePlatformTenantId,
   resetPlatformTenantCache,
 } from './routes/shared.ts';
+export type { TxtDnsResolver } from './routes/domains/domain-verify.ts';

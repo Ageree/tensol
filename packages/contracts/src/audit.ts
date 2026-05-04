@@ -150,6 +150,12 @@ export const AUDIT_ACTIONS = [
   'validator.run.completed',
   // S24 SaaS self-registration.
   'auth.self_register',
+  // S25 domain ownership verification via DNS-TXT.
+  'domain.verify.requested',
+  'domain.verify.checked',
+  'domain.verify.confirmed',
+  'domain.verify.failed',
+  'domain.verify.expired',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

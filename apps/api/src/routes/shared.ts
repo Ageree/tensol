@@ -22,6 +22,7 @@ import type { RateLimiter } from '../middleware/rate-limit.ts';
 import type { SessionEnv } from '../middleware/session.ts';
 import type { PreAuthStore } from '../pre-auth-tokens.ts';
 import type { SessionRepo } from '../session-repo.ts';
+import type { TxtDnsResolver } from './domains/domain-verify.ts';
 
 export interface RouteDeps {
   readonly config: AuthApiConfig;
@@ -32,6 +33,7 @@ export interface RouteDeps {
   readonly preAuthStore: PreAuthStore;
   readonly rateLimiter: RateLimiter;
   readonly sessionRepo: SessionRepo;
+  readonly dnsResolver: TxtDnsResolver;
   readonly nowMs?: () => number;
   readonly objectStorage?: ObjectStorage;
 }

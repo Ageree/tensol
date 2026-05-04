@@ -37,6 +37,7 @@ import { handlePasswordResetConfirm } from './auth/password-reset-confirm.ts';
 import { handlePasswordResetRequest } from './auth/password-reset-request.ts';
 import { handleRegister } from './auth/register.ts';
 import { handleSelfRegister } from './auth/self-register.ts';
+import { handleVerifyCheck, handleVerifyStart } from './domains/domain-verify.ts';
 import { handleGetEvidence, handleListFindingEvidence } from './evidence/evidence.ts';
 import {
   handleGetFinding,
@@ -195,4 +196,8 @@ export const registerRoutes = (app: Hono<SessionEnv>, deps: RouteDeps): void => 
   );
   app.get('/api/v1/reports/:id', tenantGuard(), (c) => handleGetReport(deps, c));
   app.get('/api/v1/reports/:id/download', tenantGuard(), (c) => handleDownloadReport(deps, c));
+
+  // S25 — domain ownership verification via DNS-TXT.
+  app.post('/api/v1/domains/verify/start', tenantGuard(), (c) => handleVerifyStart(deps, c));
+  app.get('/api/v1/domains/verify/check', tenantGuard(), (c) => handleVerifyCheck(deps, c));
 };
