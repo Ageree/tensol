@@ -8,7 +8,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "dev": "bun --hot src/serve.ts",
+    "start": "bun src/serve.ts"
   },
   "dependencies": {
     "@cyberstrike/audit": "workspace:*",
