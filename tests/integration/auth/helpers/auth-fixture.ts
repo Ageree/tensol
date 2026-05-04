@@ -264,6 +264,8 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
       DELETE FROM assessment_targets;
       DELETE FROM assessment_scope_rules;
       DELETE FROM assessments;
+      -- S25 mig 024: domain_verifications has FK → targets; delete before targets.
+      DELETE FROM domain_verifications;
       DELETE FROM targets;
       DELETE FROM password_reset_tokens;
       DELETE FROM user_sessions;

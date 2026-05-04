@@ -89,11 +89,20 @@ Idempotent: if already `status='verified'` on entry, return 200 with current sta
 |--------|-----------|------|-------------|--------|
 | `registerRoutes` | upstream | LOW | 0 | Safe — add 2 new domain verify routes |
 | `dropAllTables` | upstream | LOW | 0 | Safe — add `domain_verifications` entry |
-| `RouteDeps` (shared.ts) | upstream | MEDIUM | Multiple callers via import | Adding optional field `dnsResolver?` — backward-compatible; existing callers unaffected |
+| `RouteDeps` (shared.ts) | upstream | MEDIUM | `apps/api/src/factory.ts` (sole construction site) | Adding **required** field `dnsResolver: TxtDnsResolver` — factory.ts must supply it. All route callers receive `deps: RouteDeps` by parameter (not construction); no IT fixture constructs RouteDeps directly (see §RouteDeps construction sites). |
+| `AppOptions` (factory.ts) | upstream | LOW | test fixtures via `buildAuthApp` (25 files) | Adding **optional** `dnsResolver?: TxtDnsResolver` to AppOptions — backward-compatible. All 25 `buildAuthApp` call sites pass no resolver; factory defaults to `node:dns/promises`. Zero breakage. |
 | `AUDIT_ACTIONS` | upstream | N/A | Not indexed (config constant) | Grep-confirmed: only in packages/contracts/src/audit.ts + audit.test.ts |
 | `DnsResolver` (scope-engine) | N/A | FROZEN | — | NOT touched — using separate `TxtDnsResolver` in domain route module |
 
-**d=1 note for RouteDeps:** Adding optional field to an interface is additive. All existing callers destructure what they need; adding `dnsResolver?` does not break any existing caller. TypeScript will enforce the optional field correctly.
+**RouteDeps construction sites (exhaustive):**
+- `apps/api/src/factory.ts:161` — sole production construction site. `dnsResolver` already provided via `options.dnsResolver ?? { resolveTxt: dnsPromises.resolveTxt.bind(dnsPromises) }`.
+- All IT fixtures construct RouteDeps **indirectly** via `buildAuthApp(db)` → `createApp(...)`. `createApp` accepts `AppOptions` (optional `dnsResolver?`) and builds the required `RouteDeps` internally. The 25 `buildAuthApp` call sites need zero changes.
+- `tests/integration/domains/domain-verify.test.ts:66` — `buildAppWithResolver()` calls `createApp({ ..., dnsResolver: resolver })`. Passes optional `AppOptions.dnsResolver`; factory promotes it to required `RouteDeps.dnsResolver`. Correct.
+
+**Two-layer design (R2 clarification, resolves blocker-1):**
+- `AppOptions.dnsResolver?: TxtDnsResolver` — **optional** override in the public factory API. Omit → real DNS. Provide → override (used by domain IT tests).
+- `RouteDeps.dnsResolver: TxtDnsResolver` — **required** in the internal route bundle. Factory always fills it before calling `registerRoutes`. Route handlers can rely on it without null-checking.
+- This is consistent with existing pattern: `AppOptions.repos?` is optional (tests may pass their own); `RouteDeps.repos` is required.
 
 ---
 
@@ -124,9 +133,24 @@ New total: 88 + 5 = **93**.
 
 The loop rolls back from current latest (mig 024 after S25) down to drop the `reports` table (mig 013). Adding mig 024 means one more `migrateDown()` is needed — K bumps from 11 to 12.
 
-**All 8 B6 tests updated** (P39 — find-and-replace-all):
-- 7 prefix-pop tests: each prepends `r024pre` migrateDown before their target
-- 1 reports-loop test at line 184: `i < 11` → `i < 12`
+**All 8 B6 tests updated** (P39 — per-test pop sequence, R2 correction):
+
+Migration sequence (descending): 024→023→022→021→020→019→018→017→...→013
+
+| Test | Line | Target mig | Pop sequence (after S25) | Notes |
+|------|------|-----------|--------------------------|-------|
+| 1 — three-step 019→018→017 | 46 | 019 (step-1) | r024pre, r023pre, r022pre, r021pre, r020pre → then step-1(019) | R2 fix: was missing r022pre (bug — skipped 022, step-1 landed on 020 not 019) |
+| 2 — reports loop | 130 | 013 | `for (let i = 0; i < 12; i++)` | K bump only, no prefix-pop |
+| 3 — observations_browser | 204 | 019 | r024pre, r023pre, r022pre, r021pre, r020pre → then r019 | 5 pre-pops |
+| 4 — target_credentials | 245 | 018 | r024pre, r023pre, r022pre, r021pre, r020pre → then r019, r018 | 5 pre-pops |
+| 5 — mig 020 | 301 | 020 | r024pre, r023pre, r022pre, r021pre → then r020 | 4 pre-pops |
+| 6 — oob_callbacks | 353 | 021 | r024pre, r023pre, r022pre → then r021 | 3 pre-pops |
+| 7 — mig 022 recipe_text | 401 | 022 | r024pre, r023pre → then r022 | 2 pre-pops |
+| 8 — full rollback | 418 | all | `rollbackAllMigrations()` (loops until empty) | No change needed |
+
+**Blocker-2 correction (R2):** The R1 contract claimed "7 prefix-pop + 1 loop = 8". Correct count is **6 prefix-pop + 1 loop-bump + 1 auto-rollback = 8**. Test #8 uses `rollbackAllMigrations()` — no prefix-pops needed. Tests #1–#7 need prefix-pops (6 tests), plus test #2 needs the loop bump.
+
+**Pre-existing bug fixed in S25 (test #1):** R1 implementation of test #1 skipped `r022pre` — the pop sequence was 024→023→021(mislabeled)→020(mislabeled), causing step-1 to land on 020 instead of 019. R2 adds the missing `r022pre` between r023pre and r021pre, and renames variables to match actual migrations rolled back.
 
 ---
 
@@ -140,24 +164,24 @@ Migration 024 has **no JSONB columns**. All columns are `uuid`, `text`, `timesta
 
 `TxtDnsResolver` interface lives in `apps/api/src/routes/domains/domain-verify.ts` (exported).
 
-`dnsResolver` is a **required** field in `RouteDeps` (advisor M2 — optional fields for injected deps invite runtime NPE). TypeScript enforces `factory.ts` provides it.
+**Two-layer DI design (R2 — resolves blocker-1 contradiction):**
+
+`RouteDeps.dnsResolver: TxtDnsResolver` — **required**. Route handlers receive a guaranteed resolver; no null-checking at callsite. Factory always provides it.
+
+`AppOptions.dnsResolver?: TxtDnsResolver` — **optional** override on the public factory API. Omitting uses `node:dns/promises`. Providing overrides for test isolation. Follows same pattern as `AppOptions.repos?` (optional override) / `RouteDeps.repos` (required in bundle).
 
 Production code path:
 ```typescript
-// In factory.ts:
-import * as dns from 'node:dns/promises';
-const dnsResolver: TxtDnsResolver = { resolveTxt: dns.resolveTxt.bind(dns) };
-// → included in RouteDeps object passed to registerRoutes
+// In factory.ts — AppOptions.dnsResolver is optional; RouteDeps.dnsResolver is always set:
+dnsResolver: options.dnsResolver ?? { resolveTxt: dnsPromises.resolveTxt.bind(dnsPromises) },
 ```
 
 Test fixture override (no env flags):
 ```typescript
-const mockDnsResolver: TxtDnsResolver = Object.freeze({
-  // string[][] shape: outer = TXT records, inner = 255-byte parts of one record.
-  // Handler uses parts.join('') === token (advisor M1 fix).
-  resolveTxt: async (_hostname: string) => [['cs-verify=<test-token-hex>']],
-});
-const testDeps = { ...deps, dnsResolver: mockDnsResolver };
+// domain-verify.test.ts — passes mock via AppOptions:
+const { app } = createApp({ ..., dnsResolver: mockResolver });
+// mockResolver: TxtDnsResolver = { resolveTxt: async () => [[token]] }
+// string[][] shape: outer = TXT records, inner = 255-byte parts joined by handler (M1 fix).
 ```
 
 No `MOCK_DNS`, `USE_FAKE_DNS`, or any env-flag branches in `domain-verify.ts`. P46 strictly applied.
@@ -204,10 +228,10 @@ Insert position: **between `target_ownership_claims` and `targets`**:
 | `packages/contracts/src/audit.test.ts` | Update cardinality assertion to `.toBe(93)` |
 | `apps/api/src/routes/register-routes.ts` | Register 2 new domain verify routes |
 | `apps/api/src/routes/shared.ts` | Add required `dnsResolver: TxtDnsResolver` to RouteDeps |
-| `apps/api/src/factory.ts` | Inject real `dns.resolveTxt` binding into RouteDeps |
+| `apps/api/src/factory.ts` | Add optional `dnsResolver?: TxtDnsResolver` to `AppOptions`; wire to required `RouteDeps.dnsResolver` with real `dns.resolveTxt` fallback |
 | `packages/db/src/schema.ts` | Add `DomainVerificationsTable` interface + `domain_verifications` to `Database` |
 | `tests/integration/db/helpers/db-fixture.ts` | Add `domain_verifications` to dropAllTables (P44) |
-| `tests/integration/db/migrations.test.ts` | B6: K=11→12 (1 loop + 7 prefix-pops for all 8 tests) |
+| `tests/integration/db/migrations.test.ts` | B6: K=11→12 (loop bump) + 6 prefix-pop tests updated + test #1 pre-existing r022pre bug fixed |
 | `apps/web/src/pages/ProjectDetailPage.tsx` | Domain wizard section: token display, instructions, poll button, badge (code-verified path) |
 
 ### Frozen surfaces (0-line diff confirmed)
@@ -300,10 +324,22 @@ Logic:
 4. Check expiry: if `expires_at <= now()` → UPDATE `status='expired'`, emit `domain.verify.expired`, return 410 `{ error: 'token_expired' }`
 5. Call `dnsResolver.resolveTxt('_cs-verify.' + domain)` — each element is `string[]` (multi-part TXT records joined)
 6. For each inner `string[]` (multi-part TXT record), join parts: `parts.join('')`. Look for any joined value that equals `row.token`. (Advisor M1: `resolveTxt` returns `string[][]`; inner array = 255-byte chunks of one TXT record; must join before comparing.)
-7. Emit `domain.verify.checked` (always — regardless of outcome)
-8. If match found → TX: UPDATE `domain_verifications SET status='verified', verified_at=now()` + UPDATE `targets SET ownership_status='verified', updated_at=now()`. Emit `domain.verify.confirmed`. Return 200 `{ status: 'verified' }`
-9. If DNS NXDOMAIN / no match → emit `domain.verify.failed`. Return 200 `{ status: 'pending' }` (not an error — client polls again)
-10. If DNS throws (timeout, network) → emit `domain.verify.failed`. Return 502 `{ error: 'dns_lookup_failed' }`
+7. Emit `domain.verify.checked` (only after DNS call returns without throwing — not on DNS error)
+8. If match found → TX flip. Emit `domain.verify.confirmed`. Return 200 `{ status: 'verified' }`
+9. If DNS no match → emit `domain.verify.failed`. Return 200 `{ status: 'pending' }`
+10. If DNS throws → emit `domain.verify.failed` only (no `checked`). Return 502
+
+**Audit emit table per /check outcome (binding — R2 nit-2):**
+
+| /check outcome | Audit emits | Count |
+|----------------|------------|-------|
+| Already verified (idempotent, step 3) | none | 0 |
+| Token expired (step 4) | `domain.verify.expired` only | 1 |
+| DNS throws (step 10) | `domain.verify.failed` only | 1 |
+| DNS ok, no match (steps 7+9) | `checked` + `failed` | 2 |
+| DNS ok, match found (steps 7+8) | `checked` + `confirmed` | 2 |
+
+**Audit emit for /start on expired token:** `domain.verify.expired` (delete audit) + `domain.verify.requested` (create audit) = 2 events total.
 
 ---
 
@@ -421,3 +457,44 @@ Carry-over from B-24-playwright: S25 evaluator drives register → login → /ap
 > 7. P46 compliance (no env flags): CONFIRMED.
 > 8. No JSONB → no COMMENT needed: CONFIRMED.
 > 9. BYTEA exempt: CONFIRMED.
+
+---
+
+## R2 Evaluator Responses
+
+### Blocker-1 response (required vs optional contradiction)
+
+**Resolution: two-layer design, no contradiction.**
+
+`AppOptions.dnsResolver?: TxtDnsResolver` — **optional** in the public `createApp()` API. Omit = real DNS (`node:dns/promises`). Provide = test override.
+
+`RouteDeps.dnsResolver: TxtDnsResolver` — **required** in the internal route bundle. `factory.ts` always fills this before calling `registerRoutes`. Route handlers can rely on it without null checks.
+
+This mirrors the existing `AppOptions.repos?` (optional test override) / `RouteDeps.repos` (required internal bundle) pattern. Sections §A2, §Gitnexus Impact, and §P46 DI Plan updated in R2 to state this consistently.
+
+**IT fixture impact (nit-1 enumeration):** RouteDeps is constructed at exactly one site: `apps/api/src/factory.ts:161`. All 25 test files that call `buildAuthApp()` do so via `createApp(AppOptions)` — they supply optional `AppOptions` fields, not RouteDeps directly. Zero test files need changes for the required `RouteDeps.dnsResolver` field.
+
+Construction sites enumerated by `grep`:
+- `apps/api/src/factory.ts:161` — `const routeDeps = { ..., dnsResolver: options.dnsResolver ?? realResolver }` ✓ already wired
+- `tests/integration/domains/domain-verify.test.ts:66` — `createApp({ ..., dnsResolver: resolver })` ✓ passes via AppOptions
+- All 24 other `buildAuthApp()` call sites — pass no `dnsResolver`; factory defaults to real DNS ✓
+
+### Blocker-2 response (B6 pop sequence corrected)
+
+Per-test pop sequences documented in §B6 loop table above. Key corrections vs R1:
+
+1. **Test #1 (line 46) had a pre-existing bug**: r022pre was missing. Sequence was 024→023→021→020 (skipping 022), causing step-1 to land on 020, not 019. R2 adds r022pre between r023pre and r021pre. Correct sequence: r024pre→r023pre→r022pre→r021pre→r020pre→step-1(019).
+
+2. **Count corrected**: 6 prefix-pop tests (not 7) + 1 loop bump + 1 auto-rollback = 8.
+
+Both the §B6 loop section and pitfall P39 row updated.
+
+### Blocker-3 response (working-tree clarification)
+
+The implementation commits (`a5b7d58` + `ba5986c`) were a **verification spike** — implementation was done to confirm that the contract's A1/A2/A3 decisions compile and typecheck, and that the B6 math is correct. The spike was done in parallel with the contract write.
+
+The spike revealed one contract inaccuracy (the B6 prefix-pop bug in test #1) which is now corrected in R2. If R2 forces material contract changes beyond what was already implemented, the implementation will be revised to track the AGREED contract. The contract remains the source of truth.
+
+### Updated pitfall row for P39
+
+**P39 — find-and-replace-all:** All 8 B6 tests addressed (6 prefix-pop tests + 1 loop bump + 1 auto). R2 corrects count from "7 prefix-pop" to "6 prefix-pop". Test #1 pre-existing bug (missing r022pre) fixed in implementation.

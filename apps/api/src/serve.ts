@@ -9,8 +9,8 @@ import { createBcryptHasher, createTotpVerifier } from '@cyberstrike/authz';
 import { createDatabase } from '@cyberstrike/db';
 import { loadAuthApiConfig } from './config.ts';
 import { createApp } from './factory.ts';
-import { createPreAuthStore } from './pre-auth-tokens.ts';
 import { DEFAULT_LOGIN_RATE_LIMIT, createRateLimiter } from './middleware/rate-limit.ts';
+import { createPreAuthStore } from './pre-auth-tokens.ts';
 
 const PORT = Number(process.env.PORT ?? '3000');
 

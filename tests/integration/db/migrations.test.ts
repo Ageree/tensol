@@ -61,18 +61,22 @@ describe.skipIf(skip)('migrations :: apply / rollback / redo (B5/B6)', () => {
     `.execute(f.db);
     expect(beforeStep1.rows[0]?.exists).toBe(true);
 
-    // Pop mig 024 + 023 + 021 + 020 so step-1 lands on 019.
+    // Pop mig 024 + 023 + 022 + 021 + 020 so step-1 lands on 019.
     const r024pre = await f.migrator.migrateDown();
     if (r024pre.error)
       throw r024pre.error instanceof Error ? r024pre.error : new Error(String(r024pre.error));
     const r023pre = await f.migrator.migrateDown();
     if (r023pre.error)
       throw r023pre.error instanceof Error ? r023pre.error : new Error(String(r023pre.error));
+    const r022pre = await f.migrator.migrateDown();
+    if (r022pre.error)
+      throw r022pre.error instanceof Error ? r022pre.error : new Error(String(r022pre.error));
     const r021pre = await f.migrator.migrateDown();
     if (r021pre.error)
       throw r021pre.error instanceof Error ? r021pre.error : new Error(String(r021pre.error));
-    const r020 = await f.migrator.migrateDown();
-    if (r020.error) throw r020.error instanceof Error ? r020.error : new Error(String(r020.error));
+    const r020pre = await f.migrator.migrateDown();
+    if (r020pre.error)
+      throw r020pre.error instanceof Error ? r020pre.error : new Error(String(r020pre.error));
 
     // Step-1: roll back 019 (SPA columns drop — target_credentials still present).
     const r1 = await f.migrator.migrateDown();
