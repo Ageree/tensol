@@ -1,5 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { listAssessments } from '../api/assessments.ts';
+import { verifyCheck, verifyStart } from '../api/domains.ts';
 import { getProject } from '../api/projects.ts';
 import { listTargets } from '../api/targets.ts';
 
@@ -8,6 +10,72 @@ interface Props {
   onAssessmentClick: (id: string) => void;
   onCredentialsClick?: (targetId: string) => void;
 }
+
+interface DomainWizardState {
+  token: string;
+  instructions: string;
+  expires_at: string;
+  checkStatus: 'idle' | 'pending' | 'verified';
+}
+
+const DomainWizard = ({ targetId }: { targetId: string }) => {
+  const [wizard, setWizard] = useState<DomainWizardState | null>(null);
+
+  const startMutation = useMutation({
+    mutationFn: () => verifyStart(targetId),
+    onSuccess: (data) => {
+      setWizard({ ...data, checkStatus: 'idle' });
+    },
+  });
+
+  const checkMutation = useMutation({
+    mutationFn: () => verifyCheck(targetId),
+    onSuccess: (data) => {
+      setWizard((prev) => (prev ? { ...prev, checkStatus: data.status } : prev));
+    },
+  });
+
+  if (!wizard) {
+    return (
+      <button
+        type="button"
+        data-testid={`domain-verify-start-${targetId}`}
+        onClick={() => startMutation.mutate()}
+        disabled={startMutation.isPending}
+      >
+        {startMutation.isPending ? 'Requesting...' : 'Verify Domain'}
+      </button>
+    );
+  }
+
+  return (
+    <div data-testid={`domain-wizard-${targetId}`}>
+      {wizard.checkStatus === 'verified' ? (
+        <span data-testid={`domain-verified-badge-${targetId}`}>Verified</span>
+      ) : (
+        <>
+          <span data-testid={`domain-unverified-badge-${targetId}`}>Unverified</span>
+          <p data-testid={`domain-instructions-${targetId}`}>{wizard.instructions}</p>
+          <code data-testid={`domain-token-${targetId}`}>{wizard.token}</code>
+          <p>Expires: {new Date(wizard.expires_at).toLocaleString()}</p>
+          <button
+            type="button"
+            data-testid={`domain-verify-check-${targetId}`}
+            onClick={() => checkMutation.mutate()}
+            disabled={checkMutation.isPending}
+          >
+            {checkMutation.isPending ? 'Checking DNS...' : 'Check DNS Record'}
+          </button>
+          {wizard.checkStatus === 'pending' && (
+            <p data-testid={`domain-not-found-${targetId}`}>
+              TXT record not yet detected. Add the record and try again.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
 
 export const ProjectDetailPage = ({ projectId, onAssessmentClick, onCredentialsClick }: Props) => {
   const { data: projectData, isLoading: loadingProject } = useQuery({
@@ -55,7 +123,7 @@ export const ProjectDetailPage = ({ projectId, onAssessmentClick, onCredentialsC
           ))}
         </ul>
       )}
-      {onCredentialsClick && targets.length > 0 && (
+      {targets.length > 0 && (
         <>
           <h2>Targets</h2>
           <ul data-testid="target-list">
@@ -64,13 +132,16 @@ export const ProjectDetailPage = ({ projectId, onAssessmentClick, onCredentialsC
                 <span>
                   {t.kind}: {t.value}
                 </span>{' '}
-                <button
-                  type="button"
-                  data-testid={`credentials-btn-${t.id}`}
-                  onClick={() => onCredentialsClick(t.id)}
-                >
-                  Credentials
-                </button>
+                {t.kind === 'domain' && <DomainWizard targetId={t.id} />}
+                {onCredentialsClick && (
+                  <button
+                    type="button"
+                    data-testid={`credentials-btn-${t.id}`}
+                    onClick={() => onCredentialsClick(t.id)}
+                  >
+                    Credentials
+                  </button>
+                )}
               </li>
             ))}
           </ul>
