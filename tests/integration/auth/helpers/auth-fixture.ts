@@ -20,6 +20,7 @@ import {
   createPreAuthStore,
   createRateLimiter,
   resetPlatformTenantCache,
+  selfRegisterLimiter,
 } from '@cyberstrike/api';
 import { createBcryptHasher, createTotpVerifier } from '@cyberstrike/authz';
 import { buildRepositories } from '@cyberstrike/db';
@@ -298,6 +299,10 @@ export const resetAuthState = async (db: DbFixture['db']): Promise<void> => {
   // The platform-tenant row was just deleted; clear the cache so the next
   // lazy lookup re-creates it.
   resetPlatformTenantCache();
+  // S24: self-register has its own module-level rate limiter. Without clearing
+  // it between tests, the 6th attempt across the same Bun process trips a
+  // spurious 429.
+  selfRegisterLimiter.clear();
 };
 
 export const countAuditEvents = async (db: DbFixture['db']): Promise<number> => {

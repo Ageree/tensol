@@ -30,6 +30,14 @@ export const up = async (db: Kysely<any>): Promise<void> => {
       created_at      timestamptz NOT NULL DEFAULT now()
     )
   `.execute(db);
+
+  // P30 invariant (B23b): every JSONB column must carry a COMMENT with
+  // purpose=... and expected_size_bytes=... so future operators know what to
+  // expect and when to externalize. invoices.metadata holds free-form
+  // billing-stub metadata until real payment integration replaces this table.
+  await sql`COMMENT ON COLUMN invoices.metadata IS 'purpose=billing_stub_metadata; expected_size_bytes=512; if_larger=replace_with_real_payment_integration'`.execute(
+    db,
+  );
 };
 
 // biome-ignore lint/suspicious/noExplicitAny: Kysely migrations operate on the structural db handle.

@@ -20,6 +20,8 @@ export interface RateLimiter {
    */
   recordFailureAndCheck(key: string): { rejected: false } | { rejected: true; retryAfter: number };
   reset(key: string): void;
+  /** Clears every bucket. Used by integration test fixtures between cases. */
+  clear(): void;
 }
 
 export interface RateLimitConfig {
@@ -59,7 +61,10 @@ export const createRateLimiter = (config: RateLimitConfig): RateLimiter => {
   const reset = (key: string): void => {
     buckets.delete(key);
   };
-  return Object.freeze({ recordFailureAndCheck, reset });
+  const clear = (): void => {
+    buckets.clear();
+  };
+  return Object.freeze({ recordFailureAndCheck, reset, clear });
 };
 
 export const DEFAULT_LOGIN_RATE_LIMIT: RateLimitConfig = {

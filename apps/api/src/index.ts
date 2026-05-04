@@ -36,6 +36,7 @@ export {
 } from './middleware/rate-limit.ts';
 export { sessionMiddleware, type SessionEnv } from './middleware/session.ts';
 export { tenantGuard } from './middleware/tenant-guard.ts';
+export { selfRegisterLimiter } from './routes/auth/self-register.ts';
 export {
   PLATFORM_TENANT_SLUG,
   ensurePlatformTenantId,

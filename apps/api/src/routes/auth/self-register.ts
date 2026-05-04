@@ -27,7 +27,10 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // Dedicated rate limiter for self-register: keyed by source IP, counts all
 // attempts (both successful and failed registrations consume a slot).
-const selfRegisterLimiter = createRateLimiter({ maxFailures: 5, windowSeconds: 600 });
+// Exported so test fixtures can reset state between integration tests
+// (the limiter is a module-level singleton; without reset it accumulates
+// counts across tests in the same process and triggers spurious 429s).
+export const selfRegisterLimiter = createRateLimiter({ maxFailures: 5, windowSeconds: 600 });
 
 const buildSlug = (email: string): string => {
   const arr = new Uint8Array(4);
