@@ -1,9 +1,9 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { listAssessments } from '../api/assessments.ts';
 import { verifyCheck, verifyStart } from '../api/domains.ts';
 import { getProject } from '../api/projects.ts';
-import { listTargets } from '../api/targets.ts';
+import { createTarget, listTargets } from '../api/targets.ts';
 
 interface Props {
   projectId: string;
@@ -77,6 +77,43 @@ const DomainWizard = ({ targetId }: { targetId: string }) => {
   );
 };
 
+const AddTargetForm = ({ projectId }: { projectId: string }) => {
+  const qc = useQueryClient();
+  const [value, setValue] = useState('');
+  const mutation = useMutation({
+    mutationFn: (v: string) => createTarget(projectId, { kind: 'domain', value: v }),
+    onSuccess: () => {
+      setValue('');
+      qc.invalidateQueries({ queryKey: ['targets', projectId] });
+    },
+  });
+  return (
+    <form
+      data-testid="add-target-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (value.trim()) mutation.mutate(value.trim());
+      }}
+    >
+      <input
+        data-testid="add-target-input"
+        type="text"
+        placeholder="example.com"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+      />
+      <button type="submit" data-testid="add-target-submit" disabled={mutation.isPending}>
+        {mutation.isPending ? 'Adding...' : 'Add domain target'}
+      </button>
+      {mutation.isError && (
+        <p data-testid="add-target-error">
+          {mutation.error instanceof Error ? mutation.error.message : 'Failed to add target'}
+        </p>
+      )}
+    </form>
+  );
+};
+
 export const ProjectDetailPage = ({ projectId, onAssessmentClick, onCredentialsClick }: Props) => {
   const { data: projectData, isLoading: loadingProject } = useQuery({
     queryKey: ['project', projectId],
@@ -123,9 +160,10 @@ export const ProjectDetailPage = ({ projectId, onAssessmentClick, onCredentialsC
           ))}
         </ul>
       )}
+      <h2>Targets</h2>
+      <AddTargetForm projectId={projectId} />
       {targets.length > 0 && (
         <>
-          <h2>Targets</h2>
           <ul data-testid="target-list">
             {targets.map((t) => (
               <li key={t.id} data-testid={`target-item-${t.id}`}>

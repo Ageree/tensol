@@ -8,5 +8,17 @@ export interface Target {
   ownershipStatus: string;
 }
 
-export const listTargets = (projectId: string) =>
-  api.get<{ targets: Target[]; total: number }>(`/api/v1/projects/${projectId}/targets`);
+export const listTargets = async (
+  projectId: string,
+): Promise<{ targets: Target[]; total: number }> => {
+  const envelope = await api.get<{ data: Target[]; nextCursor: string | null }>(
+    `/api/v1/projects/${projectId}/targets`,
+  );
+  return { targets: envelope.data, total: envelope.data.length };
+};
+
+export const createTarget = async (
+  projectId: string,
+  data: { kind: string; value: string },
+): Promise<Target> =>
+  api.post<Target>(`/api/v1/projects/${projectId}/targets`, data);
