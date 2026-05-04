@@ -277,7 +277,7 @@ export const handleListScans = async (
     .execute();
 
   const items = rows.map((r) => {
-    const meta = (r.metadata as Record<string, unknown>) ?? {};
+    const meta = (r.metadata as { tier?: unknown } & Record<string, unknown>) ?? {};
     return {
       scan_id: r.id,
       state: r.state,
@@ -309,7 +309,7 @@ export const handleGetScan = async (deps: RouteDeps, c: Context<SessionEnv>): Pr
 
   if (!row) return c.json({ error: 'not_found' }, 404);
 
-  const meta = (row.metadata as Record<string, unknown>) ?? {};
+  const meta = (row.metadata as { tier?: unknown } & Record<string, unknown>) ?? {};
   return c.json({
     scan_id: row.id,
     state: row.state,

@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { type ScanDetail, type ScanProgress, getScan, getScanProgress } from '../api/scans.ts';
+import {
+  type ScanDetail,
+  type ScanProgress,
+  buildScanReport,
+  getScan,
+  getScanProgress,
+} from '../api/scans.ts';
 
 interface Props {
   scanId: string;
@@ -12,7 +18,21 @@ export const ScanProgressPage = ({ scanId, onBack, onFindingsClick, onReportClic
   const [scan, setScan] = useState<ScanDetail | null>(null);
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [buildingReport, setBuildingReport] = useState(false);
+  const [reportBuildError, setReportBuildError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const handleBuildReport = async () => {
+    setBuildingReport(true);
+    setReportBuildError(null);
+    try {
+      await buildScanReport(scanId);
+    } catch (err: unknown) {
+      setReportBuildError(err instanceof Error ? err.message : 'Failed to build report');
+    } finally {
+      setBuildingReport(false);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -56,6 +76,19 @@ export const ScanProgressPage = ({ scanId, onBack, onFindingsClick, onReportClic
         <button type="button" onClick={() => onReportClick(scanId)} data-testid="view-report-btn">
           View Report
         </button>
+      )}
+      <button
+        type="button"
+        onClick={handleBuildReport}
+        disabled={buildingReport}
+        data-testid="build-report-btn"
+      >
+        {buildingReport ? 'Building...' : 'Build Report'}
+      </button>
+      {reportBuildError && (
+        <p data-testid="build-report-error" style={{ color: 'red' }}>
+          {reportBuildError}
+        </p>
       )}
       <h1>Scan Progress</h1>
 

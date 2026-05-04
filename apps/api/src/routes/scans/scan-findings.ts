@@ -51,9 +51,11 @@ export const handleListScanFindings = async (
     .orderBy('created_at', 'desc')
     .execute();
 
+  const severityNorm = severity?.toLowerCase();
+  const kindNorm = kind?.toLowerCase();
   const filtered = allRows.filter((r) => {
-    if (severity && r.severity !== severity) return false;
-    if (kind && r.type !== kind) return false;
+    if (severityNorm && r.severity.toLowerCase() !== severityNorm) return false;
+    if (kindNorm && r.type.toLowerCase() !== kindNorm) return false;
     return true;
   });
 
@@ -93,10 +95,10 @@ export const handleScanReport = async (
   if (!parsed.success) return c.json({ error: 'not_found' }, 404);
   const scanId = parsed.data;
 
-  const format = c.req.param('format') as 'html' | 'pdf' | 'json' | 'zip';
-  if (!['html', 'pdf', 'json', 'zip'].includes(format)) {
-    return c.json({ error: 'invalid_format' }, 400);
-  }
+  const formatRaw = c.req.param('format');
+  const formatParsed = z.enum(['html', 'json', 'zip']).safeParse(formatRaw);
+  if (!formatParsed.success) return c.json({ error: 'invalid_format' }, 400);
+  const format = formatParsed.data;
 
   // Verify tenant ownership.
   const assessment = await deps.db
@@ -119,30 +121,25 @@ export const handleScanReport = async (
     .limit(1)
     .executeTakeFirst();
 
-  if (!report) return c.json({ error: 'report_not_ready' }, 404);
+  if (!report) return c.json({ error: 'report_not_ready' }, 409);
 
   if (!deps.objectStorage) return c.json({ error: 'object_storage_unavailable' }, 503);
 
-  let objectKey: string | null = null;
-  let contentType: string;
-  let disposition: string | null = null;
+  const objectKeyMap = {
+    html: report.object_key_html as string | null,
+    json: report.object_key_json as string | null,
+    zip: report.object_key_zip as string | null,
+  };
+  const contentTypeMap = {
+    html: 'text/html; charset=utf-8',
+    json: 'application/json',
+    zip: 'application/zip',
+  };
 
-  if (format === 'html') {
-    objectKey = report.object_key_html;
-    contentType = 'text/html; charset=utf-8';
-  } else if (format === 'json') {
-    objectKey = report.object_key_json;
-    contentType = 'application/json';
-  } else if (format === 'zip') {
-    objectKey = report.object_key_zip;
-    contentType = 'application/zip';
-    disposition = `attachment; filename="report-${scanId}.zip"`;
-  } else {
-    // pdf — use zip artifact with pdf content type
-    objectKey = report.object_key_zip;
-    contentType = 'application/pdf';
-    disposition = `attachment; filename="report-${scanId}.pdf"`;
-  }
+  const objectKey = objectKeyMap[format];
+  const contentType = contentTypeMap[format];
+  const disposition =
+    format !== 'html' ? `attachment; filename="report-${scanId}.${format}"` : null;
 
   if (!objectKey) return c.json({ error: 'report_artifact_missing' }, 500);
 
@@ -162,7 +159,7 @@ export const handleScanReport = async (
     actorId: actor.id,
     actorName: actor.email,
     resourceType: 'report',
-    resourceId: report.id,
+    resourceId: String(report.id),
     assessmentId: scanId,
     projectId: assessment.project_id ?? null,
     ip: sourceIp(c),

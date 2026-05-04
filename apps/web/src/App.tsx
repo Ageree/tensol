@@ -153,7 +153,7 @@ export const App = () => {
         <HistoryPage onScanClick={(id) => nav({ name: 'scan-progress', scanId: id })} />
       )}
       {route.name === 'settings' && (
-        <SettingsPage email={user.actor.email} role={user.actor.role} />
+        <SettingsPage email={user.actor.email} role={user.actor.role} onLogout={logout} />
       )}
     </div>
   );
