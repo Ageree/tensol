@@ -14,8 +14,8 @@ const throwingResolver = (): { resolveTxt: (h: string) => Promise<string[][]> } 
   },
 });
 
-const hangingResolver = (ms: number): { resolveTxt: (h: string) => Promise<string[][]> } => ({
-  resolveTxt: () => new Promise((resolve) => setTimeout(() => resolve([[TOKEN]]), ms)),
+const hangingResolver = (): { resolveTxt: (h: string) => Promise<string[][]> } => ({
+  resolveTxt: () => new Promise(() => { /* never resolves */ }),
 });
 
 describe('generateChallenge', () => {
@@ -71,8 +71,8 @@ describe('verify', () => {
     expect(result).toEqual({ ok: false, reason: 'dns_lookup_error' });
   });
 
-  it('resolver hangs > 5s → timeout', async () => {
-    const result = await verify(DOMAIN, TOKEN, { dnsResolver: hangingResolver(6_000) });
+  it('resolver hangs → timeout (50ms injected)', async () => {
+    const result = await verify(DOMAIN, TOKEN, { dnsResolver: hangingResolver(), timeoutMs: 50 });
     expect(result).toEqual({ ok: false, reason: 'timeout' });
-  }, 7_000);
+  });
 });

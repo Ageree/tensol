@@ -28,13 +28,15 @@ export const generateChallenge = (
   };
 };
 
-const DNS_TIMEOUT_MS = 5_000;
+export const DNS_TIMEOUT_MS = 5_000;
 
 export const verify = (
   domain: string,
   expectedToken: string,
-  deps: { dnsResolver: TxtDnsResolver },
+  deps: { dnsResolver: TxtDnsResolver; timeoutMs?: number },
 ): Promise<VerifierResult> => {
+  const ms = deps.timeoutMs ?? DNS_TIMEOUT_MS;
+
   const lookup = deps.dnsResolver
     .resolveTxt(`_tensol-verify.${domain}`)
     .then((records): VerifierResult => {
@@ -45,7 +47,7 @@ export const verify = (
     .catch((): VerifierResult => ({ ok: false, reason: 'dns_lookup_error' }));
 
   const timeout = new Promise<VerifierResult>((resolve) => {
-    setTimeout(() => resolve({ ok: false, reason: 'timeout' }), DNS_TIMEOUT_MS);
+    setTimeout(() => resolve({ ok: false, reason: 'timeout' }), ms);
   });
 
   return Promise.race([lookup, timeout]);
