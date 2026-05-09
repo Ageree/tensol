@@ -24,6 +24,7 @@
     { "path": "./packages/browser-auth" },
     { "path": "./packages/skill-library" },
     { "path": "./tests/lab/xss-fixture" },
-    { "path": "./tests/lab/auth-fixture" }
+    { "path": "./tests/lab/auth-fixture" },
+    { "path": "./services/scan-runner" }
   ]
 }
