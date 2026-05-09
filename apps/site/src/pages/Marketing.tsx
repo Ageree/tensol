@@ -848,6 +848,9 @@ export function MarketingPage({
       <RouteHead
         title="Tensol — AI-Powered Penetration Testing"
         description="AI will hack you in a few hours. Tensol runs the same agent on your side — under signed scope, in your audit log."
+        ogTitle="Tensol — AI-Powered Penetration Testing"
+        ogDescription="AI will hack you in a few hours. Tensol runs the same agent on your side — under signed scope, in your audit log."
+        ogImage="/assets/tensol-horse-red.svg"
       />
     <div
       data-screen-label="01 Marketing — landing"

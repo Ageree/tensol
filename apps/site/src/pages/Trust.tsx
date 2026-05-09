@@ -728,7 +728,13 @@ function TrustFooter() {
 export default function Trust(): ReactNode {
   return (
     <>
-      <RouteHead title="Trust & Compliance — Tensol" description="SOC 2-aligned controls, GDPR-ready data handling, and a full authorization chain for every engagement." />
+      <RouteHead
+        title="Trust & Compliance — Tensol"
+        description="SOC 2-aligned controls, GDPR-ready data handling, and a full authorization chain for every engagement."
+        ogTitle="Trust & Compliance — Tensol"
+        ogDescription="SOC 2-aligned controls, GDPR-ready data handling, and a full authorization chain for every engagement."
+        ogImage="/assets/tensol-horse-red.svg"
+      />
     <div
       data-screen-label="Trust — compliance"
       style={{

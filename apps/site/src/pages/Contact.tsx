@@ -216,7 +216,13 @@ export default function Contact() {
   /* ───── Layout ───── */
   return (
     <>
-      <RouteHead title="Contact — Tensol" description="Request a scoped penetration testing engagement. Tell us about your stack." />
+      <RouteHead
+        title="Contact — Tensol"
+        description="Request a scoped penetration testing engagement. Tell us about your stack."
+        ogTitle="Contact — Tensol"
+        ogDescription="Request a scoped penetration testing engagement. Tell us about your stack."
+        ogImage="/assets/tensol-horse-red.svg"
+      />
     <div
       style={{
         minHeight: '100vh',

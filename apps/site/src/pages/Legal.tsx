@@ -351,7 +351,11 @@ export default function Legal() {
   }
   return (
     <Fragment>
-      <RouteHead title={LEGAL_TITLES[kind] ?? 'Legal — Tensol'} />
+      <RouteHead
+        title={LEGAL_TITLES[kind] ?? 'Legal — Tensol'}
+        ogTitle={LEGAL_TITLES[kind] ?? 'Legal — Tensol'}
+        ogImage="/assets/tensol-horse-red.svg"
+      />
       <div
         data-screen-label={`legal-${kind}`}
         style={{

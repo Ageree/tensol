@@ -546,7 +546,13 @@ const pageStyle: CSSProperties = {
 export default function Pricing() {
   return (
     <>
-      <RouteHead title="Pricing — Tensol" description="No hourly billing. AI-powered penetration testing at a fixed engagement scope." />
+      <RouteHead
+        title="Pricing — Tensol"
+        description="No hourly billing. AI-powered penetration testing at a fixed engagement scope."
+        ogTitle="Pricing — Tensol"
+        ogDescription="No hourly billing. AI-powered penetration testing at a fixed engagement scope."
+        ogImage="/assets/tensol-horse-red.svg"
+      />
     <div data-screen-label="11 Pricing" style={pageStyle}>
       <PixelWaveBg />
       <div style={{ position: 'relative', zIndex: 1 }}>
