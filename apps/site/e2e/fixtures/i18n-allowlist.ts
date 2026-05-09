@@ -19,4 +19,7 @@ export const KNOWN_NATURAL_WORDS: ReadonlySet<string> = new Set([
   'compliance',  // appears in /trust compliance grid section headings
   'authz',       // appears in /approval page authorization labels
   'open',        // appears in /live live-event stream ("open", "open issue")
+  'back',        // appears as navigation button label ("← Back") on multiple routes
+  'next',        // appears as pagination/stepper label ("Next →") on /trust, /live, /findings
+  'copy',        // appears as action label ("Copy") on /legal/terms and /legal/dpa
 ]);

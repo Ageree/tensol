@@ -557,12 +557,10 @@ export default function Pricing() {
       <PixelWaveBg />
       <div style={{ position: 'relative', zIndex: 1 }}>
         <PricingNav />
-        <main>
-          <PricingHero />
-          <PricingPlans />
-          <PricingFaq />
-          <PricingCta />
-        </main>
+        <PricingHero />
+        <PricingPlans />
+        <PricingFaq />
+        <PricingCta />
         <PricingFooter />
       </div>
     </div>
