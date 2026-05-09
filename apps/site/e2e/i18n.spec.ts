@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { KNOWN_NATURAL_WORDS } from './fixtures/i18n-allowlist.ts';
 import { escapeRegex, i18nKeys } from './fixtures/i18n-keys.ts';
 import { switchLang } from './helpers/i18n.ts';
 
@@ -54,12 +55,9 @@ async function assertNoKeyLeaks(page: import('@playwright/test').Page): Promise<
   const bodyText = await page.locator('body').innerText();
   const leaks: string[] = [];
   for (const key of i18nKeys) {
-    // Skip short keys — single common English words like "data", "view", "contact"
-    // are valid i18n key names but also appear as real content. Min length 10
-    // ensures we only catch actual camelCase key names like "heroBlurb", "pillarsEyebrow".
-    if (typeof key !== 'string' || key.length < 10) continue;
-    // Only flag camelCase keys — real i18n key leaks are always camelCase
-    if (!/[a-z][A-Z]/.test(key)) continue;
+    if (typeof key !== 'string' || key.length < 3) continue;
+    // Skip keys that are known natural words appearing as real rendered content.
+    if (KNOWN_NATURAL_WORDS.has(key)) continue;
     const re = new RegExp(`\\b${escapeRegex(key)}\\b`);
     if (re.test(bodyText)) {
       leaks.push(key);
@@ -70,7 +68,7 @@ async function assertNoKeyLeaks(page: import('@playwright/test').Page): Promise<
 
 test.describe('i18n — no key leaks on any route', () => {
   for (const route of ALL_ROUTES) {
-    test(`${route} — en and ru both clean`, async ({ page }) => {
+    test(`${route} — en and ru both clean`, { timeout: 60000 }, async ({ page }) => {
       const hub = hubFor(route);
 
       // Switch to EN via hub
