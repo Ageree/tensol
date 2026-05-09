@@ -5,7 +5,7 @@
 
 ---
 
-## TL;DR
+## 1. TL;DR
 
 - **What Decepticon is:** An open-source autonomous red-team agent (Apache-2.0) built on LangGraph Platform. It orchestrates 16 specialist AI sub-agents across the full attack kill chain — reconnaissance through post-exploitation and reporting — running every tool inside an isolated Kali Linux Docker sandbox with a Sliver C2 server and Neo4j attack graph.
 
@@ -15,7 +15,7 @@
 
 ---
 
-## Repo Overview
+## 2. Repo Overview
 
 | Field | Value |
 |---|---|
@@ -38,7 +38,7 @@
 
 ---
 
-## Architecture
+## 3. Architecture
 
 ### Service topology (from `docker-compose.yaml`)
 
@@ -108,7 +108,7 @@ The bash tool (`decepticon/tools/bash/bash.py`) is a thin wrapper around `Docker
 
 ---
 
-## Integration Surface — Three Concrete Options
+## 4. Integration Surface — Three Concrete Options
 
 ### Option A: CLI invocation (spawn `decepticon` subprocess)
 
@@ -196,7 +196,7 @@ This bypasses the full docker-compose stack and runs only the `langgraph` image.
 
 ---
 
-## Resource Needs
+## 5. Resource Needs
 
 Per scan, based on `docker-compose.yaml` resource declarations and mempalace Sprint 12 install diary (wing=`cyberstrike-hybrid`, source: `user-feedback-stack-too-heavy-lighten-next-time.md`, 2026-04-29):
 
@@ -219,7 +219,7 @@ Per scan, based on `docker-compose.yaml` resource declarations and mempalace Spr
 
 ---
 
-## Cost Estimation
+## 6. Cost Estimation
 
 ### LLM tokens per scan
 
@@ -256,7 +256,7 @@ Hetzner CPX31 (production minimum):
 
 ---
 
-## License & Legal — Apache-2.0 Obligations
+## 7. License & Legal — Apache-2.0 Obligations
 
 Decepticon is licensed under [Apache License 2.0](https://github.com/PurpleAILAB/Decepticon/blob/main/LICENSE). Key obligations for Tensol's SaaS use:
 
@@ -287,7 +287,7 @@ Apache-2.0 has no SaaS/network-use clause. Tensol can run Decepticon as a hosted
 
 ---
 
-## Existing Tensol Integration Audit
+## 8. Existing Tensol Integration Audit
 
 ### File inventory (`packages/decepticon-adapter/src/`)
 
@@ -321,7 +321,7 @@ The Sprint 2 `services/scan-runner/` package implements exactly this outer layer
 
 ---
 
-## Open Questions for Human Decision
+## 9. Open Questions for Human Decision
 
 The following five decisions must be made before productionising the VPS-spawn flow. Each has a recommendation from the generator.
 
@@ -360,7 +360,7 @@ The following five decisions must be made before productionising the VPS-spawn f
 
 ---
 
-## Risks
+## 10. Risks
 
 1. **License-change risk.** Decepticon is Apache-2.0 today. PurpleAILAB could re-license future versions (e.g., to a commercial source-available license like BSL or SSPL). Mitigation: pin to a specific tag; evaluate each version bump for license changes; consider forking at the current Apache-2.0 commit as a fallback if re-licensing happens.
 
@@ -378,7 +378,7 @@ The following five decisions must be made before productionising the VPS-spawn f
 
 ---
 
-## Citations
+## 11. Citations
 
 - Decepticon repo metadata (stars, forks, last push, license) — `gh api repos/PurpleAILAB/Decepticon` (fetched 2026-05-09)
 - Decepticon latest tag `v1.0.24` and last commit `c95a534` — https://github.com/PurpleAILAB/Decepticon/commits/main
@@ -399,3 +399,8 @@ The following five decisions must be made before productionising the VPS-spawn f
 - Tensol egress isolation decision (Strategy A → C, User-Agent mandatory, no rotating pool) — `/Users/saveliy/.claude/projects/-Users-saveliy-Documents-----------/memory/project_tensol_egress_isolation_decision_2026-05-09.md`
 - `packages/decepticon-adapter/src/types.ts:134-142` (DecepticonAdapter interface verbatim) — `/Users/saveliy/Documents/пентест ИИ/packages/decepticon-adapter/src/types.ts`
 - `packages/queue/src/types.ts` (ENVELOPE_KINDS, QueueAdapter interface) — `/Users/saveliy/Documents/пентест ИИ/packages/queue/src/types.ts`
+- Decepticon `decepticon/tools/research/scanner_tools.py` (heuristic source-sink scoring, shard-based parallel scan, nmap/nuclei/ffuf invocations) — https://github.com/PurpleAILAB/Decepticon/blob/main/decepticon/tools/research/scanner_tools.py
+- Decepticon `decepticon/agents/` directory (16 agent graph entry points confirmed: decepticon, soundwave, recon, scanner, exploit, exploiter, detector, verifier, patcher, postexploit, ad_operator, cloud_hunter, reverser, contract_auditor, analyst, vulnresearch) — https://github.com/PurpleAILAB/Decepticon/tree/main/decepticon/agents
+- Decepticon `clients/launcher/main.go` (Go launcher entry point, docker compose up --wait orchestration) — https://github.com/PurpleAILAB/Decepticon/blob/main/clients/launcher/main.go
+- Tensol `packages/decepticon-adapter/src/select.ts` (DECEPTICON_ADAPTER env selector, fake/real switch, fail-fast on unknown values) — `/Users/saveliy/Documents/пентест ИИ/packages/decepticon-adapter/src/select.ts`
+- Tensol `packages/decepticon-adapter/src/fake.ts` (FakeDecepticonAdapter, fixture-driven, randomUUID/clockIso/sleep seams) — `/Users/saveliy/Documents/пентест ИИ/packages/decepticon-adapter/src/fake.ts`
