@@ -36,7 +36,7 @@ const baseEnvelope = {
 };
 
 describe('contracts :: AuditAction (A3)', () => {
-  test('AUDIT_ACTIONS is the exhaustive set (S26: 93 post-S25 + 3 scan/billing = 96)', () => {
+  test('AUDIT_ACTIONS is the exhaustive set (S27: 96 post-S26 + 5 auth_proof.* = 101)', () => {
     const expected = [
       'auth.register',
       'auth.login.password',
@@ -159,10 +159,16 @@ describe('contracts :: AuditAction (A3)', () => {
       'scan.launched',
       'billing.checkout.completed',
       'billing.subscription.cancelled',
+      // S27 target authorization proof.
+      'auth_proof.start',
+      'auth_proof.verify.success',
+      'auth_proof.verify.failure',
+      'auth_proof.email.sent',
+      'auth_proof.email_link.replay',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // S26: 93 post-S25 + 3 (scan.launched, billing.*) = 96.
-    expect(AUDIT_ACTIONS.length).toBe(96);
+    // S27: 96 post-S26 + 5 (auth_proof.*) = 101.
+    expect(AUDIT_ACTIONS.length).toBe(101);
   });
 
   test('zod rejects unknown action', () => {
