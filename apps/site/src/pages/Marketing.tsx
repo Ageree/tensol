@@ -864,14 +864,16 @@ export function MarketingPage({
       <PixelWaveBg />
       <div style={{ position: 'relative', zIndex: 1 }}>
         <MarketingNav onSignIn={onSignIn} onDemo={onDemo} />
-        <MarketingHero onDemo={onDemo} monoRatio={monoRatio} />
-        <MarketingPillars redUsage={redUsage} />
-        <MarketingNotScanner />
-        <MarketingPipeline />
-        <MarketingProof />
-        <MarketingMiniBlock eyebrow={t.supplyEyebrow} title={t.supplyTitle} blurb={t.supplyBlurb} />
-        <MarketingBoundary />
-        <MarketingCta onDemo={onDemo} onSignIn={onSignIn} />
+        <main>
+          <MarketingHero onDemo={onDemo} monoRatio={monoRatio} />
+          <MarketingPillars redUsage={redUsage} />
+          <MarketingNotScanner />
+          <MarketingPipeline />
+          <MarketingProof />
+          <MarketingMiniBlock eyebrow={t.supplyEyebrow} title={t.supplyTitle} blurb={t.supplyBlurb} />
+          <MarketingBoundary />
+          <MarketingCta onDemo={onDemo} onSignIn={onSignIn} />
+        </main>
         <MarketingFooter />
       </div>
     </div>

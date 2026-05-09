@@ -748,13 +748,15 @@ export default function Trust(): ReactNode {
       <PixelWaveBg />
       <div style={{ position: 'relative', zIndex: 1 }}>
         <TrustNav />
-        <TrustHero />
-        <TrustCompliance />
-        <TrustAuthorization />
-        <TrustData />
-        <TrustBoundary />
-        <TrustDocuments />
-        <TrustCta />
+        <main>
+          <TrustHero />
+          <TrustCompliance />
+          <TrustAuthorization />
+          <TrustData />
+          <TrustBoundary />
+          <TrustDocuments />
+          <TrustCta />
+        </main>
         <TrustFooter />
       </div>
     </div>
