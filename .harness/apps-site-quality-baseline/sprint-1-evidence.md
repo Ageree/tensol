@@ -119,6 +119,7 @@ apps/site/e2e/global-setup.ts
 apps/site/e2e/global-teardown.ts
 apps/site/e2e/fixtures/routes.ts
 apps/site/e2e/fixtures/i18n-keys.ts
+apps/site/e2e/fixtures/i18n-allowlist.ts
 apps/site/e2e/helpers/dev-server.ts
 apps/site/e2e/helpers/console.ts
 apps/site/e2e/helpers/i18n.ts
@@ -156,8 +157,14 @@ git diff --name-only apps/site/src/components/PixelWaveBg.tsx \
 
 ## i18n key-leak detector note
 
-Keys shorter than 10 chars or without a camelCase transition (`[a-z][A-Z]`) are excluded from
-leak detection. This avoids false positives on short common English words (`data`, `privacy`,
-`contact`, `submit`, `view`, `terms`) that are valid i18n key names but also appear as real
-body text on several pages. Only proper camelCase key names like `heroBlurb`, `pillarsEyebrow`,
-`notScannerTitle` are checked — those can't appear as incidental English text.
+Filter in `e2e/i18n.spec.ts:57-60` (rev-1 implementation):
+- Skip keys shorter than 3 chars (locale codes `en`/`ru` are in the allowlist anyway)
+- Skip keys present in `KNOWN_NATURAL_WORDS` (explicit allowlist in `e2e/fixtures/i18n-allowlist.ts`)
+- Apply `\b<key>\b` word-boundary regex to `body.innerText` for all remaining keys
+
+The allowlist (`i18n-allowlist.ts`) contains 18 entries empirically verified by running the suite
+and triaging which key matches were false positives. Each entry has a 1-line comment explaining
+why it appears as real rendered content (e.g. `compliance` appears in the /trust compliance grid).
+
+Files created includes:
+- `apps/site/e2e/fixtures/i18n-allowlist.ts` (added at rev-1 patch, commit 763b298)
