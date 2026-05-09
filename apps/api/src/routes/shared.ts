@@ -23,6 +23,8 @@ import type { SessionEnv } from '../middleware/session.ts';
 import type { PreAuthStore } from '../pre-auth-tokens.ts';
 import type { SessionRepo } from '../session-repo.ts';
 import type { TxtDnsResolver } from './domains/domain-verify.ts';
+import type { HttpFetcher } from './targets/authorize/file-upload-verifier.ts';
+import type { Mailer, TokenStore, WhoisClient } from './targets/authorize/whois-verifier.ts';
 
 export interface RouteDeps {
   readonly config: AuthApiConfig;
@@ -36,6 +38,11 @@ export interface RouteDeps {
   readonly dnsResolver: TxtDnsResolver;
   readonly nowMs?: () => number;
   readonly objectStorage?: ObjectStorage;
+  readonly httpFetcher?: HttpFetcher;
+  readonly whoisClient?: WhoisClient;
+  readonly mailer?: Mailer;
+  readonly tokenStore?: TokenStore;
+  readonly publicBaseUrl?: string;
 }
 
 /** Canonical 401 body — Sprint 3 C22. */

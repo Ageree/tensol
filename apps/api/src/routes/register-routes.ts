@@ -39,6 +39,12 @@ import { handleRegister } from './auth/register.ts';
 import { handleSelfRegister } from './auth/self-register.ts';
 import { handleBillingCheckout, handleGetSubscription } from './billing/billing.ts';
 import { handleVerifyCheck, handleVerifyStart } from './domains/domain-verify.ts';
+import {
+  handleAuthorizeStart,
+  handleAuthorizeStatus,
+  handleAuthorizeVerify,
+  handleEmailConfirm,
+} from './targets/authorize/routes.ts';
 import { handleGetEvidence, handleListFindingEvidence } from './evidence/evidence.ts';
 import {
   handleGetFinding,
@@ -208,6 +214,21 @@ export const registerRoutes = (app: Hono<SessionEnv>, deps: RouteDeps): void => 
   // S25 — domain ownership verification via DNS-TXT.
   app.post('/api/v1/domains/verify/start', tenantGuard(), (c) => handleVerifyStart(deps, c));
   app.get('/api/v1/domains/verify/check', tenantGuard(), (c) => handleVerifyCheck(deps, c));
+
+  // Workstream-C — target authorization proof (dns_txt / file_upload / whois_email).
+  app.post('/api/v1/targets/:targetId/authorize/start', tenantGuard(), (c) =>
+    handleAuthorizeStart(deps, c),
+  );
+  app.post('/api/v1/targets/:targetId/authorize/verify', tenantGuard(), (c) =>
+    handleAuthorizeVerify(deps, c),
+  );
+  app.get('/api/v1/targets/:targetId/authorize/status', tenantGuard(), (c) =>
+    handleAuthorizeStatus(deps, c),
+  );
+  // email-confirm is unauthenticated — token is the proof of possession.
+  app.get('/api/v1/targets/:targetId/authorize/email-confirm', (c) =>
+    handleEmailConfirm(deps, c),
+  );
 
   // S26 — scan launch + live progress. POST /scans creates + runs state machine
   // in one request; idem prevents duplicate assessment rows on retry (R6/§5.7).

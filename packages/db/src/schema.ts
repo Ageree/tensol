@@ -475,6 +475,26 @@ export interface ApiTokensTable {
   created_at: DbDefault<Date>;
 }
 
+// =============== S27 target_authorizations (mig 026) ===============
+
+export interface TargetAuthorizationsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  target_id: string;
+  method: string; // CHECK ('dns_txt'|'file_upload'|'whois_email')
+  token_hash: string; // sha256(token_plaintext), char(64)
+  token_plaintext: string | null;
+  email_recipient: string | null;
+  status: DbDefault<string>; // CHECK ('pending'|'verified'|'failed'|'expired'), default 'pending'
+  verified_at: Date | null;
+  consumed_at: Date | null;
+  expires_at: DbDefault<Date>;
+  attempt_count: DbDefault<number>;
+  last_error: string | null;
+  created_at: DbDefault<Date>;
+  updated_at: DbDefault<Date>;
+}
+
 // =============== aggregate Database type ===============
 
 export interface Database {
@@ -509,6 +529,7 @@ export interface Database {
   invoices: InvoicesTable;
   domain_verifications: DomainVerificationsTable;
   api_tokens: ApiTokensTable;
+  target_authorizations: TargetAuthorizationsTable;
 }
 
 // Used by tests (B3) to assert every table key is present.
@@ -544,6 +565,7 @@ export const ALL_TABLE_NAMES: ReadonlyArray<keyof Database> = [
   'invoices',
   'domain_verifications',
   'api_tokens',
+  'target_authorizations',
 ] as const;
 
 export const APPEND_ONLY_TABLES: ReadonlyArray<keyof Database> = [

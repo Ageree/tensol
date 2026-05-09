@@ -43,3 +43,6 @@ export {
   resetPlatformTenantCache,
 } from './routes/shared.ts';
 export type { TxtDnsResolver } from './routes/domains/domain-verify.ts';
+export type { AuthMethod } from './routes/targets/authorize/types.ts';
+export type { HttpFetcher } from './routes/targets/authorize/file-upload-verifier.ts';
+export type { Mailer, TokenStore, WhoisClient } from './routes/targets/authorize/whois-verifier.ts';

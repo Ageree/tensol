@@ -160,6 +160,12 @@ export const AUDIT_ACTIONS = [
   'scan.launched',
   'billing.checkout.completed',
   'billing.subscription.cancelled',
+  // S27 target authorization proof.
+  'auth_proof.start',
+  'auth_proof.verify.success',
+  'auth_proof.verify.failure',
+  'auth_proof.email.sent',
+  'auth_proof.email_link.replay',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

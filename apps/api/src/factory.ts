@@ -24,6 +24,10 @@ import type { PreAuthStore } from './pre-auth-tokens.ts';
 import type { TxtDnsResolver } from './routes/domains/domain-verify.ts';
 import { registerRoutes } from './routes/register-routes.ts';
 import { ensurePlatformTenantId } from './routes/shared.ts';
+import { NodeHttpFetcher } from './routes/targets/authorize/http-fetcher.ts';
+import { LoggingMailer, SmtpMailer } from './routes/targets/authorize/mailer.ts';
+import { createDbTokenStore } from './routes/targets/authorize/token-store.ts';
+import { NodeWhoisClient } from './routes/targets/authorize/whois-client.ts';
 import { SessionRepo } from './session-repo.ts';
 
 export interface AppOptions {
@@ -168,6 +172,11 @@ export const createApp = (options: AppOptions) => {
     rateLimiter: options.rateLimiter,
     sessionRepo,
     dnsResolver: options.dnsResolver ?? { resolveTxt: dnsPromises.resolveTxt.bind(dnsPromises) },
+    httpFetcher: new NodeHttpFetcher(),
+    whoisClient: new NodeWhoisClient(),
+    mailer: SmtpMailer.fromEnv() ?? new LoggingMailer(),
+    tokenStore: createDbTokenStore(options.db),
+    publicBaseUrl: process.env['PUBLIC_BASE_URL'] ?? 'http://localhost:3000',
     ...(options.objectStorage !== undefined ? { objectStorage: options.objectStorage } : {}),
   };
   registerRoutes(app, routeDeps);
