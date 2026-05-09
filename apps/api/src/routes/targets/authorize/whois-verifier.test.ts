@@ -14,7 +14,8 @@ const throwingWhois = (): WhoisClient => ({
 
 describe('lookupRegistrantEmail', () => {
   it('registrant found — returns email', async () => {
-    const raw = 'Domain: example.com\nRegistrant Email: owner@example.com\nAdmin Email: admin@example.com';
+    const raw =
+      'Domain: example.com\nRegistrant Email: owner@example.com\nAdmin Email: admin@example.com';
     const result = await lookupRegistrantEmail('example.com', { whoisClient: mockWhois(raw) });
     expect(result).toEqual({ email: 'owner@example.com' });
   });
@@ -80,9 +81,11 @@ describe('sendVerificationEmail', () => {
     );
     expect(result).toEqual({ messageId: 'msg-123' });
     expect(sent.length).toBe(1);
-    expect(sent[0]!.to).toBe('owner@example.com');
-    expect(sent[0]!.textBody).toContain('tok123');
-    expect(sent[0]!.textBody).toContain('/api/v1/targets/target-id/authorize/email-confirm?token=tok123');
+    expect(sent[0]?.to).toBe('owner@example.com');
+    expect(sent[0]?.textBody).toContain('tok123');
+    expect(sent[0]?.textBody).toContain(
+      '/api/v1/targets/target-id/authorize/email-confirm?token=tok123',
+    );
   });
 
   it('mailer rejection bubbles up', async () => {
@@ -93,7 +96,14 @@ describe('sendVerificationEmail', () => {
     };
     await expect(
       sendVerificationEmail(
-        { email: 'x@x.com', token: 't', targetId: 'tid', projectId: 'pid', baseUrl: 'https://b', traceId: 'tr' },
+        {
+          email: 'x@x.com',
+          token: 't',
+          targetId: 'tid',
+          projectId: 'pid',
+          baseUrl: 'https://b',
+          traceId: 'tr',
+        },
         { mailer },
       ),
     ).rejects.toThrow('SMTP down');
@@ -109,7 +119,9 @@ describe('verify (token store)', () => {
     const calls: string[] = [];
     const store: TokenStore = {
       findByPlaintext: async () => row,
-      markVerified: async (id) => { calls.push(id); },
+      markVerified: async (id) => {
+        calls.push(id);
+      },
     };
     return { store, calls };
   };

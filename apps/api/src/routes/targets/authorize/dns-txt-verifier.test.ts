@@ -15,7 +15,10 @@ const throwingResolver = (): { resolveTxt: (h: string) => Promise<string[][]> } 
 });
 
 const hangingResolver = (): { resolveTxt: (h: string) => Promise<string[][]> } => ({
-  resolveTxt: () => new Promise(() => { /* never resolves */ }),
+  resolveTxt: () =>
+    new Promise(() => {
+      /* never resolves */
+    }),
 });
 
 describe('generateChallenge', () => {

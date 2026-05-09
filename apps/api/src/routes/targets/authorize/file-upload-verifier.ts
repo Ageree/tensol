@@ -25,7 +25,7 @@ const randomHex32 = (): string => {
 
 export const generateChallenge = (
   _targetId: string,
-  originUrl: string,
+  _originUrl: string,
   randomBytes: () => string = randomHex32,
 ): { token: string; urlPath: string; expectedBody: string } => {
   const hex = randomBytes();

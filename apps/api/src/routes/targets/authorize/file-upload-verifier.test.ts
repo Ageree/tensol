@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import type { HttpFetchResult, HttpFetcher } from './file-upload-verifier.ts';
 import { FILE_TOKEN_PREFIX, generateChallenge, verify } from './file-upload-verifier.ts';
 
@@ -28,18 +28,9 @@ const largBodyReader = (bytes: number): ReadableStreamDefaultReader<Uint8Array> 
   return stream.getReader();
 };
 
-const makeFetcher = (result: HttpFetchResult): { httpFetcher: HttpFetcher; callCount: number } => {
-  let callCount = 0;
-  const httpFetcher: HttpFetcher = {
-    fetch: async (_url, _init) => {
-      callCount++;
-      return result;
-    },
-  };
-  return { httpFetcher, callCount: 0 };
-};
-
-const mockFetcher = (result: HttpFetchResult): { httpFetcher: HttpFetcher; spy: { calls: number } } => {
+const mockFetcher = (
+  result: HttpFetchResult,
+): { httpFetcher: HttpFetcher; spy: { calls: number } } => {
   const spy = { calls: 0 };
   const httpFetcher: HttpFetcher = {
     fetch: async (_url, _init) => {
@@ -73,7 +64,11 @@ describe('verify', () => {
   });
 
   it('non-https rejected before any fetch call', async () => {
-    const { httpFetcher, spy } = mockFetcher({ status: 200, headers: new Headers(), bodyReader: null });
+    const { httpFetcher, spy } = mockFetcher({
+      status: 200,
+      headers: new Headers(),
+      bodyReader: null,
+    });
     const result = await verify('http://example.com', TOKEN, { httpFetcher });
     expect(result).toEqual({ ok: false, reason: 'non_https' });
     expect(spy.calls).toBe(0);
@@ -121,7 +116,9 @@ describe('verify', () => {
     const abortErr = new Error('aborted');
     abortErr.name = 'AbortError';
     const httpFetcher: HttpFetcher = {
-      fetch: async () => { throw abortErr; },
+      fetch: async () => {
+        throw abortErr;
+      },
     };
     const result = await verify(ORIGIN, TOKEN, { httpFetcher });
     expect(result).toEqual({ ok: false, reason: 'timeout' });
@@ -129,7 +126,9 @@ describe('verify', () => {
 
   it('arbitrary fetch error → fetch_error', async () => {
     const httpFetcher: HttpFetcher = {
-      fetch: async () => { throw new Error('network down'); },
+      fetch: async () => {
+        throw new Error('network down');
+      },
     };
     const result = await verify(ORIGIN, TOKEN, { httpFetcher });
     expect(result).toEqual({ ok: false, reason: 'fetch_error' });
