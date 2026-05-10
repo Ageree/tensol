@@ -23,3 +23,7 @@ coverage/
 .gitnexus
 external/
 .playwright-mcp/
+
+# Playwright build artifacts
+playwright-report/
+test-results/
