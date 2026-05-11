@@ -5,20 +5,38 @@
 // this file is the only one in the platform that imports `node:dns/promises`
 // for production resolution.
 
-import { resolve4, resolve6 } from 'node:dns/promises';
+import { lookup, resolve4, resolve6 } from 'node:dns/promises';
 import type { DnsResolver } from '@cyberstrike/scope-engine';
 
 const onErr = async <T>(p: Promise<T[]>): Promise<T[]> => p.catch(() => [] as T[]);
 
 /**
- * Production DNS resolver — consults the system resolver via `node:dns`.
- * Errors are swallowed and return `[]` so a `NXDOMAIN` doesn't escape into the
- * engine's normalization layer; the engine's deny-by-default posture handles
- * the empty IP list correctly.
+ * 2026-05-12 — fallback path. Some host configurations (notably macOS with
+ * managed/VPN profiles) leave the `dns.resolve*` raw-resolver path broken
+ * (ECONNREFUSED on the configured DNS server) while `dns.lookup`/getaddrinfo
+ * still resolves via mDNS or OS-level. We try `resolve4`/`resolve6` first
+ * (faster, can return ALL records) and fall back to `lookup` when the raw
+ * resolver path returns empty — this keeps prod behaviour identical on
+ * properly-configured Linux servers while letting dev work on broken macOS.
  */
+const lookupAll = async (host: string, family: 4 | 6): Promise<string[]> => {
+  try {
+    const rows = await lookup(host, { all: true, family });
+    return rows.map((r) => r.address);
+  } catch {
+    return [];
+  }
+};
+
 export const nodeDnsResolver: DnsResolver = {
-  resolveA: async (host) => onErr(resolve4(host)),
-  resolveAAAA: async (host) => onErr(resolve6(host)),
+  resolveA: async (host) => {
+    const direct = await onErr(resolve4(host));
+    return direct.length > 0 ? direct : lookupAll(host, 4);
+  },
+  resolveAAAA: async (host) => {
+    const direct = await onErr(resolve6(host));
+    return direct.length > 0 ? direct : lookupAll(host, 6);
+  },
 };
 
 /**

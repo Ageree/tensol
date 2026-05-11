@@ -48,5 +48,26 @@ export function tierToScopeRules(tier: ScanTier, targetDomains: string[]): Stric
     matchSubdomains: true,
   }));
 
-  return [...toolRules, ...domainRules];
+  // EE-3 (2026-05-12) — minimum protocol/port/method allow set so the
+  // coordinator's targetToActionInput (http_request method=GET) passes the
+  // scope-engine gate. Without these the engine returns no_matching_allow_rule
+  // for any HTTP probe even when the domain is allow-listed. Matches the
+  // shape used by tests/integration/decepticon/helpers.ts:allowExampleComScopeRules.
+  const protocolRules: StrictScopeRule[] = [
+    { ruleKind: 'protocol' as const, effect: 'allow' as const, protocol: 'https' },
+    { ruleKind: 'protocol' as const, effect: 'allow' as const, protocol: 'http' },
+  ];
+  const portRules: StrictScopeRule[] = [
+    { ruleKind: 'port' as const, effect: 'allow' as const, port: 443 },
+    { ruleKind: 'port' as const, effect: 'allow' as const, port: 80 },
+  ];
+  const methodRules: StrictScopeRule[] = (['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const).map(
+    (method) => ({
+      ruleKind: 'http_method' as const,
+      effect: 'allow' as const,
+      method,
+    }),
+  );
+
+  return [...toolRules, ...domainRules, ...protocolRules, ...portRules, ...methodRules];
 }
