@@ -237,6 +237,16 @@ export class RealDecepticonAdapter implements DecepticonAdapter {
     const candidateQueue = createAsyncQueue<CandidateFinding>();
     const abortController = new AbortController();
 
+    // KNOWN BUG (2026-05-12 second-smoke #4): Decepticon's `decepticon`
+    // assistant is HITL — after parsing OPPLAN it presents a Proposal and
+    // waits for a human "approve" reply before any exploit phase. Tried
+    // appending a pre-approval INSTRUCTION text here in scan-5; result was
+    // WORSE — Decepticon hung silently for 15 min (langgraph 0.46% CPU,
+    // 0 LLM calls), wallclock fix #3 had to force-close. Reverted that
+    // attempt. Proper fix is a state-machine adapter: after sending OPPLAN,
+    // poll thread state, detect "OPPLAN Proposal" pattern in last AI msg,
+    // fire a second human message via `runs.create` on the same thread.
+    // Scoped as a follow-up workstream — see project_tensol_second_smoke.
     const initialMessage = {
       messages: [
         {
@@ -351,9 +361,40 @@ export class RealDecepticonAdapter implements DecepticonAdapter {
         signal: state.abortController.signal,
       });
 
-      for await (const chunk of stream) {
-        if (state.abortController.signal.aborted) break;
-        this.dispatchChunk(state, chunk);
+      // 2026-05-12 second-smoke fix: some LangGraph platform SDK versions
+      // don't close the SSE iterator after the run reaches terminal status —
+      // the for-await hangs forever and the assessment is stuck `running` on
+      // our side. Wrap the chunk loop in a wallclock race so we eventually
+      // close the queues even if the upstream iterator is leaky. Tunable
+      // via DECEPTICON_STREAM_MAX_MS (default 15 min).
+      const streamMaxMs =
+        Number(
+          (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[
+            'DECEPTICON_STREAM_MAX_MS'
+          ],
+        ) || 15 * 60 * 1000;
+
+      const consumeChunks = async (): Promise<void> => {
+        for await (const chunk of stream) {
+          if (state.abortController.signal.aborted) break;
+          this.dispatchChunk(state, chunk);
+        }
+      };
+
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+      const wallclock = new Promise<'wallclock'>((resolve) => {
+        timeoutHandle = setTimeout(() => resolve('wallclock'), streamMaxMs);
+      });
+
+      const result = await Promise.race([consumeChunks().then(() => 'stream-end' as const), wallclock]);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      if (result === 'wallclock' && !state.abortController.signal.aborted) {
+        // Best-effort cancel on the upstream so we stop the actual run too.
+        try {
+          state.abortController.abort();
+        } catch {
+          /* noop */
+        }
       }
 
       if (!state.finalStatus) {
@@ -362,6 +403,7 @@ export class RealDecepticonAdapter implements DecepticonAdapter {
           sessionId: state.sessionId,
           status: 'completed',
           occurredAt: new Date().toISOString(),
+          ...(result === 'wallclock' ? { detail: { reason: 'stream_wallclock_close' } } : {}),
         });
       }
     } finally {

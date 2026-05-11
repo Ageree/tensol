@@ -40,6 +40,8 @@ export interface DecepticonRunnerInput {
   readonly scope: EffectiveScope;
   readonly traceId: string;
   readonly parentEnvelope: JobEnvelope;
+  /** 2026-05-12 — drives engagement profile in OPPLAN. */
+  readonly tier?: 'light' | 'medium' | 'aggressive';
 }
 
 export interface DecepticonRunnerResult {
@@ -182,6 +184,18 @@ export const handleAssessmentStart = async (
   // marked the assessment as `failed` and emitted audits; we surface a
   // terminal nack so the queue stops retrying.
   if (deps.decepticonRunner) {
+    // 2026-05-12 — pull tier from the assessment row so OPPLAN engagement
+    // matches what the user requested at scan-launch. Without this the
+    // runner defaults to 'recon-only' regardless of tier (smoke-2 bug).
+    const assessmentRow = await deps.db
+      .selectFrom('assessments')
+      .select(['metadata'])
+      .where('id', '=', envelope.assessmentId)
+      .where('tenant_id', '=', envelope.tenantId)
+      .executeTakeFirst();
+    const meta =
+      (assessmentRow?.metadata as { tier?: 'light' | 'medium' | 'aggressive' } | null) ?? null;
+    const tier = meta?.tier;
     const runResult = await deps.decepticonRunner({
       tenantId: envelope.tenantId,
       projectId: envelope.projectId ?? null,
@@ -189,6 +203,7 @@ export const handleAssessmentStart = async (
       scope,
       traceId: envelope.traceId,
       parentEnvelope: envelope,
+      ...(tier ? { tier } : {}),
     });
     if (runResult.status === 'failed') {
       return {

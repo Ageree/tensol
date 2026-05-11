@@ -55,6 +55,8 @@ export const createDecepticonRunner = (
         ...(deps.randomUUID ? { randomUUID: deps.randomUUID } : {}),
         ...(deps.clockIso ? { clockIso: deps.clockIso } : {}),
       },
-      input,
+      // 2026-05-12 — input already carries tier when coordinator passes it
+      // (StartDecepticonInput.tier is optional). The cast preserves the type.
+      input as Parameters<typeof startDecepticonSession>[1],
     );
 };

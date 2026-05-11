@@ -115,6 +115,9 @@ export interface StartDecepticonInput {
   readonly triggerRecon?: boolean;
   /** Sprint 21 — primary domain for recon; required when triggerRecon is true. */
   readonly primaryDomain?: string;
+  /** 2026-05-12 — drives engagementProfile/foothold/postExploit in OPPLAN.
+   *  When omitted, defaults to 'recon-only' (back-compat with legacy callers). */
+  readonly tier?: 'light' | 'medium' | 'aggressive';
 }
 
 export interface StartDecepticonResult {
@@ -173,6 +176,37 @@ const summariseRule = (r: NormalizedRule): string => {
   }
 };
 
+/**
+ * 2026-05-12 second-smoke bug fix: opplan-engagement profile is now derived
+ * from `input.tier` instead of hardcoded `'recon-only'`. Without this,
+ * Decepticon always defaulted to recon-only and never emitted candidates,
+ * regardless of model or target richness.
+ *
+ * Tier semantics:
+ *   light       → 'recon-only'      (discovery + cataloguing; no exploit)
+ *   medium      → 'recon-and-exploit' (recon + web-app probes; no foothold)
+ *   aggressive  → 'recon-and-exploit' + foothold=true + postExploit=true
+ *                  (full chain construction; XBOW-style)
+ */
+const engagementForTier = (tier: 'light' | 'medium' | 'aggressive' | undefined) => {
+  switch (tier) {
+    case 'aggressive':
+      return {
+        engagementProfile: 'recon-and-exploit',
+        foothold: true,
+        postExploit: true,
+      };
+    case 'medium':
+      return {
+        engagementProfile: 'recon-and-exploit',
+        foothold: false,
+        postExploit: false,
+      };
+    default:
+      return { engagementProfile: 'recon-only', foothold: false, postExploit: false };
+  }
+};
+
 const buildOpplan = (input: StartDecepticonInput): Opplan => {
   const targetValues = [...input.scope.allowRules]
     .filter(
@@ -189,6 +223,7 @@ const buildOpplan = (input: StartDecepticonInput): Opplan => {
   for (const policy of input.scope.toolCatalog.values()) {
     allowedTools.push(policy.toolName);
   }
+  const engagement = engagementForTier(input.tier);
   return {
     assessmentId: input.assessmentId,
     targets: targetValues.length > 0 ? targetValues : ['unspecified'],
@@ -200,9 +235,9 @@ const buildOpplan = (input: StartDecepticonInput): Opplan => {
     },
     allowedTools,
     unavailableTools: [],
-    engagementProfile: 'recon-only',
-    foothold: false,
-    postExploit: false,
+    engagementProfile: engagement.engagementProfile,
+    foothold: engagement.foothold,
+    postExploit: engagement.postExploit,
     c2: false,
     ad: false,
   };
