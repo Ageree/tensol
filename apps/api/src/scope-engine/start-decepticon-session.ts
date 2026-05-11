@@ -54,6 +54,35 @@ import { sql } from 'kysely';
 
 const COORDINATOR_ACTOR_ID: ServiceActorId = 'coordinator';
 
+// EE-3.B (2026-05-12) — MVP cost cap.
+// Generous default (100k actions per scan) sized for XBOW-scale deep
+// engagements where a quality scan may emit tens of thousands of audit
+// rows across recon → exploit → reporting phases. A runaway loop hits this
+// in ~minutes; legitimate scans don't. Tuneable via `SCAN_ACTION_CAP` env.
+// No wallclock timeout by design: long deep scans must not be killed by
+// time, only by action volume.
+const DEFAULT_ACTION_CAP = 100_000;
+const getActionCap = (): number => {
+  // noPropertyAccessFromIndexSignature requires bracket-access on process.env.
+  const raw = (process.env as Record<string, string | undefined>)['SCAN_ACTION_CAP'];
+  const n = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_ACTION_CAP;
+};
+
+const countAuditEventsForAssessment = async (
+  db: Kysely<Database>,
+  tenantId: string,
+  assessmentId: string,
+): Promise<number> => {
+  const row = await db
+    .selectFrom('audit_events')
+    .where('tenant_id', '=', tenantId)
+    .where('assessment_id', '=', assessmentId)
+    .select((eb) => eb.fn.countAll<string>().as('count'))
+    .executeTakeFirstOrThrow();
+  return Number(row.count);
+};
+
 export interface StartDecepticonDeps {
   readonly db: Kysely<Database>;
   readonly adapter: DecepticonAdapter;
@@ -347,7 +376,64 @@ export const startDecepticonSession = async (
   // backward-compat is preserved — but real production paths MUST supply deps.
   const effectiveScopeDeps: EngineDeps | null = deps.scopeDeps ?? null;
   const candidateFindingIds: string[] = [];
+  // EE-3.B — read cap once at start of stream drain; tests stub env per-call.
+  const actionCap = getActionCap();
   for await (const candidate of deps.adapter.streamCandidates(sessionHandle.sessionId)) {
+    // EE-3.B — MVP cost cap. Count all audit rows attributed to this assessment;
+    // if the total has reached the cap, halt the Decepticon session, mark the
+    // assessment failed with reason='action_cap_exceeded', emit a dedicated
+    // audit row, and return early. No wallclock — only action volume.
+    const currentActionCount = await countAuditEventsForAssessment(
+      deps.db,
+      input.tenantId,
+      input.assessmentId,
+    );
+    if (currentActionCount >= actionCap) {
+      try {
+        await deps.adapter.stop(sessionHandle.sessionId);
+      } catch {
+        // Best-effort halt; if adapter.stop throws (already terminated etc.)
+        // we still proceed to mark assessment failed locally.
+      }
+      await deps.db
+        .updateTable('decepticon_sessions')
+        .set({
+          status: 'failed',
+          completed_at: sql`now()`,
+          updated_at: sql`now()`,
+        })
+        .where('tenant_id', '=', input.tenantId)
+        .where('id', '=', sessionHandle.sessionId)
+        .execute();
+      await emitSignedAudit(deps.db, {
+        tenantId: input.tenantId,
+        action: 'assessment.action_cap_exceeded',
+        outcome: 'failure',
+        actorType: 'service',
+        actorId: COORDINATOR_ACTOR_ID,
+        actorName: 'coordinator',
+        resourceType: 'assessment',
+        resourceId: input.assessmentId,
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+        assessmentId: input.assessmentId,
+        ip: 'coordinator',
+        userAgent: null,
+        traceId: input.traceId,
+        metadata: {
+          sessionId: sessionHandle.sessionId,
+          actionCount: currentActionCount,
+          actionCap,
+        },
+      });
+      await markAssessmentFailed(deps, input, 'action_cap_exceeded');
+      return {
+        sessionId: sessionHandle.sessionId,
+        opplanArtifactId,
+        candidateFindingIds,
+        status: 'failed',
+        failureReason: 'action_cap_exceeded',
+      };
+    }
     // P1-A (codex fix): per-candidate scope gate. Real and compromised adapters
     // can emit any affectedUrl; we must decide() BEFORE persisting or publishing.
     if (effectiveScopeDeps !== null) {

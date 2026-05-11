@@ -69,6 +69,8 @@ describe('contracts :: AuditAction (A3)', () => {
       'assessment.cancelled',
       // EE-1 (2026-05-12) — success-path terminal transition.
       'assessment.completed',
+      // EE-3.B (2026-05-12) — MVP cost cap: action-count quota exceeded → scan halt.
+      'assessment.action_cap_exceeded',
       // Sprint 5 — assessment deny (R8 testing-window gate).
       'assessment.start.denied',
       // Sprint 6 — scope engine deny event (A-SE-Audit-1).
@@ -169,8 +171,8 @@ describe('contracts :: AuditAction (A3)', () => {
       'auth_proof.email_link.replay',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // EE-1: 101 post-S27 + 1 (assessment.completed) = 102.
-    expect(AUDIT_ACTIONS.length).toBe(102);
+    // EE-3.B: 102 post-EE-1 + 1 (assessment.action_cap_exceeded) = 103.
+    expect(AUDIT_ACTIONS.length).toBe(103);
   });
 
   test('zod rejects unknown action', () => {
