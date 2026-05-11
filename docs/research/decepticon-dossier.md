@@ -345,11 +345,13 @@ The following five decisions must be made before productionising the VPS-spawn f
    - *Rationale:* Decepticon's Postgres is ephemeral — it dies when the VPS is destroyed. Before destroy, the scan-runner must copy `langgraph_thread_id`, OPPLAN snapshot, and final transcript to our `decepticon_sessions` table. Our table becomes the durable record; Decepticon's Postgres is the operational scratchpad.
 
 4. **LLM provider** — Which provider(s) to use for Decepticon's agents?
-   - Option A: DeepSeek-only (currently working per mempalace `decepticon-deepseek-hack-mapping-runbook.md` — ~$0.50/scan)
-   - Option B: Anthropic Opus + DeepSeek tier mix (eco profile — ~$30-40/scan, premium quality)
-   - Option C: OpenRouter unified (flexibility, one API key)
-   - **Option A recommended for MVP** ← upgrade to Anthropic-tier (Option B eco profile) for Enterprise SKU
-   - *Rationale:* $0.50/scan allows aggressive pricing during early customer acquisition. The DeepSeek hack (`models.py` patch + litellm config) is already documented in mempalace and battle-tested. Anthropic eco profile adds 60x cost but also substantially higher finding quality for enterprise clients who pay accordingly.
+   - Option A: DeepSeek-only (~$0.50/scan, well-documented `models.py` patch)
+   - Option B: Anthropic Opus + DeepSeek tier mix (eco profile — ~$30-40/scan)
+   - **Option C (CHOSEN 2026-05-12): GPT-5.5 as primary** — single provider via OpenAI API. ~$300–800/scan at 50k actions. Drops the DeepSeek hack entirely.
+   - Option D: OpenRouter unified (flexibility, one API key) — deferred.
+   - *Rationale (Option C):* XBOW's Mythos-like evaluation (Q1 2026) put GPT-5.5 in XBOW-zone for autonomous pentest reasoning — DeepSeek doesn't reach that bar even with aggressive prompting. Tensol's $1.5k–$3.5k pricing tiers absorb the cost: Premium ($3.5k) sees ~80% gross margin even at $500 LLM + $50 VPS per scan. RU-compliance angle (OpenAI processes data in US) is **explicitly deprioritised** until the first compliance-sensitive customer — at that point we'd add a regional model option (YandexGPT / hybrid) rather than fall back to DeepSeek.
+   - *Operational change:* set `OPENAI_API_KEY` + `DECEPTICON_LLM_PROVIDER=openai` + `DECEPTICON_MODEL=gpt-5.5` in Decepticon's docker-compose env. Zero Tensol code changes — provider is opaque to `RealDecepticonAdapter`.
+   - *Future revisit:* hybrid (DS for recon/reporting + GPT-5.5 for exploit reasoning) becomes attractive once we see real per-scan token distributions. Recorded as EE-4 candidate.
 
 5. **Cold-start UX** — How to handle the 30-60s VPS boot time?
    - Option A: Accept the wait visibly (progress spinner: "Provisioning scan environment...")
