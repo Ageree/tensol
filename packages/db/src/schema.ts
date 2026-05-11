@@ -25,6 +25,9 @@ interface TenantsTable {
   name: string;
   slug: string;
   status: string; // CHECK ('active'|'suspended'|'archived')
+  // EE-2 (2026-05-12) — per-tenant HMAC-SHA256 audit-signing key (256-bit).
+  // bytea in PG; surfaces as Buffer/Uint8Array via pg driver.
+  audit_key: DbDefault<Buffer>;
   created_at: DbDefault<Date>;
   updated_at: DbDefault<Date>;
 }
@@ -344,6 +347,9 @@ export interface AuditEventsTable {
   trace_id: string;
   occurred_at: DbDefault<Date>;
   created_at: DbDefault<Date>;
+  // EE-2 (2026-05-12) — HMAC-SHA256 (base64url) over canonical audit message.
+  // Nullable to permit historical (pre-EE-2) rows; new rows always populate.
+  signature: string | null;
 }
 
 interface LlmAuditEventsTable {

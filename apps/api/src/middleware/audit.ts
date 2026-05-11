@@ -13,4 +13,6 @@ export {
   type AuditOutcome,
   type EmitAuditArgs,
   emitAudit,
+  // EE-2 (2026-05-12) — signed-audit convenience wrapper.
+  emitSignedAudit,
 } from '@cyberstrike/audit';

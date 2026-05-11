@@ -32,7 +32,7 @@
 //   - Tenant isolation: every row carries tenant_id; adapter sessions are
 //     keyed by sessionId and never share state across tenants.
 
-import { emitAudit } from '@cyberstrike/audit';
+import { emitSignedAudit } from "@cyberstrike/audit";
 import type { ServiceActorId } from '@cyberstrike/contracts';
 import type { Database } from '@cyberstrike/db';
 import {
@@ -261,9 +261,7 @@ export const startDecepticonSession = async (
     .execute();
 
   // 6. Emit started audit.
-  await emitAudit(
-    { db: deps.db },
-    {
+  await emitSignedAudit(deps.db, {
       tenantId: input.tenantId,
       action: 'decepticon.session.started',
       outcome: 'success',
@@ -310,9 +308,7 @@ export const startDecepticonSession = async (
       .where('id', '=', sessionHandle.sessionId)
       .execute();
 
-    await emitAudit(
-      { db: deps.db },
-      {
+    await emitSignedAudit(deps.db, {
         tenantId: input.tenantId,
         action: 'decepticon.session.failed',
         outcome: 'failure',
@@ -369,9 +365,7 @@ export const startDecepticonSession = async (
         // metadata is spread into after_state (a Json object) by emitAudit;
         // Kysely handles JSONB serialization natively — no pre-stringify needed.
         // ruleIds is an array; emitAudit spreads it into the after_state object.
-        await emitAudit(
-          { db: deps.db },
-          {
+        await emitSignedAudit(deps.db, {
             tenantId: input.tenantId,
             action: 'decepticon.candidate.denied',
             outcome: 'denied',
@@ -523,9 +517,7 @@ export const startDecepticonSession = async (
     //   command string and never sees surrounding query params.
     if (candidate.type === 'rce') {
       if (!candidate.affectedUrl.includes('<TOKEN>')) {
-        await emitAudit(
-          { db: deps.db },
-          {
+        await emitSignedAudit(deps.db, {
             tenantId: input.tenantId,
             action: 'validator.rce.replay_denied',
             outcome: 'denied',
@@ -574,9 +566,7 @@ export const startDecepticonSession = async (
       await deps.queueAdapter.publish(rceEnvelope);
     }
 
-    await emitAudit(
-      { db: deps.db },
-      {
+    await emitSignedAudit(deps.db, {
         tenantId: input.tenantId,
         action: 'decepticon.candidate.observed',
         outcome: 'success',
@@ -611,9 +601,7 @@ export const startDecepticonSession = async (
     .where('id', '=', sessionHandle.sessionId)
     .execute();
 
-  await emitAudit(
-    { db: deps.db },
-    {
+  await emitSignedAudit(deps.db, {
       tenantId: input.tenantId,
       action: 'decepticon.session.completed',
       outcome: 'success',
@@ -648,9 +636,7 @@ export const startDecepticonSession = async (
     .where('tenant_id', '=', input.tenantId)
     .where('id', '=', input.assessmentId)
     .execute();
-  await emitAudit(
-    { db: deps.db },
-    {
+  await emitSignedAudit(deps.db, {
       tenantId: input.tenantId,
       action: 'assessment.completed',
       outcome: 'success',
@@ -720,9 +706,7 @@ const markAssessmentFailed = async (
     .where('tenant_id', '=', input.tenantId)
     .where('id', '=', input.assessmentId)
     .execute();
-  await emitAudit(
-    { db: deps.db },
-    {
+  await emitSignedAudit(deps.db, {
       tenantId: input.tenantId,
       action: 'assessment.failed',
       outcome: 'failure',

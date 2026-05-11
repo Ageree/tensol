@@ -63,6 +63,24 @@ export const handleLaunchScan = async (
     .where('id', 'in', targetIds)
     .execute();
 
+  // EE-2 (2026-05-12) — auth-proof gate. If a target has any target_authorizations
+  // rows, the NEW Workstream C verifier path supersedes the legacy
+  // targets.ownership_status flag. Legacy single-method targets (no auth_proof
+  // rows at all) keep working via the original ownership_status fallback for
+  // backward-compat with S25 domain_verifications flow.
+  const authProofRows = await deps.db
+    .selectFrom('target_authorizations')
+    .select(['target_id', 'status'])
+    .where('tenant_id', '=', actor.tenantId)
+    .where('target_id', 'in', targetIds)
+    .execute();
+  const authProofByTarget = new Map<string, Array<{ status: string }>>();
+  for (const row of authProofRows) {
+    const arr = authProofByTarget.get(row.target_id) ?? [];
+    arr.push({ status: row.status });
+    authProofByTarget.set(row.target_id, arr);
+  }
+
   const targetMap = new Map(targetRows.map((t) => [t.id, t]));
   for (const tid of targetIds) {
     const t = targetMap.get(tid);
@@ -73,7 +91,15 @@ export const handleLaunchScan = async (
     if (t.project_id !== projectId) {
       return c.json({ error: 'invalid_targets', details: { targetId: tid } }, 422);
     }
-    if (t.ownership_status !== 'verified') {
+    const proofs = authProofByTarget.get(tid);
+    if (proofs !== undefined && proofs.length > 0) {
+      // EE-2 NEW path active for this target — require at least one verified row.
+      const hasVerified = proofs.some((p) => p.status === 'verified');
+      if (!hasVerified) {
+        return c.json({ error: 'target_auth_proof_required', target_id: tid }, 422);
+      }
+    } else if (t.ownership_status !== 'verified') {
+      // Legacy single-method path (S25 domain_verifications via targets.ownership_status).
       return c.json({ error: 'target_unverified', target_id: tid }, 422);
     }
   }

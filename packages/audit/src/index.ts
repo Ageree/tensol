@@ -19,13 +19,18 @@ export {
   serviceActorIdSchema,
 } from './envelope.ts';
 
-// Writer (A6).
+// Writer (A6) + EE-2 HMAC signing surface.
 export {
   type AuditDeps,
+  type AuditSigner,
   type EmitAuditArgs,
   type TelemetryEmit,
+  buildCanonicalAuditMessage,
   emitAudit,
+  hmacSign,
+  verifyAuditSignature,
 } from './writer.ts';
+export { createDbAuditSigner, emitSignedAudit } from './signer.ts';
 
 // Deny (A7).
 export { type DenyAction, type DenyAuditArgs, type DenyOutcome, denyAudit } from './deny.ts';

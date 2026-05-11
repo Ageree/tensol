@@ -12,7 +12,7 @@
 //   6. Return ack/nack.
 
 import { isIP } from 'node:net';
-import { emitAudit } from '@cyberstrike/audit';
+import { emitSignedAudit } from "@cyberstrike/audit";
 import type { ScopeActionInput } from '@cyberstrike/contracts';
 import type { Database } from '@cyberstrike/db';
 import { type HandlerOutcome, type JobEnvelope, ScopeDenyError } from '@cyberstrike/queue';
@@ -235,9 +235,7 @@ const markFailedAndNack = async (
     .execute();
 
   const traceId = envelope.traceId;
-  await emitAudit(
-    { db: deps.db },
-    {
+  await emitSignedAudit(deps.db, {
       tenantId: envelope.tenantId,
       action: 'scope.validate.denied',
       outcome: 'denied',
@@ -259,9 +257,7 @@ const markFailedAndNack = async (
       },
     },
   );
-  await emitAudit(
-    { db: deps.db },
-    {
+  await emitSignedAudit(deps.db, {
       tenantId: envelope.tenantId,
       action: 'assessment.failed',
       outcome: 'failure',

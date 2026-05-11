@@ -11,7 +11,15 @@
 //   - NEVER blocks, retries, or rethrows.
 //   - SENTRY_DSN unset → telemetry call skipped.
 //   - SENTRY_DSN set + mocked SDK throws → audit row still written.
+//
+// EE-2 (2026-05-12) — HMAC-SHA256 audit signing.
+//   - Optional `signer` in deps; when provided, every emitted row carries a
+//     base64url-encoded HMAC over the canonical message.
+//   - signer:null path keeps unit-test mocks (writer.test.ts) compatible.
+//   - Production wires signer via apps/api/src/routes/shared.ts using the
+//     per-tenant audit_key from tenants table (mig 027).
 
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { AuditAction, AuditOutcome, ServiceActorId } from '@cyberstrike/contracts';
 import type { Database } from '@cyberstrike/db';
 import type { Kysely } from 'kysely';
@@ -51,11 +59,71 @@ export type TelemetryEmit = (args: {
   tenantId: string;
 }) => void | Promise<void>;
 
+/**
+ * EE-2 — pluggable audit signer. Production wires a real HMAC-SHA256 signer
+ * over per-tenant audit_key. Unit tests omit signer; signature column stays
+ * null (acceptable for unit-level — production paths MUST inject signer).
+ */
+export interface AuditSigner {
+  /** Returns base64url HMAC-SHA256 over canonicalMessage, or null to skip. */
+  readonly sign: (tenantId: string, canonicalMessage: string) => Promise<string | null>;
+}
+
 interface InternalDeps extends AuditDeps {
   readonly telemetry?: TelemetryEmit | undefined;
   /** Test seam — overrides the SENTRY_DSN env check. */
   readonly sentryEnabled?: boolean | undefined;
+  /** EE-2 — optional HMAC signer. Null → signature column stays null. */
+  readonly signer?: AuditSigner | undefined;
 }
+
+const canonicaliseMetadata = (m: Record<string, unknown> | undefined): string => {
+  if (!m || Object.keys(m).length === 0) return '{}';
+  const sortedKeys = Object.keys(m).sort();
+  const sorted: Record<string, unknown> = {};
+  for (const k of sortedKeys) sorted[k] = m[k];
+  return JSON.stringify(sorted);
+};
+
+/**
+ * EE-2 — canonical audit message for HMAC. Pipe-delimited to keep zero
+ * ambiguity (no field contains an unescaped `|` because UUIDs, ISO dates,
+ * and known enum values exclude it; metadata is JSON-serialised so internal
+ * pipes are escaped). Include only fields an adversary could meaningfully
+ * tamper with to forge evidence.
+ */
+export const buildCanonicalAuditMessage = (
+  args: EmitAuditArgs,
+  occurredAtIso: string,
+): string =>
+  [
+    args.tenantId,
+    args.action,
+    args.outcome,
+    args.actorType,
+    args.actorId,
+    args.actorName,
+    args.resourceType,
+    args.resourceId ?? '',
+    args.projectId ?? '',
+    args.assessmentId ?? '',
+    args.traceId,
+    occurredAtIso,
+    canonicaliseMetadata(args.metadata),
+  ].join('|');
+
+/** EE-2 — HMAC-SHA256 in base64url. */
+export const hmacSign = (key: Buffer, msg: string): string =>
+  createHmac('sha256', key).update(msg, 'utf8').digest('base64url');
+
+/** EE-2 — constant-time signature verification. */
+export const verifyAuditSignature = (key: Buffer, canonical: string, sig: string): boolean => {
+  const computed = hmacSign(key, canonical);
+  const a = Buffer.from(computed);
+  const b = Buffer.from(sig);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+};
 
 const sentryEnabledByEnv = (): boolean => {
   // Destructuring sidesteps `noPropertyAccessFromIndexSignature` (TS strict)
@@ -66,6 +134,28 @@ const sentryEnabledByEnv = (): boolean => {
 };
 
 export const emitAudit = async (deps: InternalDeps, args: EmitAuditArgs): Promise<void> => {
+  // EE-2 — compute occurredAt up front so canonical message and DB row agree.
+  // Without explicit occurred_at the DB sets now() and signature would race.
+  const occurredAtIso = new Date().toISOString();
+  let signature: string | null = null;
+  if (deps.signer) {
+    const canonical = buildCanonicalAuditMessage(args, occurredAtIso);
+    try {
+      signature = await deps.signer.sign(args.tenantId, canonical);
+    } catch (err) {
+      // Auditability invariant (A8 NQ-A): never silently drop a row when
+      // signing fails — log loudly, write the row unsigned (signature stays
+      // null) so the chain isn't broken; an operator can re-sign later.
+      console.warn(
+        JSON.stringify({
+          event: 'audit_signing_failure',
+          traceId: args.traceId,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+  }
+
   await deps.db
     .insertInto('audit_events')
     .values({
@@ -83,6 +173,8 @@ export const emitAudit = async (deps: InternalDeps, args: EmitAuditArgs): Promis
       ip: args.ip ?? null,
       user_agent: args.userAgent ?? null,
       trace_id: args.traceId,
+      occurred_at: new Date(occurredAtIso),
+      signature,
     })
     .execute();
 

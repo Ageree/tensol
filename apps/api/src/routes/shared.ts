@@ -17,7 +17,7 @@ import type { Context } from 'hono';
 import type { Kysely } from 'kysely';
 import type { AuthApiConfig } from '../config.ts';
 import type { EmitAuditArgs } from '../middleware/audit.ts';
-import { emitAudit } from '../middleware/audit.ts';
+import { emitSignedAudit } from '../middleware/audit.ts';
 import type { RateLimiter } from '../middleware/rate-limit.ts';
 import type { SessionEnv } from '../middleware/session.ts';
 import type { PreAuthStore } from '../pre-auth-tokens.ts';
@@ -69,9 +69,10 @@ export const sourceIp = (c: Context<SessionEnv>): string => {
 export const userAgent = (c: Context<SessionEnv>): string | null =>
   c.req.header('user-agent') ?? null;
 
-/** Audit-emission wrapper: every state-changing route calls this exactly once. */
+/** Audit-emission wrapper: every state-changing route calls this exactly once.
+ * EE-2 (2026-05-12) — signs every row via per-tenant HMAC-SHA256 key. */
 export const audit = async (deps: Pick<RouteDeps, 'db'>, args: EmitAuditArgs): Promise<void> => {
-  await emitAudit({ db: deps.db }, args);
+  await emitSignedAudit(deps.db, args);
 };
 
 /**
