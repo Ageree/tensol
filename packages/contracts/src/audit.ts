@@ -58,7 +58,7 @@ export const AUDIT_ACTIONS = [
   'target.updated',
   'target.deleted',
   'target.ownership_proof.submitted',
-  // Sprint 5 — assessments success (8).
+  // Sprint 5 — assessments success (8) + EE-1 completion transition (1).
   'assessment.created',
   'assessment.updated',
   'assessment.submitted',
@@ -67,6 +67,8 @@ export const AUDIT_ACTIONS = [
   'assessment.paused',
   'assessment.resumed',
   'assessment.cancelled',
+  // EE-1 (2026-05-12) — success-path terminal transition.
+  'assessment.completed',
   // Sprint 5 — assessment deny (R8 testing-window gate).
   'assessment.start.denied',
   // Sprint 6 — scope engine deny event (A-SE-Audit-1).

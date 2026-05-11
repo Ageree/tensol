@@ -205,6 +205,17 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(actions).toContain('decepticon.candidate.observed');
       expect(actions).not.toContain('decepticon.session.failed');
       expect(actions).not.toContain('assessment.failed');
+      // EE-1 (2026-05-12) — Bugs B + C verified: assessment terminal transition + audit row.
+      expect(actions).toContain('assessment.completed');
+
+      // EE-1 Bug B — assessment.state must reach 'completed' on success.
+      const finalAssessment = await fx.db
+        .selectFrom('assessments')
+        .select(['state'])
+        .where('tenant_id', '=', tenantId)
+        .where('id', '=', assessmentId)
+        .executeTakeFirstOrThrow();
+      expect(finalAssessment.state).toBe('completed');
 
       // Sprint 23 F: decepticon.findings queue kind removed; validate.finding published instead.
       const childJobs = await fx.db

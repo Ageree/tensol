@@ -58,7 +58,7 @@ describe('contracts :: AuditAction (A3)', () => {
       'target.updated',
       'target.deleted',
       'target.ownership_proof.submitted',
-      // Sprint 5 — assessments success (8).
+      // Sprint 5 — assessments success (8) + EE-1 completion transition (1).
       'assessment.created',
       'assessment.updated',
       'assessment.submitted',
@@ -67,6 +67,8 @@ describe('contracts :: AuditAction (A3)', () => {
       'assessment.paused',
       'assessment.resumed',
       'assessment.cancelled',
+      // EE-1 (2026-05-12) — success-path terminal transition.
+      'assessment.completed',
       // Sprint 5 — assessment deny (R8 testing-window gate).
       'assessment.start.denied',
       // Sprint 6 — scope engine deny event (A-SE-Audit-1).
@@ -167,8 +169,8 @@ describe('contracts :: AuditAction (A3)', () => {
       'auth_proof.email_link.replay',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // S27: 96 post-S26 + 5 (auth_proof.*) = 101.
-    expect(AUDIT_ACTIONS.length).toBe(101);
+    // EE-1: 101 post-S27 + 1 (assessment.completed) = 102.
+    expect(AUDIT_ACTIONS.length).toBe(102);
   });
 
   test('zod rejects unknown action', () => {

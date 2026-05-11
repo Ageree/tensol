@@ -634,6 +634,44 @@ export const startDecepticonSession = async (
     },
   );
 
+  // EE-1 (2026-05-12) — assessment terminal transition: running → completed.
+  // Mirror of markAssessmentFailed but on success-path. Without this update,
+  // assessments stay in 'running' forever after a successful Decepticon session
+  // (root cause Bug B from runtime-readiness-2026-05-12).
+  await deps.db
+    .updateTable('assessments')
+    .set({
+      state: 'completed',
+      version: sql`version + 1`,
+      updated_at: sql`now()`,
+    })
+    .where('tenant_id', '=', input.tenantId)
+    .where('id', '=', input.assessmentId)
+    .execute();
+  await emitAudit(
+    { db: deps.db },
+    {
+      tenantId: input.tenantId,
+      action: 'assessment.completed',
+      outcome: 'success',
+      actorType: 'service',
+      actorId: COORDINATOR_ACTOR_ID,
+      actorName: 'coordinator',
+      resourceType: 'assessment',
+      resourceId: input.assessmentId,
+      ...(input.projectId ? { projectId: input.projectId } : {}),
+      assessmentId: input.assessmentId,
+      ip: 'coordinator',
+      userAgent: null,
+      traceId: input.traceId,
+      metadata: {
+        sessionId: sessionHandle.sessionId,
+        opplanArtifactId,
+        candidateCount: candidateFindingIds.length,
+      },
+    },
+  );
+
   // Sprint 21 (C3) — additive recon dispatch. Skipped silently when triggerRecon is falsy,
   // primaryDomain is absent, or projectId is null (null projectId fails schema validation).
   if (input.triggerRecon && input.primaryDomain && input.projectId) {
