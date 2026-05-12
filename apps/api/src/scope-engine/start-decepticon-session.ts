@@ -47,6 +47,7 @@ import {
   type DecepticonWorkspaceFinding,
   extractWorkspaceFindings,
 } from './decepticon-workspace.ts';
+import { type KgValidatedFinding, queryValidatedFindings } from './decepticon-kg.ts';
 import type { JobEnvelope, QueueAdapter } from '@cyberstrike/queue';
 import {
   type EffectiveScope,
@@ -721,12 +722,12 @@ export const startDecepticonSession = async (
         '',
         'Stop when there are no more unvalidated VULNERABILITY nodes. Do NOT scan or attack targets outside the engagement scope listed in the OPPLAN below.',
         '',
-        `OPPLAN\n\n${JSON.stringify(input.opplan, null, 2)}`,
+        `OPPLAN\n\n${JSON.stringify(opplan, null, 2)}`,
       ].join('\n');
 
       const verifierHandle = await deps.adapter.start({
         tenantId: input.tenantId,
-        opplan: input.opplan,
+        opplan,
         assistantId: 'verifier',
         initialMessage: verifierInitialMessage,
       });
@@ -808,6 +809,135 @@ export const startDecepticonSession = async (
     }
   }
 
+  // 8.8. Promote verifier-validated findings to the `findings` table
+  // (Phase 3.1 sub-commit 3 — 2026-05-12).
+  //
+  // The verifier agent (dispatched in step 8.7) wrote FINDING nodes to
+  // Neo4j with [:VALIDATES]->VULNERABILITY edges for every bug it
+  // confirmed. Pull those back via the HTTP API, match each to a Tensol
+  // candidate_finding by affected_url substring heuristic, and INSERT
+  // into `findings` with high confidence + ZFP validator_log.
+  //
+  // The `findings` table has a UNIQUE constraint on
+  // created_from_candidate_id — a candidate can only be promoted ONCE.
+  // We use ON CONFLICT DO NOTHING so a second verifier pass (rare but
+  // possible if the operator re-runs) does not throw.
+  //
+  // Best-effort: any error promotes 0 rows and continues. The parent
+  // assessment still completes successfully — verifier-driven promotion
+  // is an enrichment layer on top of candidate_findings, not a hard gate.
+  let promotedFindingCount = 0;
+  let kgFindingTotal = 0;
+  if (verifierEnabled && haveSomethingToValidate) {
+    try {
+      const sessionStartedAtUnixSeconds = Math.floor(
+        new Date(sessionStartedAtIso).getTime() / 1000,
+      );
+      const kgFindings: KgValidatedFinding[] = await queryValidatedFindings({
+        sinceUnixSeconds: sessionStartedAtUnixSeconds,
+      });
+      kgFindingTotal = kgFindings.length;
+      if (kgFindings.length > 0) {
+        // Load all UNPROMOTED candidates for this assessment. A candidate
+        // is "unpromoted" when no row in `findings` references it via
+        // created_from_candidate_id. Done in a single query so the inner
+        // match loop is O(N*M) over RAM only.
+        const unpromotedCandidates = await deps.db
+          .selectFrom('candidate_findings')
+          .leftJoin('findings', 'findings.created_from_candidate_id', 'candidate_findings.id')
+          .where('candidate_findings.tenant_id', '=', input.tenantId)
+          .where('candidate_findings.assessment_id', '=', input.assessmentId)
+          .where('findings.id', 'is', null)
+          .select([
+            'candidate_findings.id as id',
+            'candidate_findings.type as type',
+            'candidate_findings.severity as severity',
+            'candidate_findings.affected_url as affected_url',
+          ])
+          .execute();
+        const claimedCandidateIds = new Set<string>();
+        for (const kgFinding of kgFindings) {
+          const target = stringProp(kgFinding.vulnProps, 'target')
+            ?? stringProp(kgFinding.findingProps, 'target')
+            ?? '';
+          const match = unpromotedCandidates.find(
+            (c) =>
+              !claimedCandidateIds.has(c.id) &&
+              target.length > 0 &&
+              c.affected_url.includes(target),
+          );
+          if (!match) continue;
+          claimedCandidateIds.add(match.id);
+          const reproObj = {
+            verifierFindingKey: kgFinding.findingKey,
+            verifierFindingLabel: kgFinding.findingLabel,
+            verifierFindingProps: kgFinding.findingProps,
+            vulnKey: kgFinding.vulnKey,
+            vulnLabel: kgFinding.vulnLabel,
+          };
+          const validatorLogObj = {
+            verified_by: 'decepticon_verifier',
+            kg_finding_id: kgFinding.findingId,
+            kg_vuln_key: kgFinding.vulnKey,
+            kg_validated_at: kgFinding.validatedAt,
+            vuln_props: kgFinding.vulnProps,
+          };
+          // ON CONFLICT DO NOTHING — UNIQUE(created_from_candidate_id)
+          // protects against double-promotion if verifier re-runs.
+          // biome-ignore lint/suspicious/noExplicitAny: jsonb boundary
+          const reproJson = JSON.stringify(reproObj) as any;
+          // biome-ignore lint/suspicious/noExplicitAny: jsonb boundary
+          const validatorLogJson = JSON.stringify(validatorLogObj) as any;
+          const findingId = randomUUID();
+          await deps.db
+            .insertInto('findings')
+            .values({
+              id: findingId,
+              tenant_id: input.tenantId,
+              assessment_id: input.assessmentId,
+              created_from_candidate_id: match.id,
+              type: match.type,
+              severity: severityFromKg(kgFinding) ?? match.severity,
+              confidence: 'high',
+              status: 'open',
+              affected_url: match.affected_url,
+              reproduction: reproJson,
+              validator_log: validatorLogJson,
+              validated_at: sql`now()`,
+            })
+            .onConflict((oc) => oc.column('created_from_candidate_id').doNothing())
+            .execute();
+          await emitSignedAudit(deps.db, {
+            tenantId: input.tenantId,
+            action: 'finding.created',
+            outcome: 'success',
+            actorType: 'service',
+            actorId: COORDINATOR_ACTOR_ID,
+            actorName: 'coordinator',
+            resourceType: 'finding',
+            resourceId: findingId,
+            ...(input.projectId ? { projectId: input.projectId } : {}),
+            assessmentId: input.assessmentId,
+            ip: 'coordinator',
+            userAgent: null,
+            traceId: input.traceId,
+            metadata: {
+              sessionId: sessionHandle.sessionId,
+              source: 'decepticon_verifier',
+              kgFindingId: kgFinding.findingId,
+              kgVulnKey: kgFinding.vulnKey,
+              candidateFindingId: match.id,
+            },
+          });
+          promotedFindingCount += 1;
+        }
+      }
+    } catch {
+      // Best-effort: any extractor error promotes 0 findings.
+      // assessment.completed still fires below.
+    }
+  }
+
   // 9. Mark session completed + emit completed audit.
   await deps.db
     .updateTable('decepticon_sessions')
@@ -837,6 +967,9 @@ export const startDecepticonSession = async (
       metadata: {
         opplanArtifactId,
         candidateCount: candidateFindingIds.length,
+        // Phase 3.1 sub-commit 3 — verifier-driven promotion stats.
+        kgValidatedFindingCount: kgFindingTotal,
+        promotedFindingCount,
       },
     },
   );
@@ -873,6 +1006,9 @@ export const startDecepticonSession = async (
         sessionId: sessionHandle.sessionId,
         opplanArtifactId,
         candidateCount: candidateFindingIds.length,
+        // Phase 3.1 sub-commit 3 — verifier-driven promotion stats.
+        kgValidatedFindingCount: kgFindingTotal,
+        promotedFindingCount,
       },
     },
   );
@@ -908,6 +1044,33 @@ export const startDecepticonSession = async (
     candidateFindingIds,
     status: 'completed',
   };
+};
+
+// Phase 3.1 sub-commit 3 — helpers for the kg-finding promote path (step 8.8).
+//
+// `stringProp` reads a string field from Decepticon's parsed `props` JSON.
+// Returns undefined on missing or non-string so the caller can fall back.
+const stringProp = (obj: Record<string, unknown>, key: string): string | undefined => {
+  const v = obj[key];
+  return typeof v === 'string' && v.length > 0 ? v : undefined;
+};
+
+// Map verifier's `severity` prop onto the candidate_findings severity
+// CHECK constraint set. Decepticon may emit "info" lowercase already,
+// but normalize to be safe. Returns undefined when severity is missing
+// or unrecognized — caller falls back to the candidate's severity.
+const VALID_SEVERITIES = new Set(['info', 'low', 'medium', 'high', 'critical']);
+const severityFromKg = (kgFinding: KgValidatedFinding): string | undefined => {
+  const candidates = [
+    stringProp(kgFinding.findingProps, 'severity'),
+    stringProp(kgFinding.vulnProps, 'severity'),
+  ];
+  for (const c of candidates) {
+    if (!c) continue;
+    const lower = c.toLowerCase();
+    if (VALID_SEVERITIES.has(lower)) return lower;
+  }
+  return undefined;
 };
 
 const markAssessmentFailed = async (
