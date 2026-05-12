@@ -177,6 +177,71 @@ export const queryValidatedFindings = async (
   return findings;
 };
 
+/**
+ * Phase 3.1 sub-commit 4 (2026-05-12) — count Vulnerability nodes
+ * written during this engagement, used by step 8.7 to decide whether to
+ * dispatch the verifier. Decouples the gate from Tensol-side
+ * candidate_findings count (which depends on workspace markdown
+ * extraction, a fragile schema-dependent path). The kg is the canonical
+ * signal: if recon wrote any `kind="vulnerability"` nodes via Rule 4b,
+ * verifier should attempt validation.
+ *
+ * Returns 0 on transport error so the caller degrades gracefully.
+ */
+export const queryVulnerabilityCount = async (
+  options: QueryValidatedFindingsOptions = {},
+): Promise<number> => {
+  const env = process.env as Record<string, string | undefined>;
+  const url = options.neo4jUrl ?? env['NEO4J_HTTP_URL'] ?? DEFAULT_NEO4J_HTTP_URL;
+  const user = options.user ?? env['NEO4J_USER'] ?? DEFAULT_NEO4J_USER;
+  const password = options.password ?? env['NEO4J_PASSWORD'] ?? DEFAULT_NEO4J_PASSWORD;
+  const database = options.database ?? env['NEO4J_DATABASE'] ?? DEFAULT_NEO4J_DATABASE;
+  const sinceUnixSeconds = options.sinceUnixSeconds ?? 0;
+
+  const endpoint = `${url.replace(/\/$/, '')}/db/${database}/tx/commit`;
+  const cypher = `
+    MATCH (v:Vulnerability)
+    WHERE v.created_at >= $since
+    RETURN count(v) AS n
+  `.trim();
+
+  const body = JSON.stringify({
+    statements: [{ statement: cypher, parameters: { since: sinceUnixSeconds } }],
+  });
+  const basic = Buffer.from(`${user}:${password}`, 'utf8').toString('base64');
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${basic}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body,
+    });
+  } catch {
+    return 0;
+  }
+  if (!response.ok) return 0;
+
+  type Neo4jEnvelope = {
+    readonly results?: ReadonlyArray<{
+      readonly data?: ReadonlyArray<{ readonly row?: ReadonlyArray<unknown> }>;
+    }>;
+  };
+  let parsed: Neo4jEnvelope;
+  try {
+    parsed = (await response.json()) as Neo4jEnvelope;
+  } catch {
+    return 0;
+  }
+  const row = parsed.results?.[0]?.data?.[0]?.row;
+  const n = row?.[0];
+  return typeof n === 'number' ? n : 0;
+};
+
 const safeParseJson = (raw: unknown): Record<string, unknown> => {
   if (raw === null || raw === undefined) return {};
   if (typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;

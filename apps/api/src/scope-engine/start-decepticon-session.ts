@@ -47,7 +47,11 @@ import {
   type DecepticonWorkspaceFinding,
   extractWorkspaceFindings,
 } from './decepticon-workspace.ts';
-import { type KgValidatedFinding, queryValidatedFindings } from './decepticon-kg.ts';
+import {
+  type KgValidatedFinding,
+  queryValidatedFindings,
+  queryVulnerabilityCount,
+} from './decepticon-kg.ts';
 import type { JobEnvelope, QueueAdapter } from '@cyberstrike/queue';
 import {
   type EffectiveScope,
@@ -706,7 +710,20 @@ export const startDecepticonSession = async (
   // Default ON because verifier is the differentiator (XBOW-style ZFP).
   const verifierEnabled =
     (process.env as Record<string, string | undefined>)['TENSOL_VERIFIER_ENABLED'] !== 'false';
-  const haveSomethingToValidate = candidateFindingIds.length > 0;
+  // Phase 3.1 sub-commit 4 (2026-05-12) — kg-aware gate. Tensol-side
+  // `candidateFindingIds` counts what workspace extractor parsed from
+  // FIND-*.md, which is schema-fragile (upstream recon emits FIND-NNN.md
+  // while older Decepticon dossiers used {severity}-{slug}.md). The
+  // canonical signal is "did recon write Vulnerability nodes to the kg
+  // via Rule 4b". Dispatch verifier when EITHER candidates exist OR kg
+  // has vulnerabilities — covers both schema paths.
+  const sessionStartedAtUnixSeconds = Math.floor(
+    new Date(sessionStartedAtIso).getTime() / 1000,
+  );
+  const kgVulnCount = verifierEnabled
+    ? await queryVulnerabilityCount({ sinceUnixSeconds: sessionStartedAtUnixSeconds })
+    : 0;
+  const haveSomethingToValidate = candidateFindingIds.length > 0 || kgVulnCount > 0;
   if (verifierEnabled && haveSomethingToValidate) {
     let verifierSessionId: string | null = null;
     try {
@@ -830,9 +847,7 @@ export const startDecepticonSession = async (
   let kgFindingTotal = 0;
   if (verifierEnabled && haveSomethingToValidate) {
     try {
-      const sessionStartedAtUnixSeconds = Math.floor(
-        new Date(sessionStartedAtIso).getTime() / 1000,
-      );
+      // Re-uses sessionStartedAtUnixSeconds declared at step 8.7 entry.
       const kgFindings: KgValidatedFinding[] = await queryValidatedFindings({
         sinceUnixSeconds: sessionStartedAtUnixSeconds,
       });

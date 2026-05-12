@@ -316,8 +316,19 @@ const parseFilename = (filename: string): FilenameParts | null => {
   const idx = noExt.indexOf('-');
   if (idx < 0) return null;
   const sev = noExt.slice(0, idx).toLowerCase();
-  if (!isSeverity(sev)) return null;
-  return { severity: sev, slug: noExt.slice(idx + 1) };
+  if (isSeverity(sev)) {
+    return { severity: sev, slug: noExt.slice(idx + 1) };
+  }
+  // Phase 3.1 sub-commit 4 — upstream Decepticon recon canonical filename
+  // is `FIND-NNN.md` (per finding-protocol/SKILL.md and recon.md Rule 4).
+  // Severity lives in the YAML frontmatter, not the filename. Accept it
+  // as a placeholder pair so the markdown parser proceeds; the real
+  // severity is read from frontmatter at parseFindingMarkdown:374.
+  const upper = noExt.toUpperCase();
+  if (/^FIND-\d+$/.test(upper)) {
+    return { severity: 'info', slug: noExt };
+  }
+  return null;
 };
 
 interface Frontmatter {
