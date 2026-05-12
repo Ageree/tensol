@@ -2,6 +2,11 @@
 // tests over the markdown frontmatter parsing path — no docker exec.
 
 import { describe, expect, test } from 'bun:test';
+import {
+  parseFindingMarkdown,
+  parseMarkdownSections,
+  parseYamlArray,
+} from './decepticon-workspace';
 
 // We test private helpers indirectly via a re-import that exercises the
 // parser path with synthetic inputs. The module-level helpers are not
@@ -184,5 +189,265 @@ cwe: [CWE-548]
     expect(fm?.['id']).toBe('FIND-007');
     // Array values stored as-is (string form) — caller can ignore.
     expect(fm?.['cwe']).toBe('[CWE-548]');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2026-05-12 — Tests for the enriched parser: CWE-based type, ## sections,
+// rich-field persistence on DecepticonWorkspaceFinding.
+// ---------------------------------------------------------------------------
+
+const FIXTURE_FULL_SQLI = `---
+id: FIND-005
+severity: critical
+cvss_score: 9.1
+cvss_vector: "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+cvss_version: "4.0"
+cwe: [CWE-89]
+mitre: [T1190, T1059]
+affected_target: "192.168.100.10:3030"
+affected_component: "Juice Shop /rest/user/login"
+confidence: verified
+objective_id: OBJ-001
+phase: initial-access
+agent: recon
+detected: false
+remediation_priority: immediate
+discovered_at: "2026-05-12T00:20:00Z"
+---
+
+# [CRITICAL] SQL Injection in Juice Shop Login Leads to Admin JWT Token and Full Database Access
+
+## Description
+The Juice Shop login endpoint \`/rest/user/login\` is vulnerable to SQL Injection. By injecting \`' OR 1=1--\` as the password, authentication is bypassed.
+
+## Steps to Reproduce
+1. POST to \`http://192.168.100.10:3030/rest/user/login\`
+2. Body: \`{"email":"admin@juice-sh.op","password":"' OR 1=1--"}\`
+3. Server returns JWT with admin role in response
+
+\`\`\`
+curl -s -X POST "http://192.168.100.10:3030/rest/user/login"
+\`\`\`
+
+## Impact
+- Full admin privileges on Juice Shop platform
+- Access to all 26 user accounts including 7 admin users
+
+## Remediation
+- Use parameterized queries (prepared statements)
+- Migrate to Sequelize ORM with bind parameters
+
+## Evidence
+- /workspace/evidence/find-005-curl.log
+- /workspace/evidence/find-005-jwt.txt
+`;
+
+describe('decepticon-workspace :: parseYamlArray', () => {
+  test('parses single-element bracketed list [CWE-89]', () => {
+    expect(parseYamlArray('[CWE-89]')).toEqual(['CWE-89']);
+  });
+
+  test('parses multi-element bracketed list with whitespace', () => {
+    expect(parseYamlArray('[T1190, T1059]')).toEqual(['T1190', 'T1059']);
+  });
+
+  test('parses bare value without brackets as single-element list', () => {
+    expect(parseYamlArray('CWE-89')).toEqual(['CWE-89']);
+  });
+
+  test('returns empty array for empty input', () => {
+    expect(parseYamlArray('')).toEqual([]);
+    expect(parseYamlArray('   ')).toEqual([]);
+    expect(parseYamlArray('[]')).toEqual([]);
+  });
+
+  test('strips wrapping quotes from individual elements', () => {
+    expect(parseYamlArray('["CWE-89", "CWE-79"]')).toEqual(['CWE-89', 'CWE-79']);
+  });
+});
+
+describe('decepticon-workspace :: parseMarkdownSections', () => {
+  test('extracts all four sections from the rich SQLi fixture', () => {
+    const body = FIXTURE_FULL_SQLI.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, '');
+    const sections = parseMarkdownSections(body);
+    expect(Object.keys(sections).sort()).toEqual([
+      'description',
+      'evidence',
+      'impact',
+      'remediation',
+      'steps_to_reproduce',
+    ]);
+    expect(sections['description']).toContain('vulnerable to SQL Injection');
+    expect(sections['impact']).toContain('Full admin privileges');
+    expect(sections['remediation']).toContain('parameterized queries');
+  });
+
+  test('preserves code fences verbatim within section body', () => {
+    const body = `# Title
+
+## Steps to Reproduce
+Run the following:
+
+\`\`\`
+curl -X POST http://target/login
+\`\`\`
+
+End.
+`;
+    const sections = parseMarkdownSections(body);
+    expect(sections['steps_to_reproduce']).toContain('```');
+    expect(sections['steps_to_reproduce']).toContain('curl -X POST http://target/login');
+  });
+
+  test('normalises section keys (lowercase + symbol replacement)', () => {
+    const body = `# Title
+
+## Impact & Risk
+big.
+
+## Steps to Reproduce
+go.
+`;
+    const sections = parseMarkdownSections(body);
+    expect(sections['impact_risk']).toBe('big.');
+    expect(sections['steps_to_reproduce']).toBe('go.');
+  });
+
+  test('returns empty object when body has no H2 sections', () => {
+    expect(parseMarkdownSections('# Title only\n\nsome prose, no sections')).toEqual({});
+  });
+
+  test('does not treat ## inside fenced code block as a new section', () => {
+    const body = `# Title
+
+## Description
+Here is a code block:
+
+\`\`\`bash
+## Inside fence — not a header
+echo hi
+\`\`\`
+
+Still description.
+
+## Impact
+real header.
+`;
+    const sections = parseMarkdownSections(body);
+    expect(Object.keys(sections).sort()).toEqual(['description', 'impact']);
+    expect(sections['description']).toContain('Inside fence');
+    expect(sections['impact']).toBe('real header.');
+  });
+});
+
+describe('decepticon-workspace :: parseFindingMarkdown CWE-based type inference', () => {
+  test('CWE-89 wins over slug hint and maps to sqli', () => {
+    // Slug "juice-shop-login..." would map to info_disclosure via SLUG_TO_TYPE,
+    // but cwe: [CWE-89] is present and must take priority.
+    const parsed = parseFindingMarkdown(
+      'critical-juice-shop-login-sqli.md',
+      FIXTURE_FULL_SQLI,
+    );
+    expect(parsed?.type).toBe('sqli');
+  });
+
+  test('falls back to slug-based inference when CWE is absent', () => {
+    const body = `---
+id: FIND-099
+severity: high
+agent: recon
+discovered_at: "2026-05-12T00:00:00Z"
+---
+
+# [HIGH] Some Issue
+`;
+    const parsed = parseFindingMarkdown('high-xss-stored-comments.md', body);
+    expect(parsed?.type).toBe('xss_reflected');
+  });
+
+  test('unknown CWE falls back to slug', () => {
+    const body = `---
+id: FIND-100
+severity: medium
+cwe: [CWE-99999]
+agent: recon
+discovered_at: "2026-05-12T00:00:00Z"
+---
+
+# [MEDIUM] Mystery
+`;
+    const parsed = parseFindingMarkdown('medium-ssrf-internal-meta.md', body);
+    expect(parsed?.type).toBe('ssrf');
+  });
+
+  test('no CWE and unknown slug yields unknown', () => {
+    const body = `---
+id: FIND-101
+severity: low
+agent: recon
+discovered_at: "2026-05-12T00:00:00Z"
+---
+
+# [LOW] something
+`;
+    const parsed = parseFindingMarkdown('low-foobar-unknown-thing.md', body);
+    expect(parsed?.type).toBe('unknown');
+  });
+});
+
+describe('decepticon-workspace :: parseFindingMarkdown rich fields', () => {
+  test('returns the full enriched record for the SQLi fixture', () => {
+    const parsed = parseFindingMarkdown(
+      'critical-juice-shop-login-sqli.md',
+      FIXTURE_FULL_SQLI,
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.id).toBe('FIND-005');
+    expect(parsed?.severity).toBe('critical');
+    expect(parsed?.type).toBe('sqli');
+    expect(parsed?.title).toBe(
+      'SQL Injection in Juice Shop Login Leads to Admin JWT Token and Full Database Access',
+    );
+    expect(parsed?.cvssScore).toBe(9.1);
+    expect(parsed?.cvssVector).toBe(
+      'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N',
+    );
+    expect(parsed?.cwe).toEqual(['CWE-89']);
+    expect(parsed?.mitre).toEqual(['T1190', 'T1059']);
+    expect(parsed?.confidence).toBe('verified');
+    expect(parsed?.phase).toBe('initial-access');
+    expect(parsed?.stepsToReproduce).toContain('POST to');
+    expect(parsed?.stepsToReproduce).toContain('```');
+    expect(parsed?.impact).toContain('Full admin privileges');
+    expect(parsed?.remediation).toContain('parameterized queries');
+    expect(parsed?.evidencePaths).toEqual([
+      '/workspace/evidence/find-005-curl.log',
+      '/workspace/evidence/find-005-jwt.txt',
+    ]);
+  });
+
+  test('omits optional fields when not present in frontmatter', () => {
+    const minimal = `---
+id: FIND-200
+severity: low
+agent: recon
+discovered_at: "2026-05-12T00:00:00Z"
+---
+
+# [LOW] Minimal Finding
+`;
+    const parsed = parseFindingMarkdown('low-misc-thing.md', minimal);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.cvssScore).toBeUndefined();
+    expect(parsed?.cvssVector).toBeUndefined();
+    expect(parsed?.cwe).toBeUndefined();
+    expect(parsed?.mitre).toBeUndefined();
+    expect(parsed?.stepsToReproduce).toBeUndefined();
+    expect(parsed?.impact).toBeUndefined();
+    expect(parsed?.remediation).toBeUndefined();
+    expect(parsed?.evidencePaths).toBeUndefined();
+    // Title parsed from H1 with [LOW] stripped.
+    expect(parsed?.title).toBe('Minimal Finding');
   });
 });

@@ -750,7 +750,18 @@ export const startDecepticonSession = async (
           decepticonFindingId: f.id,
           agent: f.agent,
           ts: f.ts,
+          title: f.title,
           description: f.description ?? '',
+          cvssScore: f.cvssScore,
+          cvssVector: f.cvssVector,
+          cwe: f.cwe ?? [],
+          mitre: f.mitre ?? [],
+          confidence: f.confidence,
+          phase: f.phase,
+          stepsToReproduce: f.stepsToReproduce ?? '',
+          impact: f.impact ?? '',
+          remediation: f.remediation ?? '',
+          evidencePaths: f.evidencePaths ?? [],
         }) as any,
       })
       .execute();
@@ -775,6 +786,8 @@ export const startDecepticonSession = async (
         severity: f.severity,
         source: 'workspace_extractor',
         decepticonFindingId: f.id,
+        ...(f.cvssScore !== undefined ? { cvssScore: f.cvssScore } : {}),
+        ...(f.cwe && f.cwe.length > 0 ? { cwe: [...f.cwe] } : {}),
       },
     });
   }
