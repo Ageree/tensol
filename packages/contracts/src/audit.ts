@@ -82,6 +82,14 @@ export const AUDIT_ACTIONS = [
   'decepticon.session.completed',
   'decepticon.session.failed',
   'decepticon.candidate.observed',
+  // Phase 3.1 (2026-05-12) — Decepticon verifier agent dispatch lifecycle.
+  // Verifier runs as a SECOND LangGraph thread after recon completes,
+  // reads VULNERABILITY nodes from the kg (written by recon via Rule 4b
+  // override), and writes FINDING nodes back to the kg after ZFP
+  // validation (PoC + negative control + CVSS).
+  'verifier.session.started',
+  'verifier.session.completed',
+  'verifier.session.failed',
   // Sprint 9 — browser-worker scope-guarded crawl lifecycle.
   'recon.browser.job.started',
   'recon.browser.job.completed',

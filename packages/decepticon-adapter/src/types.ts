@@ -129,6 +129,22 @@ export interface Artifact {
 export interface StartSessionInput {
   readonly tenantId: string;
   readonly opplan: Opplan;
+  /**
+   * Phase 3.1 (2026-05-12) — override the adapter's default assistant_id
+   * for this single session. Used to dispatch the Decepticon `verifier`
+   * agent as a follow-up thread after the primary recon/exploit session.
+   * When omitted, the adapter uses its constructor-default (typically
+   * "decepticon" or "recon" depending on DECEPTICON_ASSISTANT_ID).
+   */
+  readonly assistantId?: string;
+  /**
+   * Phase 3.1 (2026-05-12) — override the initial human message body
+   * sent on the new thread. When omitted, the adapter sends the canonical
+   * `OPPLAN\n\n<json>` payload built from `input.opplan`. Used by verifier
+   * dispatch (which reads the kg, not opplan) and any other sub-agent
+   * that needs a free-form natural-language brief.
+   */
+  readonly initialMessage?: string;
 }
 
 export interface DecepticonAdapter {

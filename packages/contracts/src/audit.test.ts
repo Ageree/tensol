@@ -82,6 +82,10 @@ describe('contracts :: AuditAction (A3)', () => {
       'decepticon.session.completed',
       'decepticon.session.failed',
       'decepticon.candidate.observed',
+      // Phase 3.1 (2026-05-12) — Decepticon verifier agent dispatch lifecycle.
+      'verifier.session.started',
+      'verifier.session.completed',
+      'verifier.session.failed',
       // Sprint 9 — browser-worker scope-guarded crawl lifecycle.
       'recon.browser.job.started',
       'recon.browser.job.completed',
@@ -171,8 +175,8 @@ describe('contracts :: AuditAction (A3)', () => {
       'auth_proof.email_link.replay',
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
-    // EE-3.B: 102 post-EE-1 + 1 (assessment.action_cap_exceeded) = 103.
-    expect(AUDIT_ACTIONS.length).toBe(103);
+    // Phase 3.1 (2026-05-12): 103 post-EE-3.B + 3 verifier.session.{started,completed,failed} = 106.
+    expect(AUDIT_ACTIONS.length).toBe(106);
   });
 
   test('zod rejects unknown action', () => {

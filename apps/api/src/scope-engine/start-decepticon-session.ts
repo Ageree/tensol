@@ -685,6 +685,129 @@ export const startDecepticonSession = async (
     });
   }
 
+  // 8.7. Verifier dispatch (Phase 3.1 — 2026-05-12).
+  //
+  // After the primary Decepticon thread (recon/decepticon orchestrator) has
+  // written VULNERABILITY nodes to the Neo4j knowledge graph via Rule 4b
+  // (infra/decepticon-overrides/recon.md), spawn a SECOND LangGraph thread
+  // with assistant_id="verifier". The verifier agent reads VULNERABILITY
+  // nodes from the kg, runs Zero-False-Positive validation per node (PoC +
+  // negative control + CVSS), and writes FINDING nodes back to the kg on
+  // confirmation. Sub-commit 3 (step 8.8) reads those FINDING nodes and
+  // promotes them into the Tensol `findings` table.
+  //
+  // Best-effort: failure here does NOT fail the parent assessment. We still
+  // ship candidate_findings from step 8 + 8.5 — verifier just enriches them
+  // with kg-based validation when the path works. This keeps the prod path
+  // robust during Phase 3.1 rollout.
+  //
+  // Feature flag: TENSOL_VERIFIER_ENABLED=false disables dispatch entirely.
+  // Default ON because verifier is the differentiator (XBOW-style ZFP).
+  const verifierEnabled =
+    (process.env as Record<string, string | undefined>)['TENSOL_VERIFIER_ENABLED'] !== 'false';
+  const haveSomethingToValidate = candidateFindingIds.length > 0;
+  if (verifierEnabled && haveSomethingToValidate) {
+    let verifierSessionId: string | null = null;
+    try {
+      const verifierInitialMessage = [
+        `Validate vulnerabilities in the engagement knowledge graph for assessment ${input.assessmentId}.`,
+        '',
+        'Procedure:',
+        '1. kg_query(kind="vulnerability") to list pending VULNERABILITY nodes.',
+        '2. For each node: read props (target_url, vuln_class, parameter, etc.), construct a Proof-of-Concept command + matching success pattern + a negative-control command + negative pattern.',
+        '3. Call validate_finding(vuln_id, poc_command, success_patterns, negative_command, negative_patterns, cvss_vector).',
+        '4. On success the tool auto-creates a FINDING node with VALIDATES edge.',
+        '5. Continue until every VULNERABILITY node has been processed.',
+        '',
+        'Stop when there are no more unvalidated VULNERABILITY nodes. Do NOT scan or attack targets outside the engagement scope listed in the OPPLAN below.',
+        '',
+        `OPPLAN\n\n${JSON.stringify(input.opplan, null, 2)}`,
+      ].join('\n');
+
+      const verifierHandle = await deps.adapter.start({
+        tenantId: input.tenantId,
+        opplan: input.opplan,
+        assistantId: 'verifier',
+        initialMessage: verifierInitialMessage,
+      });
+      verifierSessionId = verifierHandle.sessionId;
+
+      await emitSignedAudit(deps.db, {
+        tenantId: input.tenantId,
+        action: 'verifier.session.started',
+        outcome: 'success',
+        actorType: 'service',
+        actorId: COORDINATOR_ACTOR_ID,
+        actorName: 'coordinator',
+        resourceType: 'decepticon_session',
+        resourceId: verifierHandle.sessionId,
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+        assessmentId: input.assessmentId,
+        ip: 'coordinator',
+        userAgent: null,
+        traceId: input.traceId,
+        metadata: {
+          parentSessionId: sessionHandle.sessionId,
+          candidateCount: candidateFindingIds.length,
+        },
+      });
+
+      // Drain verifier status until terminal. Adapter enforces an internal
+      // wallclock via DECEPTICON_STREAM_MAX_MS (default 15 min) so this loop
+      // cannot hang the parent assessment indefinitely.
+      let verifierTerminal: SessionStatus = 'started';
+      for await (const evt of deps.adapter.streamStatus(verifierHandle.sessionId)) {
+        if (evt.status === 'completed' || evt.status === 'failed') {
+          verifierTerminal = evt.status;
+          break;
+        }
+      }
+
+      await emitSignedAudit(deps.db, {
+        tenantId: input.tenantId,
+        action:
+          verifierTerminal === 'completed' ? 'verifier.session.completed' : 'verifier.session.failed',
+        outcome: verifierTerminal === 'completed' ? 'success' : 'failure',
+        actorType: 'service',
+        actorId: COORDINATOR_ACTOR_ID,
+        actorName: 'coordinator',
+        resourceType: 'decepticon_session',
+        resourceId: verifierHandle.sessionId,
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+        assessmentId: input.assessmentId,
+        ip: 'coordinator',
+        userAgent: null,
+        traceId: input.traceId,
+        metadata: {
+          parentSessionId: sessionHandle.sessionId,
+        },
+      });
+    } catch (verifierErr) {
+      // Verifier dispatch errored before drain or during. Emit a failure
+      // audit and continue to step 9 — candidate_findings already persisted.
+      await emitSignedAudit(deps.db, {
+        tenantId: input.tenantId,
+        action: 'verifier.session.failed',
+        outcome: 'failure',
+        actorType: 'service',
+        actorId: COORDINATOR_ACTOR_ID,
+        actorName: 'coordinator',
+        resourceType: 'decepticon_session',
+        resourceId: verifierSessionId,
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+        assessmentId: input.assessmentId,
+        ip: 'coordinator',
+        userAgent: null,
+        traceId: input.traceId,
+        metadata: {
+          parentSessionId: sessionHandle.sessionId,
+          reason: 'dispatch_error',
+          error: verifierErr instanceof Error ? verifierErr.message : String(verifierErr),
+        },
+      });
+    }
+  }
+
   // 9. Mark session completed + emit completed audit.
   await deps.db
     .updateTable('decepticon_sessions')

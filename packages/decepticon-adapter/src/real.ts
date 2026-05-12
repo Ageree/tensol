@@ -293,6 +293,11 @@ export class RealDecepticonAdapter implements DecepticonAdapter {
     const candidateQueue = createAsyncQueue<CandidateFinding>();
     const abortController = new AbortController();
 
+    // Phase 3.1 (2026-05-12) — per-call assistant_id override. Used by
+    // start-decepticon-session.ts step 8.7 to dispatch the Decepticon
+    // `verifier` agent after the recon thread completes.
+    const effectiveAssistantId = input.assistantId ?? this.assistantId;
+
     // KNOWN BUG (2026-05-12 second-smoke #4): Decepticon's `decepticon`
     // assistant is HITL — after parsing OPPLAN it presents a Proposal and
     // waits for a human "approve" reply before any exploit phase. Tried
@@ -303,11 +308,20 @@ export class RealDecepticonAdapter implements DecepticonAdapter {
     // poll thread state, detect "OPPLAN Proposal" pattern in last AI msg,
     // fire a second human message via `runs.create` on the same thread.
     // Scoped as a follow-up workstream — see project_tensol_second_smoke.
+    //
+    // Phase 3.1 (2026-05-12) — `input.initialMessage` overrides the OPPLAN
+    // payload for sub-agent dispatches that consume free-form natural
+    // language instead (verifier reads the kg, not opplan). When the
+    // override is supplied we still wrap it as a `human` message turn so
+    // the LangGraph thread sees a normal conversational entry-point.
     const initialMessage = {
       messages: [
         {
           type: 'human',
-          content: `OPPLAN\n\n${JSON.stringify(input.opplan, null, 2)}`,
+          content:
+            input.initialMessage !== undefined
+              ? input.initialMessage
+              : `OPPLAN\n\n${JSON.stringify(input.opplan, null, 2)}`,
         },
       ],
     };
@@ -318,7 +332,7 @@ export class RealDecepticonAdapter implements DecepticonAdapter {
       tenantId: input.tenantId,
       assessmentId: input.opplan.assessmentId,
       startedAt,
-      assistantId: this.assistantId,
+      assistantId: effectiveAssistantId,
       statusQueue,
       candidateQueue,
       abortController,
