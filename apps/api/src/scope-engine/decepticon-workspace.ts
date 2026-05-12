@@ -103,24 +103,51 @@ const FINDINGS_DIR = `${WORKSPACE_DIR}/findings`;
  * type=sql-injection (first slug word), slug=full title.
  */
 const SLUG_TO_TYPE: Record<string, string> = {
+  // OWASP top class names
   sql: 'sqli',
+  sqli: 'sqli',
   xss: 'xss_reflected',
   ssrf: 'ssrf',
   rce: 'rce',
   lfi: 'lfi',
+  rfi: 'lfi',
   idor: 'idor',
   csrf: 'csrf',
   xxe: 'xxe',
+  // exposure / disclosure family
   ftp: 'info_disclosure',
   exposed: 'info_disclosure',
   hidden: 'info_disclosure',
+  open: 'info_disclosure',
+  leaked: 'info_disclosure',
+  config: 'info_disclosure',
+  setup: 'info_disclosure',
+  backup: 'info_disclosure',
+  debug: 'info_disclosure',
+  swagger: 'info_disclosure',
+  // auth class
   unauthenticated: 'broken_auth',
+  unauth: 'broken_auth',
+  jwt: 'broken_auth',
+  // crypto
   textbook: 'crypto_weakness',
+  weak: 'crypto_weakness',
+  rsa: 'crypto_weakness',
+  // path / file
   poison: 'path_traversal',
+  traversal: 'path_traversal',
+  // common app names that map to info_disclosure when discovered
   decepticon: 'info_disclosure',
   challenges: 'info_disclosure',
   airtunes: 'info_disclosure',
   sentinel: 'broken_auth',
+  dvwa: 'info_disclosure',
+  postgres: 'info_disclosure',
+  postgresql: 'info_disclosure',
+  redis: 'info_disclosure',
+  langgraph: 'info_disclosure',
+  // catch-all hint for vulnerability categories
+  vulnerabilities: 'unknown',
 };
 
 const inferTypeFromSlug = (slug: string): string => {
