@@ -7,6 +7,7 @@ export {
   handleSsrfReplay,
   handleLfiReplay,
   handleRceReplay,
+  handleSqliReplay,
   type AssessmentLoader,
   type AssessmentRow,
   type AuditEmitter,
@@ -29,4 +30,18 @@ export {
   type ValidateLfiReplayPayload,
   validateRceReplayPayloadSchema,
   type ValidateRceReplayPayload,
+  validateSqliReplayPayloadSchema,
+  type ValidateSqliReplayPayload,
 } from './payload-schema.ts';
+
+export {
+  validateSqliCandidate,
+  type HttpReplayRequest,
+  type HttpReplayResponse,
+  type SqliHttpMethod,
+  type SqliValidatorInput,
+  type SqliValidatorDeps,
+  type SqliValidationResult,
+  type SqliValidationStatus,
+  type SqliEvidence,
+} from './sqli-validator.ts';

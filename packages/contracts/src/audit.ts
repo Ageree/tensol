@@ -136,6 +136,11 @@ export const AUDIT_ACTIONS = [
   'validator.rce.confirmed',
   'validator.rce.unmatched',
   'validator.rce.fetch_failed',
+  // SQLi validator (4) — confirms Decepticon-found SQL injection via HTTP body replay.
+  'validator.sqli.replay_denied',
+  'validator.sqli.confirmed',
+  'validator.sqli.unmatched',
+  'validator.sqli.fetch_failed',
   // Sprint 21 — recon-runner PD-stack (10).
   'recon.subfinder.run',
   'recon.subfinder.denied',

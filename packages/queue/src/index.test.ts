@@ -21,10 +21,11 @@ describe('packages/queue :: public surface', () => {
       'validator.ssrf.replay',
       'validator.lfi.replay',
       'validator.rce.replay',
+      'validator.sqli.replay',
       // Sprint 21 — recon-runner PD-stack.
       'recon.subfinder.run',
     ]);
-    expect(ENVELOPE_KINDS.length).toBe(7);
+    expect(ENVELOPE_KINDS.length).toBe(8);
   });
 
   test('exports job statuses enum (matches DB CHECK constraint)', () => {

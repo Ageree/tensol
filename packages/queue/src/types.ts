@@ -25,6 +25,8 @@ export const ENVELOPE_KINDS = [
   'validator.lfi.replay',
   // Sprint 20 — validator-worker subscribes to replay RCE candidates.
   'validator.rce.replay',
+  // validator-worker subscribes to replay SQLi candidates (HTTP-body replay).
+  'validator.sqli.replay',
   // Sprint 21 — coordinator publishes one envelope per recon job.
   // Recon-runner worker subscribes and orchestrates subfinder+httpx+nuclei.
   'recon.subfinder.run',
