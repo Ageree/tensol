@@ -70,25 +70,3 @@ export const validateRceReplayPayloadSchema = z
   .strict();
 
 export type ValidateRceReplayPayload = z.infer<typeof validateRceReplayPayloadSchema>;
-
-// SQLi replay envelope payload schema (additive).
-// affectedUrl IS in payload (DB-loaded candidate.affectedUrl is mirrored here
-// because the SQLi validator replays the precise URL+body the extractor
-// recorded — not a derived/tokenised variant).
-export const validateSqliReplayPayloadSchema = z
-  .object({
-    tenantId: z.string().uuid(),
-    projectId: z.string().uuid().nullable(),
-    assessmentId: z.string().uuid(),
-    candidateFindingId: z.string().uuid(),
-    candidateType: z.literal('sqli'),
-    affectedUrl: z.string().url(),
-    method: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH']).optional(),
-    payloadBody: z.string(),
-    contentType: z.string().optional(),
-    baselineBody: z.string().optional(),
-    traceId: z.string().regex(/^[0-9a-f]{32}$/),
-  })
-  .strict();
-
-export type ValidateSqliReplayPayload = z.infer<typeof validateSqliReplayPayloadSchema>;

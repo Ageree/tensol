@@ -135,11 +135,6 @@ describe('contracts :: AuditAction (A3)', () => {
       'validator.rce.confirmed',
       'validator.rce.unmatched',
       'validator.rce.fetch_failed',
-      // SQLi validator (4) — confirms Decepticon-found SQL injection via HTTP body replay.
-      'validator.sqli.replay_denied',
-      'validator.sqli.confirmed',
-      'validator.sqli.unmatched',
-      'validator.sqli.fetch_failed',
       // Sprint 21 — recon-runner PD-stack (10).
       'recon.subfinder.run',
       'recon.subfinder.denied',
@@ -177,8 +172,7 @@ describe('contracts :: AuditAction (A3)', () => {
     ];
     expect([...AUDIT_ACTIONS]).toEqual(expected);
     // EE-3.B: 102 post-EE-1 + 1 (assessment.action_cap_exceeded) = 103.
-    // SQLi validator adds 4 actions (replay_denied/confirmed/unmatched/fetch_failed) → 107.
-    expect(AUDIT_ACTIONS.length).toBe(107);
+    expect(AUDIT_ACTIONS.length).toBe(103);
   });
 
   test('zod rejects unknown action', () => {

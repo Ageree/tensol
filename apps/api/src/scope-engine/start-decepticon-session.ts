@@ -74,68 +74,6 @@ const getActionCap = (): number => {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_ACTION_CAP;
 };
 
-type ExtractedCurlPayload = {
-  readonly body: string;
-  readonly method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
-  readonly contentType?: string;
-};
-
-/**
- * Heuristically extract the request body, method, and content-type from a
- * `curl ...` line embedded in a workspace finding's `stepsToReproduce` field.
- *
- * Supported shapes:
- *   curl -X POST 'URL' -H 'Content-Type: application/json' -d '{"email":"..."}'
- *   curl -X POST URL --data '{...}'
- *   curl --request POST URL -d "{...}"
- *
- * Returns null when no body can be extracted; the caller treats that as a
- * soft-skip (candidate row stays in DB; no validator envelope published).
- */
-export const extractCurlPayload = (steps: string): ExtractedCurlPayload | null => {
-  if (!steps || typeof steps !== 'string') return null;
-
-  // Find a body via -d / --data / --data-raw / --data-binary.
-  // Prefer single- or double-quoted forms. Greedy on first quote → next matching quote.
-  const bodyPatterns: RegExp[] = [
-    /(?:-d|--data(?:-raw|-binary)?)\s+'([^']*)'/,
-    /(?:-d|--data(?:-raw|-binary)?)\s+"((?:[^"\\]|\\.)*)"/,
-  ];
-  let body: string | null = null;
-  for (const re of bodyPatterns) {
-    const m = re.exec(steps);
-    if (m && m[1] !== undefined) {
-      body = m[1];
-      break;
-    }
-  }
-  if (body === null) return null;
-
-  // Method — -X / --request.
-  let method: ExtractedCurlPayload['method'];
-  const methodMatch = /(?:-X|--request)\s+([A-Z]+)/.exec(steps);
-  if (methodMatch && methodMatch[1]) {
-    const m = methodMatch[1].toUpperCase();
-    if (m === 'GET' || m === 'POST' || m === 'PUT' || m === 'DELETE' || m === 'PATCH') {
-      method = m;
-    }
-  }
-
-  // Content-Type header — -H 'Content-Type: ...'.
-  let contentType: string | undefined;
-  const ctMatch = /-H\s+['"]Content-Type:\s*([^'"\r\n]+)['"]/i.exec(steps);
-  if (ctMatch && ctMatch[1]) {
-    contentType = ctMatch[1].trim();
-  }
-
-  const out: ExtractedCurlPayload = {
-    body,
-    ...(method !== undefined ? { method } : {}),
-    ...(contentType !== undefined ? { contentType } : {}),
-  };
-  return out;
-};
-
 const countAuditEventsForAssessment = async (
   db: Kysely<Database>,
   tenantId: string,
@@ -852,55 +790,6 @@ export const startDecepticonSession = async (
         ...(f.cwe && f.cwe.length > 0 ? { cwe: [...f.cwe] } : {}),
       },
     });
-
-    // SQLi replay dispatch for workspace findings.
-    //
-    // The workspace extractor records `stepsToReproduce` as free-text Markdown.
-    // For Juice Shop's classic SQLi-in-login candidate, the steps include a
-    // `curl -X POST ... -d '{"email":"...","password":"..."}'` line. We pull
-    // the `-d 'BODY'` payload back out via a heuristic regex. This is fragile
-    // by design: if Decepticon ever changes the steps format (different shell,
-    // multi-line body, multipart-form, base64 escaping), the regex misses and
-    // we skip dispatch silently. Candidate row still lands in DB so a future
-    // backfill / manual replay path can pick it up.
-    if (f.type === 'sqli' && f.affectedUrl) {
-      const steps = f.stepsToReproduce ?? '';
-      const extraction = extractCurlPayload(steps);
-      if (extraction) {
-        const sqliEnvelope: JobEnvelope = {
-          jobId: randomUUID(),
-          tenantId: input.tenantId,
-          projectId: input.projectId ?? null,
-          assessmentId: input.assessmentId,
-          kind: 'validator.sqli.replay',
-          idempotencyKey: `${input.parentEnvelope.idempotencyKey}:sqli:${candidateFindingId}`,
-          createdAt: clockIso(),
-          attempt: 0,
-          maxAttempts: 3,
-          traceId: input.traceId,
-          payload: {
-            tenantId: input.tenantId,
-            projectId: input.projectId ?? null,
-            assessmentId: input.assessmentId,
-            candidateFindingId,
-            candidateType: 'sqli',
-            affectedUrl: f.affectedUrl,
-            ...(extraction.method !== undefined && { method: extraction.method }),
-            payloadBody: extraction.body,
-            ...(extraction.contentType !== undefined && { contentType: extraction.contentType }),
-            traceId: input.traceId,
-          },
-        };
-        await deps.queueAdapter.publish(sqliEnvelope);
-      } else {
-        // Soft-skip: log via stderr so it's visible in container logs without
-        // crashing the session. The candidate row is still persisted.
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[sqli-dispatch] skipped candidate ${candidateFindingId} — could not extract payloadBody from stepsToReproduce`,
-        );
-      }
-    }
   }
 
   // 9. Mark session completed + emit completed audit.

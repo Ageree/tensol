@@ -38,11 +38,6 @@ import type { z } from 'zod';
 import { validateLfiCandidate } from './lfi-validator.ts';
 import type { ValidateFindingPayload } from './payload-schema.ts';
 import { validateRceCandidate } from './rce-validator.ts';
-import {
-  type HttpReplayRequest,
-  type HttpReplayResponse,
-  validateSqliCandidate,
-} from './sqli-validator.ts';
 import { validateSsrfCandidate } from './ssrf-validator.ts';
 
 const VALIDATOR_WORKER_ACTOR_ID: ServiceActorId = 'validator-worker';
@@ -183,8 +178,6 @@ export interface ValidatorWorkerDeps {
   };
   // Sprint 20 — RCE replay deps.
   readonly rceHttpClient?: { get(url: string): Promise<void>; readonly callCount: number };
-  // SQLi replay deps — HTTP body-replay fetcher (method+body+headers).
-  readonly sqliHttpFetcher?: (req: HttpReplayRequest) => Promise<HttpReplayResponse>;
 }
 
 const STATUS_TO_ACTION: Record<string, AuditAction> = {
@@ -1024,173 +1017,6 @@ export const handleRceReplay = async (
         return {
           kind: 'nack',
           error: err instanceof Error ? err : new Error('rce_findings_insert_unknown'),
-        };
-      }
-    }
-  }
-
-  return { kind: 'ack' };
-};
-
-// ============================================================================
-// SQLi replay handler
-// ============================================================================
-
-export const handleSqliReplay = async (
-  deps: ValidatorWorkerDeps,
-  envelope: JobEnvelope,
-): Promise<HandlerOutcome> => {
-  const { validateSqliReplayPayloadSchema } = await import('./payload-schema.ts');
-  const parsed = validateSqliReplayPayloadSchema.safeParse(envelope.payload);
-  if (!parsed.success) {
-    return {
-      kind: 'nack',
-      error: new ScopeDenyError('invalid_sqli_replay_payload', [
-        'sqli_replay_payload_schema_mismatch',
-      ]),
-    };
-  }
-  const payload = parsed.data;
-
-  // Required deps — fail-visible on missing config (mirrors S18 MED-2).
-  if (!deps.sqliHttpFetcher) {
-    await deps.auditEmitter({
-      tenantId: payload.tenantId,
-      action: 'validation.inconclusive',
-      outcome: 'failure',
-      actorType: 'service',
-      actorId: VALIDATOR_WORKER_ACTOR_ID,
-      actorName: 'validator-worker',
-      resourceType: 'candidate_finding',
-      resourceId: payload.candidateFindingId,
-      ...(payload.projectId ? { projectId: payload.projectId } : {}),
-      assessmentId: payload.assessmentId,
-      ip: null,
-      userAgent: null,
-      traceId: payload.traceId,
-      metadata: { reason: 'config_error', missing: 'sqliHttpFetcher' },
-    });
-    return {
-      kind: 'nack',
-      error: new ScopeDenyError('sqli_config_error', ['sqli_deps_not_configured']),
-    };
-  }
-
-  // HIGH-1 (S18 lesson): load candidate from DB and verify type.
-  const candidate = await deps.candidateLoader({
-    tenantId: payload.tenantId,
-    candidateFindingId: payload.candidateFindingId,
-  });
-  if (!candidate || candidate.type !== 'sqli') {
-    return {
-      kind: 'nack',
-      error: new ScopeDenyError('sqli_candidate_not_found', ['sqli_candidate_not_found']),
-    };
-  }
-
-  // Cross-assessment binding — candidate must belong to the envelope assessment.
-  if (candidate.assessmentId !== payload.assessmentId || candidate.tenantId !== payload.tenantId) {
-    await deps.auditEmitter({
-      tenantId: payload.tenantId,
-      action: 'validator.sqli.replay_denied',
-      outcome: 'denied',
-      actorType: 'service',
-      actorId: VALIDATOR_WORKER_ACTOR_ID,
-      actorName: 'validator-worker',
-      resourceType: 'candidate_finding',
-      resourceId: payload.candidateFindingId,
-      ...(payload.projectId ? { projectId: payload.projectId } : {}),
-      assessmentId: payload.assessmentId,
-      ip: null,
-      userAgent: null,
-      traceId: payload.traceId,
-      metadata: { reason: 'assessment_mismatch' },
-    });
-    return { kind: 'ack' };
-  }
-
-  const assessment = await deps.assessmentLoader({
-    tenantId: payload.tenantId,
-    assessmentId: payload.assessmentId,
-  });
-  if (!assessment) {
-    return {
-      kind: 'nack',
-      error: new ScopeDenyError('sqli_assessment_not_found', ['sqli_assessment_not_found']),
-    };
-  }
-
-  // Worker owns null-scope audit + ack (M1 — validator is NOT called on null scope).
-  const scope = await deps.buildScope(payload.assessmentId);
-  if (!scope) {
-    await deps.auditEmitter({
-      tenantId: payload.tenantId,
-      action: 'validator.sqli.replay_denied',
-      outcome: 'denied',
-      actorType: 'service',
-      actorId: VALIDATOR_WORKER_ACTOR_ID,
-      actorName: 'validator-worker',
-      resourceType: 'candidate_finding',
-      resourceId: payload.candidateFindingId,
-      ...(payload.projectId ? { projectId: payload.projectId } : {}),
-      assessmentId: payload.assessmentId,
-      ip: null,
-      userAgent: null,
-      traceId: payload.traceId,
-      metadata: { reason: 'no_scope' },
-    });
-    return { kind: 'ack' };
-  }
-
-  const result = await validateSqliCandidate(
-    {
-      tenantId: payload.tenantId,
-      projectId: payload.projectId,
-      assessmentId: payload.assessmentId,
-      candidateFindingId: payload.candidateFindingId,
-      affectedUrl: payload.affectedUrl,
-      ...(payload.method !== undefined && { method: payload.method }),
-      payloadBody: payload.payloadBody,
-      ...(payload.contentType !== undefined && { contentType: payload.contentType }),
-      ...(payload.baselineBody !== undefined && { baselineBody: payload.baselineBody }),
-      traceId: payload.traceId,
-    },
-    {
-      scope: scope as EffectiveScope,
-      scopeDeps: deps.scopeDeps,
-      httpFetcher: deps.sqliHttpFetcher,
-      clock: deps.clock ?? (() => new Date()),
-      auditEmitter: deps.auditEmitter,
-    },
-  );
-
-  if (result.status === 'confirmed') {
-    try {
-      await deps.findingsWriter({
-        tenantId: payload.tenantId,
-        assessmentId: payload.assessmentId,
-        candidateFindingId: payload.candidateFindingId,
-        type: 'sqli',
-        severity: 'critical',
-        confidence: 'high',
-        affectedUrl: candidate.affectedUrl,
-        reproduction: {
-          affectedUrl: payload.affectedUrl,
-          method: payload.method ?? 'POST',
-          payloadBody: payload.payloadBody,
-          signalHits: [...(result.evidence?.signalHits ?? [])],
-          responseStatus: result.evidence?.responseStatus ?? null,
-          responseTimeMs: result.evidence?.responseTimeMs ?? null,
-        },
-        validatorLog: [],
-        validatedAt: (deps.clock ?? (() => new Date()))(),
-        validatedBy: { status: 'confirmed' as const },
-      });
-    } catch (err) {
-      if (!isUniqueViolation(err)) {
-        return {
-          kind: 'nack',
-          error: err instanceof Error ? err : new Error('sqli_findings_insert_unknown'),
         };
       }
     }
