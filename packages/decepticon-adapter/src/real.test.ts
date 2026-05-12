@@ -43,6 +43,16 @@ const buildClient = (chunks: StreamChunk[]): DecepticonClient => {
           thread_id: 'mock-thread-1',
         } as unknown as Thread);
       },
+      get(_threadId) {
+        // 2026-05-12 — HITL state-machine reads thread state to detect proposal-await.
+        // Tests use a stream-end heuristic; return idle thread w/ empty messages so the
+        // auto-approval loop short-circuits (no awaiting → exit).
+        return Promise.resolve({
+          thread_id: 'mock-thread-1',
+          status: 'idle',
+          values: { messages: [] },
+        } as unknown as Thread);
+      },
     },
     runs: {
       stream(_threadId, _assistantId) {
@@ -226,6 +236,13 @@ describe('RealDecepticonAdapter — integration with mock LangGraph client', () 
         create() {
           return Promise.resolve({ thread_id: 'mock-thread-stop' } as unknown as Thread);
         },
+        get() {
+          return Promise.resolve({
+            thread_id: 'mock-thread-stop',
+            status: 'idle',
+            values: { messages: [] },
+          } as unknown as Thread);
+        },
       },
       runs: {
         async *stream(_threadId, _assistantId, args) {
@@ -265,5 +282,206 @@ describe('RealDecepticonAdapter — integration with mock LangGraph client', () 
 
     const artifacts = await adapter.exportArtifacts(handle.sessionId);
     expect(artifacts).toEqual([]);
+  });
+});
+
+// ============================================================================
+// EE-3 HITL state-machine (2026-05-12) — auto-approve fires when Decepticon
+// returns an "OPPLAN Proposal" AI message and stops; loop sends an approval
+// reply via runs.stream on the same thread, then drains the second stream.
+// ============================================================================
+
+describe('RealDecepticonAdapter :: HITL auto-approval state-machine', () => {
+  test('detects OPPLAN Proposal in thread.values, fires approval reply on second turn', async () => {
+    const streamCalls: Array<{ input: unknown }> = [];
+    const threadGetCallCount = { n: 0 };
+    let proposalDelivered = false;
+
+    const client: DecepticonClient = {
+      threads: {
+        create() {
+          return Promise.resolve({ thread_id: 'thread-hitl' } as unknown as Thread);
+        },
+        get(_id) {
+          threadGetCallCount.n += 1;
+          // First poll (after turn 1): proposal pending, awaiting human reply.
+          if (!proposalDelivered) {
+            proposalDelivered = true;
+            return Promise.resolve({
+              thread_id: 'thread-hitl',
+              status: 'idle',
+              values: {
+                messages: [
+                  { type: 'human', content: 'OPPLAN ...' },
+                  {
+                    type: 'ai',
+                    name: 'decepticon',
+                    content:
+                      '## OPPLAN Proposal — review the plan and approve to proceed with execution.',
+                    tool_calls: [],
+                  },
+                ],
+              },
+            } as unknown as Thread);
+          }
+          // Second poll (after turn 2 / approval reply): no further proposal,
+          // last message is a tool result so loop exits.
+          return Promise.resolve({
+            thread_id: 'thread-hitl',
+            status: 'idle',
+            values: {
+              messages: [
+                { type: 'human', content: 'OPPLAN ...' },
+                { type: 'ai', name: 'decepticon', content: 'proposal', tool_calls: [] },
+                { type: 'human', content: 'approved — proceed' },
+                { type: 'tool', name: 'report_finding', content: 'done' },
+              ],
+            },
+          } as unknown as Thread);
+        },
+      },
+      runs: {
+        stream(_threadId, _assistantId, args) {
+          streamCalls.push({ input: args.input });
+          // Each turn yields just one metadata chunk and ends. The interesting
+          // assertion is whether two streams happen, not what they emit.
+          const generator = async function* (): AsyncGenerator<StreamChunk> {
+            yield { event: 'metadata', data: { run_id: `run-${streamCalls.length}` } };
+          };
+          return generator();
+        },
+        cancel() {
+          return Promise.resolve();
+        },
+      },
+    };
+
+    const adapter = new RealDecepticonAdapter({ clientFactory: () => client });
+    const handle = await adapter.start({ tenantId: 'tenant-a', opplan: buildOpplan() });
+
+    // Drain status stream so we can assert the auto-approval marker.
+    const events: StatusEvent[] = [];
+    for await (const ev of adapter.streamStatus(handle.sessionId)) events.push(ev);
+
+    // Two runs.stream calls = initial OPPLAN + one approval reply.
+    expect(streamCalls.length).toBe(2);
+    // First call carries the OPPLAN payload (whatever shape the SUT built).
+    expect(streamCalls[0]?.input).toBeDefined();
+    // Second call is an explicit approval-reply messages array.
+    const secondInput = streamCalls[1]?.input as { messages?: Array<{ content?: string }> };
+    expect(Array.isArray(secondInput.messages)).toBe(true);
+    expect(secondInput.messages?.[0]?.content).toMatch(/approved/i);
+
+    // Auto-approval status event landed mid-stream.
+    const approvalEvent = events.find((e) => e.detail?.['reason'] === 'auto_approval_fired');
+    expect(approvalEvent).toBeDefined();
+    expect(approvalEvent?.detail?.['approvalNumber']).toBe(1);
+  });
+
+  test('does NOT fire approval when last AI msg has tool_calls (still working)', async () => {
+    const streamCalls: Array<{ input: unknown }> = [];
+
+    const client: DecepticonClient = {
+      threads: {
+        create() {
+          return Promise.resolve({ thread_id: 'thread-busy' } as unknown as Thread);
+        },
+        get(_id) {
+          return Promise.resolve({
+            thread_id: 'thread-busy',
+            status: 'idle',
+            values: {
+              messages: [
+                { type: 'human', content: 'OPPLAN ...' },
+                {
+                  type: 'ai',
+                  name: 'decepticon',
+                  content: 'thinking',
+                  // tool_calls present → agent isn't waiting, has more work.
+                  tool_calls: [{ name: 'bash', args: {} }],
+                },
+              ],
+            },
+          } as unknown as Thread);
+        },
+      },
+      runs: {
+        stream(_t, _a, args) {
+          streamCalls.push({ input: args.input });
+          const generator = async function* (): AsyncGenerator<StreamChunk> {
+            yield { event: 'metadata', data: {} };
+          };
+          return generator();
+        },
+        cancel() {
+          return Promise.resolve();
+        },
+      },
+    };
+
+    const adapter = new RealDecepticonAdapter({ clientFactory: () => client });
+    const handle = await adapter.start({ tenantId: 'tenant-a', opplan: buildOpplan() });
+    for await (const _ of adapter.streamStatus(handle.sessionId)) {
+      /* drain */
+    }
+
+    // Only one runs.stream call — auto-approval did NOT fire.
+    expect(streamCalls.length).toBe(1);
+  });
+
+  test('respects MAX_AUTO_APPROVALS cap when proposal keeps recurring', async () => {
+    const streamCalls: Array<{ input: unknown }> = [];
+    let getCount = 0;
+
+    const client: DecepticonClient = {
+      threads: {
+        create() {
+          return Promise.resolve({ thread_id: 'thread-loop' } as unknown as Thread);
+        },
+        get(_id) {
+          // Always return a NEW proposal — different message index each time.
+          getCount += 1;
+          const messages: unknown[] = [];
+          for (let i = 0; i < getCount * 2; i++) {
+            messages.push({ type: i % 2 === 0 ? 'human' : 'ai', content: 'x', tool_calls: [] });
+          }
+          // Last message is always an AI with proposal text.
+          messages.push({
+            type: 'ai',
+            name: 'decepticon',
+            content: '## OPPLAN Proposal — review and approve',
+            tool_calls: [],
+          });
+          return Promise.resolve({
+            thread_id: 'thread-loop',
+            status: 'idle',
+            values: { messages },
+          } as unknown as Thread);
+        },
+      },
+      runs: {
+        stream(_t, _a, args) {
+          streamCalls.push({ input: args.input });
+          const generator = async function* (): AsyncGenerator<StreamChunk> {
+            yield { event: 'metadata', data: {} };
+          };
+          return generator();
+        },
+        cancel() {
+          return Promise.resolve();
+        },
+      },
+    };
+
+    const adapter = new RealDecepticonAdapter({ clientFactory: () => client });
+    const handle = await adapter.start({ tenantId: 'tenant-a', opplan: buildOpplan() });
+    const events: StatusEvent[] = [];
+    for await (const ev of adapter.streamStatus(handle.sessionId)) events.push(ev);
+
+    // 1 initial + MAX_AUTO_APPROVALS replies = 6 total stream calls (cap=5).
+    expect(streamCalls.length).toBe(6);
+    // Final completed event should signal auto_approvals_capped.
+    const completedEv = events.find((e) => e.status === 'completed');
+    expect(completedEv?.detail?.['reason']).toBe('auto_approvals_capped');
   });
 });

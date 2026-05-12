@@ -56,6 +56,8 @@ export interface RealDecepticonAdapterDeps {
 export interface DecepticonClient {
   threads: {
     create(args: { metadata?: Record<string, unknown> }): Promise<Thread>;
+    /** 2026-05-12 — needed by HITL state-machine to detect proposal-await state. */
+    get(threadId: string): Promise<Thread>;
   };
   runs: {
     stream(
@@ -94,7 +96,61 @@ interface SessionState {
   streamPromise: Promise<void>;
   runId: string | null;
   finalStatus: 'completed' | 'failed' | 'cancelled' | null;
+  /** EE-3 HITL fix (2026-05-12): how many times we've fired an auto-approval reply on this thread. */
+  autoApprovalsCount: number;
+  /** Last LangGraph message index we fed an auto-approval to — prevents double-approval of same proposal. */
+  lastApprovedMessageIndex: number;
 }
+
+// ============================================================================
+// HITL state-machine constants (2026-05-12)
+// ============================================================================
+
+const MAX_AUTO_APPROVALS = 5;
+const APPROVAL_REPLY_CONTENT =
+  'approved — proceed with full execution per the OPPLAN. ' +
+  'Do not present further proposals; run all phases sequentially (recon → ' +
+  'initial-access if foothold:true → post-exploit if postExploit:true) and ' +
+  'emit confirmed findings via the report_finding tool.';
+
+/**
+ * Heuristic — does the thread state look like the agent is waiting for a human reply?
+ *
+ * 2026-05-12 update: dropped the content-keyword regex. Decepticon's
+ * `decepticon` orchestrator surfaced a Korean proposal during scan #6
+ * («OPPLAN이 준비되었습니다. 검토 및 승인을 부탁드립니다») which the
+ * English-only regex missed → state-machine bailed early. New rule is purely
+ * structural and language-independent: thread.status === 'idle' AND last
+ * message is from `ai` agent AND has no pending tool_calls → it is waiting.
+ * Genuine "task done" final messages get an unwanted approval reply, but cap
+ * at MAX_AUTO_APPROVALS bounds the cost; in practice Decepticon responds
+ * with «task already complete» and the next iteration exits.
+ */
+const isAwaitingHumanReply = (
+  thread: { status?: string; values?: unknown },
+  lastApprovedIndex: number,
+): { awaiting: boolean; messageIndex: number } => {
+  const values = thread.values as { messages?: unknown[] } | undefined;
+  const messages = values?.messages;
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return { awaiting: false, messageIndex: -1 };
+  }
+  const lastIdx = messages.length - 1;
+  if (lastIdx <= lastApprovedIndex) return { awaiting: false, messageIndex: lastIdx };
+  if (thread.status && thread.status !== 'idle') {
+    return { awaiting: false, messageIndex: lastIdx };
+  }
+  const last = messages[lastIdx] as
+    | { type?: string; tool_calls?: unknown[] }
+    | undefined;
+  if (!last || last.type !== 'ai') return { awaiting: false, messageIndex: lastIdx };
+  // tool_calls present → agent is still working, NOT waiting.
+  if (Array.isArray(last.tool_calls) && last.tool_calls.length > 0) {
+    return { awaiting: false, messageIndex: lastIdx };
+  }
+  // Idle thread + AI message with no pending tool calls = waiting for human.
+  return { awaiting: true, messageIndex: lastIdx };
+};
 
 // ============================================================================
 // AsyncQueue — single-producer/single-consumer for streamStatus/streamCandidates
@@ -269,6 +325,8 @@ export class RealDecepticonAdapter implements DecepticonAdapter {
       runId: null,
       finalStatus: null,
       streamPromise: Promise.resolve(),
+      autoApprovalsCount: 0,
+      lastApprovedMessageIndex: -1,
     };
 
     statusQueue.push({
@@ -355,18 +413,10 @@ export class RealDecepticonAdapter implements DecepticonAdapter {
 
   private async consumeStream(state: SessionState, input: unknown): Promise<void> {
     try {
-      const stream = this.client.runs.stream(state.threadId, state.assistantId, {
-        input,
-        streamMode: ['values', 'custom'] as const,
-        signal: state.abortController.signal,
-      });
-
-      // 2026-05-12 second-smoke fix: some LangGraph platform SDK versions
-      // don't close the SSE iterator after the run reaches terminal status —
-      // the for-await hangs forever and the assessment is stuck `running` on
-      // our side. Wrap the chunk loop in a wallclock race so we eventually
-      // close the queues even if the upstream iterator is leaky. Tunable
-      // via DECEPTICON_STREAM_MAX_MS (default 15 min).
+      // 2026-05-12 second-smoke fix #3 — overall wallclock safeguard around
+      // the whole iteration loop (initial run + auto-approval continuations).
+      // If the wallclock fires we close the queues even if Decepticon hangs
+      // internally. Tunable via DECEPTICON_STREAM_MAX_MS (default 15 min).
       const streamMaxMs =
         Number(
           (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[
@@ -374,11 +424,53 @@ export class RealDecepticonAdapter implements DecepticonAdapter {
           ],
         ) || 15 * 60 * 1000;
 
-      const consumeChunks = async (): Promise<void> => {
-        for await (const chunk of stream) {
-          if (state.abortController.signal.aborted) break;
-          this.dispatchChunk(state, chunk);
+      const consumeAllRuns = async (initial: unknown): Promise<'stream-end' | 'capped'> => {
+        // EE-3 HITL state-machine: outer loop iterates one runs.stream per
+        // human turn. First iteration is the OPPLAN; subsequent iterations
+        // are auto-approval replies fired when Decepticon presents an
+        // OPPLAN Proposal and stops. Capped at MAX_AUTO_APPROVALS+1 turns.
+        let nextInput: unknown = initial;
+        for (let turn = 0; turn <= MAX_AUTO_APPROVALS; turn++) {
+          if (state.abortController.signal.aborted) return 'stream-end';
+          const stream = this.client.runs.stream(state.threadId, state.assistantId, {
+            input: nextInput,
+            streamMode: ['values', 'custom'] as const,
+            signal: state.abortController.signal,
+          });
+          for await (const chunk of stream) {
+            if (state.abortController.signal.aborted) return 'stream-end';
+            this.dispatchChunk(state, chunk);
+          }
+          // Stream ended for this turn. Check if Decepticon is asking for
+          // human approval. If so, fire next turn with approval reply.
+          if (state.abortController.signal.aborted) return 'stream-end';
+          const thread = await this.client.threads.get(state.threadId).catch(() => null);
+          if (!thread) return 'stream-end';
+          const check = isAwaitingHumanReply(thread, state.lastApprovedMessageIndex);
+          if (!check.awaiting) return 'stream-end';
+          if (state.autoApprovalsCount >= MAX_AUTO_APPROVALS) return 'capped';
+          state.autoApprovalsCount += 1;
+          state.lastApprovedMessageIndex = check.messageIndex;
+          state.statusQueue.push({
+            sessionId: state.sessionId,
+            status: 'planning',
+            occurredAt: new Date().toISOString(),
+            detail: {
+              reason: 'auto_approval_fired',
+              approvalNumber: state.autoApprovalsCount,
+              proposalAtMessageIndex: check.messageIndex,
+            },
+          });
+          nextInput = {
+            messages: [
+              {
+                type: 'human',
+                content: APPROVAL_REPLY_CONTENT,
+              },
+            ],
+          };
         }
+        return 'capped';
       };
 
       let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -386,10 +478,9 @@ export class RealDecepticonAdapter implements DecepticonAdapter {
         timeoutHandle = setTimeout(() => resolve('wallclock'), streamMaxMs);
       });
 
-      const result = await Promise.race([consumeChunks().then(() => 'stream-end' as const), wallclock]);
+      const result = await Promise.race([consumeAllRuns(input), wallclock]);
       if (timeoutHandle) clearTimeout(timeoutHandle);
       if (result === 'wallclock' && !state.abortController.signal.aborted) {
-        // Best-effort cancel on the upstream so we stop the actual run too.
         try {
           state.abortController.abort();
         } catch {
@@ -399,11 +490,16 @@ export class RealDecepticonAdapter implements DecepticonAdapter {
 
       if (!state.finalStatus) {
         state.finalStatus = 'completed';
+        const detail: Record<string, unknown> = {
+          autoApprovalsCount: state.autoApprovalsCount,
+        };
+        if (result === 'wallclock') detail['reason'] = 'stream_wallclock_close';
+        if (result === 'capped') detail['reason'] = 'auto_approvals_capped';
         state.statusQueue.push({
           sessionId: state.sessionId,
           status: 'completed',
           occurredAt: new Date().toISOString(),
-          ...(result === 'wallclock' ? { detail: { reason: 'stream_wallclock_close' } } : {}),
+          ...(Object.keys(detail).length > 1 ? { detail } : {}),
         });
       }
     } finally {

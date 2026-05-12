@@ -55,6 +55,15 @@ const buildMockClient = (chunks: StreamChunk[], threadId = 'mock-thread-s13'): D
       create(_args) {
         return Promise.resolve({ thread_id: threadId } as unknown as Thread);
       },
+      get(_threadId) {
+        // 2026-05-12 HITL state-machine — return idle empty thread so
+        // auto-approval loop short-circuits in IT.
+        return Promise.resolve({
+          thread_id: threadId,
+          status: 'idle',
+          values: { messages: [] },
+        } as unknown as Thread);
+      },
     },
     runs: {
       stream(_threadId, _assistantId) {
