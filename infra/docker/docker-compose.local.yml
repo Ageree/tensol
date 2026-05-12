@@ -38,7 +38,11 @@ services:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: cs
+      # Username MUST be ≥3 chars (minio constraint introduced 2024-10 in
+      # RELEASE.2024-10-13). Keep in sync with .env.example
+      # OBJECT_STORAGE_ACCESS_KEY. Was `cs` until 2026-05-12 when minio
+      # started crash-looping on credential validation.
+      MINIO_ROOT_USER: csadmin
       MINIO_ROOT_PASSWORD: cs-secret-local-only
     volumes:
       - cs-minio-data:/data
