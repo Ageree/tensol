@@ -42,6 +42,11 @@ import {
   type SessionStatus,
 } from '@cyberstrike/decepticon-adapter';
 import type { ObjectStorage } from '@cyberstrike/object-storage';
+import {
+  cleanWorkspace,
+  type DecepticonWorkspaceFinding,
+  extractWorkspaceFindings,
+} from './decepticon-workspace.ts';
 import type { JobEnvelope, QueueAdapter } from '@cyberstrike/queue';
 import {
   type EffectiveScope,
@@ -252,6 +257,15 @@ export const startDecepticonSession = async (
 ): Promise<StartDecepticonResult> => {
   const randomUUID = deps.randomUUID ?? ((): string => crypto.randomUUID());
   const clockIso = deps.clockIso ?? ((): string => new Date().toISOString());
+  // Capture timestamp BEFORE Decepticon writes anything — used to filter
+  // workspace findings to only this scan's emissions (post-run extractor).
+  const sessionStartedAtIso = clockIso();
+
+  // 0. Decepticon workspace lives in /workspace inside decepticon-sandbox
+  // container and PERSISTS across runs. Wipe before this scan so prior
+  // findings don't leak into our extractor (best-effort; silent on failure
+  // when sandbox container isn't reachable, e.g. in unit tests).
+  await cleanWorkspace().catch(() => undefined);
 
   // 1-3. Build OPPLAN, write to object storage, insert assessment_artifacts row.
   const opplan = buildOpplan(input);
@@ -708,6 +722,61 @@ export const startDecepticonSession = async (
         },
       },
     );
+  }
+
+  // 8.5. Workspace findings extraction (2026-05-12) — Decepticon's recon
+  // / exploit / postexploit subagents write findings to
+  // /workspace/findings/FIND-NNN.md and /workspace/timeline.jsonl rather
+  // than emitting subagent_tool_result events through the LangGraph stream.
+  // Pull them out of the sandbox container and persist as candidate_findings.
+  // Best-effort: silent if extractor returns empty (sandbox unreachable etc.).
+  const wsFindings: DecepticonWorkspaceFinding[] = await extractWorkspaceFindings({
+    sinceIso: sessionStartedAtIso,
+  }).catch(() => []);
+  for (const f of wsFindings) {
+    const candidateFindingId = randomUUID();
+    await deps.db
+      .insertInto('candidate_findings')
+      .values({
+        id: candidateFindingId,
+        tenant_id: input.tenantId,
+        assessment_id: input.assessmentId,
+        type: f.type,
+        severity: f.severity,
+        affected_url: f.affectedUrl ?? '',
+        source: 'decepticon',
+        // biome-ignore lint/suspicious/noExplicitAny: Json boundary
+        payload: JSON.stringify({
+          decepticonFindingId: f.id,
+          agent: f.agent,
+          ts: f.ts,
+          description: f.description ?? '',
+        }) as any,
+      })
+      .execute();
+    candidateFindingIds.push(candidateFindingId);
+    await emitSignedAudit(deps.db, {
+      tenantId: input.tenantId,
+      action: 'decepticon.candidate.observed',
+      outcome: 'success',
+      actorType: 'service',
+      actorId: COORDINATOR_ACTOR_ID,
+      actorName: 'coordinator',
+      resourceType: 'candidate_finding',
+      resourceId: candidateFindingId,
+      ...(input.projectId ? { projectId: input.projectId } : {}),
+      assessmentId: input.assessmentId,
+      ip: 'coordinator',
+      userAgent: null,
+      traceId: input.traceId,
+      metadata: {
+        sessionId: sessionHandle.sessionId,
+        type: f.type,
+        severity: f.severity,
+        source: 'workspace_extractor',
+        decepticonFindingId: f.id,
+      },
+    });
   }
 
   // 9. Mark session completed + emit completed audit.
