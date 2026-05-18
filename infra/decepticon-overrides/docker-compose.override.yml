@@ -23,6 +23,15 @@ services:
       - ./skills:/skills:ro
 
   langgraph:
+    environment:
+      # [TENSOL OVERRIDE 2026-05-12] verifier agent's Neo4j tool calls
+      # (validate_finding → kg_add_edge) use a sync bolt driver in the
+      # async langgraph event loop, which blockbuster detects and raises
+      # `BlockingError: socket.sendall`. Confirmed via scan #7 failure
+      # at 13:36 UTC. LangGraph supports an opt-out env var. Once
+      # Decepticon upstream switches verifier kg writes to the async
+      # driver, this can be removed.
+      - LANGGRAPH_ALLOW_BLOCKING=true
     volumes:
       # [TENSOL OVERRIDE] Shadow the baked recon.md prompt with the
       # working-tree copy so the Tensol-side Rule 4b (KG_PERSISTENCE block —
