@@ -47,6 +47,18 @@
         "typescript": "^5.6.3",
       },
     },
+    "vps-agent": {
+      "name": "@tensol/vps-agent",
+      "version": "0.1.0",
+      "dependencies": {
+        "hono": "^4.6.14",
+        "zod": "^3.23.8",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.1.13",
+        "typescript": "^5.6.3",
+      },
+    },
   },
   "packages": {
     "@babel/code-frame": ["@babel/code-frame@7.29.0", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.28.5", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw=="],
@@ -264,6 +276,8 @@
     "@tensol/server": ["@tensol/server@workspace:server"],
 
     "@tensol/site": ["@tensol/site@workspace:apps/site"],
+
+    "@tensol/vps-agent": ["@tensol/vps-agent@workspace:vps-agent"],
 
     "@types/babel__core": ["@types/babel__core@7.20.5", "", { "dependencies": { "@babel/parser": "^7.20.7", "@babel/types": "^7.20.7", "@types/babel__generator": "*", "@types/babel__template": "*", "@types/babel__traverse": "*" } }, "sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA=="],
 

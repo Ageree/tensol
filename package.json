@@ -6,7 +6,8 @@
   "packageManager": "bun@1.3.11",
   "workspaces": [
     "apps/*",
-    "server"
+    "server",
+    "vps-agent"
   ],
   "scripts": {
     "bun:assert-version": "bun scripts/assert-bun-version.ts"
