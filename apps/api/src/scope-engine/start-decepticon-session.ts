@@ -187,34 +187,32 @@ const summariseRule = (r: NormalizedRule): string => {
 };
 
 /**
- * 2026-05-12 second-smoke bug fix: opplan-engagement profile is now derived
- * from `input.tier` instead of hardcoded `'recon-only'`. Without this,
- * Decepticon always defaulted to recon-only and never emitted candidates,
- * regardless of model or target richness.
+ * Phase 3.2 (2026-05-12) — engagement floor now `aggressive` regardless
+ * of `tier` input.
  *
- * Tier semantics:
- *   light       → 'recon-only'      (discovery + cataloguing; no exploit)
- *   medium      → 'recon-and-exploit' (recon + web-app probes; no foothold)
- *   aggressive  → 'recon-and-exploit' + foothold=true + postExploit=true
- *                  (full chain construction; XBOW-style)
+ * Rationale: Tensol's value prop is XBOW-style depth (full kill-chain).
+ * Defaulting to `recon-only` for light tier produced shallow scans that
+ * found surface bugs only (12-scan smoke iteration: avg 1-3 candidates
+ * per juice-shop scan vs known ≥50 bugs). Bug-bounty hunting needs
+ * exploit phase + foothold construction by default — the cost cap
+ * (`SCAN_ACTION_CAP`) is the safety knob, not the engagement profile.
+ *
+ * All tiers now resolve to:
+ *   engagementProfile = 'recon-and-exploit'
+ *   foothold          = true
+ *   postExploit       = true
+ *
+ * The `tier` parameter is RETAINED (still threaded through
+ * StartDecepticonInput) because tier-to-scope.ts uses it to gate
+ * allowed tool categories independently. The engagement profile is the
+ * orchestrator-side budget; tier is the scope-side budget.
  */
-const engagementForTier = (tier: 'light' | 'medium' | 'aggressive' | undefined) => {
-  switch (tier) {
-    case 'aggressive':
-      return {
-        engagementProfile: 'recon-and-exploit',
-        foothold: true,
-        postExploit: true,
-      };
-    case 'medium':
-      return {
-        engagementProfile: 'recon-and-exploit',
-        foothold: false,
-        postExploit: false,
-      };
-    default:
-      return { engagementProfile: 'recon-only', foothold: false, postExploit: false };
-  }
+const engagementForTier = (_tier: 'light' | 'medium' | 'aggressive' | undefined) => {
+  return {
+    engagementProfile: 'recon-and-exploit',
+    foothold: true,
+    postExploit: true,
+  };
 };
 
 const buildOpplan = (input: StartDecepticonInput): Opplan => {

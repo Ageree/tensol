@@ -173,10 +173,12 @@ describe.skipIf(!hasDatabaseUrl())(
       expect((opplan.unavailableTools as unknown[]).every((t) => typeof t === 'string')).toBe(true);
       // 8. engagementProfile — string.
       expect(typeof opplan.engagementProfile).toBe('string');
-      expect(opplan.engagementProfile).toBe('recon-only');
+      // Phase 3.2 (2026-05-12) — engagement floor raised to aggressive
+      // for every scan regardless of tier (XBOW-style depth by default).
+      expect(opplan.engagementProfile).toBe('recon-and-exploit');
       // 9-12. Defence-in-depth boolean literals.
-      expect(opplan.foothold).toBe(false);
-      expect(opplan.postExploit).toBe(false);
+      expect(opplan.foothold).toBe(true);
+      expect(opplan.postExploit).toBe(true);
       expect(opplan.c2).toBe(false);
       expect(opplan.ad).toBe(false);
       // R1 cardinality guard — OPPLAN must be EXACTLY these 12 fields, no extras.
