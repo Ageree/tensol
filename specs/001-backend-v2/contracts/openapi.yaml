@@ -1,0 +1,421 @@
+openapi: 3.1.0
+info:
+  title: Tensol Backend v2 API
+  version: 2.0.0
+  description: |
+    Public API exposed by `server/` to the `apps/site/` frontend. All routes are
+    cookie-authenticated except `/api/auth/request-link` and `/api/auth/verify`.
+    Webhook routes use HMAC signatures, see `webhook.md`.
+servers:
+  - url: https://api.tensol.io
+    description: Production
+  - url: http://localhost:3000
+    description: Local development
+
+paths:
+  /api/auth/request-link:
+    post:
+      summary: Request a magic login link
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AuthRequestLink" }
+      responses:
+        "204": { description: Link delivery initiated (no enumeration leak) }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /api/auth/verify:
+    get:
+      summary: Redeem a magic link token
+      description: Sets a session cookie on success and redirects to /dashboard.
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string, minLength: 32 }
+      responses:
+        "302": { description: Redirect to /dashboard with session cookie set }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "410": { description: Token expired or already used }
+
+  /api/auth/logout:
+    post:
+      summary: Invalidate current session
+      responses:
+        "204": { description: Session invalidated }
+
+  /api/auth/me:
+    get:
+      summary: Return the current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/projects:
+    get:
+      summary: List user's projects
+      responses:
+        "200":
+          description: Array of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Project" }
+    post:
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+
+  /api/projects/{projectId}:
+    parameters:
+      - { name: projectId, in: path, required: true, schema: { type: string } }
+    delete:
+      summary: Delete a project
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/projects/{projectId}/targets:
+    parameters:
+      - { name: projectId, in: path, required: true, schema: { type: string } }
+    get:
+      summary: List targets in a project
+      responses:
+        "200":
+          description: Targets
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Target" }
+    post:
+      summary: Add a target to a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TargetCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Target" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+
+  /api/targets/{targetId}:
+    parameters:
+      - { name: targetId, in: path, required: true, schema: { type: string } }
+    delete:
+      summary: Delete a target
+      responses:
+        "204": { description: Deleted }
+
+  /api/targets/{targetId}/auth-proof/challenge:
+    parameters:
+      - { name: targetId, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Issue an ownership challenge
+      responses:
+        "201":
+          description: New challenge issued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthProofChallenge" }
+
+  /api/targets/{targetId}/auth-proof/verify:
+    parameters:
+      - { name: targetId, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Verify the active challenge
+      responses:
+        "200":
+          description: Verified
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthProofResult" }
+        "410": { description: No active challenge or challenge expired }
+        "422":
+          description: All probe methods failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthProofResult" }
+
+  /api/scans:
+    get:
+      summary: List user's scans
+      responses:
+        "200":
+          description: Scans
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Scan" }
+    post:
+      summary: Start a new scan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScanCreate" }
+      responses:
+        "201":
+          description: Scan queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Scan" }
+        "403":
+          description: Target not verified
+        "400": { $ref: "#/components/responses/ValidationError" }
+
+  /api/scans/{scanId}:
+    parameters:
+      - { name: scanId, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Get a scan and its findings
+      responses:
+        "200":
+          description: Scan with findings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/scans/{scanId}/cancel:
+    parameters:
+      - { name: scanId, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Cancel an in-flight scan
+      responses:
+        "202": { description: Cancellation accepted }
+        "409": { description: Scan already terminal }
+
+  /api/scans/{scanId}/audit:
+    parameters:
+      - { name: scanId, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Get the human-readable audit timeline for a scan
+      responses:
+        "200":
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AuditEntry" }
+
+  /webhooks/scan-progress:
+    post:
+      summary: Receive a signed callback from a scan environment
+      security: []
+      description: |
+        Body and signature must be valid. See `webhook.md` for the canonical
+        signature input format.
+      parameters:
+        - name: X-Tensol-Signature
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Tensol-Scan-Id
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScanProgressCallback" }
+      responses:
+        "200": { description: Accepted }
+        "401": { description: Signature mismatch }
+        "404": { description: Unknown scan }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: tensol_session
+  security:
+    - sessionCookie: []
+  responses:
+    Unauthorized:
+      description: Not authenticated
+    NotFound:
+      description: Resource not found or not owned by caller
+    ValidationError:
+      description: Zod validation failed
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+              details: { type: array, items: { type: object } }
+    RateLimited:
+      description: Too many requests
+  schemas:
+    User:
+      type: object
+      required: [id, email, created_at]
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        created_at: { type: integer }
+    AuthRequestLink:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+    Project:
+      type: object
+      required: [id, name, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        created_at: { type: integer }
+    ProjectCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+    Target:
+      type: object
+      required: [id, project_id, url, status, created_at]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        url: { type: string }
+        status: { type: string, enum: [unverified, verified, expired] }
+        verified_at: { type: integer, nullable: true }
+        created_at: { type: integer }
+    TargetCreate:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri }
+    AuthProofChallenge:
+      type: object
+      required: [id, target_id, challenge, expires_at, methods]
+      properties:
+        id: { type: string }
+        target_id: { type: string }
+        challenge: { type: string }
+        expires_at: { type: integer }
+        methods:
+          type: object
+          properties:
+            dns_txt: { type: string, description: "TXT record name + value to publish" }
+            file: { type: string, description: "HTTP path and file content" }
+            meta_tag: { type: string, description: "HTML meta tag to embed" }
+    AuthProofResult:
+      type: object
+      required: [verified, attempted]
+      properties:
+        verified: { type: boolean }
+        method: { type: string, nullable: true, enum: [dns_txt, file, meta_tag] }
+        attempted:
+          type: array
+          description: List of methods that were probed and whether each succeeded
+          items:
+            type: object
+            properties:
+              method: { type: string }
+              succeeded: { type: boolean }
+              note: { type: string, nullable: true }
+    Scan:
+      type: object
+      required: [id, target_id, profile, status, started_at]
+      properties:
+        id: { type: string }
+        target_id: { type: string }
+        profile: { type: string, enum: [recon, standard, max] }
+        status: { type: string, enum: [queued, running, completed, failed, cancelled] }
+        failure_reason: { type: string, nullable: true }
+        started_at: { type: integer }
+        completed_at: { type: integer, nullable: true }
+        usage_tokens: { type: integer, nullable: true }
+        usage_usd_cents: { type: integer, nullable: true }
+    ScanCreate:
+      type: object
+      required: [target_id, profile]
+      properties:
+        target_id: { type: string }
+        profile: { type: string, enum: [recon, standard, max] }
+    ScanDetail:
+      allOf:
+        - $ref: "#/components/schemas/Scan"
+        - type: object
+          properties:
+            findings:
+              type: array
+              items: { $ref: "#/components/schemas/Finding" }
+    Finding:
+      type: object
+      required: [id, severity, title, body_md, created_at]
+      properties:
+        id: { type: string }
+        severity: { type: string, enum: [critical, high, medium, low, info] }
+        title: { type: string }
+        body_md: { type: string }
+        evidence:
+          type: object
+          nullable: true
+          additionalProperties: true
+        created_at: { type: integer }
+    AuditEntry:
+      type: object
+      required: [id, ts, event, outcome]
+      properties:
+        id: { type: integer }
+        ts: { type: integer }
+        event: { type: string }
+        outcome: { type: string, enum: [success, failure, rejected] }
+        severity: { type: string, nullable: true }
+        metadata:
+          type: object
+          additionalProperties: true
+    ScanProgressCallback:
+      type: object
+      required: [scan_id, status]
+      properties:
+        scan_id: { type: string }
+        status: { type: string, enum: [done, failed] }
+        failure_reason: { type: string, nullable: true }
+        usage:
+          type: object
+          nullable: true
+          properties:
+            tokens: { type: integer }
+            usd_cents: { type: integer }
+        findings:
+          type: array
+          nullable: true
+          items:
+            type: object
+            required: [severity, title, body_md]
+            properties:
+              severity: { type: string, enum: [critical, high, medium, low, info] }
+              title: { type: string }
+              body_md: { type: string }
+              evidence: { type: object, additionalProperties: true, nullable: true }
