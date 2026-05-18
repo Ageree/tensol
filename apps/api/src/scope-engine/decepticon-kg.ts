@@ -82,12 +82,16 @@ export const queryValidatedFindings = async (
   const endpoint = `${url.replace(/\/$/, '')}/db/${database}/tx/commit`;
 
   // Cypher returns one row per (FINDING, VULNERABILITY) validated pair.
-  // ORDER BY findingId ensures deterministic ingestion order across
-  // re-runs (matters for the matching heuristic in step 8.8 which picks
-  // the first candidate match wins).
+  // Verifier writes BOTH "validated: <label>" AND "rejected: <label>"
+  // FINDING nodes with VALIDATES edges (a "rejected" finding means the
+  // verifier ran a PoC that failed → false positive on the source vuln).
+  // Phase 3.1 sub-commit 7 (2026-05-12): filter to only "validated:"
+  // prefixed labels — those are the bugs we should promote to findings.
+  // ORDER BY findingId ensures deterministic ingestion order.
   const cypher = `
     MATCH (f:Finding)-[:VALIDATES]->(v:Vulnerability)
     WHERE f.created_at >= $since
+      AND f.label STARTS WITH 'validated:'
     RETURN f.id AS findingId,
            f.label AS findingLabel,
            f.key AS findingKey,

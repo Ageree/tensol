@@ -872,14 +872,24 @@ export const startDecepticonSession = async (
           .execute();
         const claimedCandidateIds = new Set<string>();
         for (const kgFinding of kgFindings) {
-          const target = stringProp(kgFinding.vulnProps, 'target')
-            ?? stringProp(kgFinding.findingProps, 'target')
-            ?? '';
+          // Phase 3.1 sub-commit 7 (2026-05-12) — fix matching heuristic.
+          // Rule 4b (infra/decepticon-overrides/recon.md) instructs recon to
+          // write `target_url` in vuln props (full URL). We also accept the
+          // looser `target` key as fallback. Match BIDIRECTIONALLY: kg
+          // `target_url` typically includes the candidate's `affected_url`
+          // (e.g. kg "...:3000/api/engagements" vs candidate "...:3000"),
+          // but the inverse can hold when candidate is more specific.
+          const target =
+            stringProp(kgFinding.vulnProps, 'target_url') ??
+            stringProp(kgFinding.vulnProps, 'target') ??
+            stringProp(kgFinding.findingProps, 'target_url') ??
+            stringProp(kgFinding.findingProps, 'target') ??
+            '';
           const match = unpromotedCandidates.find(
             (c) =>
               !claimedCandidateIds.has(c.id) &&
               target.length > 0 &&
-              c.affected_url.includes(target),
+              (c.affected_url.includes(target) || target.includes(c.affected_url)),
           );
           if (!match) continue;
           claimedCandidateIds.add(match.id);
