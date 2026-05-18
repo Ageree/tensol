@@ -1,0 +1,116 @@
+
+  html, body { margin: 0; padding: 0; background: var(--paper); }
+  *, *::before, *::after { box-sizing: border-box; }
+  ::selection { background: var(--red); color: var(--paper); }
+  button { font-family: inherit; }
+  /* density helpers (toggled at root) */
+  [data-density="compact"]  { --pad-step: 0.85; }
+  [data-density="comfortable"] { --pad-step: 1; }
+  /* dark mode for app screens (paper→ink swap, scoped by attribute) */
+  .tensol-app[data-theme="dark"] {
+    --paper: #0A0A0A; --paper-pure: #141412;
+    --ink: #FAF9F6; --ink-pure: #FFFFFF;
+    --bg: #0A0A0A; --bg-2: #141412; --bg-alt: #141412;
+    --fg: #FAF9F6; --fg-2: #C9C6BE; --fg-3: #8A8780;
+    --line: #FAF9F6; --line-soft: #4F4D48;
+  }
+  .tensol-app[data-theme="light"] { --bg: var(--paper); --bg-2: var(--grey-95); }
+  .tensol-app { --bg-2: var(--grey-95); }
+
+  /* ─────────────────────────────────────────────────────────────────
+     Minimalism pass — scoped to in-app screens (C2 → D1).
+     Goal: less ink, more whitespace. The marketing landing keeps its
+     full editorial weight; the working app should feel like a tool,
+     not a poster.
+     ───────────────────────────────────────────────────────────────── */
+
+  /* Section heads: shrink the 38px display headlines toward UI scale.
+     They compete with the marketing hero and dominate dense screens. */
+  .tensol-app h1 {
+    font-size: 26px !important;
+    letter-spacing: -0.015em !important;
+    margin: 0 !important;
+  }
+  .tensol-app h2 { font-size: 20px !important; }
+  /* Page subtitles: smaller, looser, lower contrast. */
+  .tensol-app section + p,
+  .tensol-app h1 + p { font-size: 13.5px !important; color: var(--fg-3) !important; }
+
+  /* Cards lose their hard black outline → hairline only. Inner section
+     dividers (borderBottom on card headers) get downgraded too, so we
+     don't get boxes-inside-boxes. */
+  .tensol-app [data-card="true"],
+  .tensol-app .tensol-card {
+    border-color: var(--line-soft) !important;
+    background: var(--paper) !important;
+  }
+  .tensol-app [data-card="true"] > div[style*="border-bottom: 1px solid var(--ink)"],
+  .tensol-app [data-card="true"] > div[style*="border-bottom: 1px solid var(--fg)"],
+  .tensol-app div[style*="border-bottom: 1px solid var(--ink)"],
+  .tensol-app div[style*="border-bottom: 1px solid var(--fg)"] {
+    border-bottom-color: var(--line-soft) !important;
+  }
+  .tensol-app div[style*="border-top: 1px solid var(--fg)"],
+  .tensol-app div[style*="border-top: 1px solid var(--ink)"] {
+    border-top-color: var(--line-soft) !important;
+  }
+  .tensol-app div[style*="border-right: 1px solid var(--fg)"],
+  .tensol-app div[style*="border-right: 1px solid var(--ink)"] {
+    border-right-color: var(--line-soft) !important;
+  }
+  .tensol-app div[style*="border-left: 1px solid var(--fg)"],
+  .tensol-app div[style*="border-left: 1px solid var(--ink)"] {
+    border-left-color: var(--line-soft) !important;
+  }
+  .tensol-app div[style*="border: 1px solid var(--fg)"],
+  .tensol-app div[style*="border: 1px solid var(--ink)"] {
+    border-color: var(--line-soft) !important;
+  }
+  .tensol-app table[style*="border: 1px solid var(--fg)"],
+  .tensol-app table[style*="border: 1px solid var(--ink)"] {
+    border-color: var(--line-soft) !important;
+  }
+
+  /* Heavy inverted table headers (black bg, paper text) → quiet hairline
+     header. The data is the signal; the chrome shouldn't shout. */
+  .tensol-app table thead tr[style*="background: var(--fg)"],
+  .tensol-app table thead tr[style*="background: var(--ink)"] {
+    background: transparent !important;
+    color: var(--fg-2) !important;
+  }
+  .tensol-app table thead th {
+    color: var(--fg-3) !important;
+    border-bottom: 1px solid var(--line-soft) !important;
+  }
+
+  /* Master-detail row selection: drop the loud red 3px left bar →
+     subtle 2px ink bar + lighter selected fill. */
+  .tensol-app button[style*="border-left: 3px solid var(--red)"] {
+    border-left-width: 2px !important;
+    border-left-color: var(--ink) !important;
+  }
+
+  /* Eyebrows: tighten the uppercase-mono spam. Most pages stack 4-5 of
+     them; reduce visual weight by lowering opacity. */
+  .tensol-app [data-eyebrow="true"] { color: var(--fg-3) !important; }
+
+  /* Generic "all-caps mono micro-labels" used inline (Mono with letter
+     spacing 0.08em uppercase) tend to over-stamp lists. Lighten color. */
+  .tensol-app span[style*="letter-spacing: 0.08em"][style*="uppercase"] {
+    color: var(--fg-3) !important;
+  }
+
+  /* KPI strips on Live / Dashboard: separators down to hairlines. */
+  .tensol-app div[style*="border: 1px solid var(--fg)"] > div[style*="border-right: 1px solid var(--fg)"],
+  .tensol-app div[style*="border: 1px solid var(--ink)"] > div[style*="border-right: 1px solid var(--ink)"] {
+    border-right-color: var(--line-soft) !important;
+  }
+
+  /* Vertical rhythm: more breathing room between major page sections.
+     Most screens use marginBottom: 24 between hero/filters/table — bump
+     toward 32 with whitespace, not lines. */
+  .tensol-app > div > div[data-screen-label] > div[style*="display: grid"][style*="grid-template-columns"] { margin-top: 8px; }
+
+  /* Compact density override: tighter still. */
+  .tensol-app[data-density="compact"] h1 { font-size: 22px !important; }
+  .tensol-app[data-density="compact"] h2 { font-size: 17px !important; }

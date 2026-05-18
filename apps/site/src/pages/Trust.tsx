@@ -22,8 +22,7 @@ function TrustNav() {
   const { t } = useTensol();
   const [hov, setHov] = useState(-1);
   const links: Array<{ label: string; to: string }> = [
-    { label: t.nav[0]!, to: '/' },
-    { label: t.nav[2]!, to: '/' },
+    ...t.navItems,
     { label: t.trustPage.navLabel.toUpperCase(), to: '/trust' },
     { label: 'PRICING', to: '/pricing' },
   ];

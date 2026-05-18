@@ -23,6 +23,8 @@ const Contact = lazy(() => safeImport(() => import('./pages/Contact.tsx'), 'cont
 const Pricing = lazy(() => safeImport(() => import('./pages/Pricing.tsx'), 'pricing'));
 const Trust = lazy(() => safeImport(() => import('./pages/Trust.tsx'), 'trust'));
 const Legal = lazy(() => safeImport(() => import('./pages/Legal.tsx'), 'legal'));
+const Blog = lazy(() => safeImport(() => import('./pages/Blog.tsx'), 'blog'));
+const Method = lazy(() => safeImport(() => import('./pages/Method.tsx'), 'method'));
 const AuthorizeTarget = lazy(() =>
   safeImport(() => import('./pages/AuthorizeTarget.tsx'), 'authorize'),
 );
@@ -77,6 +79,8 @@ export const App = () => (
         <Route path="/pricing" element={<Pricing />} />
         <Route path="/trust" element={<Trust />} />
         <Route path="/legal/:kind" element={<Legal />} />
+        <Route path="/blog" element={<Blog />} />
+        <Route path="/method" element={<Method />} />
         <Route
           path="/projects/:projectId/targets/:targetId/authorize"
           element={<AuthorizeTarget />}

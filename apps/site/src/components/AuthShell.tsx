@@ -69,7 +69,6 @@ export function AuthShell({ children, eyebrow, title, sub, onBack }: AuthShellPr
           }}
         >
           <span>{t.authPanelLeft}</span>
-          <span>v0.4.1 · build a8c7d2</span>
         </div>
       </aside>
       <main

@@ -2,6 +2,26 @@ node_modules/
 dist/
 coverage/
 .queue-local/
+.object-storage/
+.pytest_cache/
+.omx/
+.harness/
+PLAN-*.md
+
+# v2 runtime
+server/data/
+server/*.db
+server/*.db-shm
+server/*.db-wal
+vps-agent/dist/
+
+# Untracked screenshot/asset noise from solo dev sessions
+/*.png
+/*.jpg
+/*.gif
+/*.html
+/tensol-*.png
+/tensol-*.jpg
 
 .env
 .env.local

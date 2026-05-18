@@ -38,10 +38,10 @@ function LegalNav() {
     >
       <LogoLockup size={20} color="var(--ink)" onClick={() => navigate('/')} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
-        {t.nav.map((l, i) => (
+        {t.navItems.map((l, i) => (
           <Link
             key={i}
-            to={`/#sec-${i}`}
+            to={l.to}
             onMouseEnter={() => setHov(i)}
             onMouseLeave={() => setHov(-1)}
             style={{
@@ -54,7 +54,7 @@ function LegalNav() {
               transition: 'color 120ms',
             }}
           >
-            {l}
+            {l.label}
           </Link>
         ))}
         <LangSwitcher />

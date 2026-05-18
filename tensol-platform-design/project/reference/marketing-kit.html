@@ -1,0 +1,874 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tensol — Autonomous AI pentesting</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   Tensol — Colors & Type tokens
+   Autonomous AI Pentesting Platform
+   ==========================================================================
+   Brand DNA: pixel horse · halftone dithering · terminal · mono+sans
+   Palette:   white, red, black (high contrast, no chrome)
+   ========================================================================== */
+
+@font-face {
+  font-family: "TensolMono";
+  src: local("JetBrains Mono"), local("IBM Plex Mono"), local("Menlo"), local("Consolas");
+  font-display: swap;
+}
+
+:root {
+  /* ── Core palette ─────────────────────────────────────────────────────── */
+  --paper:        #FAF9F6;   /* off-white page bg, slightly warm */
+  --paper-pure:   #FFFFFF;   /* pure white when needed */
+  --ink:          #0A0A0A;   /* near-black, not pure for warmth */
+  --ink-pure:     #000000;
+  --red:          #E0001B;   /* primary brand red — alarm, signal */
+  --red-deep:     #B30015;   /* pressed / hover dark */
+  --red-tint:     #FCE4E7;   /* tinted backgrounds */
+
+  /* ── Greyscale (for terminal / text hierarchy) ────────────────────────── */
+  --grey-95: #F2F1ED;
+  --grey-90: #E6E4DE;
+  --grey-80: #C9C6BE;
+  --grey-60: #8A8780;
+  --grey-40: #4F4D48;
+  --grey-20: #1F1E1B;
+
+  /* ── Semantic foreground / background ─────────────────────────────────── */
+  --bg:        var(--paper);
+  --bg-alt:    var(--grey-95);
+  --bg-inv:    var(--ink);
+  --fg:        var(--ink);
+  --fg-2:      var(--grey-40);
+  --fg-3:      var(--grey-60);
+  --fg-inv:    var(--paper);
+  --line:      var(--ink);          /* hairlines are usually black */
+  --line-soft: var(--grey-80);
+
+  /* ── Status / severity (pentest domain) ───────────────────────────────── */
+  --sev-critical: var(--red);
+  --sev-high:     #F26B1F;
+  --sev-medium:   #B8860B;
+  --sev-low:      #5A6B5A;
+  --sev-info:     var(--grey-60);
+  --ok:           #1F7A3A;
+
+  /* ── Typography stacks ────────────────────────────────────────────────── */
+  --font-mono:    "TensolMono", "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --font-sans:    "Neue Haas Grotesk Display Pro", "Helvetica Neue", "Inter", system-ui, -apple-system, sans-serif;
+  --font-display: "Space Grotesk", "Neue Haas Grotesk Display Pro", "Helvetica Neue", system-ui, sans-serif;
+
+  /* ── Type scale (8pt grid, slightly tight tracking) ──────────────────── */
+  --fs-xs:   11px;
+  --fs-sm:   13px;
+  --fs-base: 15px;
+  --fs-md:   17px;
+  --fs-lg:   22px;
+  --fs-xl:   32px;
+  --fs-2xl:  48px;
+  --fs-3xl:  72px;
+  --fs-hero: 112px;
+
+  --lh-tight: 1.05;
+  --lh-snug:  1.2;
+  --lh-base:  1.45;
+  --lh-loose: 1.6;
+
+  --tr-tight:  -0.02em;
+  --tr-base:   -0.005em;
+  --tr-mono:    0;
+  --tr-caps:    0.08em;
+
+  /* ── Spacing (8pt) ────────────────────────────────────────────────────── */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px; --s-9: 96px;
+
+  /* ── Radii ────────────────────────────────────────────────────────────── */
+  --r-0: 0;       /* DEFAULT for cards/buttons — pixel/terminal aesthetic */
+  --r-1: 2px;
+  --r-pill: 999px;
+
+  /* ── Borders ──────────────────────────────────────────────────────────── */
+  --bw:    1px;
+  --bw-2:  2px;
+  --bw-3:  3px;
+
+  /* ── Motion ───────────────────────────────────────────────────────────── */
+  --ease-out:  cubic-bezier(.22,1,.36,1);
+  --ease-step: steps(4, end);   /* pixel-stepped motion */
+  --dur-fast:  120ms;
+  --dur-base:  200ms;
+  --dur-slow:  400ms;
+}
+
+/* ── Dark / inverse mode (terminal panel) ─────────────────────────────── */
+.tensol-dark, [data-tensol-theme="dark"] {
+  --bg:     var(--ink);
+  --bg-alt: #141412;
+  --bg-inv: var(--paper);
+  --fg:     var(--paper);
+  --fg-2:   var(--grey-80);
+  --fg-3:   var(--grey-60);
+  --fg-inv: var(--ink);
+  --line:      var(--paper);
+  --line-soft: var(--grey-40);
+}
+
+/* ==========================================================================
+   Semantic typography classes
+   ========================================================================== */
+
+.t-hero {
+  font-family: var(--font-display);
+  font-size: var(--fs-hero);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tr-tight);
+  font-weight: 500;
+}
+.t-h1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-3xl);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tr-tight);
+  font-weight: 500;
+}
+.t-h2 {
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tr-tight);
+  font-weight: 500;
+}
+.t-h3 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-xl);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tr-base);
+  font-weight: 600;
+}
+.t-h4 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-lg);
+  line-height: var(--lh-snug);
+  font-weight: 600;
+}
+.t-body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  font-weight: 400;
+}
+.t-small {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-base);
+}
+.t-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-base);
+  letter-spacing: var(--tr-mono);
+}
+.t-mono-lg {
+  font-family: var(--font-mono);
+  font-size: var(--fs-base);
+}
+.t-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tr-caps);
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+.t-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tr-caps);
+  text-transform: uppercase;
+}
+
+/* ── Element defaults if used directly ─────────────────────────────────── */
+body  { font-family: var(--font-sans); color: var(--fg); background: var(--bg); }
+h1    { font: 500 var(--fs-3xl)/var(--lh-tight) var(--font-display); letter-spacing: var(--tr-tight); margin: 0; }
+h2    { font: 500 var(--fs-2xl)/var(--lh-snug)  var(--font-display); letter-spacing: var(--tr-tight); margin: 0; }
+h3    { font: 600 var(--fs-xl)/var(--lh-snug)   var(--font-sans); margin: 0; }
+h4    { font: 600 var(--fs-lg)/var(--lh-snug)   var(--font-sans); margin: 0; }
+p     { font: 400 var(--fs-base)/var(--lh-base) var(--font-sans); margin: 0; }
+code, kbd, samp { font-family: var(--font-mono); font-size: 0.95em; }
+
+</style>
+<style>
+  html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); font-family: var(--font-sans); }
+  *:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+  ::selection { background: var(--red); color: var(--paper); }
+  [data-screen-label] { scroll-margin-top: 80px; }
+  /* Wave canvas sits behind everything */
+  #pixel-wave { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+  #root { position: relative; z-index: 1; }
+</style>
+</head>
+<body data-screen-label="Tensol Marketing — Home">
+<canvas id="pixel-wave"></canvas>
+<div id="root"></div>
+
+<script>
+/* ── Inline horse SVG (raw string, no external fetch) ─────────────────── */
+window.TENSOL_HORSE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 550 690" fill="currentColor" shape-rendering="crispEdges"><rect x="360" y="10" width="10" height="10"></rect><rect x="310" y="20" width="30" height="10"></rect><rect x="380" y="20" width="20" height="10"></rect><rect x="360" y="30" width="60" height="10"></rect><rect x="310" y="40" width="10" height="10"></rect><rect x="340" y="40" width="50" height="10"></rect><rect x="400" y="40" width="20" height="10"></rect><rect x="310" y="50" width="10" height="10"></rect><rect x="330" y="50" width="10" height="10"></rect><rect x="350" y="50" width="50" height="10"></rect><rect x="410" y="50" width="20" height="10"></rect><rect x="310" y="60" width="10" height="10"></rect><rect x="340" y="60" width="90" height="10"></rect><rect x="300" y="70" width="130" height="10"></rect><rect x="270" y="80" width="10" height="10"></rect><rect x="300" y="80" width="20" height="10"></rect><rect x="330" y="80" width="80" height="10"></rect><rect x="420" y="80" width="20" height="10"></rect><rect x="290" y="90" width="10" height="10"></rect><rect x="330" y="90" width="100" height="10"></rect><rect x="300" y="100" width="40" height="10"></rect><rect x="350" y="100" width="100" height="10"></rect><rect x="270" y="110" width="80" height="10"></rect><rect x="360" y="110" width="100" height="10"></rect><rect x="280" y="120" width="10" height="10"></rect><rect x="300" y="120" width="160" height="10"></rect><rect x="270" y="130" width="200" height="10"></rect><rect x="270" y="140" width="200" height="10"></rect><rect x="260" y="150" width="80" height="10"></rect><rect x="350" y="150" width="40" height="10"></rect><rect x="420" y="150" width="50" height="10"></rect><rect x="270" y="160" width="120" height="10"></rect><rect x="430" y="160" width="50" height="10"></rect><rect x="260" y="170" width="130" height="10"></rect><rect x="210" y="180" width="10" height="10"></rect><rect x="270" y="180" width="120" height="10"></rect><rect x="260" y="190" width="50" height="10"></rect><rect x="320" y="190" width="70" height="10"></rect><rect x="200" y="200" width="10" height="10"></rect><rect x="260" y="200" width="120" height="10"></rect><rect x="210" y="210" width="10" height="10"></rect><rect x="250" y="210" width="140" height="10"></rect><rect x="160" y="220" width="10" height="10"></rect><rect x="240" y="220" width="130" height="10"></rect><rect x="380" y="220" width="40" height="10"></rect><rect x="180" y="230" width="10" height="10"></rect><rect x="220" y="230" width="30" height="10"></rect><rect x="260" y="230" width="10" height="10"></rect><rect x="280" y="230" width="70" height="10"></rect><rect x="360" y="230" width="10" height="10"></rect><rect x="380" y="230" width="10" height="10"></rect><rect x="200" y="240" width="150" height="10"></rect><rect x="160" y="250" width="10" height="10"></rect><rect x="180" y="250" width="20" height="10"></rect><rect x="210" y="250" width="130" height="10"></rect><rect x="360" y="250" width="10" height="10"></rect><rect x="390" y="250" width="10" height="10"></rect><rect x="220" y="260" width="180" height="10"></rect><rect x="110" y="270" width="10" height="10"></rect><rect x="180" y="270" width="40" height="10"></rect><rect x="240" y="270" width="160" height="10"></rect><rect x="480" y="270" width="10" height="10"></rect><rect x="110" y="280" width="20" height="10"></rect><rect x="140" y="280" width="290" height="10"></rect><rect x="450" y="280" width="50" height="10"></rect><rect x="90" y="290" width="10" height="10"></rect><rect x="150" y="290" width="270" height="10"></rect><rect x="460" y="290" width="50" height="10"></rect><rect x="120" y="300" width="10" height="10"></rect><rect x="150" y="300" width="150" height="10"></rect><rect x="310" y="300" width="190" height="10"></rect><rect x="70" y="310" width="40" height="10"></rect><rect x="120" y="310" width="20" height="10"></rect><rect x="160" y="310" width="300" height="10"></rect><rect x="480" y="310" width="40" height="10"></rect><rect x="80" y="320" width="20" height="10"></rect><rect x="120" y="320" width="10" height="10"></rect><rect x="160" y="320" width="350" height="10"></rect><rect x="80" y="330" width="450" height="10"></rect><rect x="80" y="340" width="320" height="10"></rect><rect x="410" y="340" width="80" height="10"></rect><rect x="500" y="340" width="40" height="10"></rect><rect x="40" y="350" width="30" height="10"></rect><rect x="90" y="350" width="80" height="10"></rect><rect x="180" y="350" width="200" height="10"></rect><rect x="410" y="350" width="20" height="10"></rect><rect x="460" y="350" width="10" height="10"></rect><rect x="480" y="350" width="10" height="10"></rect><rect x="500" y="350" width="40" height="10"></rect><rect x="10" y="360" width="10" height="10"></rect><rect x="30" y="360" width="350" height="10"></rect><rect x="460" y="360" width="10" height="10"></rect><rect x="490" y="360" width="10" height="10"></rect><rect x="510" y="360" width="10" height="10"></rect><rect x="530" y="360" width="10" height="10"></rect><rect x="60" y="370" width="290" height="10"></rect><rect x="480" y="370" width="60" height="10"></rect><rect x="40" y="380" width="290" height="10"></rect><rect x="340" y="380" width="10" height="10"></rect><rect x="460" y="380" width="50" height="10"></rect><rect x="40" y="390" width="300" height="10"></rect><rect x="470" y="390" width="50" height="10"></rect><rect x="40" y="400" width="150" height="10"></rect><rect x="200" y="400" width="30" height="10"></rect><rect x="240" y="400" width="30" height="10"></rect><rect x="460" y="400" width="70" height="10"></rect><rect x="40" y="410" width="200" height="10"></rect><rect x="260" y="410" width="10" height="10"></rect><rect x="450" y="410" width="30" height="10"></rect><rect x="490" y="410" width="20" height="10"></rect><rect x="520" y="410" width="10" height="10"></rect><rect x="50" y="420" width="50" height="10"></rect><rect x="140" y="420" width="40" height="10"></rect><rect x="190" y="420" width="50" height="10"></rect><rect x="460" y="420" width="20" height="10"></rect><rect x="40" y="430" width="40" height="10"></rect><rect x="140" y="430" width="30" height="10"></rect><rect x="180" y="430" width="50" height="10"></rect><rect x="470" y="430" width="10" height="10"></rect><rect x="40" y="440" width="70" height="10"></rect><rect x="140" y="440" width="70" height="10"></rect><rect x="40" y="450" width="80" height="10"></rect><rect x="140" y="450" width="80" height="10"></rect><rect x="40" y="460" width="80" height="10"></rect><rect x="150" y="460" width="70" height="10"></rect><rect x="40" y="470" width="80" height="10"></rect><rect x="140" y="470" width="80" height="10"></rect><rect x="50" y="480" width="50" height="10"></rect><rect x="140" y="480" width="80" height="10"></rect><rect x="50" y="490" width="30" height="10"></rect><rect x="140" y="490" width="80" height="10"></rect><rect x="60" y="500" width="40" height="10"></rect><rect x="140" y="500" width="80" height="10"></rect><rect x="60" y="510" width="40" height="10"></rect><rect x="140" y="510" width="30" height="10"></rect><rect x="180" y="510" width="40" height="10"></rect><rect x="30" y="520" width="10" height="10"></rect><rect x="60" y="520" width="40" height="10"></rect><rect x="150" y="520" width="50" height="10"></rect><rect x="60" y="530" width="50" height="10"></rect><rect x="130" y="530" width="80" height="10"></rect><rect x="70" y="540" width="40" height="10"></rect><rect x="130" y="540" width="60" height="10"></rect><rect x="70" y="550" width="40" height="10"></rect><rect x="120" y="550" width="70" height="10"></rect><rect x="70" y="560" width="40" height="10"></rect><rect x="120" y="560" width="60" height="10"></rect><rect x="80" y="570" width="20" height="10"></rect><rect x="120" y="570" width="20" height="10"></rect><rect x="150" y="570" width="50" height="10"></rect><rect x="50" y="580" width="50" height="10"></rect><rect x="140" y="580" width="70" height="10"></rect><rect x="70" y="590" width="10" height="10"></rect><rect x="140" y="590" width="20" height="10"></rect><rect x="190" y="590" width="10" height="10"></rect><rect x="130" y="600" width="30" height="10"></rect><rect x="130" y="610" width="20" height="10"></rect><rect x="190" y="610" width="30" height="10"></rect><rect x="130" y="620" width="20" height="10"></rect><rect x="230" y="620" width="10" height="10"></rect><rect x="130" y="630" width="40" height="10"></rect><rect x="190" y="630" width="60" height="10"></rect><rect x="130" y="640" width="50" height="10"></rect><rect x="200" y="640" width="50" height="10"></rect><rect x="130" y="650" width="30" height="10"></rect><rect x="200" y="650" width="20" height="10"></rect><rect x="230" y="650" width="20" height="10"></rect><rect x="130" y="660" width="10" height="10"></rect><rect x="220" y="660" width="10" height="10"></rect><rect x="150" y="670" width="30" height="10"></rect></svg>`;
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script>
+/* ──────────────────────────────────────────────────────────────────────
+   RedPixelWave — full-viewport canvas animation
+   A field of cells; each cell's "intensity" = sin wave + perlin-ish noise.
+   Above threshold → fill with red. Pixel-stepped via integer cell coords.
+   ────────────────────────────────────────────────────────────────────── */
+(function pixelWave() {
+  const canvas = document.getElementById('pixel-wave');
+  const ctx = canvas.getContext('2d');
+  const CELL = 10; // px per pixel — bigger = fewer cells
+  let W = 0, H = 0, cols = 0, rows = 0;
+
+  function resize() {
+    const dpr = 1; // No DPR scaling — perf over crispness
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W;
+    canvas.height = H;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    cols = Math.ceil(W / CELL);
+    rows = Math.ceil(H / CELL);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // Cheap pseudo-noise via sin sums — no perlin lib needed
+  function noise(x, y, t) {
+    const a = Math.sin(x * 0.045 + t * 0.0007) * 0.5;
+    const b = Math.sin(y * 0.055 - t * 0.0009) * 0.5;
+    const c = Math.sin((x + y) * 0.03 + t * 0.0005) * 0.5;
+    const d = Math.sin(Math.hypot(x - cols/2, y - rows/2) * 0.08 - t * 0.0015) * 0.6;
+    return (a + b + c + d) / 2.5;
+  }
+
+  let raf = 0;
+  let lastT = 0;
+  function frame(t) {
+    // Throttle to ~30fps for perf
+    if (t - lastT < 33) { raf = requestAnimationFrame(frame); return; }
+    lastT = t;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#E0001B';
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const v = noise(x, y, t);
+        if (v > 0.55) {
+          ctx.globalAlpha = 0.85;
+          ctx.fillRect(x * CELL, y * CELL, CELL - 1, CELL - 1);
+        } else if (v > 0.42) {
+          ctx.globalAlpha = 0.55;
+          ctx.fillRect(x * CELL, y * CELL, CELL - 1, CELL - 1);
+        } else if (v > 0.30) {
+          ctx.globalAlpha = 0.30;
+          ctx.fillRect(x * CELL, y * CELL, CELL - 1, CELL - 1);
+        } else if (v > 0.20) {
+          ctx.globalAlpha = 0.12;
+          ctx.fillRect(x * CELL, y * CELL, CELL - 1, CELL - 1);
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    raf = requestAnimationFrame(frame);
+  }
+  // Start animation AFTER page mounts (defer 1 frame so React renders first)
+  setTimeout(() => { raf = requestAnimationFrame(frame); }, 100);
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) cancelAnimationFrame(raf);
+    else raf = requestAnimationFrame(frame);
+  });
+})();
+</script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+
+/* ── i18n dictionary ───────────────────────────────────────────────────── */
+const DICT = {
+  en: {
+    nav: ['Platform', 'How it works', 'Security', 'Pricing', 'Docs'],
+    signin: 'Sign in →',
+    eyebrowVersion: '// v0.13 · sprint 13 · live',
+    heroLine1: 'Autonomous',
+    heroLine2: 'pentesting,',
+    heroLine3: 'end-to-end.',
+    heroBlurb: 'Define the scope. Tensol does the rest — recon, exploitation, deterministic validation, evidence-backed reporting. No-touch from your team.',
+    ctaPrimary: 'Book a controlled run ▸',
+    ctaGhost: 'Read the spec →',
+    trustEyebrow: '// trust',
+    trust: ['SOC 2 Type II', 'OWASP ASVS L1', 'scope-first', 'append-only audit'],
+    metrics: [
+      { n: '12.4k',  l: 'targets scanned' },
+      { n: '184',    l: 'validators in library' },
+      { n: '99.2%',  l: 'validator precision' },
+      { n: '0',      l: 'false-positive findings shipped' },
+    ],
+    termEyebrow: '// 02 ▸ Operator console',
+    termTitle: 'One command. Full assessment.',
+    termBlurb: 'Drive Tensol from CLI, API, or the web console. Every event lands on an append-only audit trail — reconstructible, attributable, court-ready.',
+    pipelineEyebrow: '// 03 ▸ Pipeline',
+    pipelineMeta: '5 stages · 1 thread',
+    steps: [
+      { n: '01', t: 'Scope',    d: 'Define authorized targets. Deny overrides allow. Out-of-scope is never retried.' },
+      { n: '02', t: 'Recon',    d: 'Browser-first reconnaissance over your authorized perimeter. Asset graph in minutes.' },
+      { n: '03', t: 'Exploit',  d: 'Tensol attempts what an attacker would. Ownership-verified high-impact tools only.' },
+      { n: '04', t: 'Validate', d: 'Findings only after deterministic validator success. No false positives shipped.' },
+      { n: '05', t: 'Report',   d: 'Evidence ZIP, HTML, JSON, PDF. Every claim links back to a captured artifact.' },
+    ],
+    manifestoEyebrow: '// manifesto',
+    manifestoMain: ['Most security tools find ', 'maybe-bugs.', ' Tensol ships ', 'verified', ' ones.'],
+    manifestoCite: '— Findings only after deterministic validator success. (Spec §1.1)',
+    footerCols: [
+      { h: 'Product',   l: ['Platform', 'Validators', 'Reporting', 'Roadmap'] },
+      { h: 'Resources', l: ['Docs', 'Spec PDF', 'ADRs', 'Changelog'] },
+      { h: 'Company',   l: ['About', 'Security', 'Careers', 'Press kit'] },
+      { h: 'Legal',     l: ['Authorized use', 'DPA', 'Privacy', 'Terms'] },
+    ],
+    footerBlurb: 'Authorized adversary emulation. Owned-environment only. The horse runs scope-first.',
+    footerCopy: '© Tensol Inc. · 2026',
+    footerVersion: 'v0.13.0 · sha 99f2c59',
+    footerTagline: 'Made for operators.',
+    signedIn: '[ok] you are signed in as operator@acme.com — this is a static demo',
+    signedOut: 'sign out',
+  },
+  ru: {
+    nav: ['Платформа', 'Как это работает', 'Безопасность', 'Тарифы', 'Документация'],
+    signin: 'Войти →',
+    eyebrowVersion: '// v0.13 · спринт 13 · в работе',
+    heroLine1: 'Автономный',
+    heroLine2: 'пентест,',
+    heroLine3: 'под ключ.',
+    heroBlurb: 'Задайте scope — Tensol сделает остальное: разведка, эксплуатация, детерминированная валидация, отчёты с доказательствами. Без ручного вмешательства.',
+    ctaPrimary: 'Запустить контролируемый прогон ▸',
+    ctaGhost: 'Читать спецификацию →',
+    trustEyebrow: '// доверие',
+    trust: ['SOC 2 Type II', 'OWASP ASVS L1', 'scope-first', 'неизменяемый аудит'],
+    metrics: [
+      { n: '12.4k',  l: 'просканировано целей' },
+      { n: '184',    l: 'валидаторов в библиотеке' },
+      { n: '99.2%',  l: 'точность валидатора' },
+      { n: '0',      l: 'ложноположительных находок' },
+    ],
+    termEyebrow: '// 02 ▸ Консоль оператора',
+    termTitle: 'Одна команда. Полная проверка.',
+    termBlurb: 'Управляйте Tensol через CLI, API или веб-консоль. Каждое событие фиксируется в неизменяемом журнале — реконструируемо, атрибутируемо, доказуемо.',
+    pipelineEyebrow: '// 03 ▸ Конвейер',
+    pipelineMeta: '5 этапов · 1 поток',
+    steps: [
+      { n: '01', t: 'Scope',       d: 'Определите авторизованные цели. Запрет важнее разрешения. Вне scope — не пробуем повторно.' },
+      { n: '02', t: 'Разведка',    d: 'Браузерная разведка по вашему периметру. Карта активов за минуты.' },
+      { n: '03', t: 'Эксплуатация',d: 'Tensol делает то, что сделал бы атакующий. Высокорисковые инструменты — только с подтверждением владения.' },
+      { n: '04', t: 'Валидация',   d: 'Находки — только после успешной детерминированной валидации. Ложных срабатываний не публикуем.' },
+      { n: '05', t: 'Отчёт',       d: 'Архив доказательств, HTML, JSON, PDF. Каждое утверждение ссылается на артефакт.' },
+    ],
+    manifestoEyebrow: '// манифест',
+    manifestoMain: ['Большинство сканеров находят ', 'может-баги.', ' Tensol поставляет ', 'подтверждённые', '.'],
+    manifestoCite: '— Находка существует, только если валидатор прошёл. (Спецификация §1.1)',
+    footerCols: [
+      { h: 'Продукт',    l: ['Платформа', 'Валидаторы', 'Отчёты', 'Roadmap'] },
+      { h: 'Ресурсы',    l: ['Документация', 'PDF-спецификация', 'ADR', 'Changelog'] },
+      { h: 'Компания',   l: ['О нас', 'Безопасность', 'Вакансии', 'Пресс-кит'] },
+      { h: 'Юридическое',l: ['Авторизованное использование', 'DPA', 'Конфиденциальность', 'Условия'] },
+    ],
+    footerBlurb: 'Авторизованная эмуляция атак. Только в собственном окружении. Лошадь идёт по scope.',
+    footerCopy: '© Tensol Inc. · 2026',
+    footerVersion: 'v0.13.0 · sha 99f2c59',
+    footerTagline: 'Сделано для операторов.',
+    signedIn: '[ok] вы вошли как operator@acme.com — это статичное демо',
+    signedOut: 'выйти',
+  },
+};
+
+/* ── HorseMark — inline SVG via dangerouslySetInnerHTML ──────────────── */
+function HorseMark({ size = 64, color = 'currentColor' }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        display: 'inline-block',
+        width: size,
+        height: size * (560/450), // viewBox aspect: 450w x 560h
+        color,
+        lineHeight: 0,
+      }}
+      dangerouslySetInnerHTML={{ __html: window.TENSOL_HORSE_SVG.replace('<svg ', '<svg width="100%" height="100%" preserveAspectRatio="xMidYMid meet" ') }}
+    />
+  );
+}
+
+function Wordmark({ size = 22, color = 'currentColor' }) {
+  return (
+    <span style={{
+      fontFamily: "'Space Grotesk', sans-serif",
+      fontWeight: 500,
+      fontSize: size,
+      letterSpacing: '-0.04em',
+      color,
+      lineHeight: 1,
+      whiteSpace: 'nowrap',
+    }}>
+      TENSOL<sup style={{ fontSize: size * 0.4, letterSpacing: 0, fontWeight: 400 }}>®</sup>
+    </span>
+  );
+}
+
+function LogoLockup({ color = 'var(--ink)', size = 22 }) {
+  return (
+    <a href="#top" style={{
+      display: 'inline-flex', alignItems: 'center', gap: 10,
+      textDecoration: 'none', color,
+    }}>
+      <HorseMark size={size * 1.4} color={color} />
+      <Wordmark size={size} color={color} />
+    </a>
+  );
+}
+
+function Btn({ children, kind = 'primary', size = 'md', onClick, href, ...rest }) {
+  const base = {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: size === 'sm' ? 11 : 13,
+    fontWeight: 500,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    padding: size === 'sm' ? '6px 12px' : '12px 20px',
+    border: '1px solid var(--ink)',
+    borderRadius: 0,
+    cursor: 'pointer',
+    transition: 'all 120ms cubic-bezier(.22,1,.36,1)',
+    display: 'inline-flex', alignItems: 'center', gap: 8,
+    textDecoration: 'none',
+    background: 'var(--ink)', color: 'var(--paper)',
+  };
+  const kinds = {
+    primary:   {},
+    secondary: { background: 'var(--paper)', color: 'var(--ink)' },
+    red:       { background: 'var(--red)', borderColor: 'var(--red)', color: 'var(--paper)' },
+    ghost:     { background: 'transparent', borderColor: 'transparent', color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 4, padding: size === 'sm' ? '6px 0' : '12px 0' },
+  };
+  const [hov, setHov] = useState(false);
+  const hovStyles = {
+    primary:   { background: 'var(--paper)', color: 'var(--ink)' },
+    secondary: { background: 'var(--ink)', color: 'var(--paper)' },
+    red:       { background: 'var(--paper)', color: 'var(--red)' },
+    ghost:     { opacity: 0.6 },
+  };
+  const style = { ...base, ...kinds[kind], ...(hov ? hovStyles[kind] : {}) };
+  const Cmp = href ? 'a' : 'button';
+  return (
+    <Cmp type={href ? undefined : 'button'} href={href} onClick={onClick} style={style}
+      onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)} {...rest}>
+      {children}
+    </Cmp>
+  );
+}
+
+function Eyebrow({ children, color }) {
+  return (
+    <div style={{
+      fontFamily: "'JetBrains Mono', monospace",
+      fontSize: 11,
+      letterSpacing: '0.08em',
+      textTransform: 'uppercase',
+      color: color || 'var(--fg-2)',
+    }}>{children}</div>
+  );
+}
+
+/* ── LangToggle ─────────────────────────────────────────────────────── */
+function LangToggle({ lang, setLang }) {
+  const baseStyle = {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: 11,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    padding: '4px 8px',
+    border: 'none',
+    background: 'transparent',
+    cursor: 'pointer',
+    transition: 'color 120ms',
+  };
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--ink)' }}>
+      {['en', 'ru'].map((l, i) => (
+        <button key={l} type="button" onClick={() => setLang(l)} style={{
+          ...baseStyle,
+          background: lang === l ? 'var(--ink)' : 'transparent',
+          color:      lang === l ? 'var(--paper)' : 'var(--ink)',
+          borderRight: i === 0 ? '1px solid var(--ink)' : 'none',
+        }}>{l}</button>
+      ))}
+    </div>
+  );
+}
+
+/* ── NavBar ─────────────────────────────────────────────────────────── */
+function NavBar({ onSignIn, t, lang, setLang }) {
+  const [hovIdx, setHovIdx] = useState(-1);
+  return (
+    <nav style={{
+      maxWidth: 1280, margin: '0 auto',
+      padding: '32px 64px 0',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      position: 'relative',
+    }}>
+      <LogoLockup size={20} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
+        {t.nav.map((l, i) => (
+          <a key={i} href="#"
+             onMouseEnter={() => setHovIdx(i)}
+             onMouseLeave={() => setHovIdx(-1)}
+             style={{
+               fontFamily: "'JetBrains Mono', monospace",
+               fontSize: 12, letterSpacing: '0.04em',
+               textTransform: 'uppercase',
+               textDecoration: 'none',
+               color: hovIdx === i ? 'var(--red)' : 'var(--ink)',
+               transition: 'color 120ms',
+             }}>{l}</a>
+        ))}
+        <LangToggle lang={lang} setLang={setLang} />
+        <Btn kind="primary" size="sm" onClick={onSignIn}>{t.signin}</Btn>
+      </div>
+    </nav>
+  );
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────── */
+function Hero({ t }) {
+  return (
+    <section id="top" style={{
+      maxWidth: 1280, margin: '0 auto',
+      padding: '80px 64px 120px',
+      position: 'relative',
+    }}>
+      <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: '1fr 380px', gap: 64, alignItems: 'flex-start' }}>
+        <div>
+          <Eyebrow>{t.eyebrowVersion}</Eyebrow>
+          <h1 style={{
+            fontFamily: "'Space Grotesk', sans-serif",
+            fontWeight: 500,
+            fontSize: 96,
+            lineHeight: 0.98,
+            letterSpacing: '-0.03em',
+            margin: '24px 0 28px',
+            color: 'var(--ink)',
+            textWrap: 'balance',
+          }}>
+            {t.heroLine1}<br/>{t.heroLine2}<br/>
+            <span style={{ color: 'var(--red)', whiteSpace: 'nowrap' }}>{t.heroLine3}</span>
+          </h1>
+          <p style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 19, lineHeight: 1.5,
+            maxWidth: '52ch', margin: '0 0 36px',
+            color: 'var(--fg-2)',
+          }}>{t.heroBlurb}</p>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <Btn kind="primary" href="#book">{t.ctaPrimary}</Btn>
+            <Btn kind="ghost" href="#how-it-works">{t.ctaGhost}</Btn>
+          </div>
+          <div style={{ marginTop: 64, display: 'flex', gap: 32, alignItems: 'baseline' }}>
+            <Eyebrow>{t.trustEyebrow}</Eyebrow>
+            <div style={{
+              fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--fg-2)',
+              display: 'flex', gap: 16, flexWrap: 'wrap',
+            }}>
+              {t.trust.map((x, i) => (
+                <React.Fragment key={i}>
+                  <span>{x}</span>
+                  {i < t.trust.length - 1 && <span>·</span>}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 12 }}>
+          <HorseMark size={320} color="var(--ink)" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── TerminalDemo ──────────────────────────────────────────────────── */
+function TerminalDemo({ t }) {
+  const lines = [
+    { t: 'cmd',  s: '$ tensol scan --target lab.acme.com --scope strict' },
+    { t: 'ok',   s: '[ok]   scope.validate · 1 target · strict mode · 12ms' },
+    { t: 'ok',   s: '[ok]   recon.start · thread t_01HQM4Y2K9XJV' },
+    { t: 'ok',   s: '[ok]   browser.signal · /login · reflected param: q · 441ms' },
+    { t: 'fail', s: '[fail] exploit.sqli · /search · timing inconclusive' },
+    { t: 'ok',   s: '[ok]   exploit.xss · /login?q=<svg/onload=alert> · payload landed' },
+    { t: 'ok',   s: '[ok]   validator.xss · evidence_id=ev_8f2c · confirmed' },
+    { t: 'sum',  s: '···    finding.report → 1 critical, 0 high' },
+  ];
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    if (shown >= lines.length) return;
+    const id = setTimeout(() => setShown(shown + 1), shown === 0 ? 250 : 380);
+    return () => clearTimeout(id);
+  }, [shown]);
+
+  const colorFor = (kind) => ({ cmd: 'var(--paper)', ok: '#5BD27F', fail: '#FF5C6A', sum: '#C9C6BE' }[kind]);
+
+  return (
+    <section style={{ maxWidth: 1280, margin: '0 auto', padding: '0 64px 120px', position: 'relative' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 48, alignItems: 'flex-start' }}>
+        <div>
+          <Eyebrow>{t.termEyebrow}</Eyebrow>
+          <h2 style={{
+            fontFamily: "'Space Grotesk', sans-serif", fontWeight: 500,
+            fontSize: 36, lineHeight: 1.1, letterSpacing: '-0.02em',
+            margin: '14px 0 16px', color: 'var(--ink)',
+          }}>{t.termTitle}</h2>
+          <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 15, lineHeight: 1.5, color: 'var(--fg-2)' }}>
+            {t.termBlurb}
+          </p>
+        </div>
+        <div style={{
+          background: 'var(--ink)', color: 'var(--paper)',
+          padding: '20px 24px',
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 13, lineHeight: 1.7,
+          border: '1px solid var(--ink)',
+          minHeight: 280,
+        }}>
+          {lines.slice(0, shown).map((l, i) => (
+            <div key={i} style={{ color: colorFor(l.t), whiteSpace: 'pre' }}>{l.s}</div>
+          ))}
+          {shown < lines.length && (
+            <span style={{
+              display: 'inline-block', width: 8, height: 14,
+              background: 'var(--paper)', verticalAlign: '-2px',
+              animation: 'tensol-blink 1s steps(2, end) infinite',
+            }} />
+          )}
+        </div>
+      </div>
+      <style>{`@keyframes tensol-blink { 50% { opacity: 0; } }`}</style>
+    </section>
+  );
+}
+
+/* ── FeatureGrid ───────────────────────────────────────────────────── */
+function FeatureGrid({ t }) {
+  return (
+    <section id="how-it-works" style={{ maxWidth: 1280, margin: '0 auto', padding: '0 64px 120px', position: 'relative' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 32 }}>
+        <Eyebrow>{t.pipelineEyebrow}</Eyebrow>
+        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--fg-2)' }}>{t.pipelineMeta}</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', borderTop: '1px solid var(--ink)', background: 'var(--paper)' }}>
+        {t.steps.map((s, i) => (
+          <div key={i} style={{
+            padding: '24px 20px',
+            borderRight: i === 4 ? 'none' : '1px solid var(--ink)',
+            borderBottom: '1px solid var(--ink)',
+            display: 'flex', flexDirection: 'column', gap: 12,
+            minHeight: 200,
+          }}>
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, letterSpacing: '0.08em', color: 'var(--fg-2)' }}>{s.n}</div>
+            <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 500, fontSize: 28, letterSpacing: '-0.02em', margin: 0, lineHeight: 1.05 }}>{s.t}</h3>
+            <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13.5, lineHeight: 1.5, color: 'var(--fg-2)', margin: 0 }}>{s.d}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ── Manifesto ─────────────────────────────────────────────────────── */
+function Manifesto({ t }) {
+  return (
+    <section style={{
+      background: 'var(--red)', color: 'var(--paper)',
+      borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)',
+      position: 'relative', overflow: 'hidden',
+    }}>
+      <div aria-hidden style={{
+        position: 'absolute', inset: 0,
+        backgroundImage: 'radial-gradient(circle, rgba(0,0,0,0.22) 1px, transparent 1.4px)',
+        backgroundSize: '8px 8px',
+        pointerEvents: 'none',
+      }} />
+      <div style={{
+        maxWidth: 1280, margin: '0 auto', padding: '120px 64px',
+        position: 'relative', display: 'grid', gridTemplateColumns: '1fr 280px', gap: 48,
+        alignItems: 'center',
+      }}>
+        <div>
+          <Eyebrow color="rgba(255,255,255,.7)">{t.manifestoEyebrow}</Eyebrow>
+          <p style={{
+            fontFamily: "'Space Grotesk', sans-serif", fontWeight: 500,
+            fontSize: 56, lineHeight: 1.05, letterSpacing: '-0.03em',
+            margin: '20px 0 0', textWrap: 'balance',
+          }}>
+            {t.manifestoMain[0]}
+            <em style={{ fontStyle: 'normal', background: 'var(--ink)', padding: '0 12px' }}>{t.manifestoMain[1]}</em>
+            {t.manifestoMain[2]}
+            <em style={{ fontStyle: 'normal', textDecoration: 'underline', textDecorationThickness: 3, textUnderlineOffset: 8 }}>{t.manifestoMain[3]}</em>
+            {t.manifestoMain[4]}
+          </p>
+          <div style={{ marginTop: 40, fontFamily: "'JetBrains Mono', monospace", fontSize: 12, opacity: 0.8 }}>
+            {t.manifestoCite}
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <HorseMark size={220} color="var(--paper)" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── MetricsStrip ──────────────────────────────────────────────────── */
+function MetricsStrip({ t }) {
+  return (
+    <section style={{ maxWidth: 1280, margin: '0 auto', padding: '0 64px 120px', position: 'relative' }}>
+      <div style={{
+        borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)',
+        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
+        background: 'var(--paper)',
+      }}>
+        {t.metrics.map((s, i) => (
+          <div key={i} style={{
+            padding: '32px 24px',
+            borderRight: i === 3 ? 'none' : '1px solid var(--ink)',
+            display: 'flex', flexDirection: 'column', gap: 8,
+          }}>
+            <div style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 56, letterSpacing: '-0.02em',
+              fontVariantNumeric: 'tabular-nums',
+              color: 'var(--ink)', lineHeight: 1,
+            }}>{s.n}</div>
+            <div style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 11, letterSpacing: '0.08em',
+              textTransform: 'uppercase', color: 'var(--fg-2)',
+            }}>{s.l}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ── Footer ────────────────────────────────────────────────────────── */
+function Footer({ t }) {
+  return (
+    <footer style={{
+      maxWidth: 1280, margin: '0 auto', padding: '64px 64px 32px',
+      borderTop: '1px solid var(--ink)', position: 'relative', background: 'var(--paper)',
+    }}>
+      <div style={{
+        display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: 32,
+        paddingBottom: 48,
+      }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <LogoLockup size={20} />
+          <p style={{
+            fontFamily: "'Inter', sans-serif", fontSize: 12, lineHeight: 1.5,
+            color: 'var(--fg-2)', margin: 0, maxWidth: '24ch',
+          }}>{t.footerBlurb}</p>
+        </div>
+        {t.footerCols.map((c, ci) => (
+          <div key={ci} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <Eyebrow>{c.h}</Eyebrow>
+            {c.l.map((item, i) => (
+              <a key={i} href="#" style={{
+                fontFamily: "'Inter', sans-serif", fontSize: 13,
+                color: 'var(--ink)', textDecoration: 'none',
+              }}>{item}</a>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div style={{
+        borderTop: '1px solid var(--ink)', paddingTop: 16,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
+        color: 'var(--fg-2)',
+      }}>
+        <span>{t.footerCopy}</span>
+        <span>{t.footerVersion}</span>
+        <span>{t.footerTagline}</span>
+      </div>
+    </footer>
+  );
+}
+
+/* ── App ──────────────────────────────────────────────────────────── */
+function App() {
+  const [lang, setLang] = useState(() => {
+    const url = new URLSearchParams(window.location.search).get('lang');
+    if (url === 'ru' || url === 'en') return url;
+    return 'en';
+  });
+  const [signedIn, setSignedIn] = useState(false);
+  const t = DICT[lang];
+
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    const url = new URL(window.location.href);
+    url.searchParams.set('lang', lang);
+    window.history.replaceState({}, '', url);
+  }, [lang]);
+
+  return (
+    <>
+      {signedIn && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50,
+          background: 'var(--ink)', color: 'var(--paper)',
+          padding: '8px 64px',
+          fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          letterSpacing: '0.04em',
+        }}>
+          <span>{t.signedIn}</span>
+          <button type="button" onClick={() => setSignedIn(false)}
+            style={{
+              background: 'transparent', border: '1px solid var(--paper)',
+              color: 'var(--paper)', fontFamily: 'inherit', fontSize: 'inherit',
+              padding: '2px 8px', cursor: 'pointer', borderRadius: 0,
+            }}>{t.signedOut}</button>
+        </div>
+      )}
+      <NavBar onSignIn={() => setSignedIn(true)} t={t} lang={lang} setLang={setLang} />
+      <Hero t={t} />
+      <MetricsStrip t={t} />
+      <TerminalDemo t={t} />
+      <FeatureGrid t={t} />
+      <Manifesto t={t} />
+      <Footer t={t} />
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
