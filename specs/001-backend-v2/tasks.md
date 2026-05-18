@@ -11,11 +11,11 @@
 
 - [x] **T001** Delete v1 backend in one commit: `rm -rf apps/api packages services tests/integration`; keep `apps/site/`, `external/decepticon/`, `docs/`, `.harness/`. Update root `package.json` workspaces array to remove deleted dirs. Acceptance: `git status` shows only the deletions + workspaces edit; `bun install` succeeds at repo root. Complexity: **M**. Blocks everything. (7bd731c+3b4b7ff)
 
-- [x] **T002** Scaffold `server/` package: `bun init` skeleton, `package.json` (deps: hono, drizzle-orm, better-sqlite3, zod, resend, drizzle-kit dev), `tsconfig.json` strict, `drizzle.config.ts`, `README.md` placeholder, empty `src/server.ts` that boots Hono and responds 200 on `GET /healthz`. Acceptance: `cd server && bun run dev` starts on port 3000; `curl localhost:3000/healthz` returns `{ok:true}`. Complexity: **S**. blockedBy: T001.
+- [x] **T002** Scaffold `server/` package: `bun init` skeleton, `package.json` (deps: hono, drizzle-orm, better-sqlite3, zod, resend, drizzle-kit dev), `tsconfig.json` strict, `drizzle.config.ts`, `README.md` placeholder, empty `src/server.ts` that boots Hono and responds 200 on `GET /healthz`. Acceptance: `cd server && bun run dev` starts on port 3000; `curl localhost:3000/healthz` returns `{ok:true}`. Complexity: **S**. blockedBy: T001. (35317d0)
 
-- [ ] **T003** [P] Scaffold `vps-agent/` package: same shape, single endpoint `GET /healthz`. Acceptance: `cd vps-agent && bun run dev` starts; healthz returns 200. Complexity: **XS**. blockedBy: T001.
+- [x] **T003** [P] Scaffold `vps-agent/` package: same shape, single endpoint `GET /healthz`. Acceptance: `cd vps-agent && bun run dev` starts; healthz returns 200. Complexity: **XS**. blockedBy: T001. (5fd85ca)
 
-- [ ] **T004** [P] Update root `.gitignore`: add `server/data/`, `server/*.db`, `server/*.db-shm`, `server/*.db-wal`, `vps-agent/dist/`. Acceptance: `git check-ignore server/data/foo.db` returns 0. Complexity: **XS**. blockedBy: T001.
+- [x] **T004** [P] Update root `.gitignore`: add `server/data/`, `server/*.db`, `server/*.db-shm`, `server/*.db-wal`, `vps-agent/dist/`. Acceptance: `git check-ignore server/data/foo.db` returns 0. Complexity: **XS**. blockedBy: T001. (already in 3b4b7ff)
 
 - [ ] **T005** [P] Write `server/src/config.ts` reading env vars (`TENSOL_AUDIT_SIGNING_KEY`, `TENSOL_SESSION_COOKIE_SECRET`, `EMAIL_PROVIDER`, `RESEND_API_KEY`, `HETZNER_API_TOKEN`, `HETZNER_LOCATION`, `HETZNER_SERVER_TYPE`, `HETZNER_IMAGE`, `HETZNER_SSH_KEY_NAME`, `TENSOL_VPS_AGENT_IMAGE`, `TENSOL_WEBHOOK_BASE_URL`, `PORT`, `NODE_ENV`) with Zod validation at module load. **Write test first** (`config.test.ts`): missing required → throws; valid env → returns typed object. Acceptance: `bun test src/config.test.ts` passes. Complexity: **S**. blockedBy: T002.
 
