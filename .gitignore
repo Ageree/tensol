@@ -20,6 +20,7 @@ coverage/
 .claude/scheduled_tasks.lock
 .claude/teams/
 .claude/tasks/
+.claude/worktrees/
 .gitnexus
 external/
 .playwright-mcp/
