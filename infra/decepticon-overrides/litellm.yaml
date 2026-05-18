@@ -71,23 +71,31 @@ model_list:
         reasoning_effort: "medium"
 
   # ── OpenAI ───────────────────────────────────────────────────────────
-  # HIGH tier
+  # [TENSOL OVERRIDE 2026-05-12] Container's MAX profile maps decepticon
+  # orchestrator role with fallback=GPT_5 (and other roles similarly).
+  # Without these openai routes hijacked, agent's intra-call fallback
+  # from OPUS → GPT_5 hits placeholder OPENAI_API_KEY → 401 → scan dies.
+  # Hijack all 3 openai tiers to OpenRouter DeepSeek family.
   - model_name: openai/gpt-5.5
     litellm_params:
-      model: openai/gpt-5.5
-      api_key: os.environ/OPENAI_API_KEY
+      model: openrouter/deepseek/deepseek-v4-pro
+      api_key: os.environ/OPENROUTER_API_KEY
+      extra_body:
+        reasoning_effort: "high"
 
-  # MID tier
   - model_name: openai/gpt-5.4
     litellm_params:
-      model: openai/gpt-5.4
-      api_key: os.environ/OPENAI_API_KEY
+      model: openrouter/deepseek/deepseek-v4-pro
+      api_key: os.environ/OPENROUTER_API_KEY
+      extra_body:
+        reasoning_effort: "high"
 
-  # LOW tier
   - model_name: openai/gpt-5-nano
     litellm_params:
-      model: openai/gpt-5-nano
-      api_key: os.environ/OPENAI_API_KEY
+      model: openrouter/deepseek/deepseek-v4-flash
+      api_key: os.environ/OPENROUTER_API_KEY
+      extra_body:
+        reasoning_effort: "medium"
 
   # ── Google ───────────────────────────────────────────────────────────
   # HIGH tier
