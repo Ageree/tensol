@@ -1,12 +1,361 @@
+/**
+ * T051 — Server boot path with reconcile-on-startup.
+ *
+ * Layout
+ *   This file exposes three pieces so tests (and the future docker entry
+ *   point) can compose the same boot sequence used at runtime:
+ *
+ *     - `bootstrap(deps)` — runs reconcileInFlight against the supplied
+ *       VPS provider and returns the reconcile counts. Pure orchestration,
+ *       no listener, no migrations, no env-var reads. Test-friendly.
+ *
+ *     - `createApp(deps)` — assembles the Hono app with /healthz plus
+ *       every route subrouter wired in (auth, projects, targets,
+ *       auth-proof, scans, webhooks). Pure factory, no listener.
+ *
+ *     - `main()` — wires the production composition: loadConfig, createDb,
+ *       apply migrations, createHetznerProvider, bootstrap, createRunner +
+ *       start, createApp, and finally `Bun.serve`. Invoked only when this
+ *       file runs as the process entry (`import.meta.main`).
+ *
+ * Why a separate `bootstrap` vs inlining inside `main`
+ *   The integration test (`tests/integration/reconcile.test.ts`) needs to
+ *   prove that boot reconciles every `running` scan BEFORE the HTTP
+ *   listener accepts traffic. Spinning up `Bun.serve` in a unit test
+ *   makes the harness environment-coupled (PORT contention, async socket
+ *   teardown, etc.). Extracting the reconcile step into an awaitable
+ *   factory means the test can drive the exact contract — "reconcile
+ *   completes before listen()" — without paying for a real server.
+ *
+ * Migration application
+ *   We read the on-disk SQL files under `migrations/*.sql` and execute
+ *   them sequentially against the freshly-opened SQLite handle. The
+ *   helper is idempotent: it sniffs whether the canonical `users` table
+ *   already exists and skips re-applying the SQL if so. This makes the
+ *   boot path safe to re-invoke on a warm DB (the production scenario).
+ *
+ * NOT in this file
+ *   - Migration GENERATION (that's `bun run db:generate` via drizzle-kit).
+ *   - Process-level signal handling (SIGTERM/SIGINT graceful shutdown):
+ *     T067 / Phase 6 will lift that into a dedicated module.
+ */
 import { Hono } from "hono";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { Database } from "bun:sqlite";
 
-const app = new Hono();
+import { loadConfig, type Config } from "./config.ts";
+import { createDb, type DB } from "./db/client.ts";
+import { reconcileInFlight, type ReconcileResult } from "./scans/reconcile.ts";
+import type { VpsProvider } from "./vps/provider.ts";
+import { createHetznerProvider } from "./vps/hetzner.ts";
+import { createRunner, type Dispatcher } from "./jobs/runner.ts";
+import { createSpawnVpsHandler } from "./jobs/handlers/spawn-vps.ts";
+import { createDispatchScanHandler } from "./jobs/handlers/dispatch-scan.ts";
+import { createTeardownVpsHandler } from "./jobs/handlers/teardown-vps.ts";
+import { createEmailClient } from "./email/resend-client.ts";
+import { createAuthRoutes } from "./routes/auth.ts";
+import { createProjectsRoutes } from "./routes/projects.ts";
+import { createTargetsRoutes } from "./routes/targets.ts";
+import { createAuthProofRoutes } from "./routes/auth-proof.ts";
+import { createScansRoutes } from "./routes/scans.ts";
+import { createWebhookRoutes } from "./routes/webhooks.ts";
 
-app.get("/healthz", (c) => c.json({ ok: true }));
+/**
+ * Default filesystem path for the production SQLite handle.
+ *
+ * The config schema (T005) does not include a DATABASE_PATH knob because
+ * the project's deployment model is single-binary with a fixed data dir.
+ * If T067 / Phase 6 needs the path configurable we'll lift it into the
+ * Zod schema then; for now this single constant is the source of truth.
+ */
+const DEFAULT_DATABASE_PATH = "./data/tensol.db";
 
-const port = Number(process.env.PORT ?? 3000);
+/** Default location of migration `.sql` files relative to this module. */
+const DEFAULT_MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
 
-export default {
-  port,
-  fetch: app.fetch,
-};
+// ===========================================================================
+// bootstrap — reconcile-on-startup
+// ===========================================================================
+
+export interface BootstrapDeps {
+  readonly db: DB;
+  readonly vpsProvider: VpsProvider;
+  readonly signingKey: string;
+  readonly now?: () => number;
+}
+
+export interface BootstrapResult {
+  readonly reconcileResult: ReconcileResult;
+}
+
+/**
+ * Run the boot-time reconciliation. Call this AFTER opening the DB +
+ * applying migrations and BEFORE starting the HTTP listener.
+ *
+ * Reconcile errors propagate to the caller — the production `main()`
+ * treats a reconcile failure as a hard boot failure (better to refuse
+ * to start than serve traffic with an unreconciled state).
+ */
+export async function bootstrap(
+  deps: BootstrapDeps,
+): Promise<BootstrapResult> {
+  const reconcileResult = await reconcileInFlight(deps.db, {
+    vpsProvider: deps.vpsProvider,
+    signingKey: deps.signingKey,
+    now: deps.now,
+  });
+  return { reconcileResult };
+}
+
+// ===========================================================================
+// createApp — Hono assembly
+// ===========================================================================
+
+export interface CreateAppDeps {
+  readonly db: DB;
+  readonly signingKey: string;
+  /** Session cookie HMAC secret (separate from audit signing key). */
+  readonly sessionCookieSecret: string;
+  /** Magic-link email base URL (also used as webhook callback origin). */
+  readonly baseUrl: string;
+  /** Email delivery mode + creds. */
+  readonly emailMode: "stdout" | "resend";
+  readonly resendApiKey?: string;
+  readonly isProd: boolean;
+  readonly now?: () => number;
+}
+
+/**
+ * Compose the Hono app. The factory does not start a listener — pass
+ * the returned app's `fetch` to `Bun.serve` once the rest of the boot
+ * path is wired.
+ */
+export function createApp(deps: CreateAppDeps): Hono {
+  const {
+    db,
+    signingKey,
+    baseUrl,
+    emailMode,
+    resendApiKey,
+    isProd,
+    now,
+  } = deps;
+
+  const app = new Hono();
+
+  // Health probe is registered before auth so load-balancers can probe
+  // the process without holding a session.
+  app.get("/healthz", (c) => c.json({ ok: true }));
+
+  const email = createEmailClient({
+    mode: emailMode,
+    resendApiKey,
+  });
+
+  app.route(
+    "/api/auth",
+    createAuthRoutes({
+      db,
+      email,
+      signingKey,
+      baseUrl,
+      isProd,
+      now,
+    }),
+  );
+  app.route("/api/projects", createProjectsRoutes({ db, signingKey, now }));
+  app.route("/api/targets", createTargetsRoutes({ db, signingKey, now }));
+  // Auth-proof routes require a real DNS resolver + fetch in prod; for
+  // the integration smoke we use the live `node:dns/promises` resolver
+  // and `globalThis.fetch`.
+  app.route(
+    "/api/auth-proof",
+    createAuthProofRoutes({
+      db,
+      signingKey,
+      now,
+      verifyDeps: {
+        resolveTxt: async (host: string) => {
+          const dns = await import("node:dns/promises");
+          return dns.resolveTxt(host);
+        },
+        fetchImpl: fetch,
+      },
+    }),
+  );
+  app.route("/api/scans", createScansRoutes({ db, signingKey, now }));
+  app.route("/api/webhooks", createWebhookRoutes({ db, signingKey, now }));
+
+  return app;
+}
+
+// ===========================================================================
+// Migration helper — idempotent over an already-migrated SQLite handle
+// ===========================================================================
+
+/**
+ * Apply every `.sql` file under `migrationsDir` to the open SQLite
+ * connection. Idempotent: if the canonical `users` table already exists
+ * we treat the schema as up to date and return without re-running SQL.
+ *
+ * Why a `users` table sniff and not a `__drizzle_migrations` ledger:
+ *   drizzle-kit's bun-sqlite migrator writes its own bookkeeping table,
+ *   but our deployment uses raw `.sql` files (no drizzle-kit at runtime)
+ *   so we don't have that ledger. A presence check on the first business
+ *   table covers our only two boot scenarios — fresh DB (no users table
+ *   → apply) and warm DB (users table exists → skip).
+ *
+ * Schema drift between code and DB is NOT handled here — it surfaces
+ * later as a query-time SQLite error and is best caught by the
+ * verify-chain / integration test suite.
+ */
+export function applyMigrationsOnce(
+  db: DB,
+  migrationsDir: string = DEFAULT_MIGRATIONS_DIR,
+): { applied: boolean } {
+  if (!existsSync(migrationsDir)) {
+    throw new Error(`migrations directory not found: ${migrationsDir}`);
+  }
+  const raw = db.$client as Database;
+  const usersExists = raw
+    .query(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='users'",
+    )
+    .get();
+  if (usersExists) {
+    return { applied: false };
+  }
+
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+  if (files.length === 0) {
+    throw new Error(`no migration files found in ${migrationsDir}`);
+  }
+  const combined = files
+    .map((f) =>
+      readFileSync(join(migrationsDir, f), "utf8").replace(
+        /-->\s*statement-breakpoint/g,
+        "",
+      ),
+    )
+    .join("\n");
+  raw.exec(combined);
+  return { applied: true };
+}
+
+// ===========================================================================
+// main — production composition
+// ===========================================================================
+
+/**
+ * Production entry point. Wires every concrete dependency from `config.ts`
+ * and starts a Bun listener once reconcile completes.
+ *
+ * Order matters:
+ *   1. loadConfig — fail fast on missing env vars.
+ *   2. createDb + applyMigrationsOnce — DB ready before any read/write.
+ *   3. createHetznerProvider — VPS provider for reconcile + runner.
+ *   4. bootstrap — reconcile every `running` scan BEFORE listener.
+ *   5. createRunner + start — accept new jobs.
+ *   6. Bun.serve — accept HTTP traffic.
+ */
+export async function main(): Promise<{
+  port: number;
+  stop: () => Promise<void>;
+}> {
+  const config: Config = loadConfig(
+    process.env as Record<string, string | undefined>,
+  );
+  const db = createDb(DEFAULT_DATABASE_PATH);
+  applyMigrationsOnce(db);
+
+  const vpsProvider = createHetznerProvider({
+    apiToken: config.HETZNER_API_TOKEN,
+    location: config.HETZNER_LOCATION,
+    serverType: config.HETZNER_SERVER_TYPE,
+    image: config.HETZNER_IMAGE,
+    sshKeyName: config.HETZNER_SSH_KEY_NAME,
+    vpsAgentImage: config.TENSOL_VPS_AGENT_IMAGE,
+    webhookBaseUrl: config.TENSOL_WEBHOOK_BASE_URL,
+  });
+
+  const { reconcileResult } = await bootstrap({
+    db,
+    vpsProvider,
+    signingKey: config.TENSOL_AUDIT_SIGNING_KEY,
+  });
+  // eslint-disable-next-line no-console
+  console.log(
+    `[tensol] reconcile: checked=${reconcileResult.checked} unchanged=${reconcileResult.unchanged} failed=${reconcileResult.failed} teardown_enqueued=${reconcileResult.teardown_enqueued}`,
+  );
+
+  // Wire job dispatcher + runner. We pass the same VPS provider so the
+  // teardown handler can reach back into the cloud API for the rows the
+  // reconciler just enqueued.
+  const dispatcher: Dispatcher = {
+    spawn_vps: createSpawnVpsHandler({
+      db,
+      vpsProvider,
+      signingKey: config.TENSOL_AUDIT_SIGNING_KEY,
+    }),
+    dispatch_scan: createDispatchScanHandler({
+      db,
+      signingKey: config.TENSOL_AUDIT_SIGNING_KEY,
+      webhookBaseUrl: config.TENSOL_WEBHOOK_BASE_URL,
+    }),
+    // T065 / Phase 6 will land the real watchdog handler. Until then we
+    // mark watchdog jobs done immediately so the queue doesn't accrete
+    // pending rows. The audit chain remains valid because nothing emits
+    // watchdog audits at this stage.
+    watchdog_scan: async () => {},
+    teardown_vps: createTeardownVpsHandler({
+      db,
+      vpsProvider,
+      signingKey: config.TENSOL_AUDIT_SIGNING_KEY,
+    }),
+  };
+  const runner = createRunner({
+    db,
+    dispatcher,
+    signingKey: config.TENSOL_AUDIT_SIGNING_KEY,
+  });
+  runner.start();
+
+  const app = createApp({
+    db,
+    signingKey: config.TENSOL_AUDIT_SIGNING_KEY,
+    sessionCookieSecret: config.TENSOL_SESSION_COOKIE_SECRET,
+    baseUrl: config.TENSOL_WEBHOOK_BASE_URL,
+    emailMode: config.EMAIL_PROVIDER,
+    resendApiKey: config.RESEND_API_KEY,
+    isProd: config.NODE_ENV === "production",
+  });
+
+  const server = Bun.serve({
+    port: config.PORT,
+    fetch: app.fetch,
+  });
+  // eslint-disable-next-line no-console
+  console.log(`[tensol] listening on :${server.port}`);
+
+  return {
+    port: server.port,
+    stop: async () => {
+      await runner.stop();
+      server.stop();
+      (db.$client as Database).close();
+    },
+  };
+}
+
+// `bun run src/server.ts` runs main(); otherwise the file is import-only.
+if (import.meta.main) {
+  // eslint-disable-next-line no-console
+  main().catch((err: unknown) => {
+    // eslint-disable-next-line no-console
+    console.error("[tensol] boot failed:", err);
+    process.exit(1);
+  });
+}
