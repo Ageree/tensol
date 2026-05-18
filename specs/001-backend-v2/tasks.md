@@ -9,9 +9,9 @@
 
 ## Phase 1: Setup & Cleanup
 
-- [ ] **T001** Delete v1 backend in one commit: `rm -rf apps/api packages services tests/integration`; keep `apps/site/`, `external/decepticon/`, `docs/`, `.harness/`. Update root `package.json` workspaces array to remove deleted dirs. Acceptance: `git status` shows only the deletions + workspaces edit; `bun install` succeeds at repo root. Complexity: **M**. Blocks everything.
+- [x] **T001** Delete v1 backend in one commit: `rm -rf apps/api packages services tests/integration`; keep `apps/site/`, `external/decepticon/`, `docs/`, `.harness/`. Update root `package.json` workspaces array to remove deleted dirs. Acceptance: `git status` shows only the deletions + workspaces edit; `bun install` succeeds at repo root. Complexity: **M**. Blocks everything. (7bd731c+3b4b7ff)
 
-- [ ] **T002** Scaffold `server/` package: `bun init` skeleton, `package.json` (deps: hono, drizzle-orm, better-sqlite3, zod, resend, drizzle-kit dev), `tsconfig.json` strict, `drizzle.config.ts`, `README.md` placeholder, empty `src/server.ts` that boots Hono and responds 200 on `GET /healthz`. Acceptance: `cd server && bun run dev` starts on port 3000; `curl localhost:3000/healthz` returns `{ok:true}`. Complexity: **S**. blockedBy: T001.
+- [x] **T002** Scaffold `server/` package: `bun init` skeleton, `package.json` (deps: hono, drizzle-orm, better-sqlite3, zod, resend, drizzle-kit dev), `tsconfig.json` strict, `drizzle.config.ts`, `README.md` placeholder, empty `src/server.ts` that boots Hono and responds 200 on `GET /healthz`. Acceptance: `cd server && bun run dev` starts on port 3000; `curl localhost:3000/healthz` returns `{ok:true}`. Complexity: **S**. blockedBy: T001.
 
 - [ ] **T003** [P] Scaffold `vps-agent/` package: same shape, single endpoint `GET /healthz`. Acceptance: `cd vps-agent && bun run dev` starts; healthz returns 200. Complexity: **XS**. blockedBy: T001.
 
