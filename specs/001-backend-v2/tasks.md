@@ -175,7 +175,7 @@ Goal: operator-initiated cancellation. Independent test = `tests/integration/can
 
 - [x] **T103** Run `npx gitnexus analyze --embeddings` to reindex the new codebase. Acceptance: `.gitnexus/meta.json` shows fresh `last_indexed` and >0 symbols for `server/`. Complexity: **XS**. blockedBy: T102. (no-commit — .gitnexus gitignored; 539 server/ symbols, embeddings deferred — broken onnxruntime-node)
 
-- [ ] **T104** Final commit on `001-backend-v2`: ensure all docs in `specs/001-backend-v2/` are committed; merge-prep summary in commit message; PR opened against `main`. Acceptance: PR URL recorded. Complexity: **XS**. blockedBy: T103.
+- [x] **T104** Final commit on `001-backend-v2`: ensure all docs in `specs/001-backend-v2/` are committed; merge-prep summary in commit message; PR opened against `main`. Acceptance: PR URL recorded. Complexity: **XS**. blockedBy: T103. (ddee1b3 — PR https://github.com/Ageree/tensol/pull/1)
 
 ---
 
