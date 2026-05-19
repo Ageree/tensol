@@ -67,13 +67,92 @@ export interface TeardownVpsJob {
   readonly reason: string;
 }
 
+// ---------------------------------------------------------------------------
+// 002-blackbox-mvp additions (data-model.md §E7).
+//
+// The new job kinds carry their fields in camelCase (matching the handler
+// factories shipped in T056/T058/T060/T062/T064). The runner serialises
+// payloads via JSON.stringify(job) so the on-wire shape is whatever this
+// interface declares; the handlers themselves normalize both camelCase and
+// snake_case for tolerance with hand-rolled inserts.
+//
+// All five new kinds participate in the discriminated union below so the
+// `Dispatcher` type retains exhaustiveness for the kinds that DO have
+// handlers wired today (legacy 4) — new kinds are optional in the
+// Dispatcher map so test fixtures that only register the legacy 4 keep
+// type-checking, and the runner's runtime fallback (no-handler-registered →
+// permanent failure) handles unregistered kinds safely.
+// ---------------------------------------------------------------------------
+
+/** T056 — provision a Yandex Cloud Compute VM for a queued scan. */
+export interface SpawnYandexVmJob {
+  readonly type: "spawn_yandex_vm";
+  readonly scanOrderId: string;
+  readonly scanId: string;
+}
+
+/** T058 — destroy a Yandex Cloud Compute VM. */
+export interface TeardownYandexVmJob {
+  readonly type: "teardown_yandex_vm";
+  readonly scanOrderId: string;
+  readonly scanId?: string;
+  readonly vpsInstanceId: string;
+  readonly vpsZone?: string;
+}
+
+/** T060 — render the PDF report and upload to S3. */
+export interface RenderPdfJob {
+  readonly type: "render_pdf";
+  readonly scanId: string;
+  readonly reportId: string;
+}
+
+/** T062 — send the scan-complete Telegram notification (PIVOT applied).
+ *  Renamed from `send_scan_complete_email` per
+ *  `docs/pivot-2026-05-19-telegram-auth.md`. */
+export interface SendScanCompleteTelegramJob {
+  readonly type: "send_scan_complete_telegram";
+  readonly scanId: string;
+  readonly scanOrderId: string;
+  readonly reportId?: string;
+  readonly userId: string;
+}
+
+/** Operator-alert envelope. Emitted by T056/T058/T060 on permanent failure
+ *  and by future paths that need to reach the operator's Telegram. */
+export interface RetryTelegramNotificationJob {
+  readonly type: "retry_telegram_notification";
+  readonly kind: string;
+  readonly payload?: Record<string, unknown>;
+}
+
 export type Job =
   | SpawnVpsJob
   | DispatchScanJob
   | WatchdogJob
-  | TeardownVpsJob;
+  | TeardownVpsJob
+  | SpawnYandexVmJob
+  | TeardownYandexVmJob
+  | RenderPdfJob
+  | SendScanCompleteTelegramJob
+  | RetryTelegramNotificationJob;
 
 export type JobType = Job["type"];
+
+/** The four legacy job types from 001-backend-v2 (still wired through the
+ *  same handler registry). `spawn_vps` and `teardown_vps` are deprecated
+ *  aliases — see `runner.ts` for the warn-and-route behaviour. */
+export type LegacyJobType =
+  | "spawn_vps"
+  | "dispatch_scan"
+  | "watchdog_scan"
+  | "teardown_vps";
+
+/** The 002 additions that participate in the Dispatcher map optionally —
+ *  this lets test fixtures keep registering only the legacy 4 without
+ *  drowning under exhaustiveness errors, while production code registers
+ *  all of them. */
+export type BlackboxJobType = Exclude<JobType, LegacyJobType>;
 
 // ---------------------------------------------------------------------------
 // DB row shape — re-exported for runner consumers
@@ -103,8 +182,16 @@ export type Handler<P extends Job> = (
   ctx: HandlerContext,
 ) => Promise<void> | void;
 
-/** Compile-time exhaustive map: every job discriminant MUST have a
- *  registered handler, and the handler receives the typed sub-variant. */
+/** Compile-time map: every LEGACY job discriminant MUST have a
+ *  registered handler, and the handler receives the typed sub-variant.
+ *  The 002 additions (BlackboxJobType) are OPTIONAL — wiring lives in
+ *  `server.ts` and test fixtures must not be forced to stub them.
+ *
+ *  Runtime contract: when the runner encounters a job whose type is not
+ *  present in the Dispatcher, it marks the row permanently failed via
+ *  the existing "no handler registered" branch in `runner.ts`. */
 export type Dispatcher = {
-  [K in JobType]: Handler<Extract<Job, { type: K }>>;
+  [K in LegacyJobType]: Handler<Extract<Job, { type: K }>>;
+} & {
+  [K in BlackboxJobType]?: Handler<Extract<Job, { type: K }>>;
 };

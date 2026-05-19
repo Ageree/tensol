@@ -54,10 +54,44 @@ import { createRunner, type Dispatcher } from "./jobs/runner.ts";
 import { createSpawnVpsHandler } from "./jobs/handlers/spawn-vps.ts";
 import { createDispatchScanHandler } from "./jobs/handlers/dispatch-scan.ts";
 import { createTeardownVpsHandler } from "./jobs/handlers/teardown-vps.ts";
+import { createSpawnYandexVmHandler } from "./jobs/handlers/spawn-yandex-vm.ts";
+import { createTeardownYandexVmHandler } from "./jobs/handlers/teardown-yandex-vm.ts";
+import { createRenderPdfHandler } from "./jobs/handlers/render-pdf.ts";
+import { createSendScanCompleteTelegramHandler } from "./jobs/handlers/send-scan-complete-telegram.ts";
+import { createScanTimeoutWatcher } from "./jobs/handlers/scan-timeout-watcher.ts";
+import { createYandexCloudProvider } from "./vps/yandex.ts";
+import { refundFreeQuickQuota } from "./free-tier/service.ts";
+import { createLoggingTelegramNotifier } from "./notify/telegram-placeholder.ts";
+import { S3Client } from "@aws-sdk/client-s3";
 import { createEmailClient } from "./email/resend-client.ts";
 import { createAuthRoutes } from "./routes/auth.ts";
 import { createScansRoutes } from "./routes/scans.ts";
 import { createWebhookRoutes } from "./routes/webhooks.ts";
+
+/**
+ * T066 — periodic watchdog cadence for the scan-timeout watcher (T064).
+ * The watcher itself is cron-style (no payload job) — `tick()` is invoked
+ * on a setInterval-style schedule from `main()`. Default 5 minutes per
+ * tasks.md T126.
+ */
+const SCAN_TIMEOUT_WATCHER_INTERVAL_MS = 5 * 60 * 1_000;
+
+/**
+ * T066 — adapt new-style handlers `(jobId, rawPayload) => Promise<void>` to
+ * the legacy runner `Handler<P>` shape `(payload, ctx) => Promise<void>`.
+ *
+ * The 002 handlers (T056/T058/T060/T062) deliberately decouple payload
+ * normalization from the runner's typed dispatch — they accept the raw
+ * parsed JSON and run dual-case (camelCase + snake_case) normalization
+ * inside the handler. The runner, by contrast, still hands them the
+ * typed payload object first + a context bag second (legacy contract).
+ * This adapter bridges the two without touching either side's signature.
+ */
+function adaptNewStyle(
+  inner: (jobId: string, rawPayload: unknown) => Promise<void>,
+): (payload: unknown, ctx: { jobId: string; attempts: number }) => Promise<void> {
+  return (payload, ctx) => inner(ctx.jobId, payload);
+}
 
 /**
  * Default filesystem path for the production SQLite handle.
@@ -304,6 +338,95 @@ export async function main(): Promise<{
   // Wire job dispatcher + runner. We pass the same VPS provider so the
   // teardown handler can reach back into the cloud API for the rows the
   // reconciler just enqueued.
+  //
+  // T066 — wire the new 002 handlers alongside the legacy 4. New handlers
+  // require external creds (Yandex, S3, Telegram); we read each optional
+  // env var and degrade gracefully when missing — production deployments
+  // populate `.env.yandex` per the handoff doc. Boot does NOT fail when
+  // a 002 cred is missing; the handler itself throws at invoke time so
+  // the runner's permanent-failure branch captures it in the audit log.
+  const yandexProvider = createYandexCloudProvider();
+  const evidenceBucket = process.env.TENSOL_EVIDENCE_BUCKET ?? "";
+  const awsRegion = process.env.AWS_REGION ?? "ru-central1";
+  const awsEndpoint =
+    process.env.AWS_ENDPOINT_URL ?? "https://storage.yandexcloud.net";
+  const awsAccessKeyId = process.env.AWS_ACCESS_KEY_ID ?? "";
+  const awsSecretAccessKey = process.env.AWS_SECRET_ACCESS_KEY ?? "";
+  const decepticonImage =
+    process.env.DECEPTICON_IMAGE ?? "ghcr.io/purpleailab/decepticon:latest";
+  const vpsZone = process.env.YANDEX_PROD_SUBNET_ZONE ?? "ru-central1-a";
+  const evidencePrefix = process.env.TENSOL_EVIDENCE_PREFIX ?? "scans/";
+
+  if (!evidenceBucket || !awsAccessKeyId || !awsSecretAccessKey) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[tensol] T066: S3/Object-Storage env vars missing — render_pdf + " +
+        "send_scan_complete_telegram + spawn_yandex_vm will fail at invoke time. " +
+        "Set TENSOL_EVIDENCE_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY.",
+    );
+  }
+
+  const s3 = new S3Client({
+    region: awsRegion,
+    endpoint: awsEndpoint,
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: awsAccessKeyId,
+      secretAccessKey: awsSecretAccessKey,
+    },
+  });
+
+  const telegramNotifier = createLoggingTelegramNotifier();
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[tensol] T066: TelegramNotifier = LoggingTelegramNotifier (placeholder). " +
+      "T096 will replace with the production bot-API client.",
+  );
+
+  const spawnYandexVm = adaptNewStyle(
+    createSpawnYandexVmHandler({
+      db,
+      provider: yandexProvider,
+      auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
+      refundFreeQuickQuota,
+      vpsZone,
+      backendUrl: config.TENSOL_WEBHOOK_BASE_URL,
+      webhookSecret: config.TENSOL_AUDIT_SIGNING_KEY,
+      evidenceBucket,
+      evidencePrefix,
+      awsAccessKeyId,
+      awsSecretAccessKey,
+      awsEndpoint,
+      awsRegion,
+      signKey: config.TENSOL_AUDIT_SIGNING_KEY,
+      decepticonImage,
+      vpsAgentImage: config.TENSOL_VPS_AGENT_IMAGE,
+    }),
+  );
+  const teardownYandexVm = adaptNewStyle(
+    createTeardownYandexVmHandler({
+      db,
+      provider: yandexProvider,
+      auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
+    }),
+  );
+  const renderPdf = adaptNewStyle(
+    createRenderPdfHandler({
+      db,
+      s3,
+      bucket: evidenceBucket,
+      auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
+    }),
+  );
+  const sendScanCompleteTelegram = adaptNewStyle(
+    createSendScanCompleteTelegramHandler({
+      db,
+      s3,
+      telegramNotifier,
+      auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
+    }),
+  );
+
   const dispatcher: Dispatcher = {
     spawn_vps: createSpawnVpsHandler({
       db,
@@ -325,6 +448,17 @@ export async function main(): Promise<{
       vpsProvider,
       signingKey: config.TENSOL_AUDIT_SIGNING_KEY,
     }),
+    // T066 — 002 additions (E7). Adapted to legacy `(payload, ctx)` shape
+    // via `adaptNewStyle`.
+    spawn_yandex_vm: spawnYandexVm,
+    teardown_yandex_vm: teardownYandexVm,
+    render_pdf: renderPdf,
+    send_scan_complete_telegram: sendScanCompleteTelegram,
+    // `retry_telegram_notification` is a no-op-acknowledged placeholder
+    // until T096 wires the real operator-alert dispatcher. Failed jobs
+    // (vm spawn / teardown / pdf render) still INSERT rows of this kind;
+    // the no-op marks them done so they don't accrete.
+    retry_telegram_notification: async () => {},
   };
   const runner = createRunner({
     db,
@@ -332,6 +466,28 @@ export async function main(): Promise<{
     signingKey: config.TENSOL_AUDIT_SIGNING_KEY,
   });
   runner.start();
+
+  // T066 — wire the scan-timeout watcher (T064) on a 5-minute cadence.
+  // Cron-style: we invoke `tick()` directly via setInterval rather than
+  // shoehorn it into the jobs table — the watcher itself manages
+  // idempotency via a conditional UPDATE inside `tick()`.
+  const watcher = createScanTimeoutWatcher({
+    db,
+    refundFreeQuickQuota: async (userId) => refundFreeQuickQuota(db, userId),
+    auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
+  });
+  const watcherTimer = setInterval(() => {
+    watcher.tick().catch((err: unknown) => {
+      // eslint-disable-next-line no-console
+      console.error(
+        "[tensol] T066: scan-timeout-watcher tick failed:",
+        err instanceof Error ? err.message : err,
+      );
+    });
+  }, SCAN_TIMEOUT_WATCHER_INTERVAL_MS);
+  // Unref so the interval doesn't keep the process alive on graceful
+  // shutdown — `runner.stop()` already awaits any in-flight handler.
+  if (typeof watcherTimer.unref === "function") watcherTimer.unref();
 
   const app = createApp({
     db,
@@ -357,6 +513,7 @@ export async function main(): Promise<{
   return {
     port: server.port ?? config.PORT,
     stop: async () => {
+      clearInterval(watcherTimer);
       await runner.stop();
       server.stop();
       (db.$client as Database).close();

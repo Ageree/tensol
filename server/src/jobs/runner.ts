@@ -62,6 +62,45 @@ const DEFAULT_MAX_ATTEMPTS = 5;
 const BACKOFF_BASE_MS = 1_000;
 const DEFAULT_WATCHDOG_INTERVAL_MS = 5 * 60 * 1_000;
 
+/**
+ * T066 — Legacy job-type deprecation registry.
+ *
+ * The 001-era `spawn_vps` / `teardown_vps` kinds have been superseded by
+ * the Yandex-specific `spawn_yandex_vm` / `teardown_yandex_vm` kinds
+ * (data-model.md §E7). Existing enqueue sites are gradually migrated;
+ * in the meantime the runner emits a one-shot console warning per
+ * deprecated kind so operators see the migration signal without log
+ * spam. The actual handler stays the same (still bound to `spawn_vps`
+ * in `server.ts` via `createSpawnVpsHandler`), because the legacy
+ * payload shape (`{scan_id}`) is NOT compatible with the new handler
+ * (`{scanOrderId, scanId}`); transparent routing would corrupt
+ * payloads. Once 001 enqueue sites are removed, drop these literals
+ * from the Dispatcher entirely.
+ */
+const DEPRECATED_JOB_KINDS: Readonly<Record<string, string>> = {
+  spawn_vps: "spawn_yandex_vm",
+  teardown_vps: "teardown_yandex_vm",
+};
+const deprecationWarned = new Set<string>();
+function warnDeprecatedOnce(kind: string): void {
+  if (deprecationWarned.has(kind)) return;
+  const replacement = DEPRECATED_JOB_KINDS[kind];
+  if (!replacement) return;
+  deprecationWarned.add(kind);
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[deprecated] job type '${kind}' is superseded by '${replacement}' (T066). ` +
+      `Existing handlers continue to run, but new enqueue sites must use the replacement kind.`,
+  );
+}
+
+/** Test-only reset for the dedupe set so suites that exercise legacy
+ *  aliases can re-assert the warning. Not exported via the public Runner
+ *  type. */
+export function _resetDeprecationWarnings(): void {
+  deprecationWarned.clear();
+}
+
 export interface RunnerOpts {
   readonly db: DB;
   readonly dispatcher: Dispatcher;
@@ -201,6 +240,12 @@ export function createRunner(opts: RunnerOpts): Runner {
     }
 
     const handlerKey = parsed.type as JobType;
+    // T066 — surface the migration signal for legacy aliases. Idempotent
+    // per-process (warns once per kind) so we don't spam the log under
+    // load.
+    if (handlerKey in DEPRECATED_JOB_KINDS) {
+      warnDeprecatedOnce(handlerKey);
+    }
     const handler = dispatcher[handlerKey] as
       | ((p: Job, ctx: { jobId: string; attempts: number }) => Promise<void> | void)
       | undefined;
