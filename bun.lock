@@ -34,6 +34,7 @@
       "name": "@tensol/server",
       "version": "0.1.0",
       "dependencies": {
+        "@aws-sdk/client-s3": "3.1049.0",
         "@sparticuz/chromium-min": "^148.0.0",
         "better-sqlite3": "^11.5.0",
         "drizzle-orm": "^0.36.4",
