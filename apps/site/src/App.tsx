@@ -10,10 +10,6 @@ const Login = lazy(() => safeImport(() => import('./pages/Login.tsx'), 'login'))
 const Bootstrap = lazy(() => safeImport(() => import('./pages/Bootstrap.tsx'), 'bootstrap'));
 const Invite = lazy(() => safeImport(() => import('./pages/Invite.tsx'), 'invite'));
 const Dashboard = lazy(() => safeImport(() => import('./pages/Dashboard.tsx'), 'dashboard'));
-const Projects = lazy(() => safeImport(() => import('./pages/Projects.tsx'), 'projects'));
-const Targets = lazy(() => safeImport(() => import('./pages/Targets.tsx'), 'targets'));
-const Builder = lazy(() => safeImport(() => import('./pages/Builder.tsx'), 'builder'));
-const Approval = lazy(() => safeImport(() => import('./pages/Approval.tsx'), 'approval'));
 const Live = lazy(() => safeImport(() => import('./pages/Live.tsx'), 'live'));
 const Findings = lazy(() => safeImport(() => import('./pages/Findings.tsx'), 'findings'));
 const Reports = lazy(() => safeImport(() => import('./pages/Reports.tsx'), 'reports'));
@@ -25,9 +21,6 @@ const Trust = lazy(() => safeImport(() => import('./pages/Trust.tsx'), 'trust'))
 const Legal = lazy(() => safeImport(() => import('./pages/Legal.tsx'), 'legal'));
 const Blog = lazy(() => safeImport(() => import('./pages/Blog.tsx'), 'blog'));
 const Method = lazy(() => safeImport(() => import('./pages/Method.tsx'), 'method'));
-const AuthorizeTarget = lazy(() =>
-  safeImport(() => import('./pages/AuthorizeTarget.tsx'), 'authorize'),
-);
 
 function safeImport<T extends { default: React.ComponentType<unknown> }>(
   load: () => Promise<T>,
@@ -66,10 +59,6 @@ export const App = () => (
         <Route path="/bootstrap" element={<Bootstrap />} />
         <Route path="/invite" element={<Invite />} />
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/projects" element={<Projects />} />
-        <Route path="/targets" element={<Targets />} />
-        <Route path="/builder" element={<Builder />} />
-        <Route path="/approval" element={<Approval />} />
         <Route path="/live" element={<Live />} />
         <Route path="/findings" element={<Findings />} />
         <Route path="/reports" element={<Reports />} />
@@ -81,10 +70,6 @@ export const App = () => (
         <Route path="/legal/:kind" element={<Legal />} />
         <Route path="/blog" element={<Blog />} />
         <Route path="/method" element={<Method />} />
-        <Route
-          path="/projects/:projectId/targets/:targetId/authorize"
-          element={<AuthorizeTarget />}
-        />
         <Route path="*" element={<Navigate to="/err/404" replace />} />
       </Routes>
     </Suspense>
