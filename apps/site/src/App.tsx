@@ -13,6 +13,9 @@ const Invite = lazy(() => safeImport(() => import('./pages/Invite.tsx'), 'invite
 const Dashboard = lazy(() => safeImport(() => import('./pages/Dashboard.tsx'), 'dashboard'));
 const Live = lazy(() => safeImport(() => import('./pages/Live.tsx'), 'live'));
 const Findings = lazy(() => safeImport(() => import('./pages/Findings.tsx'), 'findings'));
+const FindingDetail = lazy(() =>
+  safeImport(() => import('./pages/FindingDetail.tsx'), 'finding-detail'),
+);
 const Reports = lazy(() => safeImport(() => import('./pages/Reports.tsx'), 'reports'));
 const Settings = lazy(() => safeImport(() => import('./pages/Settings.tsx'), 'settings'));
 const ErrorScreen = lazy(() => safeImport(() => import('./pages/ErrorScreen.tsx'), 'errors'));
@@ -88,7 +91,7 @@ export const App = () => (
         />
         <Route path="/scan/:id" element={<Live />} />
         <Route path="/scan/:id/findings" element={<Findings />} />
-        <Route path="/scan/:id/findings/:findingId" element={<Findings />} />
+        <Route path="/scan/:id/findings/:findingId" element={<FindingDetail />} />
         <Route path="/scan/:id/report" element={<Reports />} />
         {/* Legacy aliases — keep existing /wizard/* links working. */}
         <Route path="/wizard/new" element={<ScanWizard mode="create" />} />

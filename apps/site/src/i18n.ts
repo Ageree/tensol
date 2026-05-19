@@ -1136,6 +1136,79 @@ const en = {
     phaseDone: 'Completed',
   },
   // ── END:live ─────────────────────────────────────────────────────────
+  // ── BEGIN:findings ───────────────────────────────────────────────────
+  // T085 — Findings list page (Blackbox MVP).
+  findings: {
+    title: 'Findings',
+    loading: 'Loading findings…',
+    loadError: 'Could not load findings',
+    empty: 'No findings recorded for this scan.',
+    noMatch: 'No findings match these filters.',
+    noScanId: 'No scan selected. Open a scan from the dashboard.',
+    distribution: 'Severity distribution',
+    filterSeverity: 'severity',
+    searchPlaceholder: 'search title…',
+    countOf: '{shown} of {total} findings',
+    colSeverity: 'severity',
+    colTitle: 'title',
+    colSlug: 'slug',
+    colCvss: 'cvss',
+    detail: 'detail',
+    gotoReport: 'View report',
+    sevCritical: 'critical',
+    sevHigh: 'high',
+    sevMedium: 'medium',
+    sevLow: 'low',
+    sevInformational: 'info',
+  },
+  // ── END:findings ─────────────────────────────────────────────────────
+  // ── BEGIN:findingDetail ──────────────────────────────────────────────
+  // T086 — Single finding detail page.
+  findingDetail: {
+    title: 'Finding detail',
+    back: 'Back to findings',
+    loading: 'Loading finding…',
+    loadError: 'Could not load finding',
+    missingParams: 'Invalid URL — missing scan or finding id.',
+    labelConfidence: 'confidence',
+    labelPhase: 'phase',
+    labelAgent: 'agent',
+    labelDiscovered: 'discovered',
+    cvssVector: 'CVSS vector',
+    report: 'Report',
+    emptyBody: 'Empty body — agent did not emit narrative for this finding.',
+    evidence: 'Evidence',
+    noEvidence: 'No evidence files attached.',
+    downloadPending: 'download via API',
+  },
+  // ── END:findingDetail ────────────────────────────────────────────────
+  // ── BEGIN:reports ────────────────────────────────────────────────────
+  // T087 — Per-scan report status panel.
+  reports: {
+    title: 'Report',
+    loading: 'Loading report…',
+    loadError: 'Could not load report',
+    noScanId: 'No scan selected. Open a scan from the dashboard.',
+    statusLabel: 'status',
+    statusPending: 'pending',
+    statusRendering: 'rendering',
+    statusReady: 'ready',
+    statusFailed: 'failed',
+    generating: 'Generating PDF — bundling findings + evidence + signing…',
+    polling: 'polling every {sec}s',
+    download: 'Download PDF',
+    noDownloadUrl: 'Server has not returned a signed download URL yet.',
+    fileSize: 'size',
+    expires: 'expires',
+    failedHint:
+      'Report generation failed. Re-queue a render below; the previous job will be replaced.',
+    regenerate: 'Regenerate',
+    regenerating: 'Queuing…',
+    regenerateQueued: 'Re-render queued · job {jobId}',
+    regenerateError: 'Regenerate failed',
+    backToFindings: 'Back to findings',
+  },
+  // ── END:reports ──────────────────────────────────────────────────────
 };
 
 export type TensolDict = typeof en;
@@ -2266,6 +2339,76 @@ const ru: TensolDict = {
     phaseDone: 'Завершено',
   },
   // ── END:live ─────────────────────────────────────────────────────────
+  // ── BEGIN:findings ───────────────────────────────────────────────────
+  findings: {
+    title: 'Находки',
+    loading: 'Загружаем находки…',
+    loadError: 'Не удалось загрузить находки',
+    empty: 'У этого сканирования нет находок.',
+    noMatch: 'Под фильтры ничего не подошло.',
+    noScanId: 'Сканирование не выбрано. Откройте его из дашборда.',
+    distribution: 'Распределение по критичности',
+    filterSeverity: 'критичность',
+    searchPlaceholder: 'поиск по заголовку…',
+    countOf: '{shown} из {total} находок',
+    colSeverity: 'критичность',
+    colTitle: 'заголовок',
+    colSlug: 'идентификатор',
+    colCvss: 'cvss',
+    detail: 'подробнее',
+    gotoReport: 'Открыть отчёт',
+    sevCritical: 'critical',
+    sevHigh: 'high',
+    sevMedium: 'medium',
+    sevLow: 'low',
+    sevInformational: 'info',
+  },
+  // ── END:findings ─────────────────────────────────────────────────────
+  // ── BEGIN:findingDetail ──────────────────────────────────────────────
+  findingDetail: {
+    title: 'Подробности находки',
+    back: 'К списку находок',
+    loading: 'Загружаем находку…',
+    loadError: 'Не удалось загрузить находку',
+    missingParams: 'Некорректный URL — отсутствует идентификатор сканирования или находки.',
+    labelConfidence: 'достоверность',
+    labelPhase: 'фаза',
+    labelAgent: 'агент',
+    labelDiscovered: 'обнаружено',
+    cvssVector: 'CVSS-вектор',
+    report: 'Описание',
+    emptyBody: 'Тело находки пустое — агент не сформировал описание.',
+    evidence: 'Доказательства',
+    noEvidence: 'Файлов с доказательствами нет.',
+    downloadPending: 'выгрузка через API',
+  },
+  // ── END:findingDetail ────────────────────────────────────────────────
+  // ── BEGIN:reports ────────────────────────────────────────────────────
+  reports: {
+    title: 'Отчёт',
+    loading: 'Загружаем отчёт…',
+    loadError: 'Не удалось загрузить отчёт',
+    noScanId: 'Сканирование не выбрано. Откройте его из дашборда.',
+    statusLabel: 'статус',
+    statusPending: 'в очереди',
+    statusRendering: 'формируется',
+    statusReady: 'готов',
+    statusFailed: 'ошибка',
+    generating: 'Собираем PDF — находки + доказательства + подпись…',
+    polling: 'опрос каждые {sec} с',
+    download: 'Скачать PDF',
+    noDownloadUrl: 'Сервер ещё не вернул подписанную ссылку.',
+    fileSize: 'размер',
+    expires: 'истекает',
+    failedHint:
+      'Генерация отчёта завершилась с ошибкой. Поставьте задачу заново — предыдущий job будет заменён.',
+    regenerate: 'Перегенерировать',
+    regenerating: 'Ставим в очередь…',
+    regenerateQueued: 'Пересборка в очереди · job {jobId}',
+    regenerateError: 'Ошибка перегенерации',
+    backToFindings: 'К находкам',
+  },
+  // ── END:reports ──────────────────────────────────────────────────────
 };
 
 export const TENSOL_I18N: Record<TensolLang, TensolDict> = { en, ru };
