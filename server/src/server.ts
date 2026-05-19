@@ -65,7 +65,7 @@ import { createLoggingTelegramNotifier } from "./notify/telegram-placeholder.ts"
 import { S3Client } from "@aws-sdk/client-s3";
 import { createEmailClient } from "./email/resend-client.ts";
 import { createAuthRoutes } from "./routes/auth.ts";
-import { createScansRoutes } from "./routes/scans.ts";
+import { createScansRouter } from "./routes/scans.ts";
 import { createScanOrdersRouter } from "./routes/scan-orders.ts";
 import { createWebhookRoutes } from "./routes/webhooks.ts";
 import { createScanOrdersService } from "./scan-orders/service.ts";
@@ -226,12 +226,23 @@ export function createApp(deps: CreateAppDeps): Hono {
   // backing tables were dropped in migration 0010 (T011). DNS-TXT auth-
   // proof for the blackbox MVP arrives via `/v1/scan-orders/*` (T034+).
   app.route(
-    "/api/scans",
-    createScansRoutes({ db, signingKey, ...maybeNow(now) }),
-  );
-  app.route(
     "/api/webhooks",
     createWebhookRoutes({ db, signingKey, ...maybeNow(now) }),
+  );
+
+  // T071 — `/v1/scans/*` simplified read API (US1). Owner-scoped via
+  // direct scans.user_id (no projects/targets JOIN — those tables were
+  // dropped in 0010). Mounts BEFORE /v1/scan-orders to share the same
+  // requireAuth middleware factory.
+  const requireAuthForScans = createRequireAuth({ db, ...maybeNow(now) });
+  app.route(
+    "/v1/scans",
+    createScansRouter({
+      db,
+      auditKey: signingKey,
+      requireAuth: requireAuthForScans,
+      ...maybeNow(now),
+    }),
   );
 
   // T067 — /v1/scan-orders/* (US1 wizard surface). Constitution IX: every
