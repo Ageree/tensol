@@ -43,10 +43,21 @@ export interface DispatchScanJob {
 
 /** Periodic liveness probe for running scans. Spec calls this
  *  `WatchdogJob` (no `_scan` suffix in the TS name) but the schema
- *  column value is `watchdog_scan`. */
+ *  column value is `watchdog_scan`.
+ *
+ *  `consecutive_failures` carries state across watchdog reschedules
+ *  (see `handlers/watchdog.ts` for the 3-strike kill switch). When the
+ *  job is first enqueued the field is absent / 0; each failed probe
+ *  re-enqueues a watchdog_scan with an incremented counter. When the
+ *  field reaches `maxConsecutiveFailures` (default 3) the scan is
+ *  marked failed (failure_reason='agent_unresponsive') and a
+ *  teardown_vps job is enqueued. A successful probe always reschedules
+ *  with `consecutive_failures=0`. The field is optional for backward
+ *  compatibility with existing enqueue sites that pre-date T060. */
 export interface WatchdogJob {
   readonly type: "watchdog_scan";
   readonly scan_id: string;
+  readonly consecutive_failures?: number;
 }
 
 /** Destroy a VPS after a scan finishes / fails / is cancelled. */
