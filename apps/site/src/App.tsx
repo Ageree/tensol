@@ -1,8 +1,9 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, type ComponentType } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Placeholder } from './components/Placeholder.tsx';
 import { TensolProvider } from './context.tsx';
 import { MarketingPage } from './pages/Marketing.tsx';
+import type { ScanWizardContainerProps } from './pages/scan-wizard/ScanWizardContainer.tsx';
 
 // Lazy-loaded screens — files written by parallel agents.
 // If a file is missing the lazy import will throw → caught by ErrorBoundary fallback.
@@ -21,6 +22,15 @@ const Trust = lazy(() => safeImport(() => import('./pages/Trust.tsx'), 'trust'))
 const Legal = lazy(() => safeImport(() => import('./pages/Legal.tsx'), 'legal'));
 const Blog = lazy(() => safeImport(() => import('./pages/Blog.tsx'), 'blog'));
 const Method = lazy(() => safeImport(() => import('./pages/Method.tsx'), 'method'));
+const ScanWizard = lazy(() =>
+  safeImport(
+    () =>
+      import('./pages/scan-wizard/ScanWizardContainer.tsx') as unknown as Promise<{
+        default: ComponentType<unknown>;
+      }>,
+    'wizard',
+  ),
+) as unknown as ComponentType<ScanWizardContainerProps>;
 
 function safeImport<T extends { default: React.ComponentType<unknown> }>(
   load: () => Promise<T>,
@@ -70,6 +80,8 @@ export const App = () => (
         <Route path="/legal/:kind" element={<Legal />} />
         <Route path="/blog" element={<Blog />} />
         <Route path="/method" element={<Method />} />
+        <Route path="/wizard/new" element={<ScanWizard mode="create" />} />
+        <Route path="/wizard/:orderId/:step" element={<ScanWizard mode="edit" />} />
         <Route path="*" element={<Navigate to="/err/404" replace />} />
       </Routes>
     </Suspense>

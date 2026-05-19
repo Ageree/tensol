@@ -1015,6 +1015,22 @@ const en = {
     errMethodIncompatible: 'This method is not compatible with the target type.',
   },
   // ── END:authorize ────────────────────────────────────────────────────
+  // ── BEGIN:wizard ─────────────────────────────────────────────────────
+  // T078 — Scan-order wizard (4 steps). Step content (T079..T083) extends
+  // this namespace with per-step labels.
+  wizard: {
+    step1Title: 'Attack surface',
+    step2Title: 'Safety',
+    step3Title: 'Verify domain',
+    step4Title: 'Review & launch',
+    next: 'Next',
+    back: 'Back',
+    cancel: 'Cancel',
+    creating: 'Creating scan order…',
+    errCreate: 'Could not create scan order',
+    errGeneric: 'Error',
+  },
+  // ── END:wizard ───────────────────────────────────────────────────────
 };
 
 export type TensolDict = typeof en;
@@ -2025,6 +2041,20 @@ const ru: TensolDict = {
     errMethodIncompatible: 'Этот метод несовместим с типом цели.',
   },
   // ── END:authorize ────────────────────────────────────────────────────
+  // ── BEGIN:wizard ─────────────────────────────────────────────────────
+  wizard: {
+    step1Title: 'Периметр атаки',
+    step2Title: 'Безопасность',
+    step3Title: 'Подтверждение домена',
+    step4Title: 'Проверка и запуск',
+    next: 'Далее',
+    back: 'Назад',
+    cancel: 'Отмена',
+    creating: 'Создаём заказ сканирования…',
+    errCreate: 'Не удалось создать заказ сканирования',
+    errGeneric: 'Ошибка',
+  },
+  // ── END:wizard ───────────────────────────────────────────────────────
 };
 
 export const TENSOL_I18N: Record<TensolLang, TensolDict> = { en, ru };
