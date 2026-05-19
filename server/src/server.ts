@@ -10,8 +10,9 @@
  *       no listener, no migrations, no env-var reads. Test-friendly.
  *
  *     - `createApp(deps)` — assembles the Hono app with /healthz plus
- *       every route subrouter wired in (auth, projects, targets,
- *       auth-proof, scans, webhooks). Pure factory, no listener.
+ *       every route subrouter wired in (auth, scans, webhooks). Pure
+ *       factory, no listener. Legacy projects/targets/auth-proof routes
+ *       removed in T016; replaced by `/v1/scan-orders/*` (T034+).
  *
  *     - `main()` — wires the production composition: loadConfig, createDb,
  *       apply migrations, createHetznerProvider, bootstrap, createRunner +
@@ -55,9 +56,6 @@ import { createDispatchScanHandler } from "./jobs/handlers/dispatch-scan.ts";
 import { createTeardownVpsHandler } from "./jobs/handlers/teardown-vps.ts";
 import { createEmailClient } from "./email/resend-client.ts";
 import { createAuthRoutes } from "./routes/auth.ts";
-import { createProjectsRoutes } from "./routes/projects.ts";
-import { createTargetsRoutes } from "./routes/targets.ts";
-import { createAuthProofRoutes } from "./routes/auth-proof.ts";
 import { createScansRoutes } from "./routes/scans.ts";
 import { createWebhookRoutes } from "./routes/webhooks.ts";
 
@@ -187,40 +185,9 @@ export function createApp(deps: CreateAppDeps): Hono {
       ...maybeNow(now),
     }),
   );
-  app.route(
-    "/api/projects",
-    createProjectsRoutes({ db, signingKey, ...maybeNow(now) }),
-  );
-  app.route(
-    "/api/targets",
-    createTargetsRoutes({ db, signingKey, ...maybeNow(now) }),
-  );
-  // Auth-proof routes require a real DNS resolver + fetch in prod; for
-  // the integration smoke we use the live `node:dns/promises` resolver
-  // and `globalThis.fetch`. `VerifyDeps.fetchUrl` matches the shape
-  // expected by `verify.ts` (FetchResponseLike with `ok/status/text()`).
-  app.route(
-    "/api/auth-proof",
-    createAuthProofRoutes({
-      db,
-      signingKey,
-      ...maybeNow(now),
-      verifyDeps: {
-        resolveTxt: async (host: string) => {
-          const dns = await import("node:dns/promises");
-          return dns.resolveTxt(host);
-        },
-        fetchUrl: async (url, init) => {
-          const res = await fetch(url, init);
-          return {
-            ok: res.ok,
-            status: res.status,
-            text: () => res.text(),
-          };
-        },
-      },
-    }),
-  );
+  // Legacy projects/targets/auth-proof route mounts removed (T016) — the
+  // backing tables were dropped in migration 0010 (T011). DNS-TXT auth-
+  // proof for the blackbox MVP arrives via `/v1/scan-orders/*` (T034+).
   app.route(
     "/api/scans",
     createScansRoutes({ db, signingKey, ...maybeNow(now) }),

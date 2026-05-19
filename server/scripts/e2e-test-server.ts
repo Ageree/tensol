@@ -7,13 +7,14 @@
  * Composes the real route factories from `../src/routes/*` against:
  *   - a fresh temp-file SQLite (migrations applied via `applyMigrationsOnce`)
  *   - a fake `VpsProvider` (no real Hetzner calls)
- *   - a fake `verifyDeps` for auth-proof (DNS TXT probe always succeeds
- *     by returning the pending challenge token straight from the DB)
  *   - an injected fetchImpl for `dispatch_scan` that 202-accepts without
  *     reaching out to a real VPS
  *   - email mode `stdout` with a custom logger that captures every send so
  *     the spec can extract magic-link tokens deterministically without
  *     fighting child-process stdout buffering.
+ *
+ * T016: legacy projects/targets/auth-proof route mounts removed; will be
+ * rewired around /v1/scan-orders for the blackbox MVP.
  *
  * The launcher binds `Bun.serve` on a dedicated port (default 3001) and
  * adds internal endpoints under `/__test/*` so the Playwright spec can
@@ -50,14 +51,10 @@ import type {
   VpsStatus,
 } from "../src/vps/provider.ts";
 import { createAuthRoutes } from "../src/routes/auth.ts";
-import { createProjectsRoutes } from "../src/routes/projects.ts";
-import { createTargetsRoutes } from "../src/routes/targets.ts";
-import { createAuthProofRoutes } from "../src/routes/auth-proof.ts";
 import { createScansRoutes } from "../src/routes/scans.ts";
 import { createWebhookRoutes } from "../src/routes/webhooks.ts";
 import { createEmailClient } from "../src/email/resend-client.ts";
 import {
-  authProofs as authProofsTable,
   findings as findingsTable,
   vpsInstances as vpsInstancesTable,
 } from "../src/db/schema.ts";
@@ -92,47 +89,12 @@ function createFakeProvider(): VpsProvider {
 }
 
 /**
- * Build a fake auth-proof `verifyDeps`. The DNS TXT probe always succeeds
- * by reading the most recent pending challenge token from `auth_proofs`
- * and returning it. The HTTPS probe returns 404 so the dns_txt path wins.
- */
-function createFakeVerifyDeps(db: ReturnType<typeof createDb>) {
-  return {
-    resolveTxt: async (host: string): Promise<string[][]> => {
-      // The verifier appends `_tensol-verify.` to the hostname. We don't
-      // bother to match it back to a row because the test only ever has
-      // one outstanding challenge.
-      void host;
-      const rows = db
-        .select()
-        .from(authProofsTable)
-        .where(eq(authProofsTable.status, "pending"))
-        .all();
-      const row = rows.at(-1);
-      if (!row) return [[]];
-      // `row.challenge` is already the full `tensol-verify=<hex>` string
-      // written by `issueChallenge` (T032). The verifier compares the
-      // TXT value byte-for-byte against this exact form.
-      return [[row.challenge]];
-    },
-    fetchUrl: async (
-      _url: string,
-      _init?: { signal?: AbortSignal },
-    ): Promise<{
-      ok: boolean;
-      status: number;
-      text: () => Promise<string>;
-    }> => ({
-      ok: false,
-      status: 404,
-      text: async () => "",
-    }),
-  };
-}
-
-/**
  * Boot the in-process test server. Caller is responsible for `stop()`-ing
  * the returned handle when the spec finishes.
+ *
+ * Note (T016): the prior `createFakeVerifyDeps()` helper (legacy auth-proof
+ * stub) and its `auth_proofs` table consumer are gone. DNS-TXT verification
+ * for the blackbox MVP gets a new fake in the rewritten /v1/scan-orders E2E.
  */
 export async function startTestServer(opts?: {
   port?: number;
@@ -177,22 +139,9 @@ export async function startTestServer(opts?: {
       isProd: false,
     }),
   );
-  app.route(
-    "/api/projects",
-    createProjectsRoutes({ db, signingKey: SIGNING_KEY }),
-  );
-  app.route(
-    "/api/targets",
-    createTargetsRoutes({ db, signingKey: SIGNING_KEY }),
-  );
-  app.route(
-    "/api/targets",
-    createAuthProofRoutes({
-      db,
-      signingKey: SIGNING_KEY,
-      verifyDeps: createFakeVerifyDeps(db),
-    }),
-  );
+  // Legacy projects/targets/auth-proof route mounts removed (T016) — the
+  // backing tables were dropped in migration 0010 (T011). The MVP E2E
+  // (T090+) will rewire via `/v1/scan-orders/*` once those routes exist.
   app.route(
     "/api/scans",
     createScansRoutes({ db, signingKey: SIGNING_KEY }),
