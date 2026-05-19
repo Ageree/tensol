@@ -38,7 +38,7 @@
  *   - `scans` has no `created_at` column; `started_at` is the only timestamp
  *     and doubles as the row's birthday for ordering.
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { emitSignedAudit } from "../audit/emit.ts";
 import { VERIFIED_TTL_MS } from "../auth-proof/middleware.ts";
 import type { DB } from "../db/client.ts";
@@ -48,10 +48,11 @@ import {
   projects as projectsTable,
   scans as scansTable,
   targets as targetsTable,
+  vpsInstances as vpsInstancesTable,
 } from "../db/schema.ts";
 import { ulid } from "../lib/ids.ts";
 import { now as defaultNow } from "../lib/time.ts";
-import type { SpawnVpsJob } from "../jobs/types.ts";
+import type { SpawnVpsJob, TeardownVpsJob } from "../jobs/types.ts";
 
 /** Public Scan shape — snake_case to mirror SQL columns + OpenAPI. */
 export interface Scan {
@@ -69,7 +70,7 @@ export interface Scan {
 
 export interface ServiceErr {
   readonly ok: false;
-  readonly code: 403 | 404;
+  readonly code: 403 | 404 | 409;
   readonly reason: string;
 }
 
@@ -93,6 +94,16 @@ export interface GetScanArgs {
 
 export interface ListScansArgs {
   readonly userId: string;
+}
+
+export interface CancelScanArgs {
+  readonly userId: string;
+  readonly scanId: string;
+}
+
+export interface CancelScanResult {
+  readonly cancelled: true;
+  readonly teardown_enqueued: boolean;
 }
 
 export interface ScanServiceOpts {
@@ -306,6 +317,133 @@ export async function listScans(
   return rows.map(rowToScan);
 }
 
-// `and` is reserved for future filters (e.g. status-scoped list) — keep
-// the import live so the eventual extension does not need a re-import.
-void and;
+/**
+ * Cancel a non-terminal scan. T065.
+ *
+ * Semantics:
+ *   1. Resolve scan via JOIN scans → targets → projects, scoped to
+ *      `args.userId`. Foreign or unknown id → 404 `not_found`
+ *      (hide existence — matches `getScan`).
+ *   2. If scan.status ∈ {completed, failed, cancelled} → 409
+ *      `scan_terminal`. No audit on rejection (operator-initiated
+ *      reject is silent; consumed via HTTP status).
+ *   3. Inside `withTx`:
+ *        - UPDATE scans SET status='cancelled', completedAt=now().
+ *          `failureReason` is left untouched (cancellation is not
+ *          a failure — the column remains null on cancel-from-queued
+ *          and preserves any previous diagnostic on cancel-from-running).
+ *        - SELECT live vps_instances (status ∈
+ *          {provisioning, alive, tearing_down}) for this scan, and
+ *          INSERT a `teardown_vps` job per row. We include
+ *          `tearing_down` so a stuck mid-teardown row gets a fresh
+ *          attempt — the teardown handler is idempotent (T046).
+ *   4. After tx commit: emit `scan_cancelled` audit. bun:sqlite cannot
+ *      nest BEGINs (same constraint as `startScan` / route layer).
+ *
+ * Return shape:
+ *   `{ok:true, value:{cancelled:true, teardown_enqueued: boolean}}`.
+ *   `teardown_enqueued=false` when the scan was still queued and no
+ *   vps_instance existed yet (the spawn_vps job is intentionally left
+ *   `pending` and will be a no-op when the runner picks it up — the
+ *   handler short-circuits on cancelled scans, see T040).
+ */
+export async function cancelScan(
+  db: DB,
+  args: CancelScanArgs,
+  opts: ScanServiceOpts,
+): Promise<ServiceResult<CancelScanResult>> {
+  const clock = opts.now ?? defaultNow;
+
+  // Step 1: ownership-checked lookup via projects JOIN.
+  const row = db
+    .select({
+      scan: scansTable,
+      projectId: targetsTable.projectId,
+      targetId: scansTable.targetId,
+      ownerUserId: projectsTable.userId,
+    })
+    .from(scansTable)
+    .innerJoin(targetsTable, eq(scansTable.targetId, targetsTable.id))
+    .innerJoin(projectsTable, eq(targetsTable.projectId, projectsTable.id))
+    .where(eq(scansTable.id, args.scanId))
+    .get();
+
+  if (!row || row.ownerUserId !== args.userId) {
+    return { ok: false, code: 404, reason: "not_found" };
+  }
+
+  // Step 2: terminal-state guard.
+  const terminal = ["completed", "failed", "cancelled"] as const;
+  if (terminal.includes(row.scan.status as (typeof terminal)[number])) {
+    return { ok: false, code: 409, reason: "scan_terminal" };
+  }
+
+  const cancelTs = clock();
+  let teardownEnqueued = false;
+
+  // Step 3: atomic update + per-live-vps teardown enqueue.
+  await withTx(db, async (tx) => {
+    tx.update(scansTable)
+      .set({ status: "cancelled", completedAt: cancelTs })
+      .where(eq(scansTable.id, args.scanId))
+      .run();
+
+    const liveVps = tx
+      .select({ id: vpsInstancesTable.id })
+      .from(vpsInstancesTable)
+      .where(
+        and(
+          eq(vpsInstancesTable.scanId, args.scanId),
+          inArray(vpsInstancesTable.status, [
+            "provisioning",
+            "alive",
+            "tearing_down",
+          ]),
+        ),
+      )
+      .all();
+
+    for (const vps of liveVps) {
+      const teardownPayload: TeardownVpsJob = {
+        type: "teardown_vps",
+        vps_instance_id: vps.id,
+        reason: "cancelled",
+      };
+      tx.insert(jobsTable)
+        .values({
+          id: ulid(cancelTs),
+          type: "teardown_vps",
+          payloadJson: JSON.stringify(teardownPayload),
+          status: "pending",
+          scheduledAt: cancelTs,
+          attempts: 0,
+          lastError: null,
+          createdAt: cancelTs,
+          updatedAt: cancelTs,
+        })
+        .run();
+      teardownEnqueued = true;
+    }
+  });
+
+  // Step 4: emit signed audit AFTER commit.
+  await emitSignedAudit(
+    db,
+    {
+      event: "scan_cancelled",
+      outcome: "success",
+      ts: cancelTs,
+      user_id: args.userId,
+      project_id: row.projectId,
+      target_id: row.targetId,
+      scan_id: args.scanId,
+      metadata: { reason: "user_initiated" },
+    },
+    { key: opts.signingKey },
+  );
+
+  return {
+    ok: true,
+    value: { cancelled: true, teardown_enqueued: teardownEnqueued },
+  };
+}

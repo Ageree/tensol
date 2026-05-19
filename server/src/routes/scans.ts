@@ -45,28 +45,23 @@ import {
   type AuthVariables,
 } from "../auth/middleware.ts";
 import type { DB } from "../db/client.ts";
-import { withTx } from "../db/client.ts";
 import {
   auditLog,
-  jobs as jobsTable,
   projects as projectsTable,
   scans as scansTable,
   targets as targetsTable,
-  vpsInstances as vpsInstancesTable,
 } from "../db/schema.ts";
 import { now as defaultNow } from "../lib/time.ts";
-import { ulid } from "../lib/ids.ts";
-import { emitSignedAudit } from "../audit/emit.ts";
 import {
   ScanIdParamSchema,
   StartScanBodySchema,
 } from "../schemas/scans.ts";
 import {
+  cancelScan,
   getScan,
   listScans,
   startScan,
 } from "../scans/service.ts";
-import type { TeardownVpsJob } from "../jobs/types.ts";
 
 export interface CreateScansRoutesDeps {
   readonly db: DB;
@@ -157,15 +152,15 @@ export function createScansRoutes(
   });
 
   // -------------------------------------------------------------------------
-  // POST /:id/cancel — cancel a non-terminal scan.
+  // POST /:id/cancel — cancel a non-terminal scan. T065.
   //
-  // 1. Validate id shape (malformed → 404 to hide existence).
-  // 2. Ownership-checked SELECT (JOIN scans → targets → projects).
-  // 3. If scan.status in {completed, failed, cancelled} → 409 scan_terminal.
-  // 4. withTx: UPDATE scans.status='cancelled' + (if a live vps_instance
-  //    exists) INSERT a teardown_vps job row.
-  // 5. After commit: emit scan_cancelled audit (bun:sqlite cannot nest
-  //    BEGINs — same rule as scans/service.ts).
+  // The route is now a thin HTTP shim over `cancelScan` (scans/service.ts):
+  //   - malformed id → 404 (hides existence)
+  //   - service `{ok:false, code:404}` → 404 `{error: "not_found"}`
+  //   - service `{ok:false, code:409}` → 409 `{error: "scan_terminal"}`
+  //   - service `{ok:true}` → 204 No Content (body is `{cancelled, teardown_enqueued}`
+  //     in the value but the contract uses 204 — callers infer side effects via
+  //     audit timeline or vps_instance state).
   // -------------------------------------------------------------------------
   app.post("/:id/cancel", async (c) => {
     const paramParse = ScanIdParamSchema.safeParse({ id: c.req.param("id") });
@@ -174,89 +169,15 @@ export function createScansRoutes(
     }
 
     const user = c.get("user");
-    const scanId = paramParse.data.id;
-
-    // Ownership-checked read.
-    const row = db
-      .select({
-        scan: scansTable,
-        projectId: targetsTable.projectId,
-        ownerUserId: projectsTable.userId,
-      })
-      .from(scansTable)
-      .innerJoin(targetsTable, eq(scansTable.targetId, targetsTable.id))
-      .innerJoin(projectsTable, eq(targetsTable.projectId, projectsTable.id))
-      .where(eq(scansTable.id, scanId))
-      .get();
-
-    if (!row || row.ownerUserId !== user.id) {
-      // Hide existence — matches getScan / deleteProject semantics.
-      return c.json({ error: "not_found" }, 404);
-    }
-
-    const terminal = ["completed", "failed", "cancelled"] as const;
-    if (terminal.includes(row.scan.status as (typeof terminal)[number])) {
-      return c.json({ error: "scan_terminal" }, 409);
-    }
-
-    const cancelTs = clock();
-
-    await withTx(db, async (tx) => {
-      tx.update(scansTable)
-        .set({ status: "cancelled", completedAt: cancelTs })
-        .where(eq(scansTable.id, scanId))
-        .run();
-
-      // Enqueue teardown_vps if a live vps_instance exists for this scan.
-      // We look for both 'provisioning' and 'alive' — either state means
-      // the provider may still be billing us.
-      const liveVps = tx
-        .select()
-        .from(vpsInstancesTable)
-        .where(eq(vpsInstancesTable.scanId, scanId))
-        .all()
-        .filter(
-          (v) => v.status === "provisioning" || v.status === "alive",
-        );
-
-      for (const vps of liveVps) {
-        const teardownPayload: TeardownVpsJob = {
-          type: "teardown_vps",
-          vps_instance_id: vps.id,
-          reason: "cancelled",
-        };
-        tx.insert(jobsTable)
-          .values({
-            id: ulid(cancelTs),
-            type: "teardown_vps",
-            payloadJson: JSON.stringify(teardownPayload),
-            status: "pending",
-            scheduledAt: cancelTs,
-            attempts: 0,
-            lastError: null,
-            createdAt: cancelTs,
-            updatedAt: cancelTs,
-          })
-          .run();
-      }
-    });
-
-    // Audit emission AFTER commit — emit owns its own BEGIN IMMEDIATE.
-    await emitSignedAudit(
+    const result = await cancelScan(
       db,
-      {
-        event: "scan_cancelled",
-        outcome: "success",
-        ts: cancelTs,
-        user_id: user.id,
-        project_id: row.projectId,
-        target_id: row.scan.targetId,
-        scan_id: scanId,
-        metadata: { reason: "user_initiated" },
-      },
-      { key: signingKey },
+      { userId: user.id, scanId: paramParse.data.id },
+      { signingKey, now: clock },
     );
 
+    if (!result.ok) {
+      return c.json({ error: result.reason }, result.code);
+    }
     return c.body(null, 204);
   });
 
