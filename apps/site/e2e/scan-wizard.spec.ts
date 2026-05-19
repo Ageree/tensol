@@ -46,137 +46,15 @@
  * full happy-path assertions and type-checks cleanly under `@playwright/
  * test`.
  */
-import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
-import { createHmac } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-// ── Constants ──────────────────────────────────────────────────────────────
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-const FRONTEND_BASE_URL = process.env.PW_BASE_URL ?? 'http://127.0.0.1:5175';
-const BACKEND_BASE_URL =
-  process.env.TENSOL_E2E_BACKEND_BASE_URL ?? 'http://127.0.0.1:3001';
-
-/**
- * Synthetic test secret used by the e2e-test-server when it boots with
- * `TENSOL_WEBHOOK_SECRET=e2e-webhook-test-secret` injected via env. Real
- * production secrets are 256-bit per-fleet values; this is purely a
- * deterministic value for the spec to sign against.
- */
-const E2E_WEBHOOK_SECRET = 'e2e-webhook-test-secret';
-
-/** Juice Shop fixture (T060) — 9 findings, signed and replayed. */
-const JUICESHOP_FIXTURE_PATH = join(
-  __dirname,
-  '..',
-  '..',
-  '..',
-  'server',
-  'test',
-  'fixtures',
-  'webhook-scan-complete-juiceshop.json',
-);
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-interface PollOpts {
-  readonly intervalMs: number;
-  readonly timeoutMs: number;
-  readonly label: string;
-}
-
-async function pollUntil<T>(
-  fn: () => Promise<T | undefined | null | false>,
-  opts: PollOpts,
-): Promise<T> {
-  const deadline = Date.now() + opts.timeoutMs;
-  let last: T | undefined | null | false;
-  while (Date.now() < deadline) {
-    last = await fn();
-    if (last !== undefined && last !== null && last !== false) {
-      return last as T;
-    }
-    await new Promise((r) => setTimeout(r, opts.intervalMs));
-  }
-  throw new Error(
-    `pollUntil(${opts.label}) timed out after ${opts.timeoutMs}ms; last=${JSON.stringify(last)}`,
-  );
-}
-
-interface SeedSessionResult {
-  readonly session_id: string;
-  readonly user_id: string;
-}
-
-/**
- * Ask the dev backend to mint a valid session row for `email` and return
- * the session ID. The spec drops it into the browser cookie jar so the
- * page renders as an authenticated user without going through the
- * Telegram magic-link flow.
- */
-async function seedSession(
-  api: APIRequestContext,
-  email: string,
-): Promise<SeedSessionResult> {
-  const res = await api.post('/__test/v2/seed-session', {
-    headers: { 'content-type': 'application/json' },
-    data: { email },
-  });
-  if (!res.ok()) {
-    throw new Error(
-      `seedSession failed: ${res.status()} ${await res.text()}`,
-    );
-  }
-  return (await res.json()) as SeedSessionResult;
-}
-
-/**
- * Build the `X-Tensol-Signature` header per webhook.md §"Signature header":
- *   `t=<unix-seconds>, v1=<hex(hmac_sha256(secret, "${t}.${body_bytes}"))>`
- */
-function signWebhookBody(secret: string, body: string, nowSec: number): string {
-  const signedPayload = `${nowSec}.${body}`;
-  const mac = createHmac('sha256', secret).update(signedPayload).digest('hex');
-  return `t=${nowSec}, v1=${mac}`;
-}
-
-/**
- * Replay the Juice Shop fixture into the webhook endpoint with the
- * scan_order_id rewritten to the live order. Returns the parsed response.
- */
-async function simulateScanComplete(
-  backend: APIRequestContext,
-  scanOrderId: string,
-): Promise<{ ok: boolean; inserted_findings: number }> {
-  const fixtureRaw = readFileSync(JUICESHOP_FIXTURE_PATH, 'utf8');
-  const fixture = JSON.parse(fixtureRaw) as Record<string, unknown>;
-  // Rewrite scan_order_id + completed_at to match the live order + now().
-  const body = {
-    ...fixture,
-    scan_order_id: scanOrderId,
-    completed_at: Date.now(),
-  };
-  const rawBody = JSON.stringify(body);
-  const nowSec = Math.floor(Date.now() / 1000);
-  const signature = signWebhookBody(E2E_WEBHOOK_SECRET, rawBody, nowSec);
-
-  const res = await backend.post('/v1/webhooks/scan-complete', {
-    headers: {
-      'content-type': 'application/json',
-      'x-tensol-signature': signature,
-    },
-    data: rawBody,
-  });
-  if (!res.ok()) {
-    throw new Error(
-      `webhook POST failed: ${res.status()} ${await res.text()}`,
-    );
-  }
-  return (await res.json()) as { ok: boolean; inserted_findings: number };
-}
+import { test, expect, request as pwRequest } from '@playwright/test';
+import {
+  attachSessionCookie,
+  BACKEND_BASE_URL,
+  FRONTEND_BASE_URL,
+  pollUntil,
+  seedSession,
+  simulateScanComplete,
+} from './helpers/scan-wizard-helpers.ts';
 
 // ── Test ───────────────────────────────────────────────────────────────────
 
@@ -199,18 +77,7 @@ test.describe('T091 — scan wizard happy path (US1)', () => {
         `e2e+wizard+${Date.now()}@example.test`,
       );
 
-      const frontendUrl = new URL(FRONTEND_BASE_URL);
-      await context.addCookies([
-        {
-          name: 'tensol_session',
-          value: seed.session_id,
-          domain: frontendUrl.hostname,
-          path: '/',
-          httpOnly: true,
-          secure: false,
-          sameSite: 'Lax',
-        },
-      ]);
+      await attachSessionCookie(context, seed.session_id, FRONTEND_BASE_URL);
 
       // ───────────────────────────────────────────────────────────────
       // 2. Navigate to /scan/new — the wizard auto-creates a draft
