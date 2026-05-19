@@ -43,9 +43,9 @@
  *   `{ job_id, type, error }`. The audit row is signed via
  *   `emitSignedAudit` (T014), preserving the canonical hash chain.
  */
-import { and, asc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import { withTx, type DB } from "../db/client.ts";
-import { jobs } from "../db/schema.ts";
+import { jobs, scans } from "../db/schema.ts";
 import { ulid } from "../lib/ids.ts";
 import { now as defaultNow } from "../lib/time.ts";
 import { emitSignedAudit } from "../audit/emit.ts";
@@ -54,11 +54,13 @@ import type {
   Job,
   JobRow,
   JobType,
+  WatchdogJob,
 } from "./types.ts";
 
 const DEFAULT_POLL_INTERVAL_MS = 500;
 const DEFAULT_MAX_ATTEMPTS = 5;
 const BACKOFF_BASE_MS = 1_000;
+const DEFAULT_WATCHDOG_INTERVAL_MS = 5 * 60 * 1_000;
 
 export interface RunnerOpts {
   readonly db: DB;
@@ -71,6 +73,13 @@ export interface RunnerOpts {
    *  use this to assert permanent-failure signalling without inspecting
    *  the audit chain. */
   readonly onError?: (err: Error, row: JobRow) => void;
+  /** T061 — interval (ms) between periodic `watchdog_scan` enqueue
+   *  sweeps. Default 5 minutes. Set to `0` to disable the periodic
+   *  sweep entirely (tests + single-shot CLI runs). When enabled,
+   *  `start()` schedules a recursive setTimeout that calls
+   *  `scheduleWatchdog()` each tick; `stop()` cancels the timer and
+   *  awaits any in-flight sweep. */
+  readonly watchdogIntervalMs?: number;
 }
 
 export interface Runner {
@@ -81,6 +90,12 @@ export interface Runner {
     job: T,
     opts?: { delayMs?: number },
   ): Promise<JobRow>;
+  /** T061 — sweep `scans` for status='running' rows and enqueue one
+   *  `watchdog_scan` job per scan that does NOT already have an
+   *  outstanding (pending|running) watchdog job. Returns the number of
+   *  jobs enqueued during this sweep. Exposed for tests + manual /
+   *  cron-style invocations. */
+  scheduleWatchdog(): Promise<{ enqueued: number }>;
 }
 
 /**
@@ -97,6 +112,7 @@ export function createRunner(opts: RunnerOpts): Runner {
     now = defaultNow,
     signingKey,
     onError,
+    watchdogIntervalMs = DEFAULT_WATCHDOG_INTERVAL_MS,
   } = opts;
 
   // Mutable state: the poll timer handle and the currently-in-flight
@@ -104,6 +120,11 @@ export function createRunner(opts: RunnerOpts): Runner {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
   let inFlight: Promise<unknown> | null = null;
+  // T061 — independent watchdog scheduler state. Kept SEPARATE from the
+  // poll loop so a slow watchdog sweep never delays a job tick and vice
+  // versa; `stop()` awaits both.
+  let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+  let watchdogInFlight: Promise<unknown> | null = null;
 
   // ---- enqueue ----------------------------------------------------------
   const enqueue: Runner["enqueue"] = async (job, eOpts) => {
@@ -289,6 +310,87 @@ export function createRunner(opts: RunnerOpts): Runner {
     return claimed;
   };
 
+  // ---- T061 — periodic watchdog enqueue ---------------------------------
+  // Sweep `scans` for status='running' rows. For each, check whether an
+  // outstanding (pending|running) `watchdog_scan` job already targets
+  // that scan; if not, INSERT a fresh `watchdog_scan` job with
+  // `consecutive_failures: 0` scheduled for `now()` (immediate).
+  //
+  // Idempotency rationale: handler reschedules itself with a 5min delay
+  // (see handlers/watchdog.ts), so absent this guard a periodic sweep
+  // would stack a second outstanding probe whenever the sweep cadence
+  // happened to fall between dispatch and handler completion. We match
+  // the scan_id substring inside `payload_json` because the column is a
+  // JSON-encoded string of the full payload — `"scan_id":"<id>"` is the
+  // canonical form produced by `enqueue()` / `reschedule()`. Both code
+  // paths use `JSON.stringify` which always emits the field in that
+  // exact form (no whitespace, key always quoted), so substring matching
+  // is safe and avoids a JSON-extension dependency on the SQLite build.
+  const scheduleWatchdog: Runner["scheduleWatchdog"] = async () => {
+    const runningScans = db
+      .select({ id: scans.id })
+      .from(scans)
+      .where(eq(scans.status, "running"))
+      .all();
+    if (runningScans.length === 0) return { enqueued: 0 };
+
+    // Pre-fetch ALL outstanding watchdog rows in one query, then bucket
+    // by scan_id, so the inner per-scan check is O(1) and we don't
+    // emit N round-trips.
+    const outstanding = db
+      .select({ payloadJson: jobs.payloadJson })
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.type, "watchdog_scan"),
+          inArray(jobs.status, ["pending", "running"]),
+        ),
+      )
+      .all();
+    const covered = new Set<string>();
+    for (const row of outstanding) {
+      try {
+        const p = JSON.parse(row.payloadJson) as { scan_id?: unknown };
+        if (typeof p.scan_id === "string") covered.add(p.scan_id);
+      } catch {
+        // Malformed payloads are tolerated — they'll be culled by the
+        // handler's defensive parse + the runner's max-attempts loop.
+      }
+    }
+
+    let enqueued = 0;
+    for (const s of runningScans) {
+      if (covered.has(s.id)) continue;
+      const ts = now();
+      const id = ulid(ts);
+      const payload: WatchdogJob = {
+        type: "watchdog_scan",
+        scan_id: s.id,
+        consecutive_failures: 0,
+      };
+      db.insert(jobs)
+        .values({
+          id,
+          type: "watchdog_scan",
+          payloadJson: JSON.stringify(payload),
+          status: "pending",
+          scheduledAt: ts,
+          attempts: 0,
+          lastError: null,
+          createdAt: ts,
+          updatedAt: ts,
+        })
+        .run();
+      // Add to the covered set so a subsequent iteration in the same
+      // sweep (multiple running scans → impossible to collide here, but
+      // defensive against future code paths that share state) doesn't
+      // re-enqueue.
+      covered.add(s.id);
+      enqueued += 1;
+    }
+    return { enqueued };
+  };
+
   // ---- start / stop ------------------------------------------------------
   function scheduleNext(): void {
     if (stopped) return;
@@ -306,12 +408,35 @@ export function createRunner(opts: RunnerOpts): Runner {
     }, pollIntervalMs);
   }
 
+  // Recursive setTimeout for the watchdog sweep (NOT setInterval — same
+  // rationale as the poll loop: a slow sweep must never stack a second
+  // tick on top of itself).
+  function scheduleNextWatchdog(): void {
+    if (stopped) return;
+    if (watchdogIntervalMs <= 0) return;
+    watchdogTimer = setTimeout(async () => {
+      watchdogTimer = null;
+      if (stopped) return;
+      const p = scheduleWatchdog().catch(() => ({ enqueued: 0 }));
+      watchdogInFlight = p;
+      try {
+        await p;
+      } finally {
+        watchdogInFlight = null;
+      }
+      if (!stopped) scheduleNextWatchdog();
+    }, watchdogIntervalMs);
+  }
+
   function start(): void {
     if (stopped) {
       throw new Error("runner.start: cannot restart a stopped runner");
     }
     if (timer !== null || inFlight !== null) return;
     scheduleNext();
+    if (watchdogIntervalMs > 0 && watchdogTimer === null) {
+      scheduleNextWatchdog();
+    }
   }
 
   async function stop(): Promise<void> {
@@ -320,11 +445,22 @@ export function createRunner(opts: RunnerOpts): Runner {
       clearTimeout(timer);
       timer = null;
     }
+    if (watchdogTimer !== null) {
+      clearTimeout(watchdogTimer);
+      watchdogTimer = null;
+    }
     if (inFlight) {
       try {
         await inFlight;
       } catch {
         // tick swallows handler errors internally; defensive.
+      }
+    }
+    if (watchdogInFlight) {
+      try {
+        await watchdogInFlight;
+      } catch {
+        // scheduleWatchdog catches its own errors above; defensive.
       }
     }
   }
@@ -333,7 +469,7 @@ export function createRunner(opts: RunnerOpts): Runner {
   // surface that downstream patches will likely need.
   void sql;
 
-  return { start, stop, tick, enqueue };
+  return { start, stop, tick, enqueue, scheduleWatchdog };
 }
 
 export type { Dispatcher } from "./types.ts";

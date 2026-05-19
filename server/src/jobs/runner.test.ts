@@ -35,7 +35,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq, sql } from "drizzle-orm";
 import { createDb, type DB } from "../db/client.ts";
-import { jobs, auditLog } from "../db/schema.ts";
+import {
+  jobs,
+  auditLog,
+  scans,
+  targets,
+  projects,
+  users,
+} from "../db/schema.ts";
 import { createRunner, type Dispatcher } from "./runner.ts";
 import type {
   Job,
@@ -498,4 +505,280 @@ test("permanent failure emits 'job_failed' signed audit row when key supplied", 
 
   // Silence unused-import lint — sql is part of the canonical drizzle surface.
   void sql;
+});
+
+// ---------------------------------------------------------------------------
+// T061 — periodic watchdog enqueue
+//
+// The runner exposes `scheduleWatchdog()` — a single-shot sweep that scans
+// the `scans` table for status='running' rows and enqueues exactly one
+// `watchdog_scan` job per running scan that does NOT already have an
+// outstanding (status='pending' OR 'running') `watchdog_scan` job in the
+// `jobs` table. Idempotency is enforced by inspecting `payload_json` for
+// the canonical `"scan_id":"<id>"` substring.
+//
+// When `start()` is called with `watchdogIntervalMs > 0`, the runner also
+// kicks off a recursive setTimeout that calls `scheduleWatchdog()` on
+// each tick (mirroring the poll-loop pattern). `stop()` cancels the
+// watchdog timer and awaits any in-flight sweep before resolving.
+// ---------------------------------------------------------------------------
+
+interface SeedScanArgs {
+  readonly id: string;
+  readonly status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  readonly startedAt?: number;
+}
+
+/** Insert a user + project + target + scan chain so the FK references on
+ *  `scans` are satisfied. Returns the inserted scan id. */
+function seedScan(db: DB, s: SeedScanArgs): string {
+  const ts = s.startedAt ?? 1_000_000;
+  const userId = `USR-${s.id}`;
+  const projectId = `PRJ-${s.id}`;
+  const targetId = `TGT-${s.id}`;
+  db.insert(users)
+    .values({ id: userId, email: `${s.id}@test`, createdAt: ts })
+    .run();
+  db.insert(projects)
+    .values({ id: projectId, userId, name: "p", createdAt: ts })
+    .run();
+  db.insert(targets)
+    .values({
+      id: targetId,
+      projectId,
+      url: "https://example.com",
+      status: "verified",
+      verifiedAt: ts,
+      createdAt: ts,
+    })
+    .run();
+  db.insert(scans)
+    .values({
+      id: s.id,
+      userId,
+      targetId,
+      profile: "recon",
+      status: s.status,
+      startedAt: ts,
+    })
+    .run();
+  return s.id;
+}
+
+// ---------------------------------------------------------------------------
+// T061 Test 1 — scheduleWatchdog enqueues one job per running scan
+// ---------------------------------------------------------------------------
+test("scheduleWatchdog enqueues one watchdog_scan per running scan, skips terminal", async () => {
+  const db = createDb(":memory:");
+  applyMigrations(db);
+
+  seedScan(db, { id: "01H0SCANRUNNING000000000A", status: "running" });
+  seedScan(db, { id: "01H0SCANRUNNING000000000B", status: "running" });
+  seedScan(db, { id: "01H0SCANDONE0000000000001", status: "completed" });
+  seedScan(db, { id: "01H0SCANFAIL0000000000001", status: "failed" });
+  seedScan(db, { id: "01H0SCANQUEUE000000000001", status: "queued" });
+
+  const runner = createRunner({
+    db,
+    dispatcher: noopDispatcher(),
+    watchdogIntervalMs: 0, // periodic loop OFF; test calls method directly
+  });
+
+  const res = await runner.scheduleWatchdog();
+  expect(res.enqueued).toBe(2);
+
+  const enqueuedRows = db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.type, "watchdog_scan"))
+    .all();
+  expect(enqueuedRows).toHaveLength(2);
+  expect(enqueuedRows.every((r) => r.status === "pending")).toBe(true);
+
+  const seenScanIds = new Set(
+    enqueuedRows.map((r) => {
+      const p = JSON.parse(r.payloadJson) as {
+        type: string;
+        scan_id: string;
+        consecutive_failures?: number;
+      };
+      expect(p.type).toBe("watchdog_scan");
+      expect(p.consecutive_failures).toBe(0);
+      return p.scan_id;
+    }),
+  );
+  expect(seenScanIds.has("01H0SCANRUNNING000000000A")).toBe(true);
+  expect(seenScanIds.has("01H0SCANRUNNING000000000B")).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// T061 Test 2 — idempotent (does not double-enqueue while one is outstanding)
+// ---------------------------------------------------------------------------
+test("scheduleWatchdog does NOT double-enqueue when an outstanding job exists", async () => {
+  const db = createDb(":memory:");
+  applyMigrations(db);
+
+  seedScan(db, { id: "01H0SCANRUNNING000000000C", status: "running" });
+
+  const runner = createRunner({
+    db,
+    dispatcher: noopDispatcher(),
+    watchdogIntervalMs: 0,
+  });
+
+  const r1 = await runner.scheduleWatchdog();
+  expect(r1.enqueued).toBe(1);
+
+  const r2 = await runner.scheduleWatchdog();
+  expect(r2.enqueued).toBe(0);
+
+  const allWatchdogs = db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.type, "watchdog_scan"))
+    .all();
+  expect(allWatchdogs).toHaveLength(1);
+});
+
+// ---------------------------------------------------------------------------
+// T061 Test 3 — after handler processes the job, next sweep enqueues again
+// ---------------------------------------------------------------------------
+test("scheduleWatchdog re-enqueues after the previous watchdog job is done", async () => {
+  const db = createDb(":memory:");
+  applyMigrations(db);
+
+  const scanId = seedScan(db, {
+    id: "01H0SCANRUNNING000000000D",
+    status: "running",
+  });
+
+  const runner = createRunner({
+    db,
+    dispatcher: noopDispatcher(),
+    watchdogIntervalMs: 0,
+  });
+
+  const r1 = await runner.scheduleWatchdog();
+  expect(r1.enqueued).toBe(1);
+
+  // Hand-mark the outstanding job done (simulating handler completion).
+  db.update(jobs)
+    .set({ status: "done", updatedAt: 2_000_000 })
+    .where(eq(jobs.type, "watchdog_scan"))
+    .run();
+
+  const r2 = await runner.scheduleWatchdog();
+  expect(r2.enqueued).toBe(1);
+
+  const allWatchdogs = db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.type, "watchdog_scan"))
+    .all();
+  expect(allWatchdogs).toHaveLength(2);
+  // Both reference the same scan id.
+  for (const r of allWatchdogs) {
+    const p = JSON.parse(r.payloadJson) as { scan_id: string };
+    expect(p.scan_id).toBe(scanId);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// T061 Test 4 — start() fires scheduleWatchdog periodically
+// ---------------------------------------------------------------------------
+test("start() with watchdogIntervalMs>0 periodically fires scheduleWatchdog", async () => {
+  const db = createDb(":memory:");
+  applyMigrations(db);
+
+  seedScan(db, { id: "01H0SCANRUNNING000000000E", status: "running" });
+
+  const runner = createRunner({
+    db,
+    dispatcher: noopDispatcher(),
+    pollIntervalMs: 10_000, // keep poll loop quiet so it doesn't claim
+    watchdogIntervalMs: 30,
+  });
+
+  runner.start();
+  // Spin until we observe at least one watchdog_scan row.
+  const deadline = Date.now() + 1_000;
+  let watchdogJobs: number = 0;
+  while (Date.now() < deadline) {
+    watchdogJobs = db
+      .select()
+      .from(jobs)
+      .where(eq(jobs.type, "watchdog_scan"))
+      .all().length;
+    if (watchdogJobs > 0) break;
+    await new Promise((r) => setTimeout(r, 15));
+  }
+  await runner.stop();
+
+  expect(watchdogJobs).toBeGreaterThanOrEqual(1);
+});
+
+// ---------------------------------------------------------------------------
+// T061 Test 5 — watchdogIntervalMs=0 disables the periodic loop
+// ---------------------------------------------------------------------------
+test("watchdogIntervalMs=0 disables the periodic watchdog sweep", async () => {
+  const db = createDb(":memory:");
+  applyMigrations(db);
+
+  seedScan(db, { id: "01H0SCANRUNNING000000000F", status: "running" });
+
+  const runner = createRunner({
+    db,
+    dispatcher: noopDispatcher(),
+    pollIntervalMs: 10_000,
+    watchdogIntervalMs: 0,
+  });
+
+  runner.start();
+  await new Promise((r) => setTimeout(r, 80));
+  await runner.stop();
+
+  const watchdogJobs = db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.type, "watchdog_scan"))
+    .all();
+  expect(watchdogJobs).toHaveLength(0);
+});
+
+// ---------------------------------------------------------------------------
+// T061 Test 6 — stop() cleanly cancels the watchdog timer (no orphan ticks)
+// ---------------------------------------------------------------------------
+test("stop() cancels the watchdog timer; no new jobs after shutdown", async () => {
+  const db = createDb(":memory:");
+  applyMigrations(db);
+
+  seedScan(db, { id: "01H0SCANRUNNING000000000G", status: "running" });
+
+  const runner = createRunner({
+    db,
+    dispatcher: noopDispatcher(),
+    pollIntervalMs: 10_000,
+    watchdogIntervalMs: 20,
+  });
+
+  runner.start();
+  // Allow at least one tick to fire.
+  await new Promise((r) => setTimeout(r, 60));
+  await runner.stop();
+
+  const countAfterStop = db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.type, "watchdog_scan"))
+    .all().length;
+
+  // Wait well past the interval; no further enqueues must occur.
+  await new Promise((r) => setTimeout(r, 100));
+  const countLater = db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.type, "watchdog_scan"))
+    .all().length;
+
+  expect(countLater).toBe(countAfterStop);
 });
