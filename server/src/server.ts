@@ -74,6 +74,29 @@ const DEFAULT_DATABASE_PATH = "./data/tensol.db";
 /** Default location of migration `.sql` files relative to this module. */
 const DEFAULT_MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
 
+/**
+ * Conditional-spread helper for `now?: () => number` props.
+ *
+ * Why this helper exists
+ *   `tsconfig.json` sets `exactOptionalPropertyTypes: true`, which means
+ *   `{ now: undefined }` is NOT assignable to a target whose `now` is
+ *   typed as `now?: () => number` (the target expects either `() => number`
+ *   present OR the key absent — never the explicit `undefined`). Spreading
+ *   `maybeNow(now)` into a deps literal preserves "absent when undefined"
+ *   semantics while keeping callsites readable.
+ */
+function maybeNow(now?: () => number): { now?: () => number } {
+  return now === undefined ? {} : { now };
+}
+
+/** Same shape as `maybeNow` but for an arbitrary optional string field. */
+function maybeProp<K extends string, V>(
+  key: K,
+  value: V | undefined,
+): Record<K, V> | Record<string, never> {
+  return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
+}
+
 // ===========================================================================
 // bootstrap — reconcile-on-startup
 // ===========================================================================
@@ -103,7 +126,7 @@ export async function bootstrap(
   const reconcileResult = await reconcileInFlight(deps.db, {
     vpsProvider: deps.vpsProvider,
     signingKey: deps.signingKey,
-    now: deps.now,
+    ...maybeNow(deps.now),
   });
   return { reconcileResult };
 }
@@ -150,7 +173,7 @@ export function createApp(deps: CreateAppDeps): Hono {
 
   const email = createEmailClient({
     mode: emailMode,
-    resendApiKey,
+    ...maybeProp("resendApiKey", resendApiKey),
   });
 
   app.route(
@@ -161,31 +184,51 @@ export function createApp(deps: CreateAppDeps): Hono {
       signingKey,
       baseUrl,
       isProd,
-      now,
+      ...maybeNow(now),
     }),
   );
-  app.route("/api/projects", createProjectsRoutes({ db, signingKey, now }));
-  app.route("/api/targets", createTargetsRoutes({ db, signingKey, now }));
+  app.route(
+    "/api/projects",
+    createProjectsRoutes({ db, signingKey, ...maybeNow(now) }),
+  );
+  app.route(
+    "/api/targets",
+    createTargetsRoutes({ db, signingKey, ...maybeNow(now) }),
+  );
   // Auth-proof routes require a real DNS resolver + fetch in prod; for
   // the integration smoke we use the live `node:dns/promises` resolver
-  // and `globalThis.fetch`.
+  // and `globalThis.fetch`. `VerifyDeps.fetchUrl` matches the shape
+  // expected by `verify.ts` (FetchResponseLike with `ok/status/text()`).
   app.route(
     "/api/auth-proof",
     createAuthProofRoutes({
       db,
       signingKey,
-      now,
+      ...maybeNow(now),
       verifyDeps: {
         resolveTxt: async (host: string) => {
           const dns = await import("node:dns/promises");
           return dns.resolveTxt(host);
         },
-        fetchImpl: fetch,
+        fetchUrl: async (url, init) => {
+          const res = await fetch(url, init);
+          return {
+            ok: res.ok,
+            status: res.status,
+            text: () => res.text(),
+          };
+        },
       },
     }),
   );
-  app.route("/api/scans", createScansRoutes({ db, signingKey, now }));
-  app.route("/api/webhooks", createWebhookRoutes({ db, signingKey, now }));
+  app.route(
+    "/api/scans",
+    createScansRoutes({ db, signingKey, ...maybeNow(now) }),
+  );
+  app.route(
+    "/api/webhooks",
+    createWebhookRoutes({ db, signingKey, ...maybeNow(now) }),
+  );
 
   return app;
 }
@@ -329,8 +372,8 @@ export async function main(): Promise<{
     sessionCookieSecret: config.TENSOL_SESSION_COOKIE_SECRET,
     baseUrl: config.TENSOL_WEBHOOK_BASE_URL,
     emailMode: config.EMAIL_PROVIDER,
-    resendApiKey: config.RESEND_API_KEY,
     isProd: config.NODE_ENV === "production",
+    ...maybeProp("resendApiKey", config.RESEND_API_KEY),
   });
 
   const server = Bun.serve({
@@ -340,8 +383,12 @@ export async function main(): Promise<{
   // eslint-disable-next-line no-console
   console.log(`[tensol] listening on :${server.port}`);
 
+  // Bun.serve types `port` as `number | undefined` to accommodate unix
+  // socket listeners. We always pass a numeric `config.PORT`, so the
+  // value is guaranteed defined — coerce with a fallback to satisfy
+  // exactOptionalPropertyTypes.
   return {
-    port: server.port,
+    port: server.port ?? config.PORT,
     stop: async () => {
       await runner.stop();
       server.stop();
