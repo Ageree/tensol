@@ -10,9 +10,12 @@
  *       no listener, no migrations, no env-var reads. Test-friendly.
  *
  *     - `createApp(deps)` — assembles the Hono app with /healthz plus
- *       every route subrouter wired in (auth, scans, webhooks). Pure
- *       factory, no listener. Legacy projects/targets/auth-proof routes
- *       removed in T016; replaced by `/v1/scan-orders/*` (T034+).
+ *       every route subrouter wired in (auth, scans, scan-orders, V1+V2
+ *       webhooks, feature-flags). Pure factory, no listener. Legacy
+ *       projects/targets/auth-proof routes removed in T016; replaced by
+ *       `/v1/scan-orders/*` (T034+). The V2 callback `/v1/webhooks/
+ *       scan-complete` (T069) + read-only `/v1/config/feature-flags`
+ *       (T073) were wired in T074.
  *
  *     - `main()` — wires the production composition: loadConfig, createDb,
  *       apply migrations, createHetznerProvider, bootstrap, createRunner +
@@ -68,6 +71,8 @@ import { createAuthRoutes } from "./routes/auth.ts";
 import { createScansRouter } from "./routes/scans.ts";
 import { createScanOrdersRouter } from "./routes/scan-orders.ts";
 import { createWebhookRoutes } from "./routes/webhooks.ts";
+import { createWebhookScanCompleteRouter } from "./routes/webhooks-scan-complete.ts";
+import { createConfigFeatureFlagsRouter } from "./routes/config-feature-flags.ts";
 import { createScanOrdersService } from "./scan-orders/service.ts";
 import { createRequireAuth } from "./auth/middleware.ts";
 
@@ -181,6 +186,13 @@ export interface CreateAppDeps {
   readonly emailMode: "stdout" | "resend";
   readonly resendApiKey?: string;
   readonly isProd: boolean;
+  /**
+   * T074 — HMAC-SHA256 secret for the V2 `/v1/webhooks/scan-complete`
+   * endpoint (T069). Empty string in dev disables the route's signature
+   * verification path (every inbound webhook 401s); production sets this
+   * via TENSOL_WEBHOOK_SECRET.
+   */
+  readonly webhookSecret: string;
   readonly now?: () => number;
 }
 
@@ -197,6 +209,7 @@ export function createApp(deps: CreateAppDeps): Hono {
     emailMode,
     resendApiKey,
     isProd,
+    webhookSecret,
     now,
   } = deps;
 
@@ -263,6 +276,25 @@ export function createApp(deps: CreateAppDeps): Hono {
       requireAuth: requireAuthForScanOrders,
     }),
   );
+
+  // T074 — `/v1/webhooks/scan-complete` (T069 production wiring). Single
+  // fleet-wide HMAC secret; signature verification + body validation +
+  // audit-log dedup live inside the router. NO auth middleware — vps-agent
+  // authenticates via the X-Tensol-Signature header, not a session cookie.
+  app.route(
+    "/v1/webhooks",
+    createWebhookScanCompleteRouter({
+      db,
+      webhookSecret,
+      auditKey: signingKey,
+      ...maybeNow(now),
+    }),
+  );
+
+  // T074 — `/v1/config/feature-flags` (T073). No DI; the route reads
+  // `TENSOL_YOOKASSA_LIVE` via the T019 isYookassaLive() helper at
+  // request time so flag flips take effect without a restart.
+  app.route("/v1/config/feature-flags", createConfigFeatureFlagsRouter());
 
   return app;
 }
@@ -529,6 +561,7 @@ export async function main(): Promise<{
     baseUrl: config.TENSOL_WEBHOOK_BASE_URL,
     emailMode: config.EMAIL_PROVIDER,
     isProd: config.NODE_ENV === "production",
+    webhookSecret: config.TENSOL_WEBHOOK_SECRET,
     ...maybeProp("resendApiKey", config.RESEND_API_KEY),
   });
 

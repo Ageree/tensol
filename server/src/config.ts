@@ -58,6 +58,14 @@ const ConfigSchema = z
       .string({ required_error: "TENSOL_WEBHOOK_BASE_URL is required" })
       .url({ message: "TENSOL_WEBHOOK_BASE_URL must be a valid URL" }),
 
+    // T074 — shared HMAC-SHA256 secret for the V2 `/v1/webhooks/scan-complete`
+    // endpoint (T069). vps-agent signs with this same secret. Optional with
+    // an empty default so dev boot doesn't halt when the env var is absent;
+    // production deployments populate it. When unset, signature verification
+    // simply fails for any inbound webhook (HMAC over an empty key produces
+    // no match against a real signed payload).
+    TENSOL_WEBHOOK_SECRET: z.string().default(""),
+
     PORT: z.coerce
       .number({ invalid_type_error: "PORT must be a number" })
       .int()
