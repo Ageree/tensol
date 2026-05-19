@@ -80,8 +80,22 @@ export const App = () => (
         <Route path="/legal/:kind" element={<Legal />} />
         <Route path="/blog" element={<Blog />} />
         <Route path="/method" element={<Method />} />
+        {/* T083 — canonical Blackbox MVP scan routes. */}
+        <Route path="/scan/new" element={<ScanWizard mode="create" />} />
+        <Route
+          path="/scan/new/:orderId/:step"
+          element={<ScanWizard mode="edit" />}
+        />
+        <Route path="/scan/:id" element={<Live />} />
+        <Route path="/scan/:id/findings" element={<Findings />} />
+        <Route path="/scan/:id/findings/:findingId" element={<Findings />} />
+        <Route path="/scan/:id/report" element={<Reports />} />
+        {/* Legacy aliases — keep existing /wizard/* links working. */}
         <Route path="/wizard/new" element={<ScanWizard mode="create" />} />
-        <Route path="/wizard/:orderId/:step" element={<ScanWizard mode="edit" />} />
+        <Route
+          path="/wizard/:orderId/:step"
+          element={<ScanWizard mode="edit" />}
+        />
         <Route path="*" element={<Navigate to="/err/404" replace />} />
       </Routes>
     </Suspense>

@@ -1117,6 +1117,25 @@ const en = {
     },
   },
   // ── END:wizard ───────────────────────────────────────────────────────
+  // ── BEGIN:live ───────────────────────────────────────────────────────
+  // T084 — Live scan progress page (polling per Constitution V).
+  live: {
+    title: 'Live scan',
+    loading: 'Loading scan…',
+    polling: 'live · polling every 3s',
+    pollingStopped: 'polling stopped',
+    eventsLabel: 'event timeline',
+    eventsEmpty: 'No events yet. Waiting for VM provisioning…',
+    errPolling: 'Polling error',
+    navFindings: 'View findings',
+    navReport: 'View report',
+    phaseDns: 'DNS verify',
+    phaseDnsOk: 'DNS ok',
+    phaseVm: 'VM provisioning',
+    phaseRunning: 'Agent running',
+    phaseDone: 'Completed',
+  },
+  // ── END:live ─────────────────────────────────────────────────────────
 };
 
 export type TensolDict = typeof en;
@@ -2229,6 +2248,24 @@ const ru: TensolDict = {
     },
   },
   // ── END:wizard ───────────────────────────────────────────────────────
+  // ── BEGIN:live ───────────────────────────────────────────────────────
+  live: {
+    title: 'Сканирование в реальном времени',
+    loading: 'Загружаем сканирование…',
+    polling: 'live · опрос каждые 3 секунды',
+    pollingStopped: 'опрос остановлен',
+    eventsLabel: 'лента событий',
+    eventsEmpty: 'Событий пока нет. Ждём провижининг VM…',
+    errPolling: 'Ошибка опроса',
+    navFindings: 'Открыть находки',
+    navReport: 'Открыть отчёт',
+    phaseDns: 'Проверка DNS',
+    phaseDnsOk: 'DNS подтверждён',
+    phaseVm: 'Поднимаем VM',
+    phaseRunning: 'Агент работает',
+    phaseDone: 'Завершено',
+  },
+  // ── END:live ─────────────────────────────────────────────────────────
 };
 
 export const TENSOL_I18N: Record<TensolLang, TensolDict> = { en, ru };

@@ -11,9 +11,9 @@
 // /dashboard). Step content lives in sibling Step{1..4}*.tsx files; they
 // receive a `{state, dispatch}` API and own their own validation + writes.
 //
-// URLs:
-//   /wizard/new                       — create draft, redirect to /:id/step-1
-//   /wizard/:orderId/step-:stepIndex — render given step
+// URLs (T083, canonical):
+//   /scan/new                                       — create draft, redirect
+//   /scan/new/:orderId/{surface|safety|verify|launch} — render given step
 //
 // Constitution V: NO SSE — DNS-verify uses the polling primitive (T075).
 // Constitution IX: server-side Zod is canonical; this UI mirrors snake_case.
@@ -62,8 +62,26 @@ function nextEnabled(
   return true;
 }
 
+// T083: canonical path segments are surface/safety/verify/launch. We also
+// accept the legacy step-1..step-4 form so old links keep working.
+const STEP_SLUG_TO_NUM: Record<string, WizardStep> = {
+  surface: 1,
+  safety: 2,
+  verify: 3,
+  launch: 4,
+};
+
+const STEP_NUM_TO_SLUG: Record<WizardStep, string> = {
+  1: 'surface',
+  2: 'safety',
+  3: 'verify',
+  4: 'launch',
+};
+
 const parseStep = (raw: string | undefined): WizardStep | null => {
   if (!raw) return null;
+  const slug = STEP_SLUG_TO_NUM[raw];
+  if (slug) return slug;
   const match = /^step-([1-4])$/.exec(raw);
   if (!match) return null;
   const n = Number(match[1]);
@@ -163,7 +181,9 @@ export const ScanWizardContainer = ({
           primary_domain: '',
         });
         if (cancelled) return;
-        navigate(`/wizard/${order.id}/step-1`, { replace: true });
+        navigate(`/scan/new/${order.id}/${STEP_NUM_TO_SLUG[1]}`, {
+          replace: true,
+        });
       } catch (err) {
         if (cancelled) return;
         const code = err instanceof ApiError ? err.code : 'unknown_error';
@@ -260,7 +280,7 @@ export const ScanWizardContainer = ({
   // ── Navigation between steps ──
   const goToStep = (next: WizardStep): void => {
     if (!state.orderId) return;
-    navigate(`/wizard/${state.orderId}/step-${next}`);
+    navigate(`/scan/new/${state.orderId}/${STEP_NUM_TO_SLUG[next]}`);
   };
 
   const onBack = (): void => {
@@ -402,7 +422,12 @@ export const ScanWizardContainer = ({
   // mode === 'edit'
   if (!params.orderId) return <Navigate to="/dashboard" replace />;
   if (!urlStep) {
-    return <Navigate to={`/wizard/${params.orderId}/step-1`} replace />;
+    return (
+      <Navigate
+        to={`/scan/new/${params.orderId}/${STEP_NUM_TO_SLUG[1]}`}
+        replace
+      />
+    );
   }
 
   const labels = stepLabels(t);
@@ -417,7 +442,12 @@ export const ScanWizardContainer = ({
       case 4:
         return <Step4Review api={api} />;
       default:
-        return <Navigate to={`/wizard/${params.orderId}/step-1`} replace />;
+        return (
+      <Navigate
+        to={`/scan/new/${params.orderId}/${STEP_NUM_TO_SLUG[1]}`}
+        replace
+      />
+    );
     }
   };
 
