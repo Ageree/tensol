@@ -24,9 +24,13 @@ import { AppShell } from '../../components/AppShell.tsx';
 import { RouteHead } from '../../components/RouteHead.tsx';
 import { Btn, Mono } from '../../components/primitives.tsx';
 import { useTensol } from '../../context.tsx';
-import { ApiError, scanOrders } from '../../lib/api-client.ts';
-import { Step1AttackSurface } from './Step1AttackSurface.tsx';
-import { Step2Safety } from './Step2Safety.tsx';
+import {
+  ApiError,
+  scanOrders,
+  type AttackSurfaceEntry,
+} from '../../lib/api-client.ts';
+import { isValidHostname, Step1AttackSurface } from './Step1AttackSurface.tsx';
+import { isValidRps, Step2Safety } from './Step2Safety.tsx';
 import { Step3DnsVerify } from './Step3DnsVerify.tsx';
 import { Step4Review } from './Step4Review.tsx';
 import {
@@ -42,6 +46,21 @@ export interface ScanWizardContainerProps {
 }
 
 const STEP_COUNT = 4 as const;
+
+/**
+ * Gate the container's Next button based on the active step's minimum
+ * client-side prerequisites. The server still validates with Zod (canonical
+ * per Constitution IX); this only avoids obvious round-trips.
+ */
+function nextEnabled(
+  step: WizardStep,
+  state: ReturnType<typeof useScanWizardState>['state'],
+): boolean {
+  if (step === 1) return isValidHostname(state.domain.trim().toLowerCase());
+  if (step === 2) return isValidRps(state.rps);
+  if (step === 3) return state.dnsVerified;
+  return true;
+}
 
 const parseStep = (raw: string | undefined): WizardStep | null => {
   if (!raw) return null;
@@ -221,13 +240,80 @@ export const ScanWizardContainer = ({
     goToStep((state.step - 1) as WizardStep);
   };
 
-  // `Next` placeholder: each Step{N} component will own its own primary CTA
-  // (which performs the relevant write before advancing). Container exposes
-  // a generic Next as a fallback that just moves the URL — steps will
-  // override behavior via their own buttons. For now we keep it disabled on
-  // step 4 (which uses Launch, not Next).
-  const onNext = (): void => {
+  // `Next` performs the per-step commit before navigating. Step components
+  // own their own form fields + validation hints; the container is the only
+  // place that touches the server so loading/error state remains unified.
+  // Step 1: PUT /v1/scan-orders/:id/attack-surface
+  // Step 2: PUT /v1/scan-orders/:id/safety
+  // Step 3: T082 (DNS poll) — no commit on Next, but the polling primitive
+  //         must have reported `dnsVerified` before we advance.
+  // Step 4: uses Launch, not Next (handled inside the step).
+  const commitStep1 = async (): Promise<boolean> => {
+    if (!state.orderId) return false;
+    const trimmedDomain = state.domain.trim().toLowerCase();
+    if (!isValidHostname(trimmedDomain)) {
+      dispatch({ type: 'error', payload: 'invalid_domain' });
+      return false;
+    }
+    // Build attack_surface array — exactly one primary entry + opted-in subs.
+    // Global headers attach to the primary entry per FR-006.
+    const primary: AttackSurfaceEntry = {
+      domain: trimmedDomain,
+      primary: true,
+      headers: state.headers,
+    };
+    const subEntries: AttackSurfaceEntry[] = state.subdomains
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => isValidHostname(s) && s !== trimmedDomain)
+      .map((s) => ({ domain: s, primary: false, headers: [] }));
+    const entries: AttackSurfaceEntry[] = [primary, ...subEntries];
+
+    dispatch({ type: 'loading', payload: true });
+    try {
+      const order = await scanOrders.updateAttackSurface(state.orderId, {
+        attack_surface: entries,
+      });
+      dispatch({ type: 'loaded', payload: hydrateFromOrder(order) });
+      dispatch({ type: 'loading', payload: false });
+      return true;
+    } catch (err) {
+      const code = err instanceof ApiError ? err.code : 'unknown_error';
+      dispatch({ type: 'error', payload: code });
+      return false;
+    }
+  };
+
+  const commitStep2 = async (): Promise<boolean> => {
+    if (!state.orderId) return false;
+    if (!isValidRps(state.rps)) {
+      dispatch({ type: 'error', payload: 'invalid_rps' });
+      return false;
+    }
+    dispatch({ type: 'loading', payload: true });
+    try {
+      const order = await scanOrders.updateSafety(state.orderId, {
+        safety_rps: state.rps,
+      });
+      dispatch({ type: 'loaded', payload: hydrateFromOrder(order) });
+      dispatch({ type: 'loading', payload: false });
+      return true;
+    } catch (err) {
+      const code = err instanceof ApiError ? err.code : 'unknown_error';
+      dispatch({ type: 'error', payload: code });
+      return false;
+    }
+  };
+
+  const onNext = async (): Promise<void> => {
     if (state.step >= STEP_COUNT) return;
+    if (state.step === 1) {
+      const ok = await commitStep1();
+      if (!ok) return;
+    } else if (state.step === 2) {
+      const ok = await commitStep2();
+      if (!ok) return;
+    }
+    // Steps 3 + 4 own their own commits (T082, T083).
     goToStep((state.step + 1) as WizardStep);
   };
 
@@ -336,8 +422,8 @@ export const ScanWizardContainer = ({
             <Btn
               kind="primary"
               size="md"
-              onClick={onNext}
-              disabled={state.loading}
+              onClick={() => void onNext()}
+              disabled={state.loading || !nextEnabled(state.step, state)}
             >
               {t.wizard.next}
             </Btn>
