@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTensol } from '../context.tsx';
 import { LangSwitcher } from '../components/LangSwitcher.tsx';
 import { PixelWaveBg } from '../components/PixelWaveBg.tsx';
@@ -95,13 +95,13 @@ function MarketingNav({ onSignIn, onDemo }: { onSignIn?: () => void; onDemo?: ()
    MarketingHero
    ───────────────────────────────────────────────────────────────────── */
 function MarketingHero({
-  onDemo,
   monoRatio,
 }: {
   onDemo?: () => void;
   monoRatio: number;
 }) {
   const { t } = useTensol();
+  const navigate = useNavigate();
   return (
     <section
       style={{
@@ -161,11 +161,11 @@ function MarketingHero({
             {t.heroBlurb}
           </p>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Btn kind="primary" onClick={onDemo}>
-              {t.ctaPrimary} ▸
+            <Btn kind="primary" onClick={() => navigate('/scan/new')}>
+              {t.ctaQuickFree} ▸
             </Btn>
-            <Btn kind="ghost" href="/method">
-              {t.ctaGhost} →
+            <Btn kind="ghost" href="/contact">
+              {t.ctaDeepAudit} →
             </Btn>
           </div>
         </div>
@@ -514,8 +514,9 @@ function MarketingMiniBlock({
 /* ─────────────────────────────────────────────────────────────────────
    MarketingCta — red full-bleed
    ───────────────────────────────────────────────────────────────────── */
-function MarketingCta({ onDemo, onSignIn }: { onDemo?: () => void; onSignIn?: () => void }) {
+function MarketingCta(_props: { onDemo?: () => void; onSignIn?: () => void }) {
   const { t } = useTensol();
+  const navigate = useNavigate();
   return (
     <section
       id="book"
@@ -571,7 +572,7 @@ function MarketingCta({ onDemo, onSignIn }: { onDemo?: () => void; onSignIn?: ()
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               type="button"
-              onClick={onDemo}
+              onClick={() => navigate('/scan/new')}
               style={{
                 fontFamily: "'JetBrains Mono', monospace",
                 fontSize: 13,
@@ -585,11 +586,11 @@ function MarketingCta({ onDemo, onSignIn }: { onDemo?: () => void; onSignIn?: ()
                 cursor: 'pointer',
               }}
             >
-              {t.ctaPrimary} ▸
+              {t.ctaQuickFree} ▸
             </button>
             <button
               type="button"
-              onClick={onSignIn}
+              onClick={() => navigate('/contact')}
               style={{
                 fontFamily: "'JetBrains Mono', monospace",
                 fontSize: 13,
@@ -603,7 +604,7 @@ function MarketingCta({ onDemo, onSignIn }: { onDemo?: () => void; onSignIn?: ()
                 cursor: 'pointer',
               }}
             >
-              {t.ctaSignin} →
+              {t.ctaDeepAudit} →
             </button>
           </div>
         </div>
@@ -765,7 +766,7 @@ export function MarketingPage({
       <PixelWaveBg />
       <div style={{ position: 'relative', zIndex: 1 }}>
         <MarketingNav onSignIn={onSignIn} onDemo={onDemo} />
-        <MarketingHero onDemo={onDemo} monoRatio={monoRatio} />
+        <MarketingHero monoRatio={monoRatio} />
         <MarketingManifesto />
         <MarketingProof />
         <MarketingMiniBlock title={t.supplyTitle} blurb={t.supplyBlurb} />

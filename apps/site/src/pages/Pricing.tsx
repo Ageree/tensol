@@ -127,7 +127,6 @@ function PricingHero() {
 function PricingPlans() {
   const { t } = useTensol();
   const navigate = useNavigate();
-  const goContact = () => navigate('/contact');
 
   return (
     <section
@@ -139,6 +138,18 @@ function PricingPlans() {
         position: 'relative',
       }}
     >
+      <p
+        style={{
+          fontFamily: "'Inter', sans-serif",
+          fontSize: 17,
+          lineHeight: 1.55,
+          color: 'var(--fg-2)',
+          maxWidth: '62ch',
+          margin: '0 0 40px',
+        }}
+      >
+        {t.pricing.mythosPositioning}
+      </p>
       <div
         style={{
           display: 'grid',
@@ -276,8 +287,13 @@ function PricingPlans() {
             </div>
 
             <div style={{ marginTop: 'auto', paddingTop: 8 }}>
-              <Btn kind="secondary" size="md" fullWidth onClick={goContact}>
-                {t.pricing.contactCta}
+              <Btn
+                kind="secondary"
+                size="md"
+                fullWidth
+                onClick={() => navigate(plan.ctaHref ?? '/contact')}
+              >
+                {plan.ctaLabel ?? t.pricing.contactCta}
               </Btn>
             </div>
           </Card>
