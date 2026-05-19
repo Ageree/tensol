@@ -259,3 +259,57 @@ describe("buildCloudInit", () => {
     expect(script).toContain("key-with-dashes-and-numbers-987");
   });
 });
+
+/**
+ * T075 — vps-agent runtime contract extensions.
+ *
+ * The vps-agent container (T073, T074) needs:
+ *   - `/var/run/docker.sock` mount so Decepticon's `docker compose up` works
+ *     inside the agent container.
+ *   - Port 8080 exposed for inbound /scan-start callback from coordinator.
+ *   - Explicit `docker pull` so the run step never blocks on image fetch retries.
+ *   - Restart policy so the agent survives transient crashes during long scans.
+ *   - All 3 env vars (TENSOL_WEBHOOK_BASE_URL, TENSOL_SIGN_KEY, TENSOL_SCAN_ID)
+ *     present together in a single env-injection block.
+ */
+describe("buildCloudInit — T075 vps-agent runtime contract", () => {
+  const script = buildCloudInit({
+    vpsAgentImage: "ghcr.io/tensol/vps-agent:1.0.0",
+    webhookBaseUrl: "https://api.tensol.io",
+    signKey: "abcdef1234567890",
+    scanId: "01SCAN",
+  });
+
+  test("mounts /var/run/docker.sock so Decepticon compose stack can run", () => {
+    expect(script).toContain("/var/run/docker.sock:/var/run/docker.sock");
+  });
+
+  test("publishes container port 8080 for inbound /scan-start callback", () => {
+    expect(script).toMatch(/-p\s+8080:8080/);
+  });
+
+  test("pulls the vps-agent image explicitly before docker run", () => {
+    expect(script).toContain("docker pull ghcr.io/tensol/vps-agent:1.0.0");
+    // pull must come BEFORE run, otherwise run would race image fetch
+    const pullIdx = script.indexOf("docker pull");
+    const runIdx = script.indexOf("docker run");
+    expect(pullIdx).toBeGreaterThan(-1);
+    expect(runIdx).toBeGreaterThan(-1);
+    expect(pullIdx).toBeLessThan(runIdx);
+  });
+
+  test("declares an automatic restart policy", () => {
+    expect(script).toMatch(/--restart[= ](unless-stopped|on-failure|always)/);
+  });
+
+  test("injects all 3 required env vars into the docker run command", () => {
+    // All three must appear as -e VAR=... entries on the docker run line(s).
+    expect(script).toMatch(/-e\s+TENSOL_WEBHOOK_BASE_URL/);
+    expect(script).toMatch(/-e\s+TENSOL_SIGN_KEY/);
+    expect(script).toMatch(/-e\s+TENSOL_SCAN_ID/);
+    // And their values must reach the script body too.
+    expect(script).toContain("https://api.tensol.io");
+    expect(script).toContain("abcdef1234567890");
+    expect(script).toContain("01SCAN");
+  });
+});

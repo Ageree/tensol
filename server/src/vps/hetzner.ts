@@ -94,7 +94,7 @@ export function buildCloudInit(args: {
   return `#!/bin/bash
 set -euo pipefail
 
-# Tensol vps-agent bootstrap (T037 cloud-init)
+# Tensol vps-agent bootstrap (T037 base + T075 docker.sock mount for Decepticon stack)
 # Triggered by Hetzner on first boot.
 
 # 1. Install Docker engine.
@@ -118,6 +118,7 @@ docker run -d \\
   --name tensol-vps-agent \\
   --restart unless-stopped \\
   -p ${VPS_AGENT_PORT}:${VPS_AGENT_PORT} \\
+  -v /var/run/docker.sock:/var/run/docker.sock \\
   -e TENSOL_WEBHOOK_BASE_URL="\${TENSOL_WEBHOOK_BASE_URL}" \\
   -e TENSOL_SIGN_KEY="\${TENSOL_SIGN_KEY}" \\
   -e TENSOL_SCAN_ID="\${TENSOL_SCAN_ID}" \\
