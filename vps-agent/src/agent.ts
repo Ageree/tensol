@@ -1,12 +1,341 @@
+/**
+ * vps-agent Hono server (T073).
+ *
+ * Single-binary entry point that runs on an ephemeral VPS spawned per-scan by
+ * the Tensol backend. The lifecycle is:
+ *
+ *   1. cloud-init starts this server with TENSOL_SIGN_KEY + TENSOL_SCAN_ID
+ *      bound into the environment.
+ *   2. Backend POSTs a signed `/scan` request — agent verifies the HMAC,
+ *      validates the body, returns `202 Accepted` immediately, and kicks off
+ *      the Decepticon scan in the background.
+ *   3. When the scan resolves (success or failure), agent POSTs the result to
+ *      the supplied `webhook_url` via `sendCallback` (handles its own
+ *      retries + HMAC signing).
+ *   4. Agent self-shuts-down via the injected `exitImpl` so the cloud-init
+ *      destroy hook can tear the VPS down.
+ *
+ * Design choices:
+ * - All side-effecting deps (`runScan`, `sendCallback`, `exitImpl`, `now`)
+ *   are injected through `createAgent({...})`. Production wiring (real
+ *   `runDecepticonScan`, `sendCallback`, `process.exit`) lives at the bottom
+ *   of this file in the `if (import.meta.main)` block.
+ * - Signature is verified BEFORE the JSON body is parsed: we read the raw
+ *   request text first, HMAC-verify it, then parse. This matches the
+ *   webhook contract (signature is over raw bytes) and ensures Zod errors
+ *   never leak details to an unauthenticated caller.
+ * - State is a simple discriminated union held in a `let`. The agent is
+ *   single-scan per VPS, so we don't need a Map or queue.
+ * - Callback failure still triggers self-shutdown (`exitImpl(1)`) so the
+ *   VPS doesn't leak; the backend watchdog (T060) will mark the scan as
+ *   failed when the callback never arrives.
+ */
+
 import { Hono } from "hono";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { z } from "zod";
+import {
+  runDecepticonScan as defaultRunScan,
+  type RunScanResult,
+} from "./decepticon-runner.ts";
+import {
+  sendCallback as defaultSendCallback,
+  type CallbackResult,
+} from "./callback.ts";
 
-const app = new Hono();
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-app.get("/healthz", (c) => c.json({ ok: true }));
+export type AgentState =
+  | { phase: "idle" }
+  | { phase: "running"; scan_id: string; started_at: number }
+  | { phase: "callback_sent"; scan_id: string }
+  | { phase: "shutdown_pending"; scan_id: string };
 
-const port = Number(process.env.PORT ?? 8080);
-
-export default {
-  port,
-  fetch: app.fetch,
+export type CreateAgentDeps = {
+  signKey: string;
+  scanId: string;
+  runScan: typeof defaultRunScan;
+  sendCallback: typeof defaultSendCallback;
+  exitImpl?: (code: number) => void;
+  now?: () => number;
+  /**
+   * Override for compose file path (defaults to `/opt/tensol/docker-compose.yml`,
+   * which is where cloud-init drops the file in production). Tests don't care
+   * because they mock `runScan` entirely.
+   */
+  composeFile?: string;
+  /**
+   * Override for findings dir on the VPS host (defaults to
+   * `/opt/tensol/workspace/findings`).
+   */
+  findingsDir?: string;
 };
+
+// ---------------------------------------------------------------------------
+// Request schema
+// ---------------------------------------------------------------------------
+
+const ScanProfileSchema = z.enum(["recon", "standard", "max"]);
+
+const ScanRequestSchema = z.object({
+  scan_id: z.string().min(1),
+  target_url: z.string().url(),
+  profile: ScanProfileSchema,
+  webhook_url: z.string().url(),
+});
+
+// ---------------------------------------------------------------------------
+// HMAC verification
+// ---------------------------------------------------------------------------
+
+/**
+ * Constant-time verify that `signatureHex` matches HMAC-SHA256(rawBody, key).
+ *
+ * Returns `false` for any malformed input (missing header, wrong length, bad
+ * hex) instead of throwing — callers should map `false` → 401.
+ */
+function verifySignature(
+  rawBody: string,
+  signatureHex: string | null | undefined,
+  key: string,
+): boolean {
+  if (!signatureHex) return false;
+  const expected = createHmac("sha256", key).update(rawBody).digest("hex");
+
+  // Both strings must be the same byte length for timingSafeEqual; if the
+  // attacker supplies a wrong-length signature we can short-circuit safely
+  // because length itself isn't a secret.
+  if (signatureHex.length !== expected.length) return false;
+
+  try {
+    return timingSafeEqual(
+      Buffer.from(signatureHex, "hex"),
+      Buffer.from(expected, "hex"),
+    );
+  } catch {
+    // Buffer.from with bad hex returns a truncated buffer; the length check
+    // above usually catches that, but timingSafeEqual will throw on mismatch
+    // so we defensively wrap.
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Factory
+// ---------------------------------------------------------------------------
+
+export function createAgent(deps: CreateAgentDeps): {
+  app: Hono;
+  getState: () => AgentState;
+} {
+  const {
+    signKey,
+    scanId: expectedScanId,
+    runScan,
+    sendCallback,
+    exitImpl = (code: number) => process.exit(code),
+    now = () => Date.now(),
+    composeFile = "/opt/tensol/docker-compose.yml",
+    findingsDir = "/opt/tensol/workspace/findings",
+  } = deps;
+
+  // Singleton state. Mutated only by handlers + the async scan worker.
+  let state: AgentState = { phase: "idle" };
+  const getState = (): AgentState => state;
+
+  const app = new Hono();
+
+  // -------------------------------------------------------------------------
+  // GET /healthz (kept from T003)
+  // -------------------------------------------------------------------------
+  app.get("/healthz", (c) => c.json({ ok: true }));
+
+  // -------------------------------------------------------------------------
+  // GET /status — liveness for backend watchdog (T060)
+  // -------------------------------------------------------------------------
+  app.get("/status", (c) => c.json(state));
+
+  // -------------------------------------------------------------------------
+  // POST /scan — signed dispatch from backend
+  // -------------------------------------------------------------------------
+  app.post("/scan", async (c) => {
+    // 1. Verify HMAC over raw body BEFORE parsing JSON. Untrusted callers
+    //    must not be able to influence parser behaviour.
+    const rawBody = await c.req.text();
+    const sigHeader = c.req.header("X-Tensol-Signature") ?? null;
+    if (!verifySignature(rawBody, sigHeader, signKey)) {
+      return c.json({ error: "invalid_signature" }, 401);
+    }
+
+    // 2. Parse + Zod-validate.
+    let parsed: z.infer<typeof ScanRequestSchema>;
+    try {
+      const json = JSON.parse(rawBody);
+      parsed = ScanRequestSchema.parse(json);
+    } catch (err) {
+      const message =
+        err instanceof z.ZodError ? "validation_error" : "invalid_json";
+      return c.json({ error: message }, 400);
+    }
+
+    // 3. Cross-check scan_id against the env-bound expected id. Prevents a
+    //    backend bug (or replay) from running a different scan on this VPS.
+    if (parsed.scan_id !== expectedScanId) {
+      return c.json({ error: "scan_id_mismatch" }, 400);
+    }
+
+    // 4. Idempotency: if a scan is already in flight, reject the second POST.
+    if (state.phase !== "idle") {
+      return c.json(
+        { error: "scan_already_running", phase: state.phase },
+        409,
+      );
+    }
+
+    // 5. Transition to running and kick off async worker.
+    const startedAt = now();
+    state = {
+      phase: "running",
+      scan_id: parsed.scan_id,
+      started_at: startedAt,
+    };
+
+    // Fire-and-forget: scan worker handles its own state transitions + exit.
+    void runScanAsync({
+      args: parsed,
+      runScan,
+      sendCallback,
+      signKey,
+      composeFile,
+      findingsDir,
+      exitImpl,
+      setState: (next) => {
+        state = next;
+      },
+    });
+
+    return c.json({ accepted: true, scan_id: parsed.scan_id }, 202);
+  });
+
+  return { app, getState };
+}
+
+// ---------------------------------------------------------------------------
+// Async scan worker
+// ---------------------------------------------------------------------------
+
+type RunScanAsyncArgs = {
+  args: z.infer<typeof ScanRequestSchema>;
+  runScan: typeof defaultRunScan;
+  sendCallback: typeof defaultSendCallback;
+  signKey: string;
+  composeFile: string;
+  findingsDir: string;
+  exitImpl: (code: number) => void;
+  setState: (next: AgentState) => void;
+};
+
+/**
+ * Orchestrates the scan → callback → shutdown flow. Lives outside
+ * `createAgent` for testability (although in practice all branches are
+ * covered through the public `app.fetch` surface).
+ */
+async function runScanAsync(opts: RunScanAsyncArgs): Promise<void> {
+  const {
+    args,
+    runScan,
+    sendCallback,
+    signKey,
+    composeFile,
+    findingsDir,
+    exitImpl,
+    setState,
+  } = opts;
+
+  let result: RunScanResult;
+  try {
+    result = await runScan({
+      scanId: args.scan_id,
+      targetUrl: args.target_url,
+      profile: args.profile,
+      findingsDir,
+      composeFile,
+    });
+  } catch (err) {
+    // runScan promised never to throw, but defensive-by-default: synthesize
+    // a failed envelope so the callback can still fire.
+    result = {
+      status: "failed",
+      failure_reason:
+        err instanceof Error ? `runner_threw_${err.message}` : "runner_threw",
+      findings: [],
+      usage: null,
+    };
+  }
+
+  let callbackOutcome: CallbackResult;
+  try {
+    callbackOutcome = await sendCallback({
+      webhookUrl: args.webhook_url,
+      signKey,
+      payload: {
+        scan_id: args.scan_id,
+        status: result.status,
+        failure_reason: result.failure_reason,
+        usage: result.usage,
+        findings: result.findings,
+      },
+    });
+  } catch (err) {
+    // sendCallback also promises never to throw, but treat any escape as
+    // a hard callback failure.
+    callbackOutcome = {
+      ok: false,
+      attempts: 0,
+      lastError:
+        err instanceof Error ? err.message : "callback_threw_unknown",
+    };
+  }
+
+  setState({ phase: "callback_sent", scan_id: args.scan_id });
+  setState({ phase: "shutdown_pending", scan_id: args.scan_id });
+
+  // Exit code: 0 on clean delivery, 1 on callback failure (so logs / VPS
+  // teardown automation can disambiguate). Either way the VPS tears itself
+  // down; backend watchdog covers the "callback never arrived" gap.
+  exitImpl(callbackOutcome.ok ? 0 : 1);
+}
+
+// ---------------------------------------------------------------------------
+// Production entry point (only runs when invoked directly via `bun src/agent.ts`)
+// ---------------------------------------------------------------------------
+
+function readRequiredEnv(name: string): string {
+  const v = process.env[name];
+  if (!v || v.length === 0) {
+    throw new Error(`${name} is required but not set in environment`);
+  }
+  return v;
+}
+
+let exported: { port: number; fetch: typeof Hono.prototype.fetch } | null =
+  null;
+
+if (import.meta.main) {
+  const signKey = readRequiredEnv("TENSOL_SIGN_KEY");
+  const scanId = readRequiredEnv("TENSOL_SCAN_ID");
+
+  const { app } = createAgent({
+    signKey,
+    scanId,
+    runScan: defaultRunScan,
+    sendCallback: defaultSendCallback,
+  });
+
+  const port = Number(process.env.PORT ?? 8080);
+  exported = { port, fetch: app.fetch };
+}
+
+export default exported;
