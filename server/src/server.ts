@@ -66,7 +66,10 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { createEmailClient } from "./email/resend-client.ts";
 import { createAuthRoutes } from "./routes/auth.ts";
 import { createScansRoutes } from "./routes/scans.ts";
+import { createScanOrdersRouter } from "./routes/scan-orders.ts";
 import { createWebhookRoutes } from "./routes/webhooks.ts";
+import { createScanOrdersService } from "./scan-orders/service.ts";
+import { createRequireAuth } from "./auth/middleware.ts";
 
 /**
  * T066 — periodic watchdog cadence for the scan-timeout watcher (T064).
@@ -229,6 +232,25 @@ export function createApp(deps: CreateAppDeps): Hono {
   app.route(
     "/api/webhooks",
     createWebhookRoutes({ db, signingKey, ...maybeNow(now) }),
+  );
+
+  // T067 — /v1/scan-orders/* (US1 wizard surface). Constitution IX: every
+  // route validates body via Zod; the service emits all signed audit rows.
+  const scanOrdersService = createScanOrdersService({
+    db,
+    auditKey: signingKey,
+    ...maybeNow(now),
+  });
+  const requireAuthForScanOrders = createRequireAuth({
+    db,
+    ...maybeNow(now),
+  });
+  app.route(
+    "/v1/scan-orders",
+    createScanOrdersRouter({
+      service: scanOrdersService,
+      requireAuth: requireAuthForScanOrders,
+    }),
   );
 
   return app;
