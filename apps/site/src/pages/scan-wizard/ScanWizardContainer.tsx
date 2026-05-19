@@ -213,6 +213,34 @@ export const ScanWizardContainer = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlStep]);
 
+  // ── Step 3 fallback entry: request DNS token if the user lands on
+  // step 3 via direct URL/refresh without one. Idempotent on the server.
+  useEffect(() => {
+    if (urlStep !== 3) return;
+    if (!state.orderId) return;
+    if (state.dnsToken) return;
+    if (state.loading) return;
+    let cancelled = false;
+    const run = async (): Promise<void> => {
+      dispatch({ type: 'loading', payload: true });
+      try {
+        const result = await scanOrders.requestDnsVerify(state.orderId!);
+        if (cancelled) return;
+        dispatch({ type: 'dnsToken', payload: result.token });
+        dispatch({ type: 'loading', payload: false });
+      } catch (err) {
+        if (cancelled) return;
+        const code = err instanceof ApiError ? err.code : 'unknown_error';
+        dispatch({ type: 'error', payload: code });
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlStep, state.orderId, state.dnsToken]);
+
   // ── Cancel: DELETE order, then back to dashboard ──
   const onCancel = async (): Promise<void> => {
     if (!state.orderId) {
@@ -304,6 +332,25 @@ export const ScanWizardContainer = ({
     }
   };
 
+  // Step 3 entry: POST /v1/scan-orders/:id/dns-verify/request once. Idempotent
+  // on the server side — re-requesting returns the same token while the
+  // verification window is open. Step3DnsVerify then drives the 5s poll loop.
+  const commitStep3Entry = async (): Promise<boolean> => {
+    if (!state.orderId) return false;
+    if (state.dnsToken) return true; // already issued — Step3 will poll
+    dispatch({ type: 'loading', payload: true });
+    try {
+      const result = await scanOrders.requestDnsVerify(state.orderId);
+      dispatch({ type: 'dnsToken', payload: result.token });
+      dispatch({ type: 'loading', payload: false });
+      return true;
+    } catch (err) {
+      const code = err instanceof ApiError ? err.code : 'unknown_error';
+      dispatch({ type: 'error', payload: code });
+      return false;
+    }
+  };
+
   const onNext = async (): Promise<void> => {
     if (state.step >= STEP_COUNT) return;
     if (state.step === 1) {
@@ -312,8 +359,12 @@ export const ScanWizardContainer = ({
     } else if (state.step === 2) {
       const ok = await commitStep2();
       if (!ok) return;
+      // Eagerly request the DNS token so Step 3 has it on first render.
+      const ok3 = await commitStep3Entry();
+      if (!ok3) return;
     }
-    // Steps 3 + 4 own their own commits (T082, T083).
+    // Step 3 → 4: Next advances once `dnsVerified` is true (gated by
+    // nextEnabled). Step 4 launches via its own button, no Next.
     goToStep((state.step + 1) as WizardStep);
   };
 

@@ -208,6 +208,11 @@ export interface ReportRegenerateResult {
   job_id: string;
 }
 
+// Feature flags (GET /v1/config/feature-flags) — see openapi.yaml + T073.
+export interface FeatureFlags {
+  yookassa_live: boolean;
+}
+
 // ─── Request body types ────────────────────────────────────────────────────
 
 export interface CreateScanOrderBody {
@@ -394,6 +399,14 @@ export const scans = {
     }),
 };
 
+// ─── Config (1 endpoint) ───────────────────────────────────────────────────
+
+export const config = {
+  /** GET /v1/config/feature-flags — public, no auth required. */
+  getFeatureFlags: (): Promise<FeatureFlags> =>
+    request<FeatureFlags>("/v1/config/feature-flags"),
+};
+
 // ─── Top-level convenience export ─────────────────────────────────────────
 
-export const apiClient = { scanOrders, scans };
+export const apiClient = { scanOrders, scans, config };
