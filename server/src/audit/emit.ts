@@ -47,8 +47,85 @@ import { auditLog } from "../db/schema.ts";
 import { now } from "../lib/time.ts";
 import { signEntry, type AuditEntry } from "./sign.ts";
 
+/**
+ * Blackbox-MVP audit event-type literals (data-model.md §E8).
+ *
+ * Source-of-truth list of 29 event names emitted by feature 002. Existing
+ * feature-001 events (e.g. `auth_login_succeeded`, `target_created`,
+ * `auth_proof_verified`) are NOT included here — `EmitArgs.event` remains
+ * `string` for backward-compat, so 001 callers continue to type-check.
+ *
+ * Why a frozen tuple AND a union: the tuple gives us a runtime-iterable
+ * list (for test parity assertions, future zod schemas, observability
+ * dashboards), and the union gives us a compile-time type for new call
+ * sites that want strict literal narrowing via
+ * `event: BlackboxAuditEvent`.
+ *
+ * Constitution X: this extension changes ONLY the type-side surface area.
+ * The 13-field signed-message shape in `sign.ts` is UNCHANGED — `event` is
+ * still column 1, still arbitrary text from the signer's perspective.
+ *
+ * Grouped by domain for readability (scan_order → DNS → quota → scan run
+ * → finding → report → email → inquiry → webhook). Order is preserved in
+ * data-model.md §E8 prose; the test pins set-equality, not ordering.
+ */
+export const BLACKBOX_AUDIT_EVENTS = [
+  // scan_orders lifecycle (4)
+  "scan_order_created",
+  "scan_order_attack_surface_updated",
+  "scan_order_safety_updated",
+  "scan_order_launched",
+  // DNS verification (3)
+  "dns_verify_requested",
+  "dns_verified",
+  "dns_verify_failed",
+  // free-quota accounting (2)
+  "free_quota_consumed",
+  "free_quota_refunded",
+  // VM lifecycle (3)
+  "vm_provisioning",
+  "vm_ready",
+  "vm_teardown",
+  // scan run lifecycle (4) — `scan_started`/`scan_completed`/`scan_failed`/
+  // `scan_cancelled` are also referenced from feature 001 reconcile loop;
+  // listing them here de-duplicates the spec, not the call sites.
+  "scan_started",
+  "scan_completed",
+  "scan_failed",
+  "scan_cancelled",
+  // findings (1)
+  "finding_ingested",
+  // PDF report rendering (3)
+  "pdf_render_requested",
+  "pdf_rendered",
+  "pdf_render_failed",
+  // email delivery (3)
+  "email_send_requested",
+  "email_sent",
+  "email_send_failed",
+  // deep-engagement inquiry (4)
+  "inquiry_received",
+  "inquiry_telegram_sent",
+  "inquiry_telegram_failed",
+  "inquiry_status_changed",
+  // Decepticon webhook ingress (2)
+  "webhook_received",
+  "webhook_invalid_signature",
+] as const;
+
+/** Compile-time union derived from {@link BLACKBOX_AUDIT_EVENTS}. New
+ *  feature-002 callers can declare `event: BlackboxAuditEvent` for literal
+ *  narrowing; legacy call sites continue to use `string` via `EmitArgs`. */
+export type BlackboxAuditEvent = (typeof BLACKBOX_AUDIT_EVENTS)[number];
+
 /** Public argument shape — snake_case field names mirror the SQL columns
- *  / data-model.md so call sites read 1:1 against the schema. */
+ *  / data-model.md so call sites read 1:1 against the schema.
+ *
+ *  `event` is kept as `string` (not `BlackboxAuditEvent`) for backward-compat
+ *  with feature-001 call sites that emit `auth_login_succeeded`,
+ *  `target_created`, etc. Per Constitution X, the audit chain accepts any
+ *  string in field 1 — the signed-message shape is what is frozen, not the
+ *  enum membership. */
 export interface EmitArgs {
   readonly event: string;
   readonly outcome: "success" | "failure" | "rejected";
