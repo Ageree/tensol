@@ -333,6 +333,31 @@ const en = {
       body: 'Quick is a baseline external check. For business-critical systems, request a Deep engagement with expert validation, NDA, and a tailored report.',
       cta: 'Request Deep audit',
     },
+    // T119 — empty state when the user has zero scans.
+    empty: {
+      title: 'No scans yet',
+      body: 'Launch a Quick assessment to see live progress here and download a signed PDF report.',
+      cta: 'Start your first scan',
+    },
+  },
+
+  // T118 — Settings (MVP scope).
+  settingsMvp: {
+    loading: 'Loading account…',
+    loadError: 'Failed to load account',
+    accountTitle: 'ACCOUNT',
+    accountEmail: 'email',
+    accountUserId: 'user id',
+    notSignedIn: 'not signed in',
+    quotaTitle: 'FREE QUOTA',
+    quotaAvailable: 'Free Quick available',
+    quotaUsed: 'Free Quick used · resets in {days}d',
+    quotaHelp:
+      'One free Quick assessment per 30 days. Resets automatically when the previous Quick is older than 30 days.',
+    mvpTitle: 'OTHER SETTINGS',
+    mvpBody:
+      'No other settings in this MVP. Tenants, roles, notification channels, API tokens, and retention controls land with the team plan. If you need any of these today, reach out.',
+    contactCta: 'Contact us',
   },
 
   // Projects
@@ -1645,6 +1670,31 @@ const ru: TensolDict = {
       body: 'Quick — это базовая поверхностная проверка периметра. Для критичных систем закажите Deep аудит с экспертной валидацией, NDA и индивидуальным отчётом.',
       cta: 'Запросить Deep аудит',
     },
+    // T119 — пустое состояние когда у пользователя ещё нет проверок.
+    empty: {
+      title: 'Проверок пока нет',
+      body: 'Запустите Quick-проверку — увидите ход выполнения здесь и скачаете подписанный PDF-отчёт.',
+      cta: 'Запустить первую проверку',
+    },
+  },
+
+  // T118 — Настройки (MVP).
+  settingsMvp: {
+    loading: 'Загружаем аккаунт…',
+    loadError: 'Не удалось загрузить аккаунт',
+    accountTitle: 'АККАУНТ',
+    accountEmail: 'email',
+    accountUserId: 'user id',
+    notSignedIn: 'не авторизован',
+    quotaTitle: 'БЕСПЛАТНАЯ КВОТА',
+    quotaAvailable: 'Бесплатный Quick доступен',
+    quotaUsed: 'Бесплатный Quick использован · сброс через {days} дн',
+    quotaHelp:
+      'Одна бесплатная Quick-проверка раз в 30 дней. Сбрасывается автоматически, когда предыдущая проверка старше 30 дней.',
+    mvpTitle: 'ОСТАЛЬНЫЕ НАСТРОЙКИ',
+    mvpBody:
+      'В MVP остальных настроек нет. Тенанты, роли, каналы уведомлений, API-токены и политики хранения появятся в командном тарифе. Если нужно сейчас — напишите нам.',
+    contactCta: 'Связаться',
   },
 
   // Projects

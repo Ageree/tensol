@@ -151,19 +151,67 @@ function ScanRow({ order, nowMs }: ScanRowProps): ReactElement {
 
 // ─── Empty / loading / error states ───────────────────────────────────────
 
+// T119 — empty-state component for the "zero scans" case.
+// Replaces a one-line dim placeholder with a proper invitation:
+// glyph + heading + body + prominent CTA → /scan/new. Inline because
+// the empty-state is dashboard-specific in MVP (FindingDetail/Reports
+// have their own "no data" copy with different routing semantics).
 function EmptyState(): ReactElement {
   const { t } = useTensol();
   return (
     <div
+      data-testid="dashboard-empty-state"
       style={{
-        padding: '48px 16px',
+        padding: '56px 24px',
         textAlign: 'center',
         border: '1px dashed var(--line-soft)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 14,
       }}
     >
-      <Mono size={12} color="var(--fg-3)">
-        {t.dashboard.tableEmpty}
+      {/* Glyph — purely decorative ASCII square-bracket motif from the
+          Tensol brand toolkit. SVG would be heavier for one shape. */}
+      <Mono
+        size={28}
+        color="var(--fg-3)"
+        style={{ letterSpacing: '0.04em', userSelect: 'none' }}
+        aria-hidden
+      >
+        [ · ]
       </Mono>
+      <h2
+        style={{
+          fontFamily: "'Space Grotesk', sans-serif",
+          fontWeight: 500,
+          fontSize: 22,
+          lineHeight: 1.15,
+          letterSpacing: '-0.01em',
+          margin: 0,
+        }}
+      >
+        {t.dashboard.empty.title}
+      </h2>
+      <p
+        style={{
+          fontFamily: "'Inter', sans-serif",
+          fontSize: 13.5,
+          lineHeight: 1.5,
+          color: 'var(--fg-2)',
+          margin: 0,
+          maxWidth: '52ch',
+        }}
+      >
+        {t.dashboard.empty.body}
+      </p>
+      <div style={{ marginTop: 8 }}>
+        <Link to="/scan/new" style={{ textDecoration: 'none' }}>
+          <Btn kind="primary" size="md">
+            + {t.dashboard.empty.cta}
+          </Btn>
+        </Link>
+      </div>
     </div>
   );
 }

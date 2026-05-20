@@ -656,4 +656,52 @@ describe("POST /v1/scans/:id/report/regenerate", () => {
     });
     expect(res.status).toBe(404);
   });
+
+  // T116 — regenerate after expiry. Reports rendered long ago have
+  // status='ready' but their `expires_at` is in the past and the storage
+  // keys have been swept by the lifecycle policy. Regenerate must still
+  // work: it UPSERTs the reports row back to 'pending' and enqueues a
+  // fresh render_pdf job. No 409, no impl branch on expiry.
+  test("regenerate after report expiry → 202 + status reset to pending", async () => {
+    const db = freshMemDb();
+    const app = buildApp({ db });
+    const { cookie, userId } = seedUserAndSession(db);
+    const { scanId } = seedScanOrderAndScan(db, userId);
+
+    // Seed an EXPIRED ready report — bucket/key still set but expires_at
+    // in the past, mirroring real-world lifecycle-swept artifacts.
+    const reportId = seedReport(db, scanId, { status: "ready" });
+    const farPast = 1_500_000_000_000; // ~2017-07-14, well before now
+    db.update(reportsTable)
+      .set({ expiresAt: farPast })
+      .where(eq(reportsTable.id, reportId))
+      .run();
+
+    const res = await app.request(`/v1/scans/${scanId}/report/regenerate`, {
+      method: "POST",
+      headers: { Cookie: cookie },
+    });
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { report_id: string; job_id: string };
+    // Existing report row is REUSED — id stays the same, status flips.
+    expect(body.report_id).toBe(reportId);
+
+    const after = db
+      .select()
+      .from(reportsTable)
+      .where(eq(reportsTable.id, reportId))
+      .get();
+    expect(after?.status).toBe("pending");
+    expect(after?.lastError).toBeNull();
+
+    const enqueued = db
+      .select()
+      .from(jobsTable)
+      .where(and(eq(jobsTable.type, "render_pdf"), eq(jobsTable.status, "pending")))
+      .all();
+    expect(enqueued.length).toBe(1);
+    const payload = JSON.parse(enqueued[0]!.payloadJson) as { scanId: string; reportId: string };
+    expect(payload.scanId).toBe(scanId);
+    expect(payload.reportId).toBe(reportId);
+  });
 });
