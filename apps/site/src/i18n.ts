@@ -291,7 +291,43 @@ const en = {
   dashEmpty: 'No active assessments. Create one from a verified target.',
 
   // T110 — Deep audit banner on Dashboard (US2 lead-gen).
+  // T117 — Your-scans table, status badges, quota display.
   dashboard: {
+    title: 'Your scans',
+    tableTitle: '// YOUR SCANS',
+    tableEmpty: 'No scans yet. Hit "+ New Scan" to launch your first Quick.',
+    loading: 'Loading scans…',
+    loadError: 'Failed to load scans',
+    refresh: 'Refresh',
+    refreshing: 'Refreshing',
+    newScan: 'New scan',
+    quotaLabel: '// FREE QUOTA',
+    quotaAvailable: 'Free Quick available',
+    // {days} placeholder replaced at runtime with the integer days-to-reset.
+    quotaUsed: 'Free Quick used · resets in {days}d',
+    tierQuick: 'Quick',
+    tierDeep: 'Deep',
+    columns: {
+      status: 'Status',
+      domain: 'Domain',
+      tier: 'Tier',
+      date: 'Updated',
+      action: 'Action',
+    },
+    status: {
+      draft: 'Draft',
+      provisioning: 'Provisioning',
+      running: 'Running',
+      completed: 'Done',
+      failed: 'Failed',
+      cancelled: 'Cancelled',
+    },
+    actions: {
+      view: 'View',
+      resume: 'Resume draft',
+      download: 'Download PDF',
+      regenerate: 'Regenerate',
+    },
     deepBanner: {
       title: 'Need a deep audit?',
       body: 'Quick is a baseline external check. For business-critical systems, request a Deep engagement with expert validation, NDA, and a tailored report.',
@@ -1567,7 +1603,43 @@ const ru: TensolDict = {
   dashEmpty: 'Активных assessments нет. Создайте из verified target.',
 
   // T110 — Deep audit banner on Dashboard (US2 lead-gen).
+  // T117 — Your-scans table, status badges, quota display.
   dashboard: {
+    title: 'Ваши проверки',
+    tableTitle: '// ВАШИ ПРОВЕРКИ',
+    tableEmpty: 'Проверок пока нет. Нажмите «+ Новая проверка» и запустите первую Quick.',
+    loading: 'Загружаем проверки…',
+    loadError: 'Не удалось загрузить проверки',
+    refresh: 'Обновить',
+    refreshing: 'Обновляем',
+    newScan: 'Новая проверка',
+    quotaLabel: '// БЕСПЛАТНАЯ КВОТА',
+    quotaAvailable: 'Бесплатный Quick доступен',
+    // {days} — целое число дней до сброса квоты.
+    quotaUsed: 'Бесплатный Quick использован · сброс через {days} дн',
+    tierQuick: 'Quick',
+    tierDeep: 'Deep',
+    columns: {
+      status: 'Статус',
+      domain: 'Домен',
+      tier: 'Тариф',
+      date: 'Обновлено',
+      action: 'Действие',
+    },
+    status: {
+      draft: 'Черновик',
+      provisioning: 'Подготовка',
+      running: 'Идёт',
+      completed: 'Готово',
+      failed: 'Сбой',
+      cancelled: 'Отменено',
+    },
+    actions: {
+      view: 'Открыть',
+      resume: 'Продолжить черновик',
+      download: 'Скачать PDF',
+      regenerate: 'Перегенерировать',
+    },
     deepBanner: {
       title: 'Нужен глубокий аудит?',
       body: 'Quick — это базовая поверхностная проверка периметра. Для критичных систем закажите Deep аудит с экспертной валидацией, NDA и индивидуальным отчётом.',
