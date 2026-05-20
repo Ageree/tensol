@@ -10,11 +10,15 @@
  *   1. Read the vps_instances row by id → IPv4 + signKey + status. Bail
  *      out if missing (the runner will retry; if it's missing permanently,
  *      the runner exhausts attempts and audits 'job_failed').
- *   2. Read the scan + target rows to build the request body. The body
+ *   2. Read the scan + scan_order rows to build the request body. The body
  *      shape (canonical, sorted-by-handler):
  *        { profile, scan_id, target_url, webhook_url }
  *      The VPS already has its sign_key from cloud-init; we do NOT echo it
  *      back in the body.
+ *
+ *      NOTE: the legacy `targets` table was dropped in T012 (002-blackbox-mvp).
+ *      The canonical V2 source for target URL is
+ *      `scan_orders.primary_domain`, reached via `scans.scan_order_id`.
  *   3. Compute `X-Tensol-Signature = HMAC-SHA256(signKey, rawBody)`.
  *   4. fetch(`https://${ipv4}/scan`, …). Non-2xx OR network error → throw
  *      (runner retries). On 200, emit `decepticon_invoked` audit.
@@ -35,7 +39,7 @@
 import { eq } from "drizzle-orm";
 
 import type { DB } from "../../db/client.ts";
-import { scans, targets, vpsInstances } from "../../db/schema.ts";
+import { scanOrders, scans, vpsInstances } from "../../db/schema.ts";
 import { now as defaultNow } from "../../lib/time.ts";
 import { hmacSha256 } from "../../lib/crypto.ts";
 import { emitSignedAudit } from "../../audit/emit.ts";
@@ -82,29 +86,35 @@ export function createDispatchScanHandler(
       );
     }
 
-    // 2. Resolve scan + target.
+    // 2. Resolve scan + scan_order (V2: target URL lives on scan_orders.
+    //    primary_domain, the legacy `targets` table was dropped in T012).
     const scan = db.select().from(scans).where(eq(scans.id, job.scan_id)).get();
     if (!scan) {
       throw new Error(`dispatch_scan: scan not found (id=${job.scan_id})`);
     }
-    const target = db
+    const order = db
       .select()
-      .from(targets)
-      .where(eq(targets.id, scan.targetId))
+      .from(scanOrders)
+      .where(eq(scanOrders.id, scan.scanOrderId))
       .get();
-    if (!target) {
+    if (!order) {
       throw new Error(
-        `dispatch_scan: target not found (id=${scan.targetId}) for scan ${scan.id}`,
+        `dispatch_scan: scan_order not found (id=${scan.scanOrderId}) for scan ${scan.id}`,
       );
     }
 
     // 3. Build canonical body. Alpha-sorted keys keep the signature
     //    deterministic so the agent can re-verify against a regenerated
     //    canonical body if its receiver re-stringifies first.
+    //
+    //    `target_url` is constructed from `scan_orders.primary_domain`. We
+    //    prepend `https://` because the agent expects a URL, not a bare
+    //    hostname; primary_domain is stored as a hostname per data-model.md.
+    const targetUrl = `https://${order.primaryDomain}`;
     const body = {
       profile: scan.profile,
       scan_id: scan.id,
-      target_url: target.url,
+      target_url: targetUrl,
       webhook_url: `${webhookBaseUrl}/webhooks/scan-progress`,
     };
     const rawBody = JSON.stringify(body);
@@ -138,7 +148,7 @@ export function createDispatchScanHandler(
         vps_instance_id: job.vps_instance_id,
         metadata: {
           profile: scan.profile,
-          target_url: target.url,
+          target_url: targetUrl,
         },
       },
       { key: signingKey },
