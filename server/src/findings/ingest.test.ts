@@ -21,7 +21,7 @@
  */
 import { test, expect, beforeEach, describe } from "bun:test";
 import { Database } from "bun:sqlite";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { eq, sql } from "drizzle-orm";
 import { createDb, type DB } from "../db/client.ts";
@@ -267,7 +267,7 @@ test("re-ingesting the same fixture twice doubles row counts (no implicit dedup)
 // Confirms the helper exposed for non-webhook (CLI replay) callers works.
 // ---------------------------------------------------------------------------
 describe("parseYamlFrontmatter helper", () => {
-  test("parses a real FIND-002 markdown file end-to-end", async () => {
+  test.skipIf(!existsSync(join(import.meta.dir, "..", "..", "..", ".harness", "goals", "decepticon-oauth-local-smoke", "evidence", "E-juiceshop-findings", "FIND-002-sqli-union-products-search.md")))("parses a real FIND-002 markdown file end-to-end", async () => {
     const path = join(
       import.meta.dir,
       "..",
