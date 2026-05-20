@@ -26,6 +26,7 @@ import type {
   OperationResult,
   SpawnVmInput,
   SpawnVmResult,
+  VmInstanceSummary,
   VmStatus,
 } from "./provider";
 
@@ -34,11 +35,26 @@ type InstanceState = {
   status: VmStatus["status"];
   publicIp?: string;
   index: number;
+  /** Optional human-meaningful name (for orphan-cleanup tests). */
+  name?: string;
+  /** Optional unix-ms creation time (for orphan-cleanup tests). */
+  createdAt?: number;
+  /** Optional folder id (for orphan-cleanup tests). */
+  folderId?: string;
 };
 
 type PendingOp =
   | { kind: "spawn"; instanceId: string }
   | { kind: "teardown"; instanceId: string };
+
+/** Test-only seed payload for `seedInstance`. */
+export type FakeSeedInstance = {
+  readonly id: string;
+  readonly name: string;
+  /** Unix milliseconds. */
+  readonly createdAt: number;
+  readonly status?: VmStatus["status"];
+};
 
 export class FakeCloudProvider implements CloudProvider {
   #counter = 0;
@@ -46,6 +62,8 @@ export class FakeCloudProvider implements CloudProvider {
   #instances = new Map<string, InstanceState>();
   #pendingOps = new Map<string, PendingOp>();
   #completedOps = new Map<string, OperationResult>();
+  /** Folder → set of instance ids (test-only, for `listInstances`). */
+  #folderIndex = new Map<string, Set<string>>();
 
   async spawnVm(_input: SpawnVmInput): Promise<SpawnVmResult> {
     const nextCounter = this.#counter + 1;
@@ -87,6 +105,19 @@ export class FakeCloudProvider implements CloudProvider {
     const stopping: InstanceState = { ...current, status: "stopping" };
     this.#instances.set(instanceId, stopping);
     this.#pendingOps.set(opId, { kind: "teardown", instanceId });
+
+    // For seeded instances (which carry a folder), remove from folder index
+    // immediately so `listInstances` reflects the teardown intent. Production
+    // Yandex behaves the same — a DELETE call removes the row from the
+    // list endpoint even though the operation is still in flight.
+    if (current.folderId) {
+      const ids = this.#folderIndex.get(current.folderId);
+      if (ids) {
+        ids.delete(instanceId);
+        if (ids.size === 0) this.#folderIndex.delete(current.folderId);
+        else this.#folderIndex.set(current.folderId, ids);
+      }
+    }
 
     return { operationId: opId };
   }
@@ -168,6 +199,51 @@ export class FakeCloudProvider implements CloudProvider {
     return result;
   }
 
+  /**
+   * Enumerate seeded instances in a folder. Per `CloudProvider.listInstances`
+   * contract: empty array for unknown / empty folders, never throws.
+   *
+   * Note: ONLY instances added via `seedInstance` are listed — the
+   * lifecycle-generated `fake-vm-<n>` instances from `spawnVm` do not
+   * have an associated folder and are intentionally excluded. This
+   * matches the orphan-cleanup contract: cleanup scans cloud-side state,
+   * not internal lifecycle bookkeeping.
+   */
+  async listInstances(folderId: string): Promise<VmInstanceSummary[]> {
+    const ids = this.#folderIndex.get(folderId);
+    if (!ids) return [];
+    const out: VmInstanceSummary[] = [];
+    for (const id of ids) {
+      const inst = this.#instances.get(id);
+      if (!inst) continue;
+      if (inst.name === undefined || inst.createdAt === undefined) continue;
+      out.push({ id, name: inst.name, createdAt: inst.createdAt });
+    }
+    return out;
+  }
+
+  /**
+   * Test-only: insert a pre-existing instance into the fake's internal state
+   * so `listInstances(folderId)` will return it. Used by the orphan-cleanup
+   * tests (T124) — production code paths never call this. Not part of
+   * `CloudProvider`.
+   */
+  seedInstance(folderId: string, seed: FakeSeedInstance): void {
+    const inst: InstanceState = {
+      instanceId: seed.id,
+      status: seed.status ?? "running",
+      index: this.#counter + 1,
+      name: seed.name,
+      createdAt: seed.createdAt,
+      folderId,
+    };
+    this.#instances.set(seed.id, inst);
+    const ids = this.#folderIndex.get(folderId) ?? new Set<string>();
+    ids.add(seed.id);
+    this.#folderIndex.set(folderId, ids);
+    this.#counter += 1;
+  }
+
   /** Test-only: clear all internal state. Not part of `CloudProvider`. */
   reset(): void {
     this.#counter = 0;
@@ -175,5 +251,6 @@ export class FakeCloudProvider implements CloudProvider {
     this.#instances.clear();
     this.#pendingOps.clear();
     this.#completedOps.clear();
+    this.#folderIndex.clear();
   }
 }

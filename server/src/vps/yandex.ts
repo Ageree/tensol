@@ -28,6 +28,7 @@ import type {
   OperationResult,
   SpawnVmInput,
   SpawnVmResult,
+  VmInstanceSummary,
   VmStatus,
 } from "./provider";
 
@@ -196,7 +197,68 @@ export function createYandexCloudProvider(
       }
       return withError;
     },
+
+    async listInstances(folderId: string): Promise<VmInstanceSummary[]> {
+      // GET /compute/v1/instances?folderId=<...> per research §R10.
+      // Yandex paginates via `pageToken`; we follow the chain until the
+      // response omits a `nextPageToken`. Page size is left to Yandex's
+      // default (≤ 1000 per page) — orphan folders never approach that.
+      const token = await getToken();
+      const out: VmInstanceSummary[] = [];
+      let pageToken: string | undefined;
+      // Safety ceiling so a misconfigured server can't paginate forever.
+      const MAX_PAGES = 50;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const url = new URL(`${COMPUTE_BASE_URL}/instances`);
+        url.searchParams.set("folderId", folderId);
+        if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+        const resp = await fetcher(url.toString(), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!resp.ok) {
+          const detail = await readBodySafe(resp);
+          throw new Error(
+            `yandex listInstances: HTTP ${resp.status} ${resp.statusText} :: ${detail}`,
+          );
+        }
+        const body = (await resp.json()) as {
+          instances?: Array<{
+            id?: string;
+            name?: string;
+            createdAt?: string;
+          }>;
+          nextPageToken?: string;
+        };
+        const rows = body.instances ?? [];
+        for (const r of rows) {
+          if (!r.id || !r.name) continue;
+          const createdAtMs = parseRfc3339Ms(r.createdAt);
+          if (createdAtMs === null) continue;
+          out.push({
+            id: r.id,
+            name: r.name,
+            createdAt: createdAtMs,
+          });
+        }
+        if (!body.nextPageToken) break;
+        pageToken = body.nextPageToken;
+      }
+      return out;
+    },
   };
+}
+
+/**
+ * Parse Yandex's RFC3339 `createdAt` string into unix ms. Returns null on
+ * malformed input — the caller skips that row rather than abort the sweep.
+ * Yandex emits e.g. `2024-01-02T15:04:05.123456789Z`; `new Date()` handles
+ * up to millisecond precision, which is enough for the 30-min grace window.
+ */
+function parseRfc3339Ms(s: string | undefined): number | null {
+  if (!s) return null;
+  const ms = Date.parse(s);
+  return Number.isFinite(ms) ? ms : null;
 }
 
 /**

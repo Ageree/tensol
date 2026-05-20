@@ -62,6 +62,8 @@ import { createTeardownYandexVmHandler } from "./jobs/handlers/teardown-yandex-v
 import { createRenderPdfHandler } from "./jobs/handlers/render-pdf.ts";
 import { createSendScanCompleteTelegramHandler } from "./jobs/handlers/send-scan-complete-telegram.ts";
 import { createScanTimeoutWatcher } from "./jobs/handlers/scan-timeout-watcher.ts";
+import { createCleanupOrphanVmsTask } from "./jobs/handlers/cleanup-orphan-vms.ts";
+import { sendMessage as sendTelegramMessage } from "./notify/telegram.ts";
 import { createYandexCloudProvider } from "./vps/yandex.ts";
 import { refundFreeQuickQuota } from "./free-tier/service.ts";
 import { createLoggingTelegramNotifier } from "./notify/telegram-placeholder.ts";
@@ -93,6 +95,20 @@ import { now as defaultNow } from "./lib/time.ts";
  * tasks.md T126.
  */
 const SCAN_TIMEOUT_WATCHER_INTERVAL_MS = 5 * 60 * 1_000;
+
+/**
+ * T125 — periodic cadence for the orphan-VM cleanup task (T123).
+ * Per research §R10: every 15 minutes. The task is internally idempotent
+ * (each tick re-evaluates from scratch via `provider.listInstances`) so
+ * overlapping ticks would be safe — we still serialize via setInterval
+ * + unref to avoid pinning the event loop on shutdown.
+ */
+const CLEANUP_ORPHAN_VMS_INTERVAL_MS = 15 * 60 * 1_000;
+
+/** Per-prefix grace windows (research §R10). 30 min for test instances,
+ *  120 min for prod scan VMs (~30% margin over the 90-min scan timeout). */
+const CLEANUP_ORPHAN_TEST_MIN_AGE_MS = 30 * 60 * 1_000;
+const CLEANUP_ORPHAN_PROD_MIN_AGE_MS = 120 * 60 * 1_000;
 
 /**
  * T066 — adapt new-style handlers `(jobId, rawPayload) => Promise<void>` to
@@ -616,6 +632,59 @@ export async function main(): Promise<{
   // shutdown — `runner.stop()` already awaits any in-flight handler.
   if (typeof watcherTimer.unref === "function") watcherTimer.unref();
 
+  // T125 — wire the orphan-VM cleanup cron (T123) on a 15-minute cadence.
+  // Skipped when no folder ids are configured (dev environments) so the
+  // boot path stays env-light. The task is wired against the Yandex
+  // provider whose `listInstances` we just shipped (T123 extension).
+  const cleanupTestFolder = process.env.YANDEX_TEST_FOLDER_ID ?? "";
+  const cleanupProdFolder = process.env.YANDEX_PROD_FOLDER_ID ?? "";
+  const cleanupFolderIds = [cleanupTestFolder, cleanupProdFolder].filter(
+    (f) => f !== "",
+  );
+  let cleanupTimer: Timer | null = null;
+  if (cleanupFolderIds.length === 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[tensol] T125: orphan-VM cleanup skipped — no YANDEX_TEST_FOLDER_ID " +
+        "or YANDEX_PROD_FOLDER_ID configured",
+    );
+  } else if (!yandexProvider.listInstances) {
+    // Defensive: should never trigger with the T123 yandex.ts shipped here.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[tensol] T125: orphan-VM cleanup skipped — provider lacks listInstances",
+    );
+  } else {
+    const listInstancesBound = yandexProvider.listInstances.bind(
+      yandexProvider,
+    );
+    const cleanupTask = createCleanupOrphanVmsTask({
+      provider: {
+        listInstances: listInstancesBound,
+        teardownVm: yandexProvider.teardownVm.bind(yandexProvider),
+      },
+      folderIds: cleanupFolderIds,
+      namePrefixes: ["tensol-test-", "tensol-scan-"],
+      minAgeMs: {
+        "tensol-test-": CLEANUP_ORPHAN_TEST_MIN_AGE_MS,
+        "tensol-scan-": CLEANUP_ORPHAN_PROD_MIN_AGE_MS,
+      },
+      sendAlert: async (text: string) => {
+        await sendTelegramMessage(text);
+      },
+    });
+    cleanupTimer = setInterval(() => {
+      cleanupTask.tick().catch((err: unknown) => {
+        // eslint-disable-next-line no-console
+        console.error(
+          "[tensol] T125: cleanup-orphan-vms tick failed:",
+          err instanceof Error ? err.message : err,
+        );
+      });
+    }, CLEANUP_ORPHAN_VMS_INTERVAL_MS);
+    if (typeof cleanupTimer.unref === "function") cleanupTimer.unref();
+  }
+
   const app = createApp({
     db,
     signingKey: config.TENSOL_AUDIT_SIGNING_KEY,
@@ -643,6 +712,7 @@ export async function main(): Promise<{
     port: server.port ?? config.PORT,
     stop: async () => {
       clearInterval(watcherTimer);
+      if (cleanupTimer !== null) clearInterval(cleanupTimer);
       await runner.stop();
       server.stop();
       (db.$client as Database).close();

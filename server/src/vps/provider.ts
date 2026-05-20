@@ -139,6 +139,22 @@ export type OperationResult = {
 };
 
 /**
+ * Lightweight VM summary used by the orphan-cleanup cron (T123, research §R10).
+ *
+ * Only the fields the cleanup task strictly needs: id (for teardown call),
+ * name (for prefix matching), and createdAt (for grace-window comparison)
+ * — expressed as unix millis to match the rest of the codebase's time
+ * convention. Yandex returns RFC3339 strings on the wire; the Yandex
+ * `listInstances` implementation does the conversion.
+ */
+export type VmInstanceSummary = {
+  readonly id: string;
+  readonly name: string;
+  /** Unix milliseconds. */
+  readonly createdAt: number;
+};
+
+/**
  * Provider-agnostic abstraction over the ephemeral-VM lifecycle.
  *
  * Concrete impls:
@@ -170,4 +186,17 @@ export type CloudProvider = {
    * may retry, or may eventually time out per R4's 10-minute ceiling).
    */
   pollOperation(operationId: string): Promise<OperationResult>;
+  /**
+   * Enumerate VMs visible in the given folder. Used exclusively by the
+   * orphan-cleanup cron (T123 / research §R10) — production code paths
+   * never enumerate, they only act on known instance ids. Optional
+   * because not every concrete provider needs to support it (the legacy
+   * Hetzner shim doesn't), and to keep the interface backwards
+   * compatible with existing test fakes.
+   *
+   * Returns an empty array (NOT throws) when the folder is empty or
+   * unknown — the cleanup task scans many folders in sequence and one
+   * missing folder must not abort the whole tick.
+   */
+  listInstances?(folderId: string): Promise<VmInstanceSummary[]>;
 };
