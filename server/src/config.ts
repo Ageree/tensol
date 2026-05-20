@@ -66,6 +66,14 @@ const ConfigSchema = z
     // no match against a real signed payload).
     TENSOL_WEBHOOK_SECRET: z.string().default(""),
 
+    // T121 — comma-separated list of operator emails authorised to use the
+    // `/v1/admin/*` surface (Deep-inquiry triage, etc.). Optional with empty
+    // default so dev boot doesn't halt; the safe default is "no operators
+    // configured, admin routes deny every authenticated user with 403". The
+    // string is parsed into a normalized list at startup via
+    // `parseOperatorEmails` (see `routes/admin/deep-inquiries.ts`).
+    TENSOL_OPERATOR_EMAILS: z.string().default(""),
+
     PORT: z.coerce
       .number({ invalid_type_error: "PORT must be a number" })
       .int()

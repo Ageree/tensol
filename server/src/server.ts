@@ -71,6 +71,10 @@ import { createAuthRoutes } from "./routes/auth.ts";
 import { createScansRouter } from "./routes/scans.ts";
 import { createScanOrdersRouter } from "./routes/scan-orders.ts";
 import { createDeepInquiriesRouter } from "./routes/deep-inquiries.ts";
+import {
+  createAdminDeepInquiriesRouter,
+  parseOperatorEmails,
+} from "./routes/admin/deep-inquiries.ts";
 import { createWebhookRoutes } from "./routes/webhooks.ts";
 import { createWebhookScanCompleteRouter } from "./routes/webhooks-scan-complete.ts";
 import { createConfigFeatureFlagsRouter } from "./routes/config-feature-flags.ts";
@@ -199,6 +203,13 @@ export interface CreateAppDeps {
    * via TENSOL_WEBHOOK_SECRET.
    */
   readonly webhookSecret: string;
+  /**
+   * T121 — pre-normalized operator email list (lowercased, trimmed). Source:
+   * env `TENSOL_OPERATOR_EMAILS` parsed at startup via `parseOperatorEmails`.
+   * Empty list = no operators configured = `/v1/admin/*` returns 403 for
+   * every authenticated user (safe default).
+   */
+  readonly operatorEmails: ReadonlyArray<string>;
   readonly now?: () => number;
 }
 
@@ -216,6 +227,7 @@ export function createApp(deps: CreateAppDeps): Hono {
     resendApiKey,
     isProd,
     webhookSecret,
+    operatorEmails,
     now,
   } = deps;
 
@@ -310,6 +322,20 @@ export function createApp(deps: CreateAppDeps): Hono {
     createDeepInquiriesRouter({
       service: deepInquiriesService,
       getUserId: getUserIdFromCookie,
+    }),
+  );
+
+  // T121 — `/v1/admin/deep-inquiries` (operator-only triage surface). Auth
+  // is strict (401 on missing/expired cookie) PLUS an operator-email gate
+  // (403 when `user.email` is not in `operatorEmails`). The service emits
+  // all signed audits.
+  const requireAuthForAdmin = createRequireAuth({ db, ...maybeNow(now) });
+  app.route(
+    "/v1/admin/deep-inquiries",
+    createAdminDeepInquiriesRouter({
+      service: deepInquiriesService,
+      operatorEmails,
+      requireAuth: requireAuthForAdmin,
     }),
   );
 
@@ -598,6 +624,7 @@ export async function main(): Promise<{
     emailMode: config.EMAIL_PROVIDER,
     isProd: config.NODE_ENV === "production",
     webhookSecret: config.TENSOL_WEBHOOK_SECRET,
+    operatorEmails: parseOperatorEmails(config.TENSOL_OPERATOR_EMAILS),
     ...maybeProp("resendApiKey", config.RESEND_API_KEY),
   });
 
