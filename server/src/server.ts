@@ -70,11 +70,17 @@ import { createEmailClient } from "./email/resend-client.ts";
 import { createAuthRoutes } from "./routes/auth.ts";
 import { createScansRouter } from "./routes/scans.ts";
 import { createScanOrdersRouter } from "./routes/scan-orders.ts";
+import { createDeepInquiriesRouter } from "./routes/deep-inquiries.ts";
 import { createWebhookRoutes } from "./routes/webhooks.ts";
 import { createWebhookScanCompleteRouter } from "./routes/webhooks-scan-complete.ts";
 import { createConfigFeatureFlagsRouter } from "./routes/config-feature-flags.ts";
 import { createScanOrdersService } from "./scan-orders/service.ts";
+import { createDeepInquiriesService } from "./deep-inquiries/service.ts";
 import { createRequireAuth } from "./auth/middleware.ts";
+import { readSessionCookie } from "./auth/session.ts";
+import { sessions as sessionsTable } from "./db/schema.ts";
+import { eq } from "drizzle-orm";
+import { now as defaultNow } from "./lib/time.ts";
 
 /**
  * T066 — periodic watchdog cadence for the scan-timeout watcher (T064).
@@ -274,6 +280,36 @@ export function createApp(deps: CreateAppDeps): Hono {
     createScanOrdersRouter({
       service: scanOrdersService,
       requireAuth: requireAuthForScanOrders,
+    }),
+  );
+
+  // T104 — `/v1/deep-inquiries` (US2 lead-gen funnel). Anonymous OR
+  // authenticated: the soft `getUserId` reader resolves a session cookie
+  // when present, otherwise returns null (anonymous path). The service
+  // emits all signed audits.
+  const deepInquiriesService = createDeepInquiriesService({
+    db,
+    auditKey: signingKey,
+    ...maybeNow(now),
+  });
+  const clockForCookie = now ?? defaultNow;
+  const getUserIdFromCookie = (c: import("hono").Context): string | null => {
+    const sid = readSessionCookie(c);
+    if (!sid) return null;
+    const sessionRow = db
+      .select()
+      .from(sessionsTable)
+      .where(eq(sessionsTable.id, sid))
+      .get();
+    if (!sessionRow) return null;
+    if (clockForCookie() >= sessionRow.expiresAt) return null;
+    return sessionRow.userId;
+  };
+  app.route(
+    "/v1/deep-inquiries",
+    createDeepInquiriesRouter({
+      service: deepInquiriesService,
+      getUserId: getUserIdFromCookie,
     }),
   );
 
