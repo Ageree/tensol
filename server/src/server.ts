@@ -63,6 +63,8 @@ import { createRenderPdfHandler } from "./jobs/handlers/render-pdf.ts";
 import { createSendScanCompleteTelegramHandler } from "./jobs/handlers/send-scan-complete-telegram.ts";
 import { createScanTimeoutWatcher } from "./jobs/handlers/scan-timeout-watcher.ts";
 import { createCleanupOrphanVmsTask } from "./jobs/handlers/cleanup-orphan-vms.ts";
+import { createCleanupExpiredReportsHandler } from "./jobs/handlers/cleanup-expired-reports.ts";
+import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { sendMessage as sendTelegramMessage } from "./notify/telegram.ts";
 import { createYandexCloudProvider } from "./vps/yandex.ts";
 import { refundFreeQuickQuota } from "./free-tier/service.ts";
@@ -109,6 +111,21 @@ const CLEANUP_ORPHAN_VMS_INTERVAL_MS = 15 * 60 * 1_000;
  *  120 min for prod scan VMs (~30% margin over the 90-min scan timeout). */
 const CLEANUP_ORPHAN_TEST_MIN_AGE_MS = 30 * 60 * 1_000;
 const CLEANUP_ORPHAN_PROD_MIN_AGE_MS = 120 * 60 * 1_000;
+
+/**
+ * T127 — daily cadence for the cleanup-expired-reports cron (T114).
+ *
+ * The sweeper enumerates `evidence_artifacts` + `reports` rows whose
+ * `expires_at < now`, S3-deletes the object, removes the row, and emits a
+ * signed `evidence_pruned` / `report_pruned` audit. Per task brief: daily
+ * — once every 24h is sufficient because each row's expiry resolution is
+ * already coarse (~hour-scale).
+ *
+ * Cron-style (no payload job), mirrors the watcher + orphan-VM ticks above.
+ * Skipped when S3 / bucket env not configured so the boot path stays
+ * env-light for local dev.
+ */
+const CLEANUP_EXPIRED_REPORTS_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 
 /**
  * T066 — adapt new-style handlers `(jobId, rawPayload) => Promise<void>` to
@@ -685,6 +702,55 @@ export async function main(): Promise<{
     if (typeof cleanupTimer.unref === "function") cleanupTimer.unref();
   }
 
+  // T127 — wire the cleanup-expired-reports cron (T114) on a daily cadence.
+  // Skipped when S3 / bucket env vars are missing (dev environments) so the
+  // boot path stays env-light. The sweeper is internally idempotent (each
+  // tick re-queries `expires_at < now`); overlapping ticks would be safe but
+  // we still serialize via setInterval + unref to avoid pinning the loop on
+  // graceful shutdown. The handler accepts a narrow `deleteObject` adapter,
+  // so we wrap the AWS-SDK S3Client.send() call here rather than expose the
+  // full client surface inside the handler.
+  let cleanupExpiredReportsTimer: Timer | null = null;
+  if (!evidenceBucket || !awsAccessKeyId || !awsSecretAccessKey) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[tensol] T127: cleanup-expired-reports skipped — S3/Object-Storage env " +
+        "vars missing (TENSOL_EVIDENCE_BUCKET, AWS_ACCESS_KEY_ID, " +
+        "AWS_SECRET_ACCESS_KEY).",
+    );
+  } else {
+    const cleanupExpiredReportsHandler = createCleanupExpiredReportsHandler({
+      db,
+      s3: {
+        deleteObject: async (cmd) => {
+          await s3.send(
+            new DeleteObjectCommand({ Bucket: cmd.Bucket, Key: cmd.Key }),
+          );
+        },
+      },
+      bucket: evidenceBucket,
+      auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
+    });
+    cleanupExpiredReportsTimer = setInterval(() => {
+      cleanupExpiredReportsHandler
+        .tick()
+        .then((result) => {
+          // eslint-disable-next-line no-console
+          console.log("[tensol] T127: cleanup-expired-reports tick:", result);
+        })
+        .catch((err: unknown) => {
+          // eslint-disable-next-line no-console
+          console.error(
+            "[tensol] T127: cleanup-expired-reports tick failed:",
+            err instanceof Error ? err.message : err,
+          );
+        });
+    }, CLEANUP_EXPIRED_REPORTS_INTERVAL_MS);
+    if (typeof cleanupExpiredReportsTimer.unref === "function") {
+      cleanupExpiredReportsTimer.unref();
+    }
+  }
+
   const app = createApp({
     db,
     signingKey: config.TENSOL_AUDIT_SIGNING_KEY,
@@ -713,6 +779,9 @@ export async function main(): Promise<{
     stop: async () => {
       clearInterval(watcherTimer);
       if (cleanupTimer !== null) clearInterval(cleanupTimer);
+      if (cleanupExpiredReportsTimer !== null) {
+        clearInterval(cleanupExpiredReportsTimer);
+      }
       await runner.stop();
       server.stop();
       (db.$client as Database).close();
