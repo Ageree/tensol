@@ -85,6 +85,10 @@ beforeAll(() => {
   db = new Database(":memory:");
   db.exec(loadMigration("0000_init.sql"));
   db.exec(loadMigration("0010_blackbox_mvp.sql"));
+  // 0011 layers `webhook_dedup` on top of the 0010 baseline. Applied here
+  // so the table-presence + index assertions below cover the post-0011
+  // shape that production boots into via applyMigrationsOnce().
+  db.exec(loadMigration("0011_webhook_dedup.sql"));
   // Foreign keys default OFF; turn ON so FK + CASCADE assertions in the
   // smoke insert chain behave like production (createDb in client.ts also
   // enables them per connection).
@@ -173,6 +177,8 @@ describe("table presence", () => {
     "audit_log",
     "vps_instances",
     "jobs",
+    // 0011 — webhook idempotency table.
+    "webhook_dedup",
   ] as const;
 
   const EXPECTED_ABSENT = [
@@ -182,7 +188,7 @@ describe("table presence", () => {
     "magic_link_tokens",
   ] as const;
 
-  test("13 expected tables exist", () => {
+  test("14 expected tables exist (13 from 0010 + webhook_dedup from 0011)", () => {
     const tables = allTables();
     for (const expected of EXPECTED_PRESENT) {
       expect(tables).toContain(expected);
@@ -418,9 +424,9 @@ describe("column shape", () => {
 // 3. Indexes: count + spot-check
 // ---------------------------------------------------------------------------
 describe("indexes", () => {
-  test("27 total user-defined indexes across all tables", () => {
+  test("29 total user-defined indexes across all tables (27 from 0010 + 2 from 0011)", () => {
     const idxs = allUserIndexes();
-    expect(idxs.length).toBe(27);
+    expect(idxs.length).toBe(29);
   });
 
   test("spot-check 6 critical indexes by name", () => {
@@ -828,6 +834,93 @@ describe("smoke insert chain", () => {
         .run("ps_3", "tok_other", "carol", now, now + 600_000),
     ).toThrow();
 
+    d.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Migration 0011 — webhook_dedup table contract
+// ---------------------------------------------------------------------------
+describe("migration 0011_webhook_dedup", () => {
+  function freshDbWith0011(): Database {
+    const d = new Database(":memory:");
+    d.exec(loadMigration("0000_init.sql"));
+    d.exec(loadMigration("0010_blackbox_mvp.sql"));
+    d.exec(loadMigration("0011_webhook_dedup.sql"));
+    d.exec("PRAGMA foreign_keys = ON;");
+    return d;
+  }
+
+  test("webhook_dedup table present after 0011 applied", () => {
+    expect(allTables()).toContain("webhook_dedup");
+  });
+
+  test("webhook_dedup column shape", () => {
+    const cols = columnNames("webhook_dedup").sort();
+    expect(cols).toEqual(
+      [
+        "id",
+        "webhook_kind",
+        "dedup_key",
+        "received_at",
+        "metadata_json",
+      ].sort(),
+    );
+    const info = tableInfo("webhook_dedup");
+    expect(info.find((c) => c.name === "id")?.pk).toBe(1);
+    expect(info.find((c) => c.name === "webhook_kind")?.notnull).toBe(1);
+    expect(info.find((c) => c.name === "dedup_key")?.notnull).toBe(1);
+    expect(info.find((c) => c.name === "received_at")?.notnull).toBe(1);
+    // metadata_json is nullable diag column
+    expect(info.find((c) => c.name === "metadata_json")?.notnull).toBe(0);
+  });
+
+  test("UNIQUE(webhook_kind, dedup_key) index exists with correct columns", () => {
+    const idx = indexList("webhook_dedup").find(
+      (i) => i.name === "uniq_webhook_dedup_kind_key",
+    );
+    expect(idx?.unique).toBe(1);
+    expect(indexColumnNames("uniq_webhook_dedup_kind_key")).toEqual([
+      "webhook_kind",
+      "dedup_key",
+    ]);
+  });
+
+  test("kind+received_at composite index exists", () => {
+    const idx = indexList("webhook_dedup").find(
+      (i) => i.name === "idx_webhook_dedup_kind_received_at",
+    );
+    expect(idx).toBeDefined();
+    // First column is webhook_kind (PRAGMA index_info exposes them in
+    // declaration order); DESC ordering on received_at is honoured by the
+    // SQL but not surfaced via PRAGMA — column presence is the contract.
+    expect(indexColumnNames("idx_webhook_dedup_kind_received_at")).toEqual([
+      "webhook_kind",
+      "received_at",
+    ]);
+  });
+
+  test("UNIQUE collision: same (kind, key) twice → throw on second insert", () => {
+    const d = freshDbWith0011();
+    const now = Date.now();
+    const stmt = d.prepare(
+      `INSERT INTO webhook_dedup
+         (id, webhook_kind, dedup_key, received_at, metadata_json)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    expect(() =>
+      stmt.run("d_1", "scan_complete", "order_abc", now, null),
+    ).not.toThrow();
+    expect(() =>
+      stmt.run("d_2", "scan_complete", "order_abc", now + 1, null),
+    ).toThrow();
+    // Different kind OR different key — both should succeed.
+    expect(() =>
+      stmt.run("d_3", "scan_complete", "order_xyz", now, null),
+    ).not.toThrow();
+    expect(() =>
+      stmt.run("d_4", "other_kind", "order_abc", now, null),
+    ).not.toThrow();
     d.close();
   });
 });

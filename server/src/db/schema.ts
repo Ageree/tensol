@@ -33,8 +33,9 @@
  *   - CHECK constraints from the SQL migration are NOT redeclared here:
  *     they live in the DB layer; Zod owns boundary validation. Enum
  *     awareness is via `$type<...>()` for compile-time help only.
- *   - 27 indexes — names mirror the migration's `CREATE [UNIQUE] INDEX` names
- *     verbatim so drizzle-kit treats them as a no-op diff.
+ *   - 29 indexes (27 from 0010 + 2 from 0011 webhook_dedup) — names mirror
+ *     the migration's `CREATE [UNIQUE] INDEX` names verbatim so drizzle-kit
+ *     treats them as a no-op diff.
  */
 
 import { sql } from "drizzle-orm";
@@ -399,6 +400,39 @@ export const pendingSignups = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// webhook_dedup (0011) — O(1) idempotency for inbound webhook deliveries.
+//
+// Replaces the previous O(n) LIKE-scan on `audit_log.metadata_json` used by
+// `webhooks-scan-complete.ts`. UNIQUE(webhook_kind, dedup_key) is the dedup
+// anchor: insert-then-catch-SQLITE_CONSTRAINT_UNIQUE collapses replay to a
+// single index probe.
+//
+// `received_at` is the timestamp of the FIRST accepted delivery. Subsequent
+// deliveries fail the UNIQUE constraint and are short-circuited to 200
+// duplicate — they do not update this row.
+// ---------------------------------------------------------------------------
+export const webhookDedup = sqliteTable(
+  "webhook_dedup",
+  {
+    id: text("id").primaryKey(),
+    webhookKind: text("webhook_kind").notNull(),
+    dedupKey: text("dedup_key").notNull(),
+    receivedAt: integer("received_at").notNull(),
+    metadataJson: text("metadata_json"),
+  },
+  (t) => ({
+    uniqWebhookKindKey: uniqueIndex("uniq_webhook_dedup_kind_key").on(
+      t.webhookKind,
+      t.dedupKey,
+    ),
+    byKindReceived: index("idx_webhook_dedup_kind_received_at").on(
+      t.webhookKind,
+      t.receivedAt,
+    ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // audit_log (E8) — unchanged from 001. INTEGER PK AUTOINCREMENT for
 // monotonic ordering and HMAC signature chain; no FKs (audit rows must
 // never be blocked by referential integrity).
@@ -526,6 +560,8 @@ export type Report = typeof reports.$inferSelect;
 export type NewReport = typeof reports.$inferInsert;
 export type PendingSignup = typeof pendingSignups.$inferSelect;
 export type NewPendingSignup = typeof pendingSignups.$inferInsert;
+export type WebhookDedup = typeof webhookDedup.$inferSelect;
+export type NewWebhookDedup = typeof webhookDedup.$inferInsert;
 export type AuditLog = typeof auditLog.$inferSelect;
 export type NewAuditLog = typeof auditLog.$inferInsert;
 export type VpsInstance = typeof vpsInstances.$inferSelect;

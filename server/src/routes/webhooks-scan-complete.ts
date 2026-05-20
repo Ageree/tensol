@@ -36,8 +36,9 @@
  *        → 422 "webhook_body_invalid" otherwise
  *   5. WebhookScanCompleteBodySchema.parse
  *        → 422 "webhook_body_invalid" otherwise
- *   6. Idempotency: audit_log row with event='webhook_received' AND
- *      metadata.scan_order_id=$id already exists
+ *   6. Idempotency: attempt INSERT into webhook_dedup
+ *      (webhook_kind='scan_complete', dedup_key=$scan_order_id);
+ *      SQLITE_CONSTRAINT_UNIQUE on collision
  *        → 200 { status: "duplicate" } no-op
  *   7. Scan order ownership + state (must be `running` or `vm_provisioning`)
  *        → 409 "scan_order_not_running" otherwise
@@ -66,12 +67,13 @@
  *   - Drift window: the contract says "within ±5 minutes". We allow
  *     EXACTLY 5min on either side (`Math.abs(...) <= 5*60`) to make the
  *     edge case test-pinnable.
- *   - Idempotency dedup key: we use `audit_log` rows with
- *     `event='webhook_received' AND metadata_json` containing the
- *     scan_order_id (audit_log has no top-level scan_order_id column;
- *     the value lives in the metadata JSON blob). This matches the
- *     contract's "row in audit_log … exists" wording without requiring
- *     a new DB column.
+ *   - Idempotency dedup key: we INSERT into the dedicated `webhook_dedup`
+ *     table with UNIQUE(webhook_kind, dedup_key) and treat the
+ *     SQLITE_CONSTRAINT_UNIQUE error as the duplicate signal. Constant-
+ *     time (single B-tree probe) regardless of audit_log size. Migration
+ *     0011_webhook_dedup.sql introduced this table; the previous
+ *     `audit_log.metadata_json LIKE '%scan_order_id%'` scan (O(n)) was
+ *     replaced because it became a hot-path concern at scale (T145 LOW-3).
  *   - Findings target: each finding row needs a `target` value (E5
  *     NOT NULL). We default it to `scanOrders.primaryDomain` when the
  *     YAML frontmatter doesn't include `affected_target` — keeps the
@@ -93,7 +95,7 @@
  *     by the Zod schema). Bucket allowlist policy is filed under T07x.
  */
 import { Hono } from "hono";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import type { DB } from "../db/client.ts";
 import { withTx } from "../db/client.ts";
@@ -101,7 +103,7 @@ import {
   scanOrders as scanOrdersTable,
   scans as scansTable,
   jobs as jobsTable,
-  auditLog as auditLogTable,
+  webhookDedup as webhookDedupTable,
 } from "../db/schema.ts";
 import { emitSignedAudit } from "../audit/emit.ts";
 import { createFindingsIngest } from "../findings/ingest.ts";
@@ -180,6 +182,26 @@ function parseSignatureHeader(raw: string | undefined): ParsedSignatureHeader | 
 
   if (t === null || v1 === null) return null;
   return { t, v1 };
+}
+
+/**
+ * Detect a bun:sqlite UNIQUE-constraint violation. Used by the webhook_dedup
+ * INSERT-then-catch idempotency path (step 6).
+ *
+ * bun:sqlite surfaces errors as `SQLiteError` instances with a structured
+ * `code` field ("SQLITE_CONSTRAINT_UNIQUE") AND a message of the shape
+ * `UNIQUE constraint failed: <table>.<col>`. We match either to stay robust
+ * against the runtime swapping error wrappers between Bun versions (the
+ * `code` field is the canonical one; the message check is a paranoia belt).
+ */
+function isUniqueViolation(err: unknown): boolean {
+  if (err === null || typeof err !== "object") return false;
+  const e = err as { code?: unknown; message?: unknown };
+  if (e.code === "SQLITE_CONSTRAINT_UNIQUE") return true;
+  if (typeof e.message === "string" && e.message.includes("UNIQUE constraint failed")) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -320,33 +342,49 @@ export function createWebhookScanCompleteRouter(
     const body: WebhookScanCompleteBody = parsed.data;
 
     // ───────────────────────────────────────────────────────────────────
-    // 6. Idempotency check (audit-log dedup).
+    // 6. Idempotency check (webhook_dedup table).
     //
-    // We look for a prior `webhook_received` row whose metadata_json
-    // contains the same scan_order_id. SQLite has no native JSON
-    // operator we want to rely on (json_extract works but the column
-    // contains alpha-sorted keys), so we use a LIKE pattern on the
-    // serialised metadata blob — false positives are impossible because
-    // the scan_order_id is a 26-char Crockford ULID, vanishingly
-    // unlikely to appear as a substring anywhere else.
+    // INSERT into webhook_dedup with UNIQUE(webhook_kind, dedup_key); the
+    // unique-constraint collision is the duplicate signal. O(1) regardless
+    // of audit_log size (replaces the prior LIKE-scan; T145 LOW-3).
+    //
+    // Why INSERT-first (vs SELECT-then-INSERT):
+    //   - One round-trip in the happy path.
+    //   - Race-free: even if two replays arrive concurrently, only one
+    //     INSERT wins; the loser observes SQLITE_CONSTRAINT_UNIQUE and
+    //     returns 200 duplicate without ever touching findings / state.
+    //
+    // The row is inserted BEFORE state transitions; a mid-flight crash
+    // therefore leaves the dedup row in place AND the scan_order in
+    // `running`, so a retry from vps-agent gets the 200-duplicate fast
+    // path and the operator must manually advance the order (logged via
+    // the scheduled scan_timeout_watcher job). Matches the documented
+    // crash-safety stance in step 8.
     // ───────────────────────────────────────────────────────────────────
-    const dedupPattern = `%"scan_order_id":"${body.scan_order_id}"%`;
-    const prior = db
-      .select({ id: auditLogTable.id })
-      .from(auditLogTable)
-      .where(
-        sql`${auditLogTable.event} = ${"webhook_received"} AND ${auditLogTable.metadataJson} LIKE ${dedupPattern}`,
-      )
-      .limit(1)
-      .get();
-    if (prior) {
-      return c.json(
-        {
-          status: "duplicate",
-          scan_order_id: body.scan_order_id,
-        },
-        200,
-      );
+    try {
+      db.insert(webhookDedupTable)
+        .values({
+          id: newId(),
+          webhookKind: "scan_complete",
+          dedupKey: body.scan_order_id,
+          receivedAt: nowMs,
+          metadataJson: JSON.stringify({
+            findings_count: body.findings.length,
+            evidence_archive_url: body.evidence_archive_url,
+          }),
+        })
+        .run();
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        return c.json(
+          {
+            status: "duplicate",
+            scan_order_id: body.scan_order_id,
+          },
+          200,
+        );
+      }
+      throw err;
     }
 
     // ───────────────────────────────────────────────────────────────────

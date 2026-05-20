@@ -51,6 +51,7 @@ import {
   findings as findingsTable,
   jobs as jobsTable,
   auditLog as auditLogTable,
+  webhookDedup as webhookDedupTable,
 } from "../../src/db/schema.ts";
 import { createWebhookScanCompleteRouter } from "../../src/routes/webhooks-scan-complete.ts";
 
@@ -484,5 +485,133 @@ describe("POST /v1/webhooks/scan-complete — idempotency", () => {
       .where(eq(auditLogTable.event, "webhook_received"))
       .all();
     expect(audits.length).toBe(1);
+
+    // Step-6c contract: dedup is now backed by webhook_dedup table, NOT a
+    // LIKE-scan over audit_log. Exactly one row must exist for this key.
+    const dedupRows = db.select().from(webhookDedupTable).all();
+    expect(dedupRows.length).toBe(1);
+    expect(dedupRows[0]?.webhookKind).toBe("scan_complete");
+    expect(dedupRows[0]?.dedupKey).toBe(JUICE_SHOP_FIXTURE.scan_order_id);
+    expect(dedupRows[0]?.receivedAt).toBe(fixedNow);
+  });
+
+  test("pre-existing webhook_dedup row → 200 duplicate even without prior webhook_received audit", async () => {
+    // Constructs the post-step-6c short-circuit: a webhook_dedup row alone
+    // is enough to short-circuit a delivery to 200 duplicate. Proves the
+    // dedup decision is decoupled from audit_log (previously the only
+    // signal — see migration 0011 rationale).
+    const db = freshMemDb();
+    const fixedNow = 1_716_114_500_000;
+    seedRunningOrder(db, JUICE_SHOP_FIXTURE.scan_order_id, { nowMs: fixedNow });
+
+    // Seed the dedup row manually — no findings, no audit_log mutation.
+    db.insert(webhookDedupTable)
+      .values({
+        id: "01JTESTWDEDUP00000000000001",
+        webhookKind: "scan_complete",
+        dedupKey: JUICE_SHOP_FIXTURE.scan_order_id,
+        receivedAt: fixedNow - 10_000,
+        metadataJson: null,
+      })
+      .run();
+
+    const app = buildApp({ db, now: () => fixedNow });
+    const body = JSON.stringify(JUICE_SHOP_FIXTURE);
+    const res = await postSigned(app, body, { nowMs: fixedNow });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { status: string };
+    expect(json.status).toBe("duplicate");
+
+    // Crucially: zero findings ingested, zero jobs enqueued, no state change.
+    expect(db.select().from(findingsTable).all().length).toBe(0);
+    expect(db.select().from(jobsTable).all().length).toBe(0);
+    const orderRow = db
+      .select()
+      .from(scanOrdersTable)
+      .where(eq(scanOrdersTable.id, JUICE_SHOP_FIXTURE.scan_order_id))
+      .get();
+    expect(orderRow?.status).toBe("running"); // untouched
+    // No webhook_received audit either — short-circuit precedes step 10.
+    const receivedAudits = db
+      .select()
+      .from(auditLogTable)
+      .where(eq(auditLogTable.event, "webhook_received"))
+      .all();
+    expect(receivedAudits.length).toBe(0);
+  });
+
+  test("different scan_order_ids → both succeed (UNIQUE key is per-(kind, key))", async () => {
+    const db = freshMemDb();
+    const fixedNow = 1_716_114_500_000;
+    const orderIdA = JUICE_SHOP_FIXTURE.scan_order_id; // from fixture
+    // Crockford ULID — 26 chars, must NOT contain I/L/O/U.
+    const orderIdB = "01JTESTRDER0000000000000B2";
+
+    // Seed both orders + scans. The fixture body will be re-stamped to
+    // point at orderIdB on the second call.
+    seedRunningOrder(db, orderIdA, { nowMs: fixedNow });
+
+    // Build a second order with a distinct scanId so the FKs don't collide.
+    const userIdB = "01JTESTUSER000000000000002";
+    const scanIdB = "01JTESTSCAN0000000000000002";
+    db.insert(usersTable)
+      .values({ id: userIdB, email: `${userIdB}@test.local`, createdAt: fixedNow })
+      .run();
+    db.insert(scanOrdersTable)
+      .values({
+        id: orderIdB,
+        userId: userIdB,
+        status: "running",
+        tier: "quick",
+        primaryDomain: "juice-sh.op",
+        attackSurfaceJson: "[]",
+        safetyRps: 50,
+        dnsVerifyToken: "dns-token-stub-b",
+        dnsCheckAttempts: 0,
+        vpsProvider: "yandex",
+        paymentKind: "free_quick",
+        scanId: scanIdB,
+        createdAt: fixedNow,
+        updatedAt: fixedNow,
+      })
+      .run();
+    db.insert(scansTable)
+      .values({
+        id: scanIdB,
+        userId: userIdB,
+        scanOrderId: orderIdB,
+        profile: "recon",
+        status: "running",
+        failureReason: null,
+        startedAt: fixedNow,
+        completedAt: null,
+        usageTokens: null,
+        usageUsdCents: null,
+      })
+      .run();
+
+    const app = buildApp({ db, now: () => fixedNow });
+
+    // First delivery (orderIdA)
+    const bodyA = JSON.stringify(JUICE_SHOP_FIXTURE);
+    const resA = await postSigned(app, bodyA, { nowMs: fixedNow });
+    expect(resA.status).toBe(200);
+    const jsonA = (await resA.json()) as { status: string };
+    expect(jsonA.status).toBe("ok");
+
+    // Second delivery for a DIFFERENT scan_order_id — must succeed (no
+    // dedup collision because the UNIQUE is on (kind, key)).
+    const fixtureB = { ...JUICE_SHOP_FIXTURE, scan_order_id: orderIdB };
+    const bodyB = JSON.stringify(fixtureB);
+    const resB = await postSigned(app, bodyB, { nowMs: fixedNow });
+    expect(resB.status).toBe(200);
+    const jsonB = (await resB.json()) as { status: string };
+    expect(jsonB.status).toBe("ok");
+
+    // Two dedup rows, one per order.
+    const dedupRows = db.select().from(webhookDedupTable).all();
+    expect(dedupRows.length).toBe(2);
+    const keys = dedupRows.map((r) => r.dedupKey).sort();
+    expect(keys).toEqual([orderIdA, orderIdB].sort());
   });
 });
