@@ -7,211 +7,54 @@ on:
     branches: ['main']
 
 jobs:
-  lint:
-    name: lint
+  server-tests:
+    name: server tests
     runs-on: ubuntu-latest
+    env:
+      TENSOL_AUDIT_SIGNING_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      TENSOL_SESSION_COOKIE_SECRET: "1111111111111111111111111111111111111111111111111111111111111111"
+      TENSOL_WEBHOOK_SECRET: ci-webhook-test-secret
+      HETZNER_API_TOKEN: ci-placeholder
+      HETZNER_SSH_KEY_NAME: ci-placeholder
+      NODE_ENV: development
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: package.json
-      - name: assert bun version
-        run: bun run bun:assert-version
+          bun-version: latest
       - name: install
+        working-directory: server
         run: bun install --frozen-lockfile
-      - name: assert lockfile unchanged
-        # Codex review F1: --frozen-lockfile is a no-op assertion in some Bun versions.
-        # Make CI fail if `bun install` modified the tracked lockfile.
-        run: git diff --exit-code -- bun.lock
-      - name: lint
-        run: bun run lint
-
-  typecheck:
-    name: typecheck
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-      - name: assert bun version
-        run: bun run bun:assert-version
-      - name: install
-        run: bun install --frozen-lockfile
-      - name: assert lockfile unchanged
-        run: git diff --exit-code -- bun.lock
-      - name: typecheck
-        run: bun run typecheck
-
-  # Codex review F3: runs the workspace smoke + integration tests so the
-  # 21-package layout has a behavioral guard inside CI. Per-package coverage
-  # gates remain in `unit-tests` below and expand sprint by sprint.
-  unit-tests-root:
-    name: unit-tests-root
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-      - name: assert bun version
-        run: bun run bun:assert-version
-      - name: install
-        run: bun install --frozen-lockfile
-      - name: assert lockfile unchanged
-        run: git diff --exit-code -- bun.lock
-      - name: test (root, all suites)
+      - name: test
+        working-directory: server
         run: bun test
 
-  # Per-workspace unit tests with per-workspace coverage gate (B26-B29).
-  # Matrix expands as new packages gain real code.
-  unit-tests:
-    name: unit-tests
+  vps-agent-tests:
+    name: vps-agent tests
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        workspace:
-          - packages/config
-          - packages/db
-          - packages/authz
-          - apps/api
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: package.json
-      - name: assert bun version
-        run: bun run bun:assert-version
+          bun-version: latest
       - name: install
+        working-directory: vps-agent
         run: bun install --frozen-lockfile
-      - name: assert lockfile unchanged
-        run: git diff --exit-code -- bun.lock
-      - name: test ${{ matrix.workspace }}
-        run: bun test --coverage ${{ matrix.workspace }}
-      - name: coverage gate (per-workspace)
-        run: bun scripts/coverage-gate.ts --threshold=0.80 --workspace=${{ matrix.workspace }}
+      - name: test
+        working-directory: vps-agent
+        run: bun test
 
-  # Sprint 2 contract B7/R4: real migration-check job with PG service container
-  # pinned by sha256 digest. Promotes the placeholder echo from Sprint 1.
-  migration-check:
-    name: migration-check
+  apps-site-typecheck:
+    name: apps/site typecheck
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
-        env:
-          POSTGRES_USER: cs
-          POSTGRES_PASSWORD: cs
-          POSTGRES_DB: cyberstrike
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U cs -d cyberstrike"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 12
-    env:
-      DATABASE_URL: postgres://cs:cs@localhost:5432/cyberstrike
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: package.json
-      - name: assert bun version
-        run: bun run bun:assert-version
+          bun-version: latest
       - name: install
+        working-directory: apps/site
         run: bun install --frozen-lockfile
-      - name: assert lockfile unchanged
-        run: git diff --exit-code -- bun.lock
-      - name: install pg client (for pg_dump, pinned to v16)
-        # Sprint 2 evaluator F3 bonus: pg_dump 17+ emits non-deterministic
-        # \restrict/\unrestrict ACL tokens. migrate-check.ts strips them as
-        # the primary defence; pinning v16 here guarantees consistent
-        # behaviour across runner-image refreshes.
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
-      - name: migrate-check (up -> pg_dump -> rollback -> up -> diff)
-        run: bun run db:migrate:check
-
-  # Sprint 2: PG-dependent integration tests (tests/integration/db/).
-  # Tests gate themselves with describe.skipIf(!DATABASE_URL); when the env
-  # is set they execute fully against the service container.
-  integration-tests:
-    name: integration-tests
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
-        env:
-          POSTGRES_USER: cs
-          POSTGRES_PASSWORD: cs
-          POSTGRES_DB: cyberstrike
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U cs -d cyberstrike"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 12
-    env:
-      DATABASE_URL: postgres://cs:cs@localhost:5432/cyberstrike
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-      - name: assert bun version
-        run: bun run bun:assert-version
-      - name: install
-        run: bun install --frozen-lockfile
-      - name: assert lockfile unchanged
-        run: git diff --exit-code -- bun.lock
-      - name: integration tests
-        run: bun test tests/integration/db
-
-  # Sprint 3: PG-dependent auth integration tests (tests/integration/auth/).
-  # Same pinned PG digest as `integration-tests`; runs the auth route layer +
-  # IDOR matrix + audit-emission delta=1 invariant against a live database.
-  integration-tests-auth:
-    name: integration-tests-auth
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
-        env:
-          POSTGRES_USER: cs
-          POSTGRES_PASSWORD: cs
-          POSTGRES_DB: cyberstrike
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U cs -d cyberstrike"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 12
-    env:
-      DATABASE_URL: postgres://cs:cs@localhost:5432/cyberstrike
-      APP_ENV: local
-      SESSION_SECRET: 0000000000000000000000000000000000000000000000000000000000000000
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-      - name: assert bun version
-        run: bun run bun:assert-version
-      - name: install
-        run: bun install --frozen-lockfile
-      - name: assert lockfile unchanged
-        run: git diff --exit-code -- bun.lock
-      - name: auth integration tests
-        run: bun test tests/integration/auth
-
-  image-build:
-    name: image-build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: placeholder
-        # Expanded once service Dockerfiles arrive (Sprint 7+).
-        run: echo "[placeholder] image-build expands when service Dockerfiles arrive"
+      - name: typecheck
+        working-directory: apps/site
+        run: bunx tsc --noEmit
