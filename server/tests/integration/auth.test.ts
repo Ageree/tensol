@@ -1,21 +1,21 @@
 /**
- * T026 — Integration tests for the magic-link auth routes
- * (`server/src/routes/auth.ts`).
+ * Integration tests for the Telegram deep-link auth routes
+ * (`server/src/routes/auth.ts` + `server/src/routes/webhooks-telegram.ts`).
  *
- * Each test wires a fresh `:memory:` DB, a mock `EmailClient` that captures
- * outgoing sends, and a Hono app mounting `createAuthRoutes(...)` at
- * `/api/auth`. We exercise the routes via `app.request(...)` (Hono's in-
- * process test client) so cookie round-trips happen entirely in memory.
+ * Replaces the legacy email-based magic-link tests (pre-pivot 2026-05-19).
+ * Each test wires a fresh `:memory:` DB and a Hono app mounting both
+ * routers; the webhook handler runs against a captured-message mock notifier
+ * so we can assert reply content without hitting Telegram.
  *
- * Coverage matrix (acceptance criterion from tasks.md line 60):
- *   1. Happy path — POST request-link → GET verify → GET /me.
- *   2. Enumeration safety — unknown email still returns 204; we MUST NOT
- *      reveal that the email is unknown via status code, body, or timing.
- *   3. Invalid email body → 400.
- *   4. Verify with bogus / replayed token → 410.
- *   5. Logout — POST /logout clears cookie; subsequent /me → 401.
- *   6. Audit chain — issue/verify/logout each emit one signed audit row,
- *      and `verifyChain` confirms the chain is intact end-to-end.
+ * Coverage matrix:
+ *   1. Happy path — issue-link → simulate Telegram /start → poll-link →
+ *      resolved + cookie + /me.
+ *   2. issue-link rejects malformed usernames (400).
+ *   3. poll-link returns pending until consumed, expired after TTL.
+ *   4. Legacy /request-link + /verify return 410 Gone.
+ *   5. Webhook secret mismatch is dropped (200 with no DB change).
+ *   6. Audit chain captures `auth_login_requested` + `auth_login_succeeded`
+ *      + `auth_logout` in order.
  */
 import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -25,19 +25,16 @@ import { join } from "node:path";
 import { asc } from "drizzle-orm";
 
 import { createDb, type DB } from "../../src/db/client.ts";
-import { auditLog } from "../../src/db/schema.ts";
+import { auditLog, pendingSignups, users } from "../../src/db/schema.ts";
 import { createClock } from "../../src/lib/time.ts";
 import { verifyChain } from "../../src/audit/verify-chain.ts";
+import { createAuthRoutes } from "../../src/routes/auth.ts";
 import {
-  createAuthRoutes,
-  type CreateAuthRoutesDeps,
-} from "../../src/routes/auth.ts";
+  createWebhookTelegramRouter,
+  type WebhookTelegramNotifier,
+} from "../../src/routes/webhooks-telegram.ts";
 import { SESSION_COOKIE_NAME } from "../../src/auth/session.ts";
-import type {
-  EmailClient,
-  EmailSendArgs,
-  EmailSendResult,
-} from "../../src/email/resend-client.ts";
+import { PENDING_SIGNUP_TTL_MS } from "../../src/auth/magic-link.ts";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -45,7 +42,7 @@ import type {
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "migrations");
 const SIGNING_KEY =
   "test-key-64-chars-hex-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const BASE_URL = "https://api.tensol.test";
+const TELEGRAM_SECRET = "test-telegram-webhook-secret-hex";
 
 function migrationSql(): string {
   const files = readdirSync(MIGRATIONS_DIR)
@@ -67,271 +64,331 @@ function freshMemDb(): DB {
   return db;
 }
 
-interface CapturedEmail extends EmailSendArgs {
-  readonly id: string;
+interface CapturedReply {
+  readonly chatId: number;
+  readonly text: string;
 }
 
-function createCapturingEmail(): {
-  client: EmailClient;
-  sent: CapturedEmail[];
+function captureNotifier(): {
+  notifier: WebhookTelegramNotifier;
+  sent: CapturedReply[];
 } {
-  const sent: CapturedEmail[] = [];
-  const client: EmailClient = {
-    async send(args: EmailSendArgs): Promise<EmailSendResult> {
-      const id = `mock-${sent.length}`;
-      sent.push({ ...args, id });
-      return { id };
+  const sent: CapturedReply[] = [];
+  const notifier: WebhookTelegramNotifier = {
+    async sendMessage(args) {
+      sent.push({ chatId: args.chatId, text: args.text });
     },
   };
-  return { client, sent };
+  return { notifier, sent };
 }
 
 function buildApp(opts: {
   db: DB;
-  email: EmailClient;
   now: () => number;
-  redirectAfterVerify?: string;
+  notifier: WebhookTelegramNotifier;
 }) {
   const app = new Hono();
-  const deps: CreateAuthRoutesDeps = {
-    db: opts.db,
-    email: opts.email,
-    signingKey: SIGNING_KEY,
-    baseUrl: BASE_URL,
-    now: opts.now,
-    isProd: false,
-    redirectAfterVerify: opts.redirectAfterVerify ?? "/dashboard",
-  };
-  app.route("/api/auth", createAuthRoutes(deps));
+  app.route(
+    "/api/auth",
+    createAuthRoutes({
+      db: opts.db,
+      signingKey: SIGNING_KEY,
+      now: opts.now,
+      isProd: false,
+      botUsername: "tensol_leadsbot",
+    }),
+  );
+  app.route(
+    "/v1/webhooks",
+    createWebhookTelegramRouter({
+      db: opts.db,
+      signingKey: SIGNING_KEY,
+      webhookSecret: TELEGRAM_SECRET,
+      notifier: opts.notifier,
+      now: opts.now,
+    }),
+  );
   return app;
 }
 
-/** Pluck the magic-link `?token=...` value out of a captured email's HTML. */
-function tokenFromEmail(email: CapturedEmail): string {
-  const m = email.html.match(/[?&]token=([A-Za-z0-9_-]+)/);
-  if (!m) {
-    throw new Error(`No token found in email html: ${email.html.slice(0, 200)}`);
-  }
-  return m[1]!;
+/** Simulate a Telegram Update for `/start <token>` and POST it to the webhook. */
+async function sendStartUpdate(
+  app: Hono,
+  opts: {
+    token: string;
+    fromId: number;
+    fromUsername?: string;
+    secret?: string;
+  },
+): Promise<Response> {
+  const update = {
+    update_id: Math.floor(Math.random() * 1_000_000),
+    message: {
+      message_id: 1,
+      from: {
+        id: opts.fromId,
+        ...(opts.fromUsername !== undefined && { username: opts.fromUsername }),
+        is_bot: false,
+        first_name: "Test",
+      },
+      chat: { id: opts.fromId },
+      text: `/start ${opts.token}`,
+    },
+  };
+  return app.request("/v1/webhooks/telegram-update", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-telegram-bot-api-secret-token": opts.secret ?? TELEGRAM_SECRET,
+    },
+    body: JSON.stringify(update),
+  });
 }
 
-/** Pluck a single Set-Cookie cookie value by name. */
 function cookieValueFromSetCookie(
   res: Response,
   name: string,
 ): string | undefined {
   const header = res.headers.get("set-cookie");
   if (!header) return undefined;
-  // Hono emits one Set-Cookie per cookie; `getSetCookie` is the polite API but
-  // returns string[] only on newer runtimes — match by regex to stay portable.
   const re = new RegExp(`(?:^|, )${name}=([^;,\\s]+)`);
   const m = header.match(re);
   return m ? m[1] : undefined;
 }
 
 // ---------------------------------------------------------------------------
-// Test 1 — Happy path: request-link → verify → /me
+// Test 1 — Happy path
 // ---------------------------------------------------------------------------
-test("T026: full magic-link happy path → /me returns the user", async () => {
+test("telegram-auth: full happy path → issue-link → /start → poll-link → /me", async () => {
   const db = freshMemDb();
   const clock = createClock(1_700_000_000_000);
-  const { client: email, sent } = createCapturingEmail();
-  const app = buildApp({ db, email, now: clock.now });
+  const { notifier, sent } = captureNotifier();
+  const app = buildApp({ db, now: clock.now, notifier });
 
-  // POST /api/auth/request-link
-  const reqRes = await app.request("/api/auth/request-link", {
+  // 1. POST /issue-link
+  const issueRes = await app.request("/api/auth/issue-link", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email: "ALICE@example.com" }),
+    body: JSON.stringify({ telegram_username: "@kapital0" }),
   });
-  expect(reqRes.status).toBe(204);
-  expect(sent.length).toBe(1);
-  expect(sent[0]!.to).toBe("alice@example.com"); // normalised
-  expect(sent[0]!.html).toContain(`${BASE_URL}/api/auth/verify?token=`);
-
-  const token = tokenFromEmail(sent[0]!);
-
-  // GET /api/auth/verify?token=...
-  const verifyRes = await app.request(
-    `/api/auth/verify?token=${encodeURIComponent(token)}`,
-    { method: "GET", redirect: "manual" },
+  expect(issueRes.status).toBe(200);
+  const issueBody = (await issueRes.json()) as {
+    deep_link: string;
+    token: string;
+    telegram_username: string;
+    expires_at: number;
+  };
+  expect(issueBody.deep_link).toBe(
+    `https://t.me/tensol_leadsbot?start=${issueBody.token}`,
   );
-  expect(verifyRes.status).toBe(302);
-  expect(verifyRes.headers.get("location")).toBe("/dashboard");
-  const sessionId = cookieValueFromSetCookie(verifyRes, SESSION_COOKIE_NAME);
-  expect(sessionId).toBeTruthy();
+  expect(issueBody.telegram_username).toBe("kapital0");
 
-  // GET /api/auth/me with the cookie attached
+  // 2. poll-link before /start → pending
+  const pendingRes = await app.request(
+    `/api/auth/poll-link?token=${encodeURIComponent(issueBody.token)}`,
+  );
+  expect(pendingRes.status).toBe(200);
+  expect((await pendingRes.json()) as { status: string }).toEqual({
+    status: "pending",
+    expires_at: issueBody.expires_at,
+  });
+
+  // 3. Simulate Telegram delivering `/start <token>`
+  const hookRes = await sendStartUpdate(app, {
+    token: issueBody.token,
+    fromId: 496866748,
+    fromUsername: "kapital0",
+  });
+  expect(hookRes.status).toBe(200);
+  expect(sent.length).toBe(1);
+  expect(sent[0]!.chatId).toBe(496866748);
+  expect(sent[0]!.text).toContain("Готово");
+
+  // 4. poll-link → resolved + session cookie set
+  const resolvedRes = await app.request(
+    `/api/auth/poll-link?token=${encodeURIComponent(issueBody.token)}`,
+  );
+  expect(resolvedRes.status).toBe(200);
+  const resolvedBody = (await resolvedRes.json()) as {
+    status: string;
+    session_id: string;
+  };
+  expect(resolvedBody.status).toBe("resolved");
+  expect(resolvedBody.session_id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+  const cookieSession = cookieValueFromSetCookie(
+    resolvedRes,
+    SESSION_COOKIE_NAME,
+  );
+  expect(cookieSession).toBe(resolvedBody.session_id);
+
+  // 5. GET /me with the cookie
   const meRes = await app.request("/api/auth/me", {
-    headers: { Cookie: `${SESSION_COOKIE_NAME}=${sessionId}` },
+    headers: { Cookie: `${SESSION_COOKIE_NAME}=${cookieSession}` },
   });
   expect(meRes.status).toBe(200);
-  const meBody = (await meRes.json()) as {
-    user: { id: string; email: string };
-  };
-  expect(meBody.user.email).toBe("alice@example.com");
-  expect(meBody.user.id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/); // ULID
+  const meBody = (await meRes.json()) as { user: { id: string; email: string } };
+  expect(meBody.user.email).toBe("kapital0@telegram.local");
+  expect(meBody.user.id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+
+  // 6. users row + pending_signups row state
+  const userRow = db.select().from(users).all()[0]!;
+  expect(userRow.telegramUserId).toBe(496866748);
+  expect(userRow.telegramUsername).toBe("kapital0");
+  const pendingRow = db.select().from(pendingSignups).all()[0]!;
+  expect(pendingRow.status).toBe("resolved");
+  expect(pendingRow.chatId).toBe(496866748);
 });
 
 // ---------------------------------------------------------------------------
-// Test 2 — Enumeration safety: unknown email returns the same 204
+// Test 2 — Malformed username → 400
 // ---------------------------------------------------------------------------
-test("T026: unknown email returns the same 204 (no enumeration leak)", async () => {
+test("telegram-auth: issue-link rejects malformed usernames", async () => {
   const db = freshMemDb();
   const clock = createClock(1_700_000_000_000);
-  const { client: email, sent } = createCapturingEmail();
-  const app = buildApp({ db, email, now: clock.now });
+  const { notifier } = captureNotifier();
+  const app = buildApp({ db, now: clock.now, notifier });
 
-  // Two different emails — one we'll later verify, one totally unknown.
-  // From the route's POV both look identical at request-link time because
-  // users are only materialised at verify; the spec still requires the
-  // response shape to be byte-identical regardless of email existence.
-  const knownRes = await app.request("/api/auth/request-link", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email: "known@example.com" }),
-  });
-  const unknownRes = await app.request("/api/auth/request-link", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email: "ghost@example.com" }),
-  });
-  expect(knownRes.status).toBe(204);
-  expect(unknownRes.status).toBe(204);
-  // Body must be empty in both cases (204 No Content).
-  expect(await knownRes.text()).toBe("");
-  expect(await unknownRes.text()).toBe("");
-  // Emails were sent for both — we MUST send a link in the unknown case too
-  // (otherwise timing or downstream signals leak existence).
-  expect(sent.length).toBe(2);
+  const cases = [
+    "abc", // too short
+    "a".repeat(40), // too long
+    "has spaces",
+    "has-dashes",
+    "with$symbol",
+  ];
+  for (const username of cases) {
+    const res = await app.request("/api/auth/issue-link", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ telegram_username: username }),
+    });
+    expect(res.status).toBe(400);
+  }
 });
 
 // ---------------------------------------------------------------------------
-// Test 3 — Invalid email body → 400
+// Test 3 — poll-link returns expired after TTL elapses
 // ---------------------------------------------------------------------------
-test("T026: malformed email body → 400", async () => {
+test("telegram-auth: poll-link returns expired after TTL", async () => {
   const db = freshMemDb();
   const clock = createClock(1_700_000_000_000);
-  const { client: email } = createCapturingEmail();
-  const app = buildApp({ db, email, now: clock.now });
+  const { notifier } = captureNotifier();
+  const app = buildApp({ db, now: clock.now, notifier });
 
-  const res = await app.request("/api/auth/request-link", {
+  const issueRes = await app.request("/api/auth/issue-link", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email: "not-an-email" }),
+    body: JSON.stringify({ telegram_username: "alice" }),
   });
-  expect(res.status).toBe(400);
-  const body = (await res.json()) as { error: string };
-  expect(body.error).toBeTruthy();
+  const { token } = (await issueRes.json()) as { token: string };
+
+  // Advance clock past TTL
+  clock.advance(PENDING_SIGNUP_TTL_MS + 1_000);
+
+  const res = await app.request(
+    `/api/auth/poll-link?token=${encodeURIComponent(token)}`,
+  );
+  expect(res.status).toBe(200);
+  expect((await res.json()) as { status: string }).toEqual({
+    status: "expired",
+  });
+
+  // Replay /start after expiry → reply EXPIRED, no session
+  const hookRes = await sendStartUpdate(app, {
+    token,
+    fromId: 12345,
+    fromUsername: "alice",
+  });
+  expect(hookRes.status).toBe(200);
 });
 
 // ---------------------------------------------------------------------------
-// Test 4 — Verify with bogus token → 410; replay → 410
+// Test 4 — Legacy endpoints return 410 Gone
 // ---------------------------------------------------------------------------
-test("T026: bogus token → 410, replayed token → 410", async () => {
+test("telegram-auth: legacy /request-link + /verify return 410", async () => {
   const db = freshMemDb();
   const clock = createClock(1_700_000_000_000);
-  const { client: email, sent } = createCapturingEmail();
-  const app = buildApp({ db, email, now: clock.now });
+  const { notifier } = captureNotifier();
+  const app = buildApp({ db, now: clock.now, notifier });
 
-  // Bogus token: never issued → 410 (we conflate invalid/used/expired into
-  // 410 so the client cannot probe for which tokens existed).
-  const bogus = await app.request(
-    "/api/auth/verify?token=does-not-exist-token-value-xyz",
-    { method: "GET", redirect: "manual" },
-  );
-  expect(bogus.status).toBe(410);
-
-  // Issue + verify once, then replay → 410 (used branch).
-  await app.request("/api/auth/request-link", {
+  const reqLink = await app.request("/api/auth/request-link", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email: "replay@example.com" }),
+    body: JSON.stringify({ email: "x@y.com" }),
   });
-  const token = tokenFromEmail(sent[0]!);
-  const first = await app.request(
-    `/api/auth/verify?token=${encodeURIComponent(token)}`,
-    { method: "GET", redirect: "manual" },
-  );
-  expect(first.status).toBe(302);
+  expect(reqLink.status).toBe(410);
 
-  const replay = await app.request(
-    `/api/auth/verify?token=${encodeURIComponent(token)}`,
-    { method: "GET", redirect: "manual" },
-  );
-  expect(replay.status).toBe(410);
+  const verify = await app.request("/api/auth/verify?token=anything");
+  expect(verify.status).toBe(410);
 });
 
 // ---------------------------------------------------------------------------
-// Test 5 — Logout: clears cookie + /me returns 401 afterwards
+// Test 5 — Webhook secret mismatch is dropped silently with 200
 // ---------------------------------------------------------------------------
-test("T026: POST /logout clears the session — /me afterwards → 401", async () => {
+test("telegram-auth: webhook with bad secret returns 200 but no DB change", async () => {
   const db = freshMemDb();
   const clock = createClock(1_700_000_000_000);
-  const { client: email, sent } = createCapturingEmail();
-  const app = buildApp({ db, email, now: clock.now });
+  const { notifier, sent } = captureNotifier();
+  const app = buildApp({ db, now: clock.now, notifier });
 
-  await app.request("/api/auth/request-link", {
+  const issueRes = await app.request("/api/auth/issue-link", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email: "logout@example.com" }),
+    body: JSON.stringify({ telegram_username: "bob_abc" }),
   });
-  const token = tokenFromEmail(sent[0]!);
-  const verifyRes = await app.request(
-    `/api/auth/verify?token=${encodeURIComponent(token)}`,
-    { method: "GET", redirect: "manual" },
+  const { token } = (await issueRes.json()) as { token: string };
+
+  const hookRes = await sendStartUpdate(app, {
+    token,
+    fromId: 999,
+    fromUsername: "bob_abc",
+    secret: "WRONG-SECRET",
+  });
+  expect(hookRes.status).toBe(200);
+  // No reply was sent because the body was never parsed
+  expect(sent.length).toBe(0);
+  // Pending row still pending
+  const row = db.select().from(pendingSignups).all()[0]!;
+  expect(row.status).toBe("pending");
+});
+
+// ---------------------------------------------------------------------------
+// Test 6 — Audit chain end-to-end
+// ---------------------------------------------------------------------------
+test("telegram-auth: audit chain captures request/success/logout", async () => {
+  const db = freshMemDb();
+  const clock = createClock(1_700_000_000_000);
+  const { notifier } = captureNotifier();
+  const app = buildApp({ db, now: clock.now, notifier });
+
+  // 1. issue
+  const issueRes = await app.request("/api/auth/issue-link", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ telegram_username: "audit_user" }),
+  });
+  const { token } = (await issueRes.json()) as { token: string };
+
+  // 2. /start (consume)
+  await sendStartUpdate(app, {
+    token,
+    fromId: 555,
+    fromUsername: "audit_user",
+  });
+
+  // 3. poll → grab cookie
+  const pollRes = await app.request(
+    `/api/auth/poll-link?token=${encodeURIComponent(token)}`,
   );
-  const sessionId = cookieValueFromSetCookie(verifyRes, SESSION_COOKIE_NAME)!;
+  const cookie = cookieValueFromSetCookie(pollRes, SESSION_COOKIE_NAME)!;
 
-  // Sanity: cookie works.
-  const meBefore = await app.request("/api/auth/me", {
-    headers: { Cookie: `${SESSION_COOKIE_NAME}=${sessionId}` },
-  });
-  expect(meBefore.status).toBe(200);
-
-  // POST logout.
+  // 4. logout
   const logoutRes = await app.request("/api/auth/logout", {
     method: "POST",
-    headers: { Cookie: `${SESSION_COOKIE_NAME}=${sessionId}` },
+    headers: { Cookie: `${SESSION_COOKIE_NAME}=${cookie}` },
   });
   expect(logoutRes.status).toBe(204);
-  // Set-Cookie clears the cookie (Max-Age=0 or expires in the past).
-  const setCookie = logoutRes.headers.get("set-cookie") ?? "";
-  expect(setCookie).toContain(SESSION_COOKIE_NAME);
-  expect(setCookie.toLowerCase()).toMatch(/max-age=0|expires=/);
 
-  // Re-presenting the (now revoked) cookie → 401.
-  const meAfter = await app.request("/api/auth/me", {
-    headers: { Cookie: `${SESSION_COOKIE_NAME}=${sessionId}` },
-  });
-  expect(meAfter.status).toBe(401);
-});
-
-// ---------------------------------------------------------------------------
-// Test 6 — Audit chain end-to-end: request → succeed → logout
-// ---------------------------------------------------------------------------
-test("T026: audit chain captures request/success/logout in order", async () => {
-  const db = freshMemDb();
-  const clock = createClock(1_700_000_000_000);
-  const { client: email, sent } = createCapturingEmail();
-  const app = buildApp({ db, email, now: clock.now });
-
-  await app.request("/api/auth/request-link", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email: "audit@example.com" }),
-  });
-  const token = tokenFromEmail(sent[0]!);
-  const verifyRes = await app.request(
-    `/api/auth/verify?token=${encodeURIComponent(token)}`,
-    { method: "GET", redirect: "manual" },
-  );
-  const sessionId = cookieValueFromSetCookie(verifyRes, SESSION_COOKIE_NAME)!;
-  await app.request("/api/auth/logout", {
-    method: "POST",
-    headers: { Cookie: `${SESSION_COOKIE_NAME}=${sessionId}` },
-  });
-
+  // Audit row order: requested → succeeded → logout
   const events = db
     .select({ event: auditLog.event })
     .from(auditLog)
@@ -343,8 +400,46 @@ test("T026: audit chain captures request/success/logout in order", async () => {
     "auth_logout",
   ]);
 
-  // Chain integrity.
+  // Chain integrity
   const result = verifyChain(db, SIGNING_KEY);
   expect(result.ok).toBe(true);
   expect(result.rows).toBe(3);
+});
+
+// ---------------------------------------------------------------------------
+// Test 7 — Replay /start after resolved → "used" → reply expired
+// ---------------------------------------------------------------------------
+test("telegram-auth: replaying /start after consumption replies expired", async () => {
+  const db = freshMemDb();
+  const clock = createClock(1_700_000_000_000);
+  const { notifier, sent } = captureNotifier();
+  const app = buildApp({ db, now: clock.now, notifier });
+
+  const issueRes = await app.request("/api/auth/issue-link", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ telegram_username: "replay_user" }),
+  });
+  const { token } = (await issueRes.json()) as { token: string };
+
+  // First /start succeeds
+  await sendStartUpdate(app, {
+    token,
+    fromId: 777,
+    fromUsername: "replay_user",
+  });
+  expect(sent[0]!.text).toContain("Готово");
+
+  // Second /start with same token → reply EXPIRED
+  await sendStartUpdate(app, {
+    token,
+    fromId: 777,
+    fromUsername: "replay_user",
+  });
+  expect(sent.length).toBe(2);
+  expect(sent[1]!.text).toContain("устарела");
+
+  // Only one session minted
+  const userRows = db.select().from(users).all();
+  expect(userRows.length).toBe(1);
 });

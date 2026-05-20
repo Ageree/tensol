@@ -84,6 +84,7 @@ import {
 } from "./routes/admin/deep-inquiries.ts";
 import { createWebhookRoutes } from "./routes/webhooks.ts";
 import { createWebhookScanCompleteRouter } from "./routes/webhooks-scan-complete.ts";
+import { createWebhookTelegramRouter } from "./routes/webhooks-telegram.ts";
 import { createConfigFeatureFlagsRouter } from "./routes/config-feature-flags.ts";
 import { createTestV2Router } from "./routes/__test_v2.ts";
 import { createScanOrdersService } from "./scan-orders/service.ts";
@@ -246,6 +247,13 @@ export interface CreateAppDeps {
    */
   readonly webhookSecret: string;
   /**
+   * Pivot 2026-05-19 — Telegram bot webhook secret. Verified by
+   * `webhooks-telegram.ts` before parsing the Update body. Empty in dev =
+   * the handler drops every inbound (operator must configure setWebhook
+   * with a matching --secret_token).
+   */
+  readonly telegramWebhookSecret: string;
+  /**
    * T121 — pre-normalized operator email list (lowercased, trimmed). Source:
    * env `TENSOL_OPERATOR_EMAILS` parsed at startup via `parseOperatorEmails`.
    * Empty list = no operators configured = `/v1/admin/*` returns 403 for
@@ -269,9 +277,14 @@ export function createApp(deps: CreateAppDeps): Hono {
     resendApiKey,
     isProd,
     webhookSecret,
+    telegramWebhookSecret,
     operatorEmails,
     now,
   } = deps;
+  // `baseUrl` is currently unused after the email magic-link removal but is
+  // kept on the deps shape because operator-facing routes (PDF report links,
+  // future webhooks) will pick it up shortly. Silence the unused warning.
+  void baseUrl;
 
   const app = new Hono();
 
@@ -279,23 +292,26 @@ export function createApp(deps: CreateAppDeps): Hono {
   // the process without holding a session.
   app.get("/healthz", (c) => c.json({ ok: true }));
 
-  const email = createEmailClient({
-    mode: emailMode,
-    ...maybeProp("resendApiKey", resendApiKey),
-  });
+  // Pivot 2026-05-19 — email transport is no longer wired into auth (Resend
+  // is unavailable to the operator). The factory remains exported because
+  // future deep-inquiry confirmations may still ship via email; we deliberately
+  // construct it lazily here ONLY if a downstream consumer needs it. For now
+  // there are no in-tree consumers, so this is a no-op reference to keep the
+  // import alive without instantiating any client.
+  void createEmailClient;
+  void emailMode;
+  void resendApiKey;
 
-  // T145 step-6a — per-IP rate-limit on /api/auth/* (email-flood vector).
-  // Applied as middleware BEFORE the route mount so it covers every verb
-  // (`/request-link`, `/verify`, `/logout`, `/me`). 10 req/min/IP per
-  // RATE_LIMIT_AUTH; legitimate magic-link retry patterns fit comfortably.
+  // T145 step-6a — per-IP rate-limit on /api/auth/* (telegram-link issuance
+  // is the email-flood successor — same DoS surface). Applied as middleware
+  // BEFORE the route mount so it covers every verb. 10 req/min/IP per
+  // RATE_LIMIT_AUTH; legitimate retry patterns fit comfortably.
   app.use("/api/auth/*", createRateLimit(RATE_LIMIT_AUTH));
   app.route(
     "/api/auth",
     createAuthRoutes({
       db,
-      email,
       signingKey,
-      baseUrl,
       isProd,
       ...maybeNow(now),
     }),
@@ -403,6 +419,35 @@ export function createApp(deps: CreateAppDeps): Hono {
       db,
       webhookSecret,
       auditKey: signingKey,
+      ...maybeNow(now),
+    }),
+  );
+
+  // Pivot 2026-05-19 — `/v1/webhooks/telegram-update` (Telegram bot
+  // delivery). Verifies the `X-Telegram-Bot-Api-Secret-Token` header
+  // before parsing the body. Replies through the same bot using the
+  // production `sendMessage` import; in dev (no token configured) the
+  // notifier falls back to a no-op so boot doesn't halt.
+  const telegramReplyNotifier = {
+    async sendMessage(args: { chatId: number; text: string }): Promise<void> {
+      try {
+        await sendTelegramMessage(args.text, { chatId: args.chatId });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          "[tensol] telegram reply send failed (non-fatal):",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    },
+  };
+  app.route(
+    "/v1/webhooks",
+    createWebhookTelegramRouter({
+      db,
+      signingKey,
+      webhookSecret: telegramWebhookSecret,
+      notifier: telegramReplyNotifier,
       ...maybeNow(now),
     }),
   );
@@ -810,6 +855,7 @@ export async function main(): Promise<{
     emailMode: config.EMAIL_PROVIDER,
     isProd: config.NODE_ENV === "production",
     webhookSecret: config.TENSOL_WEBHOOK_SECRET,
+    telegramWebhookSecret: config.TENSOL_TELEGRAM_WEBHOOK_SECRET,
     operatorEmails: parseOperatorEmails(config.TENSOL_OPERATOR_EMAILS),
     ...maybeProp("resendApiKey", config.RESEND_API_KEY),
   });

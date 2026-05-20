@@ -66,6 +66,14 @@ const ConfigSchema = z
     // no match against a real signed payload).
     TENSOL_WEBHOOK_SECRET: z.string().default(""),
 
+    // Pivot 2026-05-19 — Telegram bot webhook secret. Telegram attaches this
+    // string in the `X-Telegram-Bot-Api-Secret-Token` header when delivering
+    // bot updates; we verify it before parsing the body. Optional with empty
+    // default so dev boot doesn't halt; when unset the `/v1/webhooks/telegram-
+    // update` handler refuses every inbound (Telegram retries, but the
+    // operator notices via the warn-log).
+    TENSOL_TELEGRAM_WEBHOOK_SECRET: z.string().default(""),
+
     // T121 — comma-separated list of operator emails authorised to use the
     // `/v1/admin/*` surface (Deep-inquiry triage, etc.). Optional with empty
     // default so dev boot doesn't halt; the safe default is "no operators
