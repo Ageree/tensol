@@ -763,8 +763,8 @@ const en = {
         d: 'OPPLAN, scope-bound, allow / deny rules, exclusions, testing window. Signed before the agent fires a single packet.',
       },
       {
-        t: 'HITL approval gates',
-        d: 'High-impact categories — credential dumps, lateral movement, persistence — require explicit per-target consent from security_lead in the dashboard.',
+        t: 'Two-track model',
+        d: 'Quick is a fully autonomous blackbox AI scan over the public surface — no human in the loop, no high-impact actions. The paid Deep audit adds expert validation and explicit per-target consent for high-impact categories.',
       },
     ],
 
@@ -2093,8 +2093,8 @@ const ru: TensolDict = {
         d: 'OPPLAN, scope-bound, allow / deny rules, exclusions, тестовое окно. Подписывается до старта — до первого пакета.',
       },
       {
-        t: 'HITL approval gates',
-        d: 'High-impact категории — credential dumps, lateral movement, persistence — требуют явного per-target согласия security_lead в дашборде.',
+        t: 'Две дорожки',
+        d: 'Quick — полностью автономный blackbox-скан публичного периметра ИИ-агентом, без участия человека и без высокорисковых действий. В платный Deep-аудит добавляется экспертная валидация и явное per-target согласие на высокорисковые категории.',
       },
     ],
 
