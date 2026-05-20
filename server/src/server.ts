@@ -85,6 +85,7 @@ import {
 import { createWebhookRoutes } from "./routes/webhooks.ts";
 import { createWebhookScanCompleteRouter } from "./routes/webhooks-scan-complete.ts";
 import { createConfigFeatureFlagsRouter } from "./routes/config-feature-flags.ts";
+import { createTestV2Router } from "./routes/__test_v2.ts";
 import { createScanOrdersService } from "./scan-orders/service.ts";
 import { createDeepInquiriesService } from "./deep-inquiries/service.ts";
 import { createRequireAuth } from "./auth/middleware.ts";
@@ -393,6 +394,22 @@ export function createApp(deps: CreateAppDeps): Hono {
   // `TENSOL_YOOKASSA_LIVE` via the T019 isYookassaLive() helper at
   // request time so flag flips take effect without a restart.
   app.route("/v1/config/feature-flags", createConfigFeatureFlagsRouter());
+
+  // Post-loop step 2 — `/__test/v2/*` fixture seeders (T149 unblock).
+  // ONLY mounted when NODE_ENV != "production". The factory does NOT
+  // re-read the env — the boot path owns the gate. Each handler does
+  // raw DB writes with NO audit emit (per spec: test endpoints must
+  // not pollute the production audit chain).
+  if (!isProd) {
+    app.route(
+      "/__test/v2",
+      createTestV2Router({ db, ...maybeNow(now) }),
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      "[tensol] /__test/v2/* endpoints enabled (NODE_ENV != production)",
+    );
+  }
 
   return app;
 }
