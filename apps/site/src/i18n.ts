@@ -290,6 +290,15 @@ const en = {
   dashCreate: 'Create assessment',
   dashEmpty: 'No active assessments. Create one from a verified target.',
 
+  // T110 — Deep audit banner on Dashboard (US2 lead-gen).
+  dashboard: {
+    deepBanner: {
+      title: 'Need a deep audit?',
+      body: 'Quick is a baseline external check. For business-critical systems, request a Deep engagement with expert validation, NDA, and a tailored report.',
+      cta: 'Request Deep audit',
+    },
+  },
+
   // Projects
   projTitle: 'Projects.',
   projSub: 'Containers for targets and assessments.',
@@ -1556,6 +1565,15 @@ const ru: TensolDict = {
   dashEngine: '// ТЕЛЕМЕТРИЯ ENGINE',
   dashCreate: 'Создать assessment',
   dashEmpty: 'Активных assessments нет. Создайте из verified target.',
+
+  // T110 — Deep audit banner on Dashboard (US2 lead-gen).
+  dashboard: {
+    deepBanner: {
+      title: 'Нужен глубокий аудит?',
+      body: 'Quick — это базовая поверхностная проверка периметра. Для критичных систем закажите Deep аудит с экспертной валидацией, NDA и индивидуальным отчётом.',
+      cta: 'Запросить Deep аудит',
+    },
+  },
 
   // Projects
   projTitle: 'Проекты.',

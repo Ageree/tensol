@@ -175,6 +175,9 @@ const Dashboard = (): ReactElement => {
   const goApproval = (): void => {
     navigate('/approval');
   };
+  const goDeepInquiry = (): void => {
+    navigate('/deep-inquiry');
+  };
 
   return (
     <AppShell breadcrumb={[t.navDashboard]} role="security_lead" density="comfortable">
@@ -204,6 +207,60 @@ const Dashboard = (): ReactElement => {
           </h1>
           <Btn kind="primary" onClick={goBuilder}>
             {t.dashCreate} →
+          </Btn>
+        </div>
+
+        {/* T110 — Deep audit banner (US2 lead-gen funnel). Visible to all
+            authenticated users; Dashboard is already auth-gated upstream. */}
+        <div
+          data-testid="dashboard-deep-banner"
+          style={{
+            border: '1px solid var(--fg)',
+            padding: '20px 24px',
+            marginBottom: 40,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 24,
+            flexWrap: 'wrap',
+            background: 'var(--bg)',
+          }}
+        >
+          <div style={{ minWidth: 0, flex: '1 1 380px' }}>
+            <Mono
+              size={11}
+              color="var(--fg-3)"
+              style={{ letterSpacing: '0.08em', textTransform: 'uppercase' }}
+            >
+              // DEEP AUDIT
+            </Mono>
+            <div
+              style={{
+                fontFamily: "'Space Grotesk', sans-serif",
+                fontWeight: 500,
+                fontSize: 22,
+                lineHeight: 1.15,
+                letterSpacing: '-0.01em',
+                margin: '8px 0 6px',
+              }}
+            >
+              {t.dashboard.deepBanner.title}
+            </div>
+            <p
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 13.5,
+                lineHeight: 1.5,
+                color: 'var(--fg-2)',
+                margin: 0,
+                maxWidth: '60ch',
+              }}
+            >
+              {t.dashboard.deepBanner.body}
+            </p>
+          </div>
+          <Btn kind="secondary" onClick={goDeepInquiry}>
+            {t.dashboard.deepBanner.cta} →
           </Btn>
         </div>
 
