@@ -65,7 +65,10 @@ import { createScanTimeoutWatcher } from "./jobs/handlers/scan-timeout-watcher.t
 import { createCleanupOrphanVmsTask } from "./jobs/handlers/cleanup-orphan-vms.ts";
 import { createCleanupExpiredReportsHandler } from "./jobs/handlers/cleanup-expired-reports.ts";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { sendMessage as sendTelegramMessage } from "./notify/telegram.ts";
+import {
+  sendMessage as sendTelegramMessage,
+  createTelegramNotifier,
+} from "./notify/telegram.ts";
 import { createYandexCloudProvider } from "./vps/yandex.ts";
 import { refundFreeQuickQuota } from "./free-tier/service.ts";
 import { createLoggingTelegramNotifier } from "./notify/telegram-placeholder.ts";
@@ -536,12 +539,26 @@ export async function main(): Promise<{
     },
   });
 
-  const telegramNotifier = createLoggingTelegramNotifier();
-  // eslint-disable-next-line no-console
-  console.warn(
-    "[tensol] T066: TelegramNotifier = LoggingTelegramNotifier (placeholder). " +
-      "T096 will replace with the production bot-API client.",
-  );
+  // Post-loop Step 1 — production-wire the real Telegram notifier (T096)
+  // when `TENSOL_TELEGRAM_BOT_TOKEN` is set; otherwise fall back to the
+  // T066 logging placeholder so dev boots without Telegram creds still work
+  // (the placeholder logs the would-be envelope + returns `{ messageId: null }`).
+  const telegramBotToken = process.env.TENSOL_TELEGRAM_BOT_TOKEN ?? "";
+  const telegramNotifier = telegramBotToken
+    ? createTelegramNotifier({ botToken: telegramBotToken })
+    : createLoggingTelegramNotifier();
+  if (!telegramBotToken) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[tensol] TelegramNotifier = LoggingTelegramNotifier (placeholder). " +
+        "Set TENSOL_TELEGRAM_BOT_TOKEN to activate the real bot-API client (T096).",
+    );
+  } else {
+    // eslint-disable-next-line no-console
+    console.log(
+      "[tensol] TelegramNotifier = production bot-API client (T096 wired).",
+    );
+  }
 
   const spawnYandexVm = adaptNewStyle(
     createSpawnYandexVmHandler({
