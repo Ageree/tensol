@@ -10,9 +10,12 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import {
   scanOrders,
   scans,
+  auth,
+  deepInquiries,
   ApiError,
   type ScanOrder,
   type ScanSummary,
+  type CreateDeepInquiryBody,
 } from "./api-client.ts";
 
 interface FetchCall {
@@ -271,5 +274,102 @@ describe("error handling", () => {
     const err = caught as ApiError;
     expect(err.status).toBe(0);
     expect(err.code).toBe("network_error");
+  });
+});
+
+// ─── T106 — US2 deep-inquiry + auth/me coverage ─────────────────────────────
+
+describe("auth.me client", () => {
+  test("200 returns typed AuthMe object", async () => {
+    installFetchStub(() =>
+      jsonResponse(200, {
+        id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        email: "ops@acme.test",
+        free_quick_available: true,
+      }),
+    );
+
+    const result = await auth.me();
+
+    expect(result).not.toBeNull();
+    expect(result?.email).toBe("ops@acme.test");
+    expect(calls[0]?.url).toBe("/v1/auth/me");
+    expect(calls[0]?.init.method).toBe("GET");
+    expect(calls[0]?.init.credentials).toBe("include");
+  });
+
+  test("401 (anonymous caller) is mapped to null", async () => {
+    installFetchStub(() =>
+      jsonResponse(401, { error: "unauthenticated" }),
+    );
+
+    const result = await auth.me();
+
+    expect(result).toBeNull();
+  });
+
+  test("5xx still throws ApiError (not mapped)", async () => {
+    installFetchStub(() =>
+      jsonResponse(500, { error: "internal_error", message: "boom" }),
+    );
+
+    let caught: unknown;
+    try {
+      await auth.me();
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect((caught as ApiError).status).toBe(500);
+  });
+});
+
+describe("deepInquiries client", () => {
+  const validBody: CreateDeepInquiryBody = {
+    company: "Acme",
+    contact_name: "Alex",
+    phone: "+79991234567",
+    domains_text: "acme.test",
+    scope_text: "External perimeter, no DoS.",
+    consent_accepted: true,
+  };
+
+  test("create — POST /v1/deep-inquiries sends JSON body and parses 201", async () => {
+    installFetchStub(() =>
+      jsonResponse(201, { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV" }),
+    );
+
+    const result = await deepInquiries.create(validBody);
+
+    expect(result.id).toBe("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    expect(calls[0]?.url).toBe("/v1/deep-inquiries");
+    expect(calls[0]?.init.method).toBe("POST");
+    const headers = calls[0]?.init.headers as Record<string, string>;
+    expect(headers["content-type"]).toBe("application/json");
+    expect(calls[0]?.init.body).toBe(JSON.stringify(validBody));
+  });
+
+  test("create — 422 surfaces details for field-level errors", async () => {
+    installFetchStub(() =>
+      jsonResponse(422, {
+        error: "validation_error",
+        message: "request body failed schema validation",
+        details: [{ path: "company", code: "too_small" }],
+      }),
+    );
+
+    let caught: unknown;
+    try {
+      await deepInquiries.create(validBody);
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    const err = caught as ApiError;
+    expect(err.status).toBe(422);
+    expect(err.code).toBe("validation_error");
+    expect(Array.isArray(err.details)).toBe(true);
   });
 });

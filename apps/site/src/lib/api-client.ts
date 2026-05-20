@@ -213,6 +213,42 @@ export interface FeatureFlags {
   yookassa_live: boolean;
 }
 
+// Auth (GET /v1/auth/me) — used by US2 deep-inquiry prefill (T106).
+// Anonymous callers receive a 401 which we map back to `null`.
+export interface AuthMe {
+  id: string;
+  email: string;
+  free_quick_available?: boolean;
+  free_quick_resets_at?: number | null;
+}
+
+// Deep inquiry (POST /v1/deep-inquiries) — US2 lead-gen funnel.
+// Mirrors `server/src/schemas/deep-inquiries.ts` CreateInquiryBodySchema and
+// `specs/002-blackbox-mvp/contracts/openapi.yaml` 1:1.
+export type DeepInquiryBudgetBand =
+  | "under_500k"
+  | "500k_1m"
+  | "1m_3m"
+  | "3m_plus"
+  | "open";
+
+export interface CreateDeepInquiryBody {
+  company: string;
+  contact_name: string;
+  position?: string | null;
+  email?: string | null;
+  phone: string;
+  domains_text: string;
+  desired_date?: number | null;
+  budget_band?: DeepInquiryBudgetBand | null;
+  scope_text: string;
+  consent_accepted: true;
+}
+
+export interface DeepInquiryCreateResult {
+  id: string;
+}
+
 // ─── Request body types ────────────────────────────────────────────────────
 
 export interface CreateScanOrderBody {
@@ -407,6 +443,37 @@ export const config = {
     request<FeatureFlags>("/v1/config/feature-flags"),
 };
 
+// ─── Auth (T106 — US2 prefill) ─────────────────────────────────────────────
+
+export const auth = {
+  /**
+   * GET /v1/auth/me — current user session.
+   *
+   * Anonymous callers get a 401 — we map that to `null` so the deep-inquiry
+   * form can transparently fall back to the anonymous flow. Other errors
+   * (network, 5xx) continue to throw `ApiError` so callers can decide.
+   */
+  me: async (): Promise<AuthMe | null> => {
+    try {
+      return await request<AuthMe>("/v1/auth/me");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return null;
+      throw err;
+    }
+  },
+};
+
+// ─── Deep inquiries (T106 — US2 lead-gen funnel) ───────────────────────────
+
+export const deepInquiries = {
+  /** POST /v1/deep-inquiries — anonymous OR authenticated (201). */
+  create: (body: CreateDeepInquiryBody): Promise<DeepInquiryCreateResult> =>
+    request<DeepInquiryCreateResult>("/v1/deep-inquiries", {
+      method: "POST",
+      body,
+    }),
+};
+
 // ─── Top-level convenience export ─────────────────────────────────────────
 
-export const apiClient = { scanOrders, scans, config };
+export const apiClient = { scanOrders, scans, config, auth, deepInquiries };

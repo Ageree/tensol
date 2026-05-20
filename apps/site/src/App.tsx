@@ -25,6 +25,15 @@ const Trust = lazy(() => safeImport(() => import('./pages/Trust.tsx'), 'trust'))
 const Legal = lazy(() => safeImport(() => import('./pages/Legal.tsx'), 'legal'));
 const Blog = lazy(() => safeImport(() => import('./pages/Blog.tsx'), 'blog'));
 const Method = lazy(() => safeImport(() => import('./pages/Method.tsx'), 'method'));
+const DeepInquiry = lazy(() =>
+  safeImport(() => import('./pages/DeepInquiry.tsx'), 'deep-inquiry'),
+);
+const DeepInquiryThankYou = lazy(() =>
+  safeImport(
+    () => import('./pages/DeepInquiryThankYou.tsx'),
+    'deep-inquiry-thank-you',
+  ),
+);
 const ScanWizard = lazy(() =>
   safeImport(
     () =>
@@ -83,6 +92,12 @@ export const App = () => (
         <Route path="/legal/:kind" element={<Legal />} />
         <Route path="/blog" element={<Blog />} />
         <Route path="/method" element={<Method />} />
+        {/* T108 — US2 Deep audit lead-gen funnel. */}
+        <Route path="/deep-inquiry" element={<DeepInquiry />} />
+        <Route
+          path="/deep-inquiry/thank-you"
+          element={<DeepInquiryThankYou />}
+        />
         {/* T083 — canonical Blackbox MVP scan routes. */}
         <Route path="/scan/new" element={<ScanWizard mode="create" />} />
         <Route

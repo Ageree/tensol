@@ -503,6 +503,54 @@ const en = {
   },
   // ── END:contact ─────────────────────────────────────────────────────
 
+  // ── BEGIN:deepInquiry (T106+T107 — US2 Deep audit funnel) ───────────
+  deepInquiry: {
+    title: 'Request a Deep audit',
+    lead: 'Tell us about your stack and scope. The Tensol team will reach out within 24 hours to align scope and sign an NDA before any testing begins.',
+    fCompany: 'Company',
+    fContactName: 'Contact name',
+    fPosition: 'Position',
+    fPositionHint: 'Optional.',
+    fEmail: 'Email',
+    fEmailHint: 'Optional — we use Telegram as the primary channel.',
+    fPhone: 'Phone / Telegram',
+    fPhoneHint: 'E.164 number (+7…) or Telegram @handle.',
+    fDomainsText: 'Domains in scope',
+    fDomainsTextHint: 'One per line. The first one is treated as primary.',
+    fScopeText: 'Scope and constraints',
+    fScopeTextHint: 'What to test, what is out-of-scope, any sensitive systems we must avoid.',
+    fBudgetBand: 'Budget band',
+    fBudgetBandHint: 'Indicative only — we quote after the call.',
+    fDesiredDate: 'Desired start date',
+    fDesiredDateHint: 'Optional. We will confirm the slot.',
+    fConsent: 'I agree my data is processed under 152-FZ — see',
+    fConsentLink: 'privacy policy',
+    submit: 'Send request',
+    submitting: 'Sending…',
+    budgetOptions: {
+      open: 'Open / want to discuss',
+      under_500k: 'Under 500 000 ₽',
+      band_500k_1m: '500 000 – 1 000 000 ₽',
+      band_1m_3m: '1 000 000 – 3 000 000 ₽',
+      band_3m_plus: 'Over 3 000 000 ₽',
+    },
+    errors: {
+      required: 'Required.',
+      invalidEmail: 'Enter a valid email.',
+      invalidPhone: 'Enter a valid phone (+7…) or Telegram @handle.',
+      scopeTooLong: 'Scope description is too long (max 10 000 characters).',
+      domainsTooLong: 'Domains list is too long (max 10 000 characters).',
+      consent: 'Please confirm 152-FZ consent.',
+      generic: 'Could not submit your request. Please try again.',
+    },
+    thankYou: {
+      title: 'Request received',
+      body: 'We will reach out within 24 hours via Telegram or the contact you provided to align scope and sign an NDA before any testing begins.',
+      returnLink: 'Back to home',
+    },
+  },
+  // ── END:deepInquiry ─────────────────────────────────────────────────
+
   // ── BEGIN:pricing (owned by Agent P) ────────────────────────────────
   pricing: {
     navLabel: 'Pricing',
@@ -537,7 +585,7 @@ const en = {
           'Applications and platforms with multiple modules, integrations and multi-step workflows. Hybrid: the agent runs the full kill chain, a human pentester validates every confirmed finding before delivery',
         depth: '~5–10 day engagement · NDA + custom SOW · live operator contact',
         ctaLabel: 'Request audit →',
-        ctaHref: '/contact',
+        ctaHref: '/deep-inquiry',
       },
     ],
     faqEyebrow: '// FAQ',
@@ -1711,6 +1759,54 @@ const ru: TensolDict = {
   },
   // ── END:contact ─────────────────────────────────────────────────────
 
+  // ── BEGIN:deepInquiry (T106+T107 — US2 Deep audit funnel) ───────────
+  deepInquiry: {
+    title: 'Запрос на Deep аудит',
+    lead: 'Расскажите о стеке и периметре. Команда Tensol свяжется с вами в течение 24 часов: согласуем периметр и подпишем NDA до начала тестирования.',
+    fCompany: 'Компания',
+    fContactName: 'Контактное лицо',
+    fPosition: 'Должность',
+    fPositionHint: 'Необязательно.',
+    fEmail: 'Email',
+    fEmailHint: 'Необязательно — основной канал связи Telegram.',
+    fPhone: 'Телефон / Telegram',
+    fPhoneHint: 'Номер в формате +7… или Telegram @ник.',
+    fDomainsText: 'Домены в скоупе',
+    fDomainsTextHint: 'По одному на строку. Первый считается основным.',
+    fScopeText: 'Скоуп и ограничения',
+    fScopeTextHint: 'Что тестируем, что вне скоупа, какие чувствительные системы трогать нельзя.',
+    fBudgetBand: 'Бюджет',
+    fBudgetBandHint: 'Ориентир — точную смету выставим после звонка.',
+    fDesiredDate: 'Желаемая дата старта',
+    fDesiredDateHint: 'Необязательно. Слот подтвердим отдельно.',
+    fConsent: 'Согласен на обработку данных по 152-ФЗ — см.',
+    fConsentLink: 'политику конфиденциальности',
+    submit: 'Отправить заявку',
+    submitting: 'Отправляем…',
+    budgetOptions: {
+      open: 'Открытый / хочу обсудить',
+      under_500k: 'До 500 000 ₽',
+      band_500k_1m: '500 000 – 1 000 000 ₽',
+      band_1m_3m: '1 000 000 – 3 000 000 ₽',
+      band_3m_plus: 'Свыше 3 000 000 ₽',
+    },
+    errors: {
+      required: 'Обязательное поле.',
+      invalidEmail: 'Введите корректный email.',
+      invalidPhone: 'Введите телефон (+7…) или Telegram @ник.',
+      scopeTooLong: 'Описание периметра слишком длинное (макс. 10 000 символов).',
+      domainsTooLong: 'Список доменов слишком длинный (макс. 10 000 символов).',
+      consent: 'Подтвердите согласие 152-ФЗ.',
+      generic: 'Не получилось отправить заявку. Попробуйте ещё раз.',
+    },
+    thankYou: {
+      title: 'Заявка получена',
+      body: 'Свяжемся в течение 24 часов через Telegram или указанный контакт, чтобы согласовать периметр и подписать NDA до начала тестирования.',
+      returnLink: 'На главную',
+    },
+  },
+  // ── END:deepInquiry ─────────────────────────────────────────────────
+
   // ── BEGIN:pricing (owned by Agent P) ────────────────────────────────
   pricing: {
     navLabel: 'Тарифы',
@@ -1745,7 +1841,7 @@ const ru: TensolDict = {
           'Приложениям и платформам с несколькими модулями, интеграциями и многошаговыми сценариями. Гибридный режим: агент проходит полную цепочку атаки, человек-пентестер валидирует каждую подтверждённую уязвимость до передачи отчёта',
         depth: 'Проект 5–10 дней · соглашение о неразглашении и индивидуальное техническое задание · прямой контакт с оператором',
         ctaLabel: 'Запросить аудит →',
-        ctaHref: '/contact',
+        ctaHref: '/deep-inquiry',
       },
     ],
     faqEyebrow: '',

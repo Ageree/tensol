@@ -291,7 +291,7 @@ function PricingPlans() {
                 kind="secondary"
                 size="md"
                 fullWidth
-                onClick={() => navigate(plan.ctaHref ?? '/contact')}
+                onClick={() => navigate(plan.ctaHref ?? '/deep-inquiry')}
               >
                 {plan.ctaLabel ?? t.pricing.contactCta}
               </Btn>
@@ -438,7 +438,7 @@ function PricingCta() {
         </div>
         <button
           type="button"
-          onClick={() => navigate('/contact')}
+          onClick={() => navigate('/deep-inquiry')}
           style={{
             fontFamily: "'JetBrains Mono', monospace",
             fontSize: 13,

@@ -164,7 +164,7 @@ function MarketingHero({
             <Btn kind="primary" onClick={() => navigate('/scan/new')}>
               {t.ctaQuickFree} ▸
             </Btn>
-            <Btn kind="ghost" href="/contact">
+            <Btn kind="ghost" href="/deep-inquiry">
               {t.ctaDeepAudit} →
             </Btn>
           </div>
@@ -590,7 +590,7 @@ function MarketingCta(_props: { onDemo?: () => void; onSignIn?: () => void }) {
             </button>
             <button
               type="button"
-              onClick={() => navigate('/contact')}
+              onClick={() => navigate('/deep-inquiry')}
               style={{
                 fontFamily: "'JetBrains Mono', monospace",
                 fontSize: 13,
