@@ -1,10 +1,11 @@
 /**
- * T092 + T093 — Shared helpers for the scan-wizard E2E specs.
+ * T092 + T093 + T120 — Shared helpers for the scan-wizard E2E specs.
  *
  * Extracted from T091 (`apps/site/e2e/scan-wizard.spec.ts`, commit 265bd14)
- * so the happy-path, free-quota, and dns-timeout specs all share the same
- * auth-bypass + webhook-signing primitives. Keeping the helpers in one
- * place avoids drift if the test-server endpoint shape changes.
+ * so the happy-path, free-quota, dns-timeout, and history-redownload specs
+ * all share the same auth-bypass + webhook-signing primitives. Keeping the
+ * helpers in one place avoids drift if the test-server endpoint shape
+ * changes.
  *
  * Backend env requirements (set by T102 smoke runner):
  *   - TENSOL_DEV_DNS_BYPASS=true   — auto-verifies DNS after ~5s
@@ -21,6 +22,20 @@
  *       POST /__test/v2/create-dns-pending { user_id, primary_domain } → { order_id, dns_token }
  *           (T093) Shortcut to skip wizard step 1 + step 2 and land
  *           directly at step 3 in `dns_pending`.
+ *       POST /__test/v2/create-dns-verified { user_id, primary_domain, rps? } → { order_id }
+ *           (T092) Shortcut: an order already in `dns_verified` so the
+ *           spec can launch immediately.
+ *       POST /__test/v2/seed-completed-scan { user_id, findings_count?, report_status? } → { order_id, scan_id, report_id }
+ *           (T120) Fabricates a full history row: a `scan_orders` row in
+ *           `completed`, a sibling `scans` row in `completed`, the
+ *           requested number of `findings`, and a `reports` row in the
+ *           requested status (default `ready`). Used to test dashboard
+ *           history + re-download + regenerate-on-expiry without
+ *           waiting for a real scan to complete.
+ *       POST /__test/v2/expire-report { report_id } → { ok, expires_at }
+ *           (T120) Flips `reports.download_expires_at` to a past
+ *           timestamp so the report client treats the URL as expired
+ *           and the regenerate affordance must surface on next poll.
  *
  * Constitution V (NON-NEGOTIABLE): polling only, no SSE.
  * Constitution VII: server-side Zod is canonical; this mirrors the
@@ -306,4 +321,92 @@ export async function createDnsVerifiedOrder(
     );
   }
   return (await res.json()) as { order_id: string };
+}
+
+// ── T120 test-only endpoints ───────────────────────────────────────────────
+
+export type SeedReportStatus = 'pending' | 'rendering' | 'ready' | 'failed';
+
+export interface SeedCompletedScanInput {
+  readonly userId: string;
+  readonly primaryDomain?: string;
+  readonly findingsCount?: number;
+  readonly reportStatus?: SeedReportStatus;
+}
+
+export interface SeedCompletedScanResult {
+  readonly order_id: string;
+  readonly scan_id: string;
+  readonly report_id: string;
+}
+
+/**
+ * T120 — Seed a complete past-scan history row for the given user.
+ *
+ * Inserts (atomically, server-side):
+ *   - `scan_orders` row in `completed` with `payment_kind='free_quick'`
+ *     and a `scan_id` link
+ *   - sibling `scans` row in `completed`
+ *   - `findings_count` rows (default 9 — matches Juice Shop fixture) on
+ *     the `findings` table, severities cycled deterministically
+ *   - `reports` row in `report_status` (default `ready`) with a stub
+ *     `download_url` + `byte_size` + `download_expires_at` in the future
+ *
+ * Used by `history-redownload.spec.ts` to walk Dashboard → click row →
+ * Findings → Report → expire URL → see "Regenerate" without waiting for
+ * a real Decepticon scan.
+ *
+ * T102 must wire `POST /__test/v2/seed-completed-scan`:
+ *   request:  { user_id, primary_domain?, findings_count?, report_status? }
+ *   response: { order_id, scan_id, report_id }
+ */
+export async function seedCompletedScan(
+  api: APIRequestContext,
+  input: SeedCompletedScanInput,
+): Promise<SeedCompletedScanResult> {
+  const res = await api.post('/__test/v2/seed-completed-scan', {
+    headers: { 'content-type': 'application/json' },
+    data: {
+      user_id: input.userId,
+      primary_domain: input.primaryDomain ?? 'example.com',
+      findings_count: input.findingsCount ?? 9,
+      report_status: input.reportStatus ?? 'ready',
+    },
+  });
+  if (!res.ok()) {
+    throw new Error(
+      `seedCompletedScan failed: ${res.status()} ${await res.text()}`,
+    );
+  }
+  return (await res.json()) as SeedCompletedScanResult;
+}
+
+/**
+ * T120 — Backdate `reports.download_expires_at` to ≥1 hour ago so the
+ * report client treats the URL as expired and surfaces the "Regenerate"
+ * affordance on the next poll. We also flip `status` to `failed` because
+ * the current `Reports.tsx` state machine (commit c7f3b3d) only shows
+ * the regenerate CTA on `failed`; the equivalent expiry-aware UI is
+ * tracked separately, so for now the test-only endpoint mirrors that
+ * by setting `status='failed'` alongside the past `expires_at` so the
+ * UI assertion is deterministic.
+ *
+ * T102 must wire `POST /__test/v2/expire-report`:
+ *   request:  { report_id: string }
+ *   response: { ok: true, expires_at: number }
+ */
+export async function expireReport(
+  api: APIRequestContext,
+  reportId: string,
+): Promise<{ ok: true; expires_at: number }> {
+  const res = await api.post('/__test/v2/expire-report', {
+    headers: { 'content-type': 'application/json' },
+    data: { report_id: reportId },
+  });
+  if (!res.ok()) {
+    throw new Error(
+      `expireReport failed: ${res.status()} ${await res.text()}`,
+    );
+  }
+  return (await res.json()) as { ok: true; expires_at: number };
 }
