@@ -1,0 +1,96 @@
+name: nightly-smoke
+
+# T130 — Nightly real-Yandex smoke.
+#
+# Runs ONLY the T128 lifecycle integration test against the real Yandex
+# Cloud + the operator-controlled juice-shop.tensol.dev target every
+# night at 03:00 UTC. The point is to catch silent regressions in the
+# cloud-init bootstrap, image pulls, webhook reachability, or PDF render
+# path between merges — the same chain that pr-merge.yml guards on push,
+# but on a regular cadence even when nothing was merged.
+#
+# Failure routes to Telegram via api.telegram.org/sendMessage so the
+# operator sees alerts in the same channel as in-product scan alerts.
+# workflow_dispatch is enabled so the operator can rerun on demand
+# without waiting for the cron tick.
+
+on:
+  schedule:
+    # 03:00 UTC daily. Sits well before EU operator working hours so a
+    # failure is investigated by the time anyone tries to ship in the AM.
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: nightly-smoke
+  cancel-in-progress: false
+
+jobs:
+  t128-real-yandex:
+    name: t128-real-yandex
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: server
+    env:
+      TENSOL_TEST_REAL_YANDEX: "1"
+
+      YANDEX_SA_KEY_JSON: ${{ secrets.YANDEX_SA_KEY_JSON }}
+      YANDEX_PROD_FOLDER_ID: ${{ secrets.YANDEX_PROD_FOLDER_ID }}
+      YANDEX_PROD_NETWORK_ID: ${{ secrets.YANDEX_PROD_NETWORK_ID }}
+      YANDEX_PROD_SUBNET_ID: ${{ secrets.YANDEX_PROD_SUBNET_ID }}
+      YANDEX_PROD_SSH_PUBLIC_KEY: ${{ secrets.YANDEX_PROD_SSH_PUBLIC_KEY }}
+
+      TENSOL_TELEGRAM_BOT_TOKEN: ${{ secrets.TENSOL_TELEGRAM_BOT_TOKEN }}
+      TENSOL_TELEGRAM_CHAT_ID: ${{ secrets.TENSOL_TELEGRAM_CHAT_ID }}
+
+      TENSOL_WEBHOOK_SECRET: ${{ secrets.TENSOL_WEBHOOK_SECRET }}
+      TENSOL_HMAC_SECRET: ${{ secrets.TENSOL_HMAC_SECRET }}
+
+      TENSOL_AUDIT_SIGNING_KEY: ${{ secrets.TENSOL_AUDIT_SIGNING_KEY }}
+
+      TENSOL_EVIDENCE_BUCKET: ${{ secrets.TENSOL_EVIDENCE_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+
+      TENSOL_VPS_AGENT_IMAGE: ${{ secrets.TENSOL_VPS_AGENT_IMAGE }}
+      TENSOL_WEBHOOK_BASE_URL: ${{ secrets.TENSOL_WEBHOOK_BASE_URL }}
+      DECEPTICON_IMAGE: ${{ secrets.DECEPTICON_IMAGE }}
+
+      TENSOL_REAL_TARGET: ${{ secrets.TENSOL_REAL_TARGET }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: bun install (server)
+        run: bun install --frozen-lockfile
+
+      - name: t128 real-yandex smoke
+        run: bun test test/integration/scan-lifecycle-real-yandex.test.ts
+
+      - name: telegram alert on failure
+        if: failure()
+        env:
+          BOT_TOKEN: ${{ secrets.TENSOL_TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TENSOL_TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        # Minimal inline curl — keeps the failure-alert hot-path free of
+        # any server build artefact. The message is plaintext so it
+        # renders without parse_mode quirks (no Markdown escaping needed).
+        run: |
+          MESSAGE="Tensol nightly-smoke FAILED%0Acommit: ${SHA}%0Arun: ${RUN_URL}"
+          curl -sS --fail-with-body \
+            "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            -d "text=${MESSAGE}" \
+            -d "disable_web_page_preview=true"

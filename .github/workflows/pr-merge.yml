@@ -1,0 +1,87 @@
+name: pr-merge
+
+# T129 — PR-merge guard.
+#
+# Runs the full server test suite WITH the real-Yandex T128 lifecycle
+# integration test enabled (TENSOL_TEST_REAL_YANDEX=1) on every push to
+# `main`. This is the "every merge talks to real cloud once" gate from
+# specs/002-blackbox-mvp/plan.md.
+#
+# Secrets are sourced from GitHub Actions repo Secrets and injected via
+# the `env:` block — they MUST NOT appear inline in this YAML.
+#
+# Job timeout (45 min) sits above the in-test TEST_TIMEOUT_MS (35 min)
+# so the runner kills any wedged provider call cleanly instead of being
+# truncated by the platform-default 6-hour ceiling.
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  # New pushes to main cancel any prior in-flight run — only the latest
+  # commit on main matters for the merge gate.
+  group: pr-merge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-yandex-suite:
+    name: real-yandex-suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: server
+    env:
+      # Toggle that flips the describe.skipIf gate in
+      # server/test/integration/scan-lifecycle-real-yandex.test.ts.
+      TENSOL_TEST_REAL_YANDEX: "1"
+
+      # Yandex Cloud provisioning (operator-owned prod folder).
+      YANDEX_SA_KEY_JSON: ${{ secrets.YANDEX_SA_KEY_JSON }}
+      YANDEX_PROD_FOLDER_ID: ${{ secrets.YANDEX_PROD_FOLDER_ID }}
+      YANDEX_PROD_NETWORK_ID: ${{ secrets.YANDEX_PROD_NETWORK_ID }}
+      YANDEX_PROD_SUBNET_ID: ${{ secrets.YANDEX_PROD_SUBNET_ID }}
+      YANDEX_PROD_SSH_PUBLIC_KEY: ${{ secrets.YANDEX_PROD_SSH_PUBLIC_KEY }}
+
+      # Telegram operator alerts (used by notify/telegram.ts).
+      TENSOL_TELEGRAM_BOT_TOKEN: ${{ secrets.TENSOL_TELEGRAM_BOT_TOKEN }}
+      TENSOL_TELEGRAM_CHAT_ID: ${{ secrets.TENSOL_TELEGRAM_CHAT_ID }}
+
+      # Webhook + HMAC secrets shared with vps-agent.
+      TENSOL_WEBHOOK_SECRET: ${{ secrets.TENSOL_WEBHOOK_SECRET }}
+      TENSOL_HMAC_SECRET: ${{ secrets.TENSOL_HMAC_SECRET }}
+
+      # Audit chain signing (config.ts requires hex≥64).
+      TENSOL_AUDIT_SIGNING_KEY: ${{ secrets.TENSOL_AUDIT_SIGNING_KEY }}
+
+      # Yandex Object Storage (S3-compatible) for evidence + reports.
+      TENSOL_EVIDENCE_BUCKET: ${{ secrets.TENSOL_EVIDENCE_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT: ${{ secrets.AWS_ENDPOINT }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+
+      # Image refs + public backend URL required by config.ts.
+      TENSOL_VPS_AGENT_IMAGE: ${{ secrets.TENSOL_VPS_AGENT_IMAGE }}
+      TENSOL_WEBHOOK_BASE_URL: ${{ secrets.TENSOL_WEBHOOK_BASE_URL }}
+      DECEPTICON_IMAGE: ${{ secrets.DECEPTICON_IMAGE }}
+
+      # Target override — defaults to juice-shop.tensol.dev inside the test.
+      TENSOL_REAL_TARGET: ${{ secrets.TENSOL_REAL_TARGET }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: bun install (server)
+        run: bun install --frozen-lockfile
+
+      - name: bun test (full suite, T128 real-yandex enabled)
+        run: bun test
