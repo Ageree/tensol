@@ -1,0 +1,71 @@
+# syntax=docker/dockerfile:1.7
+#
+# Tensol backend (server) — production image.
+#
+# Multi-stage build:
+#   1. deps:    install monorepo deps with --frozen-lockfile
+#   2. runtime: copy node_modules + server source, run as non-root
+#
+# Build context = repo root (because we need root package.json + bun.lock for
+# the workspace install). Invoke from infra/prod/docker-compose.prod.yml or
+# manually:
+#
+#   docker build -t tensol-server:latest -f server/Dockerfile .
+#
+# Resulting image runs `bun run src/server.ts` on PORT 3000.
+
+# ----- stage 1: deps -----
+FROM oven/bun:1.3.11-alpine AS deps
+
+WORKDIR /app
+
+# Monorepo manifests required for the workspace install. We deliberately
+# copy package.json files (not the whole tree) so changes inside src/ don't
+# bust this layer.
+COPY package.json bun.lock ./
+COPY server/package.json ./server/
+COPY apps/site/package.json ./apps/site/
+COPY vps-agent/package.json ./vps-agent/
+
+# Reproducible install. Bun honours the workspace pin in package.json.
+RUN bun install --frozen-lockfile
+
+# ----- stage 2: runtime -----
+FROM oven/bun:1.3.11-alpine AS runtime
+
+# wget needed for HEALTHCHECK; tini for proper PID-1 signal handling.
+RUN apk add --no-cache wget tini ca-certificates
+
+WORKDIR /app
+
+# Bring installed node_modules from the deps stage.
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/package.json /app/bun.lock ./
+COPY --from=deps /app/server/package.json ./server/
+
+# Application sources.
+COPY server/src        ./server/src
+COPY server/migrations ./server/migrations
+COPY server/scripts    ./server/scripts
+COPY server/drizzle.config.ts ./server/
+
+# SQLite + chromium-min cache live under /app/server/data (mounted volume in
+# compose). Create the directory and chown it so the non-root bun user can
+# write at runtime.
+RUN mkdir -p /app/server/data /home/bun/.cache/puppeteer \
+ && chown -R bun:bun /app /home/bun
+
+USER bun
+WORKDIR /app/server
+
+EXPOSE 3000
+
+ENV NODE_ENV=production \
+    PORT=3000 \
+    PUPPETEER_CACHE_DIR=/home/bun/.cache/puppeteer
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/healthz || exit 1
+
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["bun", "run", "src/server.ts"]
