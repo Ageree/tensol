@@ -93,6 +93,11 @@ import { readSessionCookie } from "./auth/session.ts";
 import { sessions as sessionsTable } from "./db/schema.ts";
 import { eq } from "drizzle-orm";
 import { now as defaultNow } from "./lib/time.ts";
+import {
+  createRateLimit,
+  RATE_LIMIT_AUTH,
+  RATE_LIMIT_INQUIRY,
+} from "./lib/rate-limit.ts";
 
 /**
  * T066 — periodic watchdog cadence for the scan-timeout watcher (T064).
@@ -279,6 +284,11 @@ export function createApp(deps: CreateAppDeps): Hono {
     ...maybeProp("resendApiKey", resendApiKey),
   });
 
+  // T145 step-6a — per-IP rate-limit on /api/auth/* (email-flood vector).
+  // Applied as middleware BEFORE the route mount so it covers every verb
+  // (`/request-link`, `/verify`, `/logout`, `/me`). 10 req/min/IP per
+  // RATE_LIMIT_AUTH; legitimate magic-link retry patterns fit comfortably.
+  app.use("/api/auth/*", createRateLimit(RATE_LIMIT_AUTH));
   app.route(
     "/api/auth",
     createAuthRoutes({
@@ -354,6 +364,13 @@ export function createApp(deps: CreateAppDeps): Hono {
     if (clockForCookie() >= sessionRow.expiresAt) return null;
     return sessionRow.userId;
   };
+  // T145 step-6a — per-IP rate-limit on /v1/deep-inquiries (anonymous POST,
+  // DB-write + signed-audit per call). 5 req/min/IP per RATE_LIMIT_INQUIRY;
+  // tighter than auth because there is no legitimate retry pattern. Hono's
+  // `/v1/deep-inquiries/*` glob matches the bare-path mount (`app.route` of
+  // a router whose only handler is `app.post("/")`) — verified via probe;
+  // see commit body for the test.
+  app.use("/v1/deep-inquiries/*", createRateLimit(RATE_LIMIT_INQUIRY));
   app.route(
     "/v1/deep-inquiries",
     createDeepInquiriesRouter({
