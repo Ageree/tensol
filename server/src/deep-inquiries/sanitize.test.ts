@@ -165,6 +165,115 @@ describe("sanitizeScopeText — negative + edge cases", () => {
   });
 });
 
+describe("sanitizeScopeText — JWT tokens", () => {
+  it("redacts a classic JWT", () => {
+    const r = sanitizeScopeText(
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqb2huIn0.signature_abc"
+    );
+    expect(r.sanitized).toBe("[REDACTED]");
+    expect(r.rulesHit).toContain("jwt-token");
+  });
+
+  it("redacts a JWT embedded in prose, preserving surrounding text", () => {
+    const r = sanitizeScopeText(
+      "my token is eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqb2huIn0.signature_abc please rotate"
+    );
+    expect(r.sanitized).toBe("my token is [REDACTED] please rotate");
+    expect(r.sanitized).not.toContain("eyJhbGciOiJIUzI1NiJ9");
+  });
+});
+
+describe("sanitizeScopeText — SSH private keys", () => {
+  it("redacts an RSA PEM private key block", () => {
+    const block =
+      "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...synthetic...\nfake-key-body-multiline\n-----END RSA PRIVATE KEY-----";
+    const r = sanitizeScopeText(`prefix\n${block}\nsuffix`);
+    expect(r.sanitized).toBe("prefix\n[REDACTED]\nsuffix");
+    expect(r.rulesHit).toContain("ssh-private-key");
+  });
+
+  it("redacts an OPENSSH PEM private key block", () => {
+    const block =
+      "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAAfake\nsynthetic-body\n-----END OPENSSH PRIVATE KEY-----";
+    const r = sanitizeScopeText(block);
+    expect(r.sanitized).toBe("[REDACTED]");
+    expect(r.rulesHit).toContain("ssh-private-key");
+  });
+
+  it("redacts an ED25519 PEM private key block", () => {
+    const block =
+      "-----BEGIN ED25519 PRIVATE KEY-----\nsynthetic-ed25519-body\n-----END ED25519 PRIVATE KEY-----";
+    const r = sanitizeScopeText(block);
+    expect(r.sanitized).toBe("[REDACTED]");
+    expect(r.rulesHit).toContain("ssh-private-key");
+  });
+
+  it("redacts a bare PRIVATE KEY block (no algorithm prefix)", () => {
+    const block =
+      "-----BEGIN PRIVATE KEY-----\nsynthetic-pkcs8-body\n-----END PRIVATE KEY-----";
+    const r = sanitizeScopeText(block);
+    expect(r.sanitized).toBe("[REDACTED]");
+    expect(r.rulesHit).toContain("ssh-private-key");
+  });
+});
+
+describe("sanitizeScopeText — DB / broker connection strings", () => {
+  it("redacts postgres connection string with embedded password", () => {
+    const r = sanitizeScopeText(
+      "postgres://admin:hunter2@db.example.com:5432/myapp"
+    );
+    expect(r.sanitized).toBe(
+      "postgres://admin:[REDACTED]@db.example.com:5432/myapp"
+    );
+    expect(r.rulesHit).toContain("conn-string-with-pwd");
+  });
+
+  it("redacts mongodb+srv connection string", () => {
+    const r = sanitizeScopeText(
+      "mongodb+srv://user:pwd@cluster.mongodb.net/db"
+    );
+    expect(r.sanitized).toBe(
+      "mongodb+srv://user:[REDACTED]@cluster.mongodb.net/db"
+    );
+    expect(r.rulesHit).toContain("conn-string-with-pwd");
+  });
+
+  it("redacts redis connection string with empty username", () => {
+    const r = sanitizeScopeText("redis://:password@redis.local:6379");
+    expect(r.sanitized).toBe("redis://:[REDACTED]@redis.local:6379");
+    expect(r.rulesHit).toContain("conn-string-with-pwd");
+  });
+
+  it("redacts mysql connection string", () => {
+    const r = sanitizeScopeText("mysql://root:toor@127.0.0.1:3306/app");
+    expect(r.sanitized).toBe(
+      "mysql://root:[REDACTED]@127.0.0.1:3306/app"
+    );
+  });
+
+  it("redacts amqps broker URL", () => {
+    const r = sanitizeScopeText("amqps://svc:s3cret@mq.example.com:5671/vh");
+    expect(r.sanitized).toBe(
+      "amqps://svc:[REDACTED]@mq.example.com:5671/vh"
+    );
+  });
+
+  it("does not double-redact https URL (handled by url-basic-auth)", () => {
+    const r = sanitizeScopeText("https://user:password@host.example/path");
+    // exactly one [REDACTED], from url-basic-auth not conn-string-with-pwd
+    expect(r.sanitized).toBe("https://user:[REDACTED]@host.example/path");
+    expect(r.rulesHit).toContain("url-basic-auth");
+    expect(r.rulesHit).not.toContain("conn-string-with-pwd");
+    expect(r.redactedCount).toBe(1);
+  });
+
+  it("leaves connection string without password untouched", () => {
+    const r = sanitizeScopeText("postgres://host.example:5432/db");
+    expect(r.sanitized).toBe("postgres://host.example:5432/db");
+    expect(r.redactedCount).toBe(0);
+  });
+});
+
 describe("sanitizeScopeTextSimple — convenience wrapper", () => {
   it("returns only the sanitized string", () => {
     const out = sanitizeScopeTextSimple("password:foo123");

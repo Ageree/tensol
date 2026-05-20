@@ -79,6 +79,31 @@ const RULES: ReadonlyArray<RedactionRule> = [
     pattern: /\bsk-[A-Za-z0-9]{20,}\b/g,
     replacer: () => REDACTED,
   },
+  // ---- DB / message-broker connection strings with embedded password ----
+  // Matches postgres/postgresql/mongodb(+srv)/mysql/redis/amqp(s)/mssql://
+  // user:pwd@host. Username group allows empty (`[^:\s\/@]*`) so the
+  // `redis://:password@host` form (no username) is still redacted.
+  {
+    name: "conn-string-with-pwd",
+    pattern:
+      /\b((?:postgres|postgresql|mongodb|mysql|redis|amqps?|mssql)(?:\+srv)?:\/\/[^:\s\/@]*):([^@\s\/]+)@/g,
+    replacer: (_m, prefix: string) => `${prefix}:${REDACTED}@`,
+  },
+  // ---- JWT: 3-segment base64url separated by dots, leading `eyJ` ----
+  // (`eyJ` is the base64 prefix of `{"`, so `eyJ` starts every standard JWT.)
+  {
+    name: "jwt-token",
+    pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b/g,
+    replacer: () => REDACTED,
+  },
+  // ---- SSH private key PEM block (multi-line) ----
+  // Header/footer variants: OPENSSH, RSA, DSA, EC, ED25519 (or none).
+  {
+    name: "ssh-private-key",
+    pattern:
+      /-----BEGIN (?:OPENSSH|RSA|DSA|EC|ED25519)?\s*PRIVATE KEY-----[\s\S]*?-----END (?:OPENSSH|RSA|DSA|EC|ED25519)?\s*PRIVATE KEY-----/g,
+    replacer: () => REDACTED,
+  },
 ];
 
 export interface SanitizeResult {
