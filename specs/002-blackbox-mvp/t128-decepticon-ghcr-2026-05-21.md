@@ -101,3 +101,38 @@ Polling continues for terminal status (`done` | `failed` | `timed_out`);
   CI-friendly. For nightly smoke, prefer `TENSOL_DEV_DNS_BYPASS=true`
   in a sealed window, or a dedicated `verify-test.sthrip.dev` subdomain
   pre-pinned with an apex TXT for a long-lived synthetic token.
+
+---
+
+## 2026-05-21 evening update — full pipeline orchestration PROVEN
+
+After the morning's image-mirror unblock, four additional V1↔V2 architecture gaps surfaced and were fixed:
+
+| Commit | Bug |
+|---|---|
+| `ddbf4d3` | `dispatch-scan.ts` POSTed to `https://<ip>/scan` (no listener on :443). Switch to `http://<ip>:8080`. |
+| `61373de` | V2 `spawn-yandex-vm` never enqueued `dispatch_scan` job. Inlined the POST after vm_ready. |
+| `3374c8c` | First inline POST fired ~30s after VM op resolved, before cloud-init finished. Added wait-for-agent loop (8min budget) + reordered: dispatch happens BEFORE vm_ready commit so retries can re-enter. |
+| `50e94e6` | Agent webhook URL was `/v1/webhooks/scan-progress` but route is mounted at `/api/webhooks/scan-progress`. Also V1 handler needs a `vps_instances` row to look up the per-VPS signKey — V2 didn't insert one. Fixed both. |
+
+### Run #6 — terminal reached for the first time
+
+- order: `01KS62XTZD652SHSAT5FK6KKBG`
+- scan: `01KS62Y9TF5TEY22A3XMGP7YRW`
+- started_at: 2026-05-21 20:16:59Z
+- completed_at: 2026-05-21 20:21:15Z (4m 16s total)
+- status: `failed`
+- failure_reason: `runner_threw_Executable not found in $PATH: "docker"`
+- jobs: `spawn_yandex_vm | done | att=1` (single attempt, no retries needed)
+
+The webhook callback path is now fully wired and verified — server received the agent's terminal POST, verified the HMAC against the freshly-inserted `vps_instances.signKey`, and flipped scan/order rows to `failed`. **This is the first time in the project's history that a scan reached a terminal state via the real prod e2e pipeline.**
+
+### What's still left (Bug #6 — vps-agent base image missing `docker` CLI)
+
+The vps-agent container has `/var/run/docker.sock` bind-mounted, but its base image doesn't include the docker CLI. So when the agent's runner tries `docker compose -f /opt/tensol/docker-compose.yml up`, Bun's `spawn(["docker", …])` throws `Executable not found in $PATH`.
+
+Two fixes possible:
+- Add `apt-get install docker-ce-cli` (or equivalent) to `vps-agent/Dockerfile`, then re-publish via the `Build & publish vps-agent` workflow.
+- Or switch the runner to use the Docker Engine HTTP API directly via the unix socket (no CLI needed).
+
+After Bug #6 is closed, the next layer is wiring an actual `docker-compose.yml` for the Decepticon stack onto the spawned VM (Bug #7 — out of scope for this session).
