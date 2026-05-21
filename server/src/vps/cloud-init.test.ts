@@ -29,6 +29,10 @@ const STABLE_ARGS: BuildCloudInitArgs = {
   signKey: "hex-sign-key-abc123",
   decepticonImage: "ghcr.io/purpleailab/decepticon:latest",
   vpsAgentImage: "ghcr.io/tensol/vps-agent:1.0.0",
+  openrouterApiKey: "sk-or-v1-test-fake-key-for-cloud-init-tests",
+  litellmMasterKey: "sk-test-litellm-internal",
+  postgresPassword: "test-postgres-pw",
+  neo4jPassword: "test-neo4j-pw",
 };
 
 describe("buildCloudInit", () => {
@@ -74,21 +78,66 @@ describe("buildCloudInit", () => {
     expect(out).not.toMatch(/\{\{[A-Z_][A-Za-z0-9_]*\}\}/);
   });
 
-  test("only bash expansions in the template are an explicit allow-list", () => {
-    // The template may LEGITIMATELY use ${VAR} for bash expansion at runtime
-    // (e.g. a heredoc that the VM evaluates). Any other ${...} sequence is
-    // a leaked template placeholder.
+  test("only bash expansions in the bash-script layer are an explicit allow-list", () => {
+    // The bash-script layer of the cloud-init MUST NOT carry any
+    // unsubstituted ${VAR} placeholders — every caller value is baked at
+    // build time via single-quoted `export VAR='value'` lines.
+    //
+    // However, T128 Bug #7 introduced heredoc-embedded payload files
+    // (decepticon-vm-compose.yml, litellm.yaml, recon.md). Those payloads
+    // LEGITIMATELY contain `${VAR}` references — docker-compose expands
+    // them at `docker compose up` time using `/opt/decepticon/.env`.
+    // The single-quoted heredoc delimiter (`<<'TENSOL_*_EOF'`) tells the
+    // VM shell NOT to expand them when writing the file, so they reach
+    // disk literally and stay correct.
+    //
+    // To check leaks only in the bash-script layer, strip the heredoc
+    // blocks first (delimiter line + content up to the closing delimiter).
     const out = buildCloudInit(STABLE_ARGS);
+    const HEREDOC_RE = /<<'(TENSOL_[A-Z_]+_EOF)'[\s\S]*?\n\1\n/g;
+    const bashOnly = out.replace(HEREDOC_RE, "");
     const ALLOW = new Set<string>([
       // No runtime bash expansions are needed: all values are baked at
       // build time via single-quoted `export VAR='value'` lines. If this
       // changes, add the var name here AND document why in cloud-init.ts.
     ]);
-    const matches = Array.from(out.matchAll(/\$\{([A-Z_][A-Za-z0-9_]*)\}/g));
+    const matches = Array.from(bashOnly.matchAll(/\$\{([A-Z_][A-Za-z0-9_]*)\}/g));
     const leaked = matches
       .map((m) => m[1])
       .filter((v): v is string => typeof v === "string" && !ALLOW.has(v));
     expect(leaked).toEqual([]);
+  });
+
+  test("[T128 Bug #7] lays down the Decepticon compose stack on disk", () => {
+    const out = buildCloudInit(STABLE_ARGS);
+    // Heredoc-writes for the three embedded files.
+    expect(out).toContain("cat > /opt/decepticon/docker-compose.yml <<'");
+    expect(out).toContain("cat > /opt/decepticon/config/litellm.yaml <<'");
+    expect(out).toContain(
+      "cat > /opt/decepticon/decepticon/agents/prompts/recon.md <<'",
+    );
+    // Compose YAML actually present in the payload (sniff for our header).
+    expect(out).toContain("services:");
+    expect(out).toContain("langgraph:");
+    // LiteLLM override actually present (sniff for OpenRouter qwen route).
+    expect(out).toContain("openrouter/qwen/qwen3.7-max");
+    // recon.md override actually present (Rule 4b marker).
+    expect(out).toContain("TENSOL OVERRIDE");
+    // Symlink to where vps-agent's runner expects compose.
+    expect(out).toContain(
+      "ln -sf /opt/decepticon/docker-compose.yml /opt/tensol/docker-compose.yml",
+    );
+  });
+
+  test("[T128 Bug #7] writes /opt/decepticon/.env with secrets + chmod 600", () => {
+    const out = buildCloudInit(STABLE_ARGS);
+    expect(out).toContain("OPENROUTER_API_KEY=");
+    expect(out).toContain("LITELLM_MASTER_KEY=");
+    expect(out).toContain("POSTGRES_PASSWORD=");
+    expect(out).toContain("NEO4J_PASSWORD=");
+    expect(out).toContain("chmod 600 /opt/decepticon/.env");
+    // Concrete values from STABLE_ARGS reach the .env writer.
+    expect(out).toContain("sk-or-v1-test-fake-key-for-cloud-init-tests");
   });
 
   test("shell-escapes single-quotes in arguments (injection defence)", () => {

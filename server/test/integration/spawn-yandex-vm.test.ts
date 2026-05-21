@@ -118,6 +118,10 @@ const CLOUD_INIT_DEPS = {
   signKey: "a".repeat(64),
   decepticonImage: "ghcr.io/tensol/decepticon@sha256:deadbeef",
   vpsZone: "ru-central1-a",
+  openrouterApiKey: "sk-or-v1-test-fake-key-spawn-yandex-vm",
+  litellmMasterKey: "sk-test-litellm-internal",
+  postgresPassword: "test-postgres-pw",
+  neo4jPassword: "test-neo4j-pw",
 };
 
 function seedQuickQueuedOrder(db: DB, now: number): void {

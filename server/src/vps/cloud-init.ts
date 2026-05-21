@@ -15,9 +15,16 @@
  *   3. Export the full TENSOL_* + AWS_* env contract that vps-agent reads
  *      at startup (`vps-agent/src/agent.ts → readRequiredEnv`) and during
  *      Decepticon dispatch (`decepticon-runner.ts → buildEnv`).
- *   4. Run vps-agent with `/var/run/docker.sock` mounted so that
+ *   4. [T128 Bug #7] Lay down the Decepticon compose stack at
+ *      `/opt/decepticon/`: minimal 5-service docker-compose.yml, our
+ *      LiteLLM override routing every model through OpenRouter
+ *      qwen3.7-max, the Rule 4b KG_PERSISTENCE recon-prompt override,
+ *      and a sibling `.env` carrying OPENROUTER_API_KEY +
+ *      DB passwords. Symlink to `/opt/tensol/docker-compose.yml` (where
+ *      vps-agent's runner expects it).
+ *   5. Run vps-agent with `/var/run/docker.sock` mounted so that
  *      `docker compose up` inside the agent can spawn Decepticon's stack.
- *   5. Publish the agent port for inbound `/scan` from the backend.
+ *   6. Publish the agent port for inbound `/scan` from the backend.
  *
  * Security:
  *   - All caller-supplied values are POSIX-shell-escaped via single-quote
@@ -25,6 +32,14 @@
  *     scan IDs / secrets / bucket names that contain quotes or shell
  *     metacharacters. The escape strategy is the standard
  *     `'` → `'\''` rewrite which works under `sh`, `bash`, and `dash`.
+ *   - Embedded payloads (compose / litellm / recon) come from
+ *     `infra/decepticon-overrides/` via `decepticon-embedded.ts`. They are
+ *     wrapped in `<<'EOF'`-style heredocs (single-quoted delimiter) so
+ *     the VM shell does NOT interpolate `$` or backticks inside the
+ *     payload — content lands on disk byte-for-byte. The delimiter chosen
+ *     (`TENSOL_*_EOF`) is unlikely to collide with any content line.
+ *   - `/opt/decepticon/.env` is chmod 600 immediately after creation —
+ *     it contains the OpenRouter key and DB passwords in plaintext.
  *
  * Determinism:
  *   - No timestamps, no randomness, no env-reads inside the renderer.
@@ -34,10 +49,6 @@
  * Not in scope:
  *   - HMAC signing of the webhook (vps-agent does that at runtime using
  *     TENSOL_WEBHOOK_SECRET).
- *   - Decepticon configuration: per Constitution I, Decepticon is
- *     configured purely through env vars. The bucket/prefix/AWS keys are
- *     exported so the Decepticon container inherits them when
- *     vps-agent's `buildEnv` forwards `process.env`.
  */
 
 /**
@@ -72,11 +83,31 @@ export interface BuildCloudInitArgs {
   signKey: string;
   /** Decepticon image reference (pinned digest preferred). */
   decepticonImage: string;
+  /**
+   * OpenRouter API key (sk-or-v1-...). Routed by the embedded LiteLLM
+   * config (`infra/decepticon-overrides/litellm.yaml`) to
+   * `openrouter/qwen/qwen3.7-max` for every Decepticon model name.
+   * REQUIRED — without it the LiteLLM proxy returns 401 on the first call
+   * and the entire scan hangs at recon-step-1.
+   */
+  openrouterApiKey: string;
+  /** LiteLLM master key (shared between litellm and langgraph services). */
+  litellmMasterKey: string;
+  /** Postgres password for the local litellm-backing DB. */
+  postgresPassword: string;
+  /** Neo4j auth password (KG that the verifier reads). */
+  neo4jPassword: string;
   /** vps-agent image reference. Defaults to `ghcr.io/tensol/vps-agent:latest`. */
   vpsAgentImage?: string;
   /** Port the vps-agent Hono server binds to. Defaults to 8080. */
   agentPort?: number;
 }
+
+import {
+  DECEPTICON_COMPOSE_YML,
+  DECEPTICON_LITELLM_YAML,
+  DECEPTICON_RECON_MD,
+} from "./decepticon-embedded.ts";
 
 /**
  * POSIX-safe single-quote escape. Wraps the value in single quotes and
@@ -89,6 +120,45 @@ function shEsc(s: string): string {
 
 const DEFAULT_AGENT_IMAGE = "ghcr.io/tensol/vps-agent:latest";
 const DEFAULT_AGENT_PORT = 8080;
+
+/**
+ * Heredoc delimiters for the embedded Decepticon stack files. The
+ * delimiters are chosen to never collide with any line in the payloads
+ * (`infra/decepticon-overrides/*`). Tested at module-load time via the
+ * `assertNoDelimiterCollision` invariant below.
+ */
+const COMPOSE_EOF = "TENSOL_DECEPTICON_COMPOSE_EOF";
+const LITELLM_EOF = "TENSOL_DECEPTICON_LITELLM_EOF";
+const RECON_EOF = "TENSOL_DECEPTICON_RECON_EOF";
+
+function assertNoDelimiterCollision(
+  delim: string,
+  payload: string,
+  label: string,
+): void {
+  // A heredoc terminator is a line that contains ONLY the delimiter (no
+  // surrounding whitespace). Check the payload doesn't already contain
+  // such a line — otherwise the script breaks mid-heredoc.
+  const re = new RegExp(`^${delim}$`, "m");
+  if (re.test(payload)) {
+    throw new Error(
+      `cloud-init: heredoc delimiter ${delim} collides with content of ${label}. ` +
+        `Pick a different delimiter or strip the conflicting line from the source.`,
+    );
+  }
+}
+
+assertNoDelimiterCollision(
+  COMPOSE_EOF,
+  DECEPTICON_COMPOSE_YML,
+  "decepticon-vm-compose.yml",
+);
+assertNoDelimiterCollision(
+  LITELLM_EOF,
+  DECEPTICON_LITELLM_YAML,
+  "litellm.yaml",
+);
+assertNoDelimiterCollision(RECON_EOF, DECEPTICON_RECON_MD, "recon.md");
 
 /**
  * Render the cloud-init userdata script. See module docstring for the
@@ -113,6 +183,10 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
     awsEndpoint: shEsc(args.awsEndpoint),
     awsRegion: shEsc(args.awsRegion),
     signKey: shEsc(args.signKey),
+    openrouterApiKey: shEsc(args.openrouterApiKey),
+    litellmMasterKey: shEsc(args.litellmMasterKey),
+    postgresPassword: shEsc(args.postgresPassword),
+    neo4jPassword: shEsc(args.neo4jPassword),
   };
 
   const lines: string[] = [
@@ -133,6 +207,10 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
     `export AWS_SECRET_ACCESS_KEY=${e.awsSecretAccessKey}`,
     `export AWS_ENDPOINT=${e.awsEndpoint}`,
     `export AWS_REGION=${e.awsRegion}`,
+    `export OPENROUTER_API_KEY=${e.openrouterApiKey}`,
+    `export LITELLM_MASTER_KEY=${e.litellmMasterKey}`,
+    `export POSTGRES_PASSWORD=${e.postgresPassword}`,
+    `export NEO4J_PASSWORD=${e.neo4jPassword}`,
     "",
     "# ─── Install Docker (no-op if base image already has it) ─────────────",
     "command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh",
@@ -141,6 +219,40 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
     "# ─── Pull images explicitly (avoids racing the run step) ─────────────",
     `docker pull ${shEsc(vpsAgentImage)}`,
     `docker pull ${shEsc(args.decepticonImage)}`,
+    "",
+    "# ─── Lay down Decepticon stack at /opt/decepticon ────────────────────",
+    "# [T128 Bug #7] vps-agent's runner does `docker compose -f /opt/tensol/",
+    "# docker-compose.yml up` — we drop the stack on disk + symlink. Files",
+    "# come from infra/decepticon-overrides/ embedded at build time.",
+    "mkdir -p /opt/decepticon/config /opt/decepticon/decepticon/agents/prompts /opt/decepticon/workspace /opt/tensol",
+    "",
+    `cat > /opt/decepticon/docker-compose.yml <<'${COMPOSE_EOF}'`,
+    DECEPTICON_COMPOSE_YML.replace(/\n$/, ""),
+    COMPOSE_EOF,
+    "",
+    `cat > /opt/decepticon/config/litellm.yaml <<'${LITELLM_EOF}'`,
+    DECEPTICON_LITELLM_YAML.replace(/\n$/, ""),
+    LITELLM_EOF,
+    "",
+    `cat > /opt/decepticon/decepticon/agents/prompts/recon.md <<'${RECON_EOF}'`,
+    DECEPTICON_RECON_MD.replace(/\n$/, ""),
+    RECON_EOF,
+    "",
+    "# Secrets for the compose stack (single-quoted so $-expansion stays off).",
+    "cat > /opt/decepticon/.env <<ENV_EOF",
+    "DECEPTICON_VERSION=latest",
+    `OPENROUTER_API_KEY=${e.openrouterApiKey}`,
+    `LITELLM_MASTER_KEY=${e.litellmMasterKey}`,
+    `POSTGRES_PASSWORD=${e.postgresPassword}`,
+    `NEO4J_PASSWORD=${e.neo4jPassword}`,
+    "DECEPTICON_MODEL_PROFILE=eco",
+    "DECEPTICON_ASSISTANT_ID=recon",
+    "DECEPTICON_AUTH_PRIORITY=",
+    "ENV_EOF",
+    "chmod 600 /opt/decepticon/.env",
+    "",
+    "# vps-agent expects compose at /opt/tensol/docker-compose.yml.",
+    "ln -sf /opt/decepticon/docker-compose.yml /opt/tensol/docker-compose.yml",
     "",
     "# ─── Open agent port on the local firewall (best-effort) ─────────────",
     "if command -v ufw >/dev/null 2>&1; then",
@@ -154,6 +266,8 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
     "  --restart unless-stopped \\",
     `  -p ${agentPort}:${agentPort} \\`,
     "  -v /var/run/docker.sock:/var/run/docker.sock \\",
+    "  -v /opt/decepticon:/opt/decepticon \\",
+    "  -v /opt/tensol:/opt/tensol \\",
     "  -e TENSOL_SCAN_ID \\",
     "  -e TENSOL_SIGN_KEY \\",
     "  -e TENSOL_WEBHOOK_BACKEND_URL \\",
@@ -164,6 +278,10 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
     "  -e AWS_SECRET_ACCESS_KEY \\",
     "  -e AWS_ENDPOINT \\",
     "  -e AWS_REGION \\",
+    "  -e OPENROUTER_API_KEY \\",
+    "  -e LITELLM_MASTER_KEY \\",
+    "  -e POSTGRES_PASSWORD \\",
+    "  -e NEO4J_PASSWORD \\",
     `  -e PORT=${agentPort} \\`,
     `  ${shEsc(vpsAgentImage)}`,
     "",

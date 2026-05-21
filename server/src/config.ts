@@ -53,6 +53,29 @@ const ConfigSchema = z
       .string({ required_error: "TENSOL_VPS_AGENT_IMAGE is required" })
       .min(1, { message: "TENSOL_VPS_AGENT_IMAGE must not be empty" }),
 
+    // T128 Bug #7 — OpenRouter API key for the Decepticon LiteLLM proxy
+    // routing all model calls to `openrouter/qwen/qwen3.7-max`. Optional
+    // with empty default so dev boot doesn't halt when the key is absent;
+    // production deployments MUST set it or the spawned VM's LiteLLM
+    // returns 401 on the first agent call and the scan hangs at recon.
+    TENSOL_OPENROUTER_API_KEY: z.string().default(""),
+
+    // LiteLLM master key (proxy-side auth between langgraph and litellm
+    // containers inside the per-scan VM). The two values must match;
+    // since both containers come from the same /opt/decepticon/.env,
+    // they always do. Default is a safe synthetic constant — not a
+    // secret, just a service-internal token.
+    TENSOL_LITELLM_MASTER_KEY: z.string().default("sk-tensol-litellm-internal"),
+
+    // Postgres password for the per-VM litellm-backing DB.
+    TENSOL_POSTGRES_PASSWORD: z
+      .string()
+      .default("tensol-postgres-internal"),
+
+    // Neo4j auth password for the per-VM KG (verifier reads it; recon
+    // writes vulnerability nodes via Rule 4b KG_PERSISTENCE).
+    TENSOL_NEO4J_PASSWORD: z.string().default("tensol-neo4j-internal"),
+
     // Public base URL where the server receives webhooks from VPS agents.
     TENSOL_WEBHOOK_BASE_URL: z
       .string({ required_error: "TENSOL_WEBHOOK_BASE_URL is required" })
