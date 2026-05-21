@@ -1,0 +1,89 @@
+name: Mirror Decepticon to GHCR
+
+# Mirrors the upstream Decepticon langgraph image (PurpleAILab) to our own
+# GHCR namespace so cloud-init's `docker pull ${DECEPTICON_IMAGE}` (see
+# server/src/vps/cloud-init.ts:143) resolves against ghcr.io/ageree/decepticon
+# instead of the upstream namespace. We use `docker buildx imagetools create`
+# which copies the OCI manifest index (preserving every arch) without ever
+# materialising the layers on the runner — runtime is seconds, not minutes.
+#
+# Trigger: workflow_dispatch only. Re-run any time upstream ships a new
+# latest. Each run also stamps an immutable `sha-<digest>` tag for
+# supply-chain pinning.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: "Upstream tag to mirror"
+        required: false
+        default: "latest"
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  mirror:
+    name: mirror-langgraph
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR (write)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve upstream digest
+        id: digest
+        run: |
+          set -euo pipefail
+          SRC="ghcr.io/purpleailab/decepticon-langgraph:${{ inputs.source_tag }}"
+          # buildx imagetools inspect prints the index digest on the first
+          # "Name:" / "Digest:" pair; jq-free extraction below is robust to
+          # whitespace variations.
+          DIGEST=$(docker buildx imagetools inspect "$SRC" --format '{{.Manifest.Digest}}')
+          echo "src=$SRC" >> $GITHUB_OUTPUT
+          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+          echo "Source: $SRC"
+          echo "Digest: $DIGEST"
+
+      - name: Mirror to ghcr.io/ageree/decepticon
+        run: |
+          set -euo pipefail
+          SRC="${{ steps.digest.outputs.src }}"
+          DST_LATEST="ghcr.io/ageree/decepticon:latest"
+          # Replace ':' in digest with '-' so it's a valid Docker tag.
+          DIGEST_TAG="sha-$(echo '${{ steps.digest.outputs.digest }}' | sed 's/:/-/')"
+          DST_PINNED="ghcr.io/ageree/decepticon:$DIGEST_TAG"
+          docker buildx imagetools create \
+            --tag "$DST_LATEST" \
+            --tag "$DST_PINNED" \
+            "$SRC"
+          echo "DST_LATEST=$DST_LATEST" >> $GITHUB_ENV
+          echo "DST_PINNED=$DST_PINNED" >> $GITHUB_ENV
+
+      - name: Verify mirror
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "$DST_LATEST"
+          echo
+          echo "=== Pinned tag ==="
+          docker buildx imagetools inspect "$DST_PINNED" --format '{{.Manifest.Digest}}'
+
+      - name: Summary
+        run: |
+          {
+            echo "## Mirror complete"
+            echo
+            echo "- Source: \`${{ steps.digest.outputs.src }}\`"
+            echo "- Upstream digest: \`${{ steps.digest.outputs.digest }}\`"
+            echo "- Pushed: \`$DST_LATEST\`"
+            echo "- Pinned: \`$DST_PINNED\`"
+          } >> $GITHUB_STEP_SUMMARY
