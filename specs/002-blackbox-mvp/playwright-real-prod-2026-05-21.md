@@ -106,3 +106,62 @@ Two prod regressions detected by this smoke run, blocking the user mandate "play
 - `specs/002-blackbox-mvp/playwright-real-prod-2026-05-21.md` (this file) — evidence.
 
 No source code under `server/` or `apps/site/src/` was touched. The two 500s are pre-existing prod state on commit `008272e` (HEAD of `002-blackbox-mvp`), surfaced by the new smoke spec.
+
+---
+
+## RE-RUN 2026-05-21 (post Sub-G migration fix, commit `431c172`)
+
+After Sub-G shipped commit `431c172` to apply the missing migrations on the prod VM (the server was missing `pending_signups` + `scan_orders` tables — root cause of B1+B2), the smoke suite was re-executed against the same target.
+
+### Pre-run curl verification
+
+All three previously-failing write endpoints returned non-500 directly to curl from the driver host:
+
+| Endpoint | Pre-fix | Post-fix |
+|----------|---------|----------|
+| `POST /api/auth/issue-link` | HTTP 500 `{"error":"internal_error"}` | HTTP 200 `{"token":"01KS4Z…","deep_link":"https://t.me/tensol_leadsbot?start=…","telegram_username":"…","expires_at":…}` |
+| `POST /v1/webhooks/telegram-update` (correct secret) | HTTP 500 `Internal Server Error` | HTTP 200 (empty body), ~360ms |
+| `POST /v1/deep-inquiries` | HTTP 500 `{"error":"internal_error","message":"…"}` | HTTP 201 (per OpenAPI) |
+| `GET /api/auth/poll-link?token=<resolved>` | n/a (chain blocked) | HTTP 200 `{"status":"resolved","session_id":"01KS4Z…"}` |
+| `GET /v1/scan-orders` with `Cookie: tensol_session=…` | n/a (chain blocked) | HTTP 200 `[]` (bare array per contract) |
+
+### Server-log verification
+
+`docker logs --since 10m tensol-server` on `5.42.106.25` showed:
+
+- `09:39 – 09:46 UTC`: pre-fix container raising `SQLiteError: no such table: pending_signups` (auth.issue-link) and `no such table: scan_orders` (scan-timeout-watcher tick) — confirms B1+B2 root cause.
+- `09:52 UTC`: clean restart — `reconcile: checked=0`, `TelegramNotifier = production bot-API client (T096 wired)`, `listening on :3000`.
+- Post-`09:52 UTC`: zero errors. All subsequent issue-link / webhook / deep-inquiry / poll-link traffic resolved without exception.
+
+### Re-run results (`apps/site/e2e/real-prod-smoke.spec.ts`)
+
+| # | Test | Pre-fix | Post-fix | Δ |
+|---|------|---------|----------|---|
+| 1 | Landing page initial HTML response returns 200 | PASS | PASS | — |
+| 2 | Landing page HTML shell contains SPA mount + brand markers | PASS | PASS | — |
+| 3 | API `/healthz` responds | PASS | PASS | — |
+| 4 | API `/v1/config/feature-flags` responds | PASS | PASS | — |
+| 5 | Telegram-auth round trip via webhook simulation | **FAIL** (500 on `/api/auth/issue-link`) | **PASS** (933 ms) | RECOVERED |
+| 6 | Deep inquiry anonymous POST returns 201 | **FAIL** (500 on `/v1/deep-inquiries`) | **PASS** (119 ms) | RECOVERED |
+| 7 | Public asset responses look healthy via raw HTTP (3 subdomains) | PASS | PASS | — |
+
+**Totals:** 7/7 PASS in 4.7 s wall-clock on a single worker (was 5/7 PASS in 9.8 s pre-fix). All four 500s identified in BLOCKER list (B1, B2) are resolved. B3 (slow SPA bundle stream) and B4 (Cloudflare Insights beacon) remain non-fatal and unchanged.
+
+### Telegram-auth round trip detailed step-by-step (post-fix)
+
+1. `POST /api/auth/issue-link` → HTTP 200, returns `token` (ULID) + `deep_link` matching `https://t.me/.+?start=.+`.
+2. `POST /v1/webhooks/telegram-update` with correct `X-Telegram-Bot-Api-Secret-Token` and `text: "/start <token>"` → HTTP 200, ~360 ms.
+3. `GET /api/auth/poll-link?token=<…>` (polling loop ≤10× 500ms) → HTTP 200 `{"status":"resolved","session_id":"01KS4Z…"}` typically on first poll.
+4. `GET /v1/scan-orders` with `Cookie: tensol_session=<session_id>` → HTTP 200 bare array `[]` per OpenAPI contract.
+
+### Test-spec correction applied
+
+Original spec asserted `expect(orders).toHaveProperty("orders")` — but `GET /v1/scan-orders` per `specs/002-blackbox-mvp/contracts/openapi.yaml` returns a bare array, not `{orders: ScanOrder[]}`. Spec corrected to `expect(Array.isArray(orders)).toBe(true)` so the test asserts what the contract guarantees. One-line change in `apps/site/e2e/real-prod-smoke.spec.ts:108`. No source-code or contract change.
+
+### Outstanding (unchanged)
+
+- **B3 (NON-FATAL):** SPA bundle stream `/assets/index-<hash>.js` still slow over the wire (~23 KiB in 10 s). Spec test #1 already uses `waitUntil: "commit"` to bypass.
+- **B4 (NON-FATAL):** Cloudflare Insights beacon still `ERR_CONNECTION_CLOSED`.
+
+Both B1 and B2 are now closed by Sub-G's migration fix. The Tensol prod smoke is fully GREEN end-to-end.
+

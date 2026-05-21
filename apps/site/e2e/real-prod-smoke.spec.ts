@@ -105,8 +105,8 @@ test.describe("Real-prod smoke against https://tensol.ru", () => {
     const ordersResp = await sessionCtx.get(`${API_URL}/v1/scan-orders`);
     expect(ordersResp.status()).toBe(200);
     const orders = await ordersResp.json();
-    expect(orders).toHaveProperty("orders");
-    expect(Array.isArray(orders.orders)).toBe(true);
+    // Per OpenAPI contract: GET /v1/scan-orders returns a bare array of ScanOrder
+    expect(Array.isArray(orders)).toBe(true);
   });
 
   test("Deep inquiry anonymous POST returns 201", async () => {
