@@ -158,6 +158,14 @@ export interface SpawnYandexVmHandlerDeps {
   readonly awsRegion: string;
   readonly signKey: string;
   readonly decepticonImage: string;
+  /** T128 Bug #7 — OpenRouter API key for the per-VM LiteLLM proxy. */
+  readonly openrouterApiKey: string;
+  /** LiteLLM master key shared between litellm and langgraph containers. */
+  readonly litellmMasterKey: string;
+  /** Postgres password for the per-VM litellm-backing DB. */
+  readonly postgresPassword: string;
+  /** Neo4j auth password for the per-VM KG. */
+  readonly neo4jPassword: string;
   readonly vpsAgentImage?: string;
   readonly agentPort?: number;
 }
@@ -216,6 +224,10 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
     awsRegion,
     signKey,
     decepticonImage,
+    openrouterApiKey,
+    litellmMasterKey,
+    postgresPassword,
+    neo4jPassword,
     vpsAgentImage,
     agentPort,
   } = deps;
@@ -264,6 +276,10 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
       awsRegion,
       signKey,
       decepticonImage,
+      openrouterApiKey,
+      litellmMasterKey,
+      postgresPassword,
+      neo4jPassword,
       ...(vpsAgentImage !== undefined ? { vpsAgentImage } : {}),
       ...(agentPort !== undefined ? { agentPort } : {}),
     });

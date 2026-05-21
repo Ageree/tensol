@@ -59,6 +59,14 @@ COPY server/migrations ./server/migrations
 COPY server/scripts    ./server/scripts
 COPY server/drizzle.config.ts ./server/
 
+# T128 Bug #7 — Decepticon stack assets embedded into the per-scan VM
+# cloud-init by `server/src/vps/decepticon-embedded.ts`. Reads the three
+# files at module-load time via `import.meta.dirname/../../../infra/
+# decepticon-overrides/`, which resolves to `/app/infra/...` in this
+# image. Without this COPY, the server crashes at boot with
+# "required override not found".
+COPY infra/decepticon-overrides ./infra/decepticon-overrides
+
 # SQLite + chromium-min cache live under /app/server/data (mounted volume in
 # compose). Create the directory and chown it so the non-root bun user can
 # write at runtime.

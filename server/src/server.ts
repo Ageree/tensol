@@ -679,6 +679,10 @@ export async function main(): Promise<{
       awsRegion,
       signKey: config.TENSOL_AUDIT_SIGNING_KEY,
       decepticonImage,
+      openrouterApiKey: config.TENSOL_OPENROUTER_API_KEY,
+      litellmMasterKey: config.TENSOL_LITELLM_MASTER_KEY,
+      postgresPassword: config.TENSOL_POSTGRES_PASSWORD,
+      neo4jPassword: config.TENSOL_NEO4J_PASSWORD,
       vpsAgentImage: config.TENSOL_VPS_AGENT_IMAGE,
     }),
   );
