@@ -361,7 +361,152 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
       }
     }
 
-    // 4b. Success-path persistence: scan_orders + scans + scan_events.
+    // 4b. Wait for vps-agent on the new VM to come up, then dispatch.
+    //
+    // Yandex's create-instance operation resolves once the VM exists, but
+    // cloud-init (apt install docker, docker pull tensol-vps-agent, docker
+    // run -d …) keeps running in the background and typically takes 3-5
+    // minutes to actually bind :8080. So we cannot just `fetch /scan` and
+    // expect a response. Loop with backoff until either (a) some HTTP
+    // status comes back from POST /scan — any code, including 401 for a
+    // probe with no signature — meaning the agent is alive, or (b) we
+    // exceed the wait budget.
+    //
+    // This wait happens BEFORE the vm_ready persistence below so that a
+    // runner retry of the whole spawn_yandex_vm job (idempotency gate at
+    // step 1 keys off `scan_orders.status`, which is still
+    // `vm_provisioning` until 4c) can re-enter and try dispatch again.
+    // Only after a successful dispatch do we commit vm_ready + audit
+    // `decepticon_invoked`.
+    const vmStatus = await provider.getStatus(finalInstanceId);
+    const publicIp = vmStatus.publicIp;
+    if (!publicIp) {
+      throw new Error(
+        `spawn_yandex_vm: getStatus(${finalInstanceId}) returned no publicIp`,
+      );
+    }
+    const scanRow = db
+      .select({ profile: scans.profile })
+      .from(scans)
+      .where(eq(scans.id, scanId))
+      .get();
+    if (!scanRow) {
+      throw new Error(
+        `spawn_yandex_vm: scans row vanished mid-handler (id=${scanId})`,
+      );
+    }
+    const port = agentPort ?? 8080;
+    const dispatchBody = {
+      profile: scanRow.profile,
+      scan_id: scanId,
+      target_url: `https://${orderRow.primaryDomain}`,
+      webhook_url: `${backendUrl}/v1/webhooks/scan-progress`,
+    };
+    const rawBody = JSON.stringify(dispatchBody);
+    const signature = hmacSha256(signKey, rawBody);
+    const dispatchUrl = `http://${publicIp}:${port}/scan`;
+
+    // Wait-for-agent: probe POST /scan up to AGENT_WAIT_BUDGET_MS,
+    // 10s between attempts. Any HTTP response (success or signed-rejection)
+    // means the agent has bound and is processing.
+    const AGENT_WAIT_BUDGET_MS = 8 * 60 * 1_000; // 8 min for cloud-init
+    const AGENT_PROBE_INTERVAL_MS = 10_000;
+    const PROBE_TIMEOUT_MS = 5_000;
+    const waitDeadline = now() + AGENT_WAIT_BUDGET_MS;
+    let dispatchRes: Response | null = null;
+    let lastProbeErr: string | null = null;
+    while (now() < waitDeadline) {
+      try {
+        const probe = await fetch(dispatchUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Tensol-Signature": signature,
+          },
+          body: rawBody,
+          signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+        });
+        // Any HTTP status from the agent (incl. 401) proves it's alive.
+        // We only care about 2xx for success; non-2xx → audit failure +
+        // throw so the runner can decide to retry vs. give up.
+        dispatchRes = probe;
+        break;
+      } catch (e) {
+        lastProbeErr = (e as Error).message ?? String(e);
+        await sleep(AGENT_PROBE_INTERVAL_MS);
+      }
+    }
+    if (!dispatchRes) {
+      const msg = `spawn_yandex_vm: vps-agent at ${dispatchUrl} did not respond within ${AGENT_WAIT_BUDGET_MS}ms (last error: ${lastProbeErr ?? "-"})`;
+      await emitSignedAudit(
+        db,
+        {
+          event: "decepticon_invoked",
+          outcome: "failure",
+          ts: now(),
+          user_id: orderRow.userId,
+          scan_id: scanId,
+          metadata: {
+            scan_order_id: scanOrderId,
+            vps_instance_id: finalInstanceId,
+            public_ip: publicIp,
+            agent_port: port,
+            error: "agent_wait_timeout",
+            last_probe_error: lastProbeErr ?? null,
+          },
+        },
+        { key: auditKey },
+      );
+      throw new Error(msg);
+    }
+    if (!dispatchRes.ok) {
+      const errText = await dispatchRes.text().catch(() => "<no body>");
+      const msg = `spawn_yandex_vm: agent dispatch HTTP ${dispatchRes.status} ${dispatchRes.statusText}: ${errText.slice(0, 200)}`;
+      await emitSignedAudit(
+        db,
+        {
+          event: "decepticon_invoked",
+          outcome: "failure",
+          ts: now(),
+          user_id: orderRow.userId,
+          scan_id: scanId,
+          metadata: {
+            scan_order_id: scanOrderId,
+            vps_instance_id: finalInstanceId,
+            public_ip: publicIp,
+            agent_port: port,
+            http_status: dispatchRes.status,
+            response_body: errText.slice(0, 200),
+          },
+        },
+        { key: auditKey },
+      );
+      throw new Error(msg);
+    }
+    // Dispatch succeeded → emit decepticon_invoked + fall through to
+    // vm_ready commit below.
+    await emitSignedAudit(
+      db,
+      {
+        event: "decepticon_invoked",
+        outcome: "success",
+        ts: now(),
+        user_id: orderRow.userId,
+        scan_id: scanId,
+        metadata: {
+          scan_order_id: scanOrderId,
+          vps_instance_id: finalInstanceId,
+          public_ip: publicIp,
+          agent_port: port,
+          profile: scanRow.profile,
+          target_url: dispatchBody.target_url,
+        },
+      },
+      { key: auditKey },
+    );
+
+    // 4c. Success-path persistence: scan_orders + scans + scan_events.
+    //     Now that dispatch landed, flip the rows + emit vm_ready.
     const ts = now();
     const scanEventId = newId();
     const eventPayload = JSON.stringify({
@@ -396,7 +541,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
         .run();
     });
 
-    // 4c. Post-commit audit (Constitution X).
+    // 4d. Post-commit audit (Constitution X).
     await emitSignedAudit(
       db,
       {
@@ -414,115 +559,6 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
       { key: auditKey },
     );
 
-    // 4d. Inline dispatch to the vps-agent on the freshly-spawned VM.
-    //
-    // V1 (legacy `spawn_vps`) enqueued a separate `dispatch_scan` job that
-    // read `vps_instances.ipv4` + `vps_instances.sign_key` and POSTed to
-    // the agent. V2 deliberately moved most of that state onto
-    // `scan_orders.vpsInstanceId`/`vpsZone` (no vps_instances row), but
-    // never carried over the second half — so until 2026-05-21 V2 scans
-    // sat in `running` forever because nothing ever called the agent.
-    //
-    // Inline-POST here keeps the existing `dispatch_scan` handler usable
-    // for the legacy path and avoids inventing a new job type just for
-    // V2. The agent already authenticates POST /scan by the body's HMAC
-    // (X-Tensol-Signature) using the per-server `signKey` that cloud-init
-    // baked into the VM as TENSOL_SIGN_KEY — exactly the same shared
-    // secret the legacy dispatch handler used.
-    //
-    // Failure handling: any error here throws back to the runner, which
-    // will retry the whole spawn_yandex_vm job. That re-enters the
-    // idempotency gate at step 1; since `scan_orders.status` is now
-    // 'running', the gate returns no-op. So a retry of spawn_yandex_vm
-    // *after* this point currently CANNOT re-attempt dispatch. We accept
-    // this for now (real fix is a dedicated `dispatch_yandex_scan` job
-    // type with its own retry budget — tracked as follow-up). The good
-    // news: in practice the inline POST is a single sub-100ms call to
-    // a freshly-booted agent that has been alive for many minutes by
-    // the time we reach it (operation-poll already waited for VM
-    // running), so failure is rare.
-    try {
-      const vmStatus = await provider.getStatus(finalInstanceId);
-      const publicIp = vmStatus.publicIp;
-      if (!publicIp) {
-        throw new Error(
-          `spawn_yandex_vm: getStatus(${finalInstanceId}) returned no publicIp`,
-        );
-      }
-      const scanRow = db
-        .select({ profile: scans.profile })
-        .from(scans)
-        .where(eq(scans.id, scanId))
-        .get();
-      if (!scanRow) {
-        throw new Error(
-          `spawn_yandex_vm: scans row vanished mid-handler (id=${scanId})`,
-        );
-      }
-      const port = agentPort ?? 8080;
-      const dispatchBody = {
-        profile: scanRow.profile,
-        scan_id: scanId,
-        target_url: `https://${orderRow.primaryDomain}`,
-        webhook_url: `${backendUrl}/v1/webhooks/scan-progress`,
-      };
-      const rawBody = JSON.stringify(dispatchBody);
-      const signature = hmacSha256(signKey, rawBody);
-      const dispatchUrl = `http://${publicIp}:${port}/scan`;
-      const res = await fetch(dispatchUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Tensol-Signature": signature,
-        },
-        body: rawBody,
-      });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "<no body>");
-        throw new Error(
-          `spawn_yandex_vm: agent dispatch HTTP ${res.status} ${res.statusText}: ${errText.slice(0, 200)}`,
-        );
-      }
-      await emitSignedAudit(
-        db,
-        {
-          event: "decepticon_invoked",
-          outcome: "success",
-          ts: now(),
-          user_id: orderRow.userId,
-          scan_id: scanId,
-          metadata: {
-            scan_order_id: scanOrderId,
-            vps_instance_id: finalInstanceId,
-            public_ip: publicIp,
-            agent_port: port,
-            profile: scanRow.profile,
-            target_url: dispatchBody.target_url,
-          },
-        },
-        { key: auditKey },
-      );
-    } catch (err) {
-      // Best-effort failure audit so operators can see the gap. We do NOT
-      // flip scan/order status here — runner retry semantics decide that.
-      await emitSignedAudit(
-        db,
-        {
-          event: "decepticon_invoked",
-          outcome: "failure",
-          ts: now(),
-          user_id: orderRow.userId,
-          scan_id: scanId,
-          metadata: {
-            scan_order_id: scanOrderId,
-            vps_instance_id: finalInstanceId,
-            error: (err as Error).message ?? String(err),
-          },
-        },
-        { key: auditKey },
-      );
-      throw err;
-    }
   };
 }
 
