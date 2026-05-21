@@ -83,6 +83,7 @@ import {
 import { ulid } from "../../lib/ids.ts";
 import { now as defaultNow } from "../../lib/time.ts";
 import { emitSignedAudit } from "../../audit/emit.ts";
+import { hmacSha256 } from "../../lib/crypto.ts";
 import { buildCloudInit } from "../../vps/cloud-init.ts";
 import type { CloudProvider } from "../../vps/provider.ts";
 
@@ -412,6 +413,116 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
       },
       { key: auditKey },
     );
+
+    // 4d. Inline dispatch to the vps-agent on the freshly-spawned VM.
+    //
+    // V1 (legacy `spawn_vps`) enqueued a separate `dispatch_scan` job that
+    // read `vps_instances.ipv4` + `vps_instances.sign_key` and POSTed to
+    // the agent. V2 deliberately moved most of that state onto
+    // `scan_orders.vpsInstanceId`/`vpsZone` (no vps_instances row), but
+    // never carried over the second half — so until 2026-05-21 V2 scans
+    // sat in `running` forever because nothing ever called the agent.
+    //
+    // Inline-POST here keeps the existing `dispatch_scan` handler usable
+    // for the legacy path and avoids inventing a new job type just for
+    // V2. The agent already authenticates POST /scan by the body's HMAC
+    // (X-Tensol-Signature) using the per-server `signKey` that cloud-init
+    // baked into the VM as TENSOL_SIGN_KEY — exactly the same shared
+    // secret the legacy dispatch handler used.
+    //
+    // Failure handling: any error here throws back to the runner, which
+    // will retry the whole spawn_yandex_vm job. That re-enters the
+    // idempotency gate at step 1; since `scan_orders.status` is now
+    // 'running', the gate returns no-op. So a retry of spawn_yandex_vm
+    // *after* this point currently CANNOT re-attempt dispatch. We accept
+    // this for now (real fix is a dedicated `dispatch_yandex_scan` job
+    // type with its own retry budget — tracked as follow-up). The good
+    // news: in practice the inline POST is a single sub-100ms call to
+    // a freshly-booted agent that has been alive for many minutes by
+    // the time we reach it (operation-poll already waited for VM
+    // running), so failure is rare.
+    try {
+      const vmStatus = await provider.getStatus(finalInstanceId);
+      const publicIp = vmStatus.publicIp;
+      if (!publicIp) {
+        throw new Error(
+          `spawn_yandex_vm: getStatus(${finalInstanceId}) returned no publicIp`,
+        );
+      }
+      const scanRow = db
+        .select({ profile: scans.profile })
+        .from(scans)
+        .where(eq(scans.id, scanId))
+        .get();
+      if (!scanRow) {
+        throw new Error(
+          `spawn_yandex_vm: scans row vanished mid-handler (id=${scanId})`,
+        );
+      }
+      const port = agentPort ?? 8080;
+      const dispatchBody = {
+        profile: scanRow.profile,
+        scan_id: scanId,
+        target_url: `https://${orderRow.primaryDomain}`,
+        webhook_url: `${backendUrl}/v1/webhooks/scan-progress`,
+      };
+      const rawBody = JSON.stringify(dispatchBody);
+      const signature = hmacSha256(signKey, rawBody);
+      const dispatchUrl = `http://${publicIp}:${port}/scan`;
+      const res = await fetch(dispatchUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Tensol-Signature": signature,
+        },
+        body: rawBody,
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "<no body>");
+        throw new Error(
+          `spawn_yandex_vm: agent dispatch HTTP ${res.status} ${res.statusText}: ${errText.slice(0, 200)}`,
+        );
+      }
+      await emitSignedAudit(
+        db,
+        {
+          event: "decepticon_invoked",
+          outcome: "success",
+          ts: now(),
+          user_id: orderRow.userId,
+          scan_id: scanId,
+          metadata: {
+            scan_order_id: scanOrderId,
+            vps_instance_id: finalInstanceId,
+            public_ip: publicIp,
+            agent_port: port,
+            profile: scanRow.profile,
+            target_url: dispatchBody.target_url,
+          },
+        },
+        { key: auditKey },
+      );
+    } catch (err) {
+      // Best-effort failure audit so operators can see the gap. We do NOT
+      // flip scan/order status here — runner retry semantics decide that.
+      await emitSignedAudit(
+        db,
+        {
+          event: "decepticon_invoked",
+          outcome: "failure",
+          ts: now(),
+          user_id: orderRow.userId,
+          scan_id: scanId,
+          metadata: {
+            scan_order_id: scanOrderId,
+            vps_instance_id: finalInstanceId,
+            error: (err as Error).message ?? String(err),
+          },
+        },
+        { key: auditKey },
+      );
+      throw err;
+    }
   };
 }
 
