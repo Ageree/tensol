@@ -322,7 +322,7 @@ function resolveConfig(
       process.env.YANDEX_BOOT_DISK_IMAGE_ID ??
       // Ubuntu 22.04 LTS placeholder — verify against the live catalog
       // before nightly real-Yandex smoke (TODO above).
-      "fd8nl4lp3frl63ds9ssn",
+      "fd85f16aij1rvpce9gas",
     bootDiskSizeGB: override?.bootDiskSizeGB ?? 30,
     networkInterfaceSpec: { networkId, subnetId },
     sshPublicKey:
