@@ -27,7 +27,7 @@
  *     for the T128 proof — we are validating pipeline mechanics, not vuln
  *     detection. To test vuln detection, point at a real Juice Shop.)
  */
-import { test, expect, request as apiRequest } from "@playwright/test";
+import { test, expect, request as apiRequest, type APIRequestContext, type APIResponse } from "@playwright/test";
 
 const API_URL = "https://api.tensol.ru";
 const TG_WEBHOOK_SECRET = process.env.TENSOL_TELEGRAM_WEBHOOK_SECRET;
@@ -36,6 +36,56 @@ const SCAN_POLL_INTERVAL_MS = 30_000;
 const SCAN_POLL_BUDGET_MS = 30 * 60_000; // 30 minutes
 const DNS_POLL_INTERVAL_MS = 2_000;
 const DNS_POLL_BUDGET_MS = 30_000;
+
+// ---------------------------------------------------------------------------
+// Keep-alive workaround
+//
+// Background: prior runs failed at Step 1 with `apiRequestContext.get: socket
+// hang up` against GET /api/auth/poll-link, while curl on the SAME endpoint
+// returned 200 in <100ms. Root cause is the CF→Caddy→tensol-server hop
+// silently dropping idle keepalive sockets, which Playwright's
+// `apiRequest` (HTTP/2 + Chromium net stack) does not auto-recover from.
+//
+// Fix:
+//   1. Force `Connection: close` on every context so each request opens a
+//      fresh TCP/TLS session — eliminates the dropped-keepalive race.
+//   2. Wrap every HTTP call in `retryReq` with exponential backoff to absorb
+//      any remaining transient TCP errors (socket hang up / ECONNRESET / EPIPE).
+// ---------------------------------------------------------------------------
+const KEEPALIVE_FIX_HEADERS = {
+  Connection: "close",
+  "Accept-Encoding": "identity",
+} as const;
+
+const TRANSIENT_NET_ERR_RE = /socket hang up|ECONNRESET|EPIPE|ETIMEDOUT|read ECONNRESET|aborted/i;
+
+async function retryReq<T>(label: string, fn: () => Promise<T>, attempts = 5): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!TRANSIENT_NET_ERR_RE.test(msg)) throw err;
+      const backoffMs = 500 * i;
+      // eslint-disable-next-line no-console
+      console.log(
+        `[T128]   retry ${label} attempt ${i}/${attempts} after ${backoffMs}ms — ${msg.slice(0, 120)}`,
+      );
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+  }
+  throw lastErr;
+}
+
+type ReqOpts = Parameters<APIRequestContext["post"]>[1];
+const reqGet = (ctx: APIRequestContext, url: string, opts?: ReqOpts): Promise<APIResponse> =>
+  retryReq(`GET ${url}`, () => ctx.get(url, opts));
+const reqPost = (ctx: APIRequestContext, url: string, opts?: ReqOpts): Promise<APIResponse> =>
+  retryReq(`POST ${url}`, () => ctx.post(url, opts));
+const reqPut = (ctx: APIRequestContext, url: string, opts?: ReqOpts): Promise<APIResponse> =>
+  retryReq(`PUT ${url}`, () => ctx.put(url, opts));
 
 test.describe("T128 real-prod full-scan lifecycle", () => {
   test.setTimeout(45 * 60_000); // 45min hard cap
@@ -54,9 +104,17 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
 
     // Step 1 — Telegram auth
     const endStep1 = stepStart("Step 1: Telegram-auth webhook simulation");
-    const ctx = await apiRequest.newContext();
-    const issueResp = await ctx.post(`${API_URL}/api/auth/issue-link`, {
-      data: { telegram_username: `t128_${Date.now()}` },
+    const ctx = await apiRequest.newContext({
+      extraHTTPHeaders: { ...KEEPALIVE_FIX_HEADERS },
+    });
+    // IMPORTANT: issueLink and consumeLink (server/src/auth/magic-link.ts)
+    // compare telegram usernames case-insensitively and equality-strict — they
+    // MUST match exactly. The previous draft generated two `Date.now()`
+    // suffixes a few milliseconds apart so the webhook resolved with
+    // `username_mismatch`, leaving the poll loop pending forever.
+    const telegramUsername = `t128_${Date.now()}`;
+    const issueResp = await reqPost(ctx, `${API_URL}/api/auth/issue-link`, {
+      data: { telegram_username: telegramUsername },
     });
     expect(issueResp.status()).toBe(200);
     const issueData = await issueResp.json();
@@ -69,13 +127,13 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
           id: 999_000_002,
           is_bot: false,
           first_name: "T128",
-          username: `t128_${Date.now()}`,
+          username: telegramUsername,
         },
         chat: { id: 999_000_002, type: "private" },
         text: `/start ${issueData.token}`,
       },
     };
-    const tgResp = await ctx.post(`${API_URL}/v1/webhooks/telegram-update`, {
+    const tgResp = await reqPost(ctx, `${API_URL}/v1/webhooks/telegram-update`, {
       headers: {
         "Content-Type": "application/json",
         "X-Telegram-Bot-Api-Secret-Token": TG_WEBHOOK_SECRET!,
@@ -86,7 +144,8 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
     let polled: { status?: string; session_id?: string } = {};
     for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 500));
-      const pollResp = await ctx.get(
+      const pollResp = await reqGet(
+        ctx,
         `${API_URL}/api/auth/poll-link?token=${issueData.token}`,
       );
       polled = await pollResp.json();
@@ -99,12 +158,15 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
 
     // Authenticated context for the rest of the test
     const sCtx = await apiRequest.newContext({
-      extraHTTPHeaders: { Cookie: `tensol_session=${sessionId}` },
+      extraHTTPHeaders: {
+        ...KEEPALIVE_FIX_HEADERS,
+        Cookie: `tensol_session=${sessionId}`,
+      },
     });
 
     // Step 2 — Create draft
     const endStep2 = stepStart(`Step 2: createDraft target=${TARGET_DOMAIN}`);
-    const draftResp = await sCtx.post(`${API_URL}/v1/scan-orders`, {
+    const draftResp = await reqPost(sCtx, `${API_URL}/v1/scan-orders`, {
       data: { tier: "quick", primary_domain: TARGET_DOMAIN },
     });
     expect([200, 201]).toContain(draftResp.status());
@@ -115,12 +177,16 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
     endStep2();
 
     // Step 3 — Attack-surface
+    // OpenAPI AttackSurfaceEntry (server/src/schemas/scan-orders.ts:131) is
+    // `.strict()` and requires { domain, primary, headers } — the previous
+    // payload { host, kind } was contract drift that would 400 the request.
     const endStep3 = stepStart("Step 3: PUT attack-surface");
-    const asResp = await sCtx.put(
+    const asResp = await reqPut(
+      sCtx,
       `${API_URL}/v1/scan-orders/${orderId}/attack-surface`,
       {
         data: {
-          attack_surface: [{ host: TARGET_DOMAIN, kind: "domain" }],
+          attack_surface: [{ domain: TARGET_DOMAIN, primary: true, headers: [] }],
         },
       },
     );
@@ -129,7 +195,8 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
 
     // Step 4 — Safety
     const endStep4 = stepStart("Step 4: PUT safety rps=10");
-    const safetyResp = await sCtx.put(
+    const safetyResp = await reqPut(
+      sCtx,
       `${API_URL}/v1/scan-orders/${orderId}/safety`,
       {
         data: { safety_rps: 10 },
@@ -140,7 +207,8 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
 
     // Step 5 — DNS verify request
     const endStep5 = stepStart("Step 5: POST dns-verify/request");
-    const dnsReqResp = await sCtx.post(
+    const dnsReqResp = await reqPost(
+      sCtx,
       `${API_URL}/v1/scan-orders/${orderId}/dns-verify/request`,
     );
     expect(dnsReqResp.status()).toBe(200);
@@ -154,7 +222,8 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
     const dnsStart = Date.now();
     while (Date.now() - dnsStart < DNS_POLL_BUDGET_MS) {
       await new Promise((r) => setTimeout(r, DNS_POLL_INTERVAL_MS));
-      const checkResp = await sCtx.get(
+      const checkResp = await reqGet(
+        sCtx,
         `${API_URL}/v1/scan-orders/${orderId}/dns-verify/check`,
       );
       expect(checkResp.status()).toBe(200);
@@ -172,7 +241,8 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
 
     // Step 7 — Launch
     const endStep7 = stepStart("Step 7: POST launch");
-    const launchResp = await sCtx.post(
+    const launchResp = await reqPost(
+      sCtx,
       `${API_URL}/v1/scan-orders/${orderId}/launch`,
     );
     console.log(`[T128]   launch status=${launchResp.status()}`);
@@ -197,7 +267,7 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
     let pollCount = 0;
     while (Date.now() - scanStart < SCAN_POLL_BUDGET_MS) {
       pollCount++;
-      const scanResp = await sCtx.get(`${API_URL}/v1/scans/${scanId}`);
+      const scanResp = await reqGet(sCtx, `${API_URL}/v1/scans/${scanId}`);
       if (scanResp.status() !== 200) {
         console.log(
           `[T128]   poll #${pollCount} HTTP ${scanResp.status()}`,
@@ -232,7 +302,7 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
 
     // Step 9 — Findings count
     const endStep9 = stepStart("Step 9: GET /v1/scans/:id/findings");
-    const findingsResp = await sCtx.get(`${API_URL}/v1/scans/${scanId}/findings`);
+    const findingsResp = await reqGet(sCtx, `${API_URL}/v1/scans/${scanId}/findings`);
     expect(findingsResp.status()).toBe(200);
     const findings = await findingsResp.json();
     console.log(
@@ -242,7 +312,7 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
 
     // Step 10 — Report status
     const endStep10 = stepStart("Step 10: GET /v1/scans/:id/report");
-    const reportResp = await sCtx.get(`${API_URL}/v1/scans/${scanId}/report`);
+    const reportResp = await reqGet(sCtx, `${API_URL}/v1/scans/${scanId}/report`);
     console.log(`[T128]   report HTTP=${reportResp.status()}`);
     if (reportResp.status() === 200) {
       const report = await reportResp.json();
