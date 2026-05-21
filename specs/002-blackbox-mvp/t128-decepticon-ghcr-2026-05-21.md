@@ -136,3 +136,50 @@ Two fixes possible:
 - Or switch the runner to use the Docker Engine HTTP API directly via the unix socket (no CLI needed).
 
 After Bug #6 is closed, the next layer is wiring an actual `docker-compose.yml` for the Decepticon stack onto the spawned VM (Bug #7 — out of scope for this session).
+
+### Bug #6 closed via commit `47a420e`
+
+`vps-agent/Dockerfile` switched from `apt-get install docker.io` (which silently no-op'd on the bookworm-slim base — verified by `docker run … which docker` returning nothing on the published image) to Docker's official Debian repo:
+
+```dockerfile
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+ && install -m 0755 -d /etc/apt/keyrings \
+ && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+ && chmod a+r /etc/apt/keyrings/docker.asc \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" > /etc/apt/sources.list.d/docker.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
+ && apt-get purge -y curl gnupg \
+ && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/*
+```
+
+GHCR workflow `Build & publish vps-agent` auto-triggered on the push, run [#26251561610](https://github.com/Ageree/tensol/actions/runs/26251561610) green. Verified:
+```
+/usr/bin/docker → Docker version 29.5.2
+docker compose  → Docker Compose version v5.1.4
+/usr/local/bin/bun → 1.3.14
+```
+
+### Bug #7 deferred (next session)
+
+Decepticon compose-file + env wiring on the spawned VM is the next gap. After Bug #6's image lands on a new spawned VM:
+- `docker compose -f /opt/tensol/docker-compose.yml up` will throw "no such file" instead of "command not found" — different terminal failure, same end result (scan goes to `failed`).
+- To run real Decepticon: cloud-init needs to clone the upstream repo (or our fork with Tensol-overrides) to a host path, bind-mount it into the agent container, and provide LLM API keys + DB passwords via env. ~1-2h work + per-scan LLM cost.
+
+User decision: stop here. Bug #7 is logged for a future session.
+
+## Final commit chain (this session)
+
+```
+7e7a323  ci: mirror Decepticon langgraph to ghcr.io/ageree/decepticon
+b687755  ci: (on main, file-only port for workflow_dispatch)
+6f594ae  test(e2e): T128 Decepticon GHCR mirror + real DNS-verify against sthrip.dev
+ddbf4d3  fix(dispatch-scan): http://<ip>:8080/scan instead of https://<ip>/scan
+61373de  fix(spawn-yandex-vm): inline POST /scan to vps-agent after vm_ready
+3374c8c  fix(spawn-yandex-vm): wait for vps-agent before dispatch, reorder pre-vm_ready
+50e94e6  fix(spawn-yandex-vm): /api webhook path + insert vps_instances row
+d3556ee  docs(t128): evening update — full pipeline orchestration proven end-to-end
+47a420e  fix(vps-agent): install docker-ce-cli + compose plugin from official repo
+```
