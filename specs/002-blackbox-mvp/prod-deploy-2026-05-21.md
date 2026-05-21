@@ -146,4 +146,95 @@ Suggested fix during operator triage: `cat ~/.ssh/id_ed25519.pub | ssh ... 'cat 
 | 4.x migrate + start | not attempted (HALTED) |
 | 5.x Caddy enable | not attempted (HALTED) |
 
-End of evidence.
+End of HALTED evidence.
+
+---
+
+# RESUMED — 2026-05-21 ~09:00 UTC — full E2E SUCCESS
+
+Operator authorized A1 (tear down existing `tensol-*` Docker stack and redeploy our 002-blackbox-mvp). Driver: autonomous claude.
+
+**Repo HEAD deployed: `3d48085`** (origin/002-blackbox-mvp HEAD).
+**Final state: 4/4 public URLs serving HTTP 200 through Cloudflare.**
+
+## Phase-by-phase results
+
+| Phase | Outcome | Notes |
+|---|---|---|
+| 1. Capture pre-teardown state | ✓ | 4 running containers (`tensol-app-1`, `tensol-caddy-1`, `tensol-supabase-rest-1`, `tensol-supabase-db-1`) + 1 hidden (`tensol-supabase-auth-1`); compose file at `/opt/tensol/docker-compose.yml`; backed up to `/opt/tensol/pre-teardown-compose.yml.bak` and `pre-teardown-docker-ps.txt` |
+| 2. Tear down | ✓ | `docker compose -p tensol down --volumes --remove-orphans` removed 5 containers + 3 volumes (`tensol_caddy-data`, `tensol_caddy-config`, `tensol_pgdata`) + network. Survived: `tensol_hermes-data` (no attached container), unrelated `openclaw-mission-control_postgres_data`, `openshell-cluster-nemoclaw` |
+| 3. Unmask + stop host Caddy | ✓ | `systemctl unmask caddy`; ports 80/443 free |
+| 4. Write `/etc/caddy/Caddyfile` (`tls internal`) | ✓ | scp to VM, validate clean |
+| 5. Copy `/opt/tensol/.env.prod` (32 keys, chmod 600) | ✓ | |
+| 6. Clone repo at `3d48085` | ✓ | Fresh clone (no prior `.git/`) |
+| 7. Build apps/site via dockerized bun | ✓ | 25 s; vite build PASS despite better-sqlite3 native-compile error in `bun install` (server-only dep, doesn't block site build); rsync → `/opt/tensol/site-dist/` (index.html 1226 B + assets/) |
+| 8. Build `tensol-server:latest` | ✓ after 2 fixes | **Fix 1**: Dockerfile deps stage needs `apk add python3 make g++` for native compile of better-sqlite3 (5m19s). **Fix 2**: Dockerfile runtime stage missing `COPY --from=deps /app/server/node_modules ./server/node_modules` — without this the server/node_modules/.bin/ is empty and bun resolves drizzle-kit from hoisted `/app/node_modules/.bun/` only at runtime. Final rebuild 2m24s (cached). |
+| 9. DB migrate | ✓ after fix | **Bun cannot dlopen better-sqlite3** (bun issue #4290) AND host Node ABI mismatched the bun-compiled `.node` binary. Resolved by writing a one-off bun-native migrator (`/opt/tensol/migrate-once.ts`) using `drizzle-orm/bun-sqlite/migrator`. Also `chown -R 1000:1000 /opt/tensol/data /opt/tensol/chrome-cache` so the `bun` user inside the container (uid 1000 = host `deploy`) can write. 13 tables created including `__drizzle_migrations` tracking table. |
+| 10. `docker compose up -d` | ✓ | Container `tensol-server` healthy in 8 s; bound to `127.0.0.1:3000` only |
+| 11. Start Caddy on host | ✓ | All 4 origin certs issued from Caddy internal CA; ports 80+443 listening; one cosmetic warning ("Caddy_Local_Authority root cert install via sudo failed" — irrelevant for serving) |
+| 12. Verify direct VM | ✓ | `curl --resolve api.tensol.ru:443:127.0.0.1 -k https://api.tensol.ru/healthz` → `{"ok":true}` HTTP 200. `tensol.ru` and `app.tensol.ru` return index.html (1226 B). Self-signed: `issuer=CN = Caddy Local Authority - ECC Intermediate`, 12 h cert lifetime. |
+| 12b. Verify through Cloudflare | ✓ all 4 | `https://tensol.ru/`, `https://www.tensol.ru/`, `https://app.tensol.ru/` all HTTP 200 + 1226 B index. `https://api.tensol.ru/healthz` HTTP 200 + `{"ok":true}`. CF edge cert: `subject=/CN=tensol.ru issuer=Let's Encrypt E8`. |
+
+## Build durations
+
+- `apps/site` build (dockerized bun, vite): **25 s**
+- `tensol-server:latest` Docker image (first build with toolchain): **5 m 19 s**
+- `tensol-server:latest` rebuild (after server/node_modules COPY fix): **2 m 24 s** (cached deps)
+- DB migrate via bun: **< 5 s**
+
+## Direct-VM healthz (full body)
+
+```
+$ curl -sS http://127.0.0.1:3000/healthz
+{"ok":true}
+```
+
+Container logs show:
+
+```
+[tensol] reconcile: checked=0 unchanged=0 failed=0 teardown_enqueued=0
+[tensol] TelegramNotifier = production bot-API client (T096 wired).
+[tensol] listening on :3000
+```
+
+## Direct-VM HTTPS self-signed cert
+
+```
+$ echo | openssl s_client -connect 127.0.0.1:443 -servername api.tensol.ru | openssl x509 -noout -subject -issuer -dates
+subject=
+issuer=CN = Caddy Local Authority - ECC Intermediate
+notBefore=May 21 09:27:24 2026 GMT
+notAfter=May 21 21:27:24 2026 GMT
+```
+
+## Public-URL probes from operator laptop
+
+| URL | HTTP | Body / Notes |
+|---|---|---|
+| `https://tensol.ru/` | 200 | 1226 B `<!doctype html><html lang="ru">...` |
+| `https://www.tensol.ru/` | 200 | 1226 B (identical static index) |
+| `https://app.tensol.ru/` | 200 | 1226 B (identical static index) |
+| `https://api.tensol.ru/healthz` | 200 | `{"ok":true}` |
+| Edge cert | LE | `subject=/CN=tensol.ru issuer=Let's Encrypt E8` (Cloudflare edge) |
+
+## Mutations to repo Dockerfile (on VM only, not committed yet)
+
+```
+/opt/tensol/repo/server/Dockerfile.bak  (original)
+/opt/tensol/repo/server/Dockerfile      (patched on VM)
+```
+
+Patches:
+1. After `FROM oven/bun:1.3.11-alpine AS deps` line: added `RUN apk add --no-cache python3 make g++` so better-sqlite3 node-gyp rebuild succeeds.
+2. After `COPY --from=deps /app/node_modules ./node_modules` line: added `COPY --from=deps /app/server/node_modules ./server/node_modules` so runtime image has drizzle-kit + better-sqlite3 .node binary visible to scripts.
+
+**These patches MUST be backported to the repo** — current `main`/`002-blackbox-mvp` HEAD Dockerfile cannot build on a fresh host. Tracked as a follow-up.
+
+## Blockers remaining
+
+- **Cloudflare mode unknown but currently "Flexible" or "Full" (NOT "Full strict")**. The `tls internal` origin cert is being accepted by CF. If/when operator switches CF to "Full strict", all 4 domains will break with 526 until a real CF Origin Certificate is provisioned on the VM at `/etc/caddy/origin.crt` + `origin.key` and the Caddyfile updated to `tls /etc/caddy/origin.crt /etc/caddy/origin.key`.
+- **Dockerfile fixes not yet committed to repo** (mutations applied only on VM at `/opt/tensol/repo/`). A separate commit on operator laptop is required (the patched file exists in the cloned repo on the VM; need to extract and apply identical patch on operator-side checkout).
+- **`/opt/tensol/migrate-once.ts`** is a one-off, not yet in the repo. Should be promoted to `server/scripts/migrate.ts` with a `db:migrate-bun` package.json script so production migrations no longer require drizzle-kit + Node.
+- **Survived data volume `tensol_hermes-data`** (from prior stack) — not removed because not in our project. Operator should review.
+- **GitNexus index stale at `7dd8515`** (current HEAD `3d48085`) — needs `npx gitnexus analyze` after this commit.
+
