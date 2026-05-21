@@ -191,28 +191,30 @@ export function createWebhookTelegramRouter(
       { db, signingKey, now: clock },
     );
 
-    // 6. Reply via the bot. Telegram retries 5xx; sendMessage's own retry
-    //    loop covers transient failures. If everything fails we still need to
-    //    return 200 to stop Telegram from retrying us — the reply UX is
-    //    secondary to consuming the token.
-    try {
-      if (result.ok) {
-        await notifier.sendMessage({
-          chatId,
-          text: REPLY_SUCCESS(result.telegramUsername),
-        });
-      } else if (result.reason === "username_mismatch") {
-        await notifier.sendMessage({ chatId, text: REPLY_USERNAME_MISMATCH });
-      } else if (result.reason === "expired" || result.reason === "used") {
-        await notifier.sendMessage({ chatId, text: REPLY_EXPIRED });
-      } else {
-        // invalid token: never issued.
-        await notifier.sendMessage({ chatId, text: REPLY_INVALID });
-      }
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error("[tensol] webhooks-telegram: sendMessage failed", err);
-    }
+    // 6. Reply via the bot — FIRE-AND-FORGET.
+    //    Detached from the response because the VM's egress may be blackholed
+    //    to api.telegram.org (Yandex prod network policy). Awaiting here
+    //    pinned the webhook for the full Telegram 60s timeout → retry storm →
+    //    cloudflare 504 surfaced to operator. The auth result is already
+    //    persisted via consumeLink (Constitution X); the bot reply is purely
+    //    UX confirmation and is safely best-effort.
+    const replyText = result.ok
+      ? REPLY_SUCCESS(result.telegramUsername)
+      : result.reason === "username_mismatch"
+        ? REPLY_USERNAME_MISMATCH
+        : result.reason === "expired" || result.reason === "used"
+          ? REPLY_EXPIRED
+          : REPLY_INVALID;
+
+    queueMicrotask(() => {
+      notifier.sendMessage({ chatId, text: replyText }).catch((err: unknown) => {
+        // eslint-disable-next-line no-console
+        console.error(
+          "[tensol] webhooks-telegram: sendMessage failed (detached)",
+          err,
+        );
+      });
+    });
 
     return c.body(null, 200);
   });
