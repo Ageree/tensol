@@ -116,12 +116,21 @@ docker build \
 # -------------------------------------------------------------
 log "6/8  DB migrate"
 # -------------------------------------------------------------
+# Use the bun-native migrator (server/scripts/migrate.ts), NOT
+# `drizzle-kit migrate`. The drizzle-kit migrator relies on
+# `server/migrations/meta/_journal.json`, which historically lagged
+# behind the `.sql` files (0010_blackbox_mvp / 0011_webhook_dedup were
+# missing on 2026-05-21 → production DB stayed on the legacy 001
+# schema → all POST routes returned 500 with "no such table:
+# pending_signups"). The bun migrator discovers `.sql` files by
+# directory listing and tracks its own `__migrations` table, so a
+# stale journal cannot cause schema drift again.
 docker run --rm \
     --env-file "$ENV_FILE" \
     -v "$DEPLOY_DIR/data:/app/server/data" \
     -w /app/server \
     tensol-server:latest \
-    bun run db:migrate
+    bun run scripts/migrate.ts
 
 # -------------------------------------------------------------
 log "7/8  Start server stack (docker compose up -d)"
