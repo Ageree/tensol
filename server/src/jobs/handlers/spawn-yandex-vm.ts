@@ -79,6 +79,7 @@ import {
   scanEvents,
   scanOrders,
   scans,
+  vpsInstances,
 } from "../../db/schema.ts";
 import { ulid } from "../../lib/ids.ts";
 import { now as defaultNow } from "../../lib/time.ts";
@@ -396,11 +397,17 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
       );
     }
     const port = agentPort ?? 8080;
+    // Webhook path: V1 callback handler is mounted at `/api/webhooks/*`
+    // (see server.ts:345-348). Agent will send back the terminal status
+    // POST /scan-progress with `x-tensol-scan-id` + `x-tensol-signature`
+    // headers, and the V1 handler looks up the signKey via vps_instances.
+    // We therefore (a) point the agent at /api/webhooks/scan-progress,
+    // and (b) insert a vps_instances row below so the V1 lookup resolves.
     const dispatchBody = {
       profile: scanRow.profile,
       scan_id: scanId,
       target_url: `https://${orderRow.primaryDomain}`,
-      webhook_url: `${backendUrl}/v1/webhooks/scan-progress`,
+      webhook_url: `${backendUrl}/api/webhooks/scan-progress`,
     };
     const rawBody = JSON.stringify(dispatchBody);
     const signature = hmacSha256(signKey, rawBody);
@@ -505,10 +512,17 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
       { key: auditKey },
     );
 
-    // 4c. Success-path persistence: scan_orders + scans + scan_events.
-    //     Now that dispatch landed, flip the rows + emit vm_ready.
+    // 4c. Success-path persistence: scan_orders + scans + scan_events +
+    //     vps_instances (so the V1 webhook handler at /api/webhooks/
+    //     scan-progress can look up signKey by scan_id and verify the
+    //     terminal callback HMAC). The shared `signKey` here is the same
+    //     value the agent's verifySignature() uses — it came from this
+    //     handler's deps and was injected into cloud-init env on the VM
+    //     as TENSOL_SIGN_KEY. So the same secret signs and verifies on
+    //     both sides; the V1 handler just needs the lookup row to exist.
     const ts = now();
     const scanEventId = newId();
+    const vpsInstanceRowId = newId();
     const eventPayload = JSON.stringify({
       vps_instance_id: finalInstanceId,
       vps_zone: vpsZone,
@@ -536,6 +550,19 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
           scanId,
           eventType: "vm_ready",
           payloadJson: eventPayload,
+          createdAt: ts,
+        })
+        .run();
+
+      tx.insert(vpsInstances)
+        .values({
+          id: vpsInstanceRowId,
+          scanId,
+          provider: "yandex",
+          providerServerId: finalInstanceId,
+          ipv4: publicIp,
+          status: "alive",
+          signKey,
           createdAt: ts,
         })
         .run();
