@@ -20,17 +20,22 @@
  *      The canonical V2 source for target URL is
  *      `scan_orders.primary_domain`, reached via `scans.scan_order_id`.
  *   3. Compute `X-Tensol-Signature = HMAC-SHA256(signKey, rawBody)`.
- *   4. fetch(`https://${ipv4}/scan`, …). Non-2xx OR network error → throw
+ *   4. fetch(`http://${ipv4}:8080/scan`, …). Non-2xx OR network error → throw
  *      (runner retries). On 200, emit `decepticon_invoked` audit.
  *
- * TLS on raw IPv4:
- *   The VPS cert (if any) is self-signed because there's no DNS name.
- *   Production wires a fetch wrapper that disables CA validation for these
- *   internal calls — the application-layer HMAC carries the security
- *   guarantee, not the transport. Tests mock `fetchImpl` so this never
- *   matters in CI. The choice (https://, not http://) is deliberate: it
- *   keeps payload+signature out of cleartext on whatever path the VPS
- *   inbound traffic transits, even if the cert chain is self-signed.
+ * Transport (2026-05-21):
+ *   The earlier design called for `https://<ipv4>/scan` with a self-signed
+ *   cert. That was never realised in cloud-init.ts — the spawned VM only
+ *   binds vps-agent on plain TCP/8080 (`docker run -p 8080:8080 …`), and
+ *   nothing listens on :443. Symptom: dispatch fires fetch → connection
+ *   refused → handler throws → scan stays in `running` forever (root cause
+ *   found by reading serial console + ss -tlnp of a stuck VM on 2026-05-21).
+ *   We now POST `http://<ipv4>:8080/scan`. Security is carried by the
+ *   HMAC signature on the body (X-Tensol-Signature), which is what the
+ *   agent already verifies — exactly per the design's "application-layer
+ *   HMAC carries the security guarantee, not the transport" rationale.
+ *   Re-enabling TLS in front of vps-agent is a separate hardening task
+ *   (would need a Caddy sidecar or built-in TLS in cloud-init).
  *
  * Audit metadata:
  *   Includes target_url, profile, provider_server_id implicitly via the
@@ -120,8 +125,11 @@ export function createDispatchScanHandler(
     const rawBody = JSON.stringify(body);
     const signature = hmacSha256(vps.signKey, rawBody);
 
-    // 4. POST to the VPS.
-    const url = `https://${vps.ipv4}/scan`;
+    // 4. POST to the VPS. vps-agent listens on plain TCP 8080 (see
+    //    cloud-init.ts DEFAULT_AGENT_PORT); see module header for the
+    //    transport-rationale on why this is http://, not https://.
+    const AGENT_PORT = 8080;
+    const url = `http://${vps.ipv4}:${AGENT_PORT}/scan`;
     const res = await fetchImpl(url, {
       method: "POST",
       headers: {
