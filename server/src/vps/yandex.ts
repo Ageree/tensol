@@ -35,6 +35,29 @@ import type {
 const COMPUTE_BASE_URL = "https://compute.api.cloud.yandex.net/compute/v1";
 
 /**
+ * Yandex Cloud Compute label keys/values must match `[a-z0-9_-]*`.
+ * Lowercase + replace invalid chars with `_`. Both key AND value are
+ * sanitised because Yandex enforces the same regex on both sides.
+ *
+ * Production bug (2026-05-21): ULIDs are Crockford-base32 (UPPERCASE) and
+ * were passed raw via `labels: input.metadata ?? {}`, causing every
+ * `instances.create` POST to return HTTP 400 with:
+ *   "Labels: invalid label value \"01KS...\""
+ * which silently broke every real scan in production.
+ */
+export function sanitizeLabels(
+  input: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(input)) {
+    const keyClean = k.toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+    const valClean = v.toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+    out[keyClean] = valClean;
+  }
+  return out;
+}
+
+/**
  * VM hardware / network shape. All fields are optional in the factory
  * input — missing values fall back to env vars and finally to safe MVP
  * defaults below (plan.md §"Yandex provider").
@@ -373,7 +396,7 @@ function buildInstanceCreateBody(
       "user-data": input.userData,
       ...sshKeyEntry,
     },
-    labels: input.metadata ?? {},
+    labels: sanitizeLabels(input.metadata ?? {}),
   };
 }
 
