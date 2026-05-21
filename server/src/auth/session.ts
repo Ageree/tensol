@@ -59,7 +59,7 @@ export function setSessionCookie(
   setCookie(c, SESSION_COOKIE_NAME, sessionId, {
     httpOnly: true,
     secure: isProd,
-    sameSite: "Lax",
+    sameSite: isProd ? "None" : "Lax",
     path: "/",
     maxAge: Math.floor(maxAgeMs / 1000),
   });

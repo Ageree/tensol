@@ -44,6 +44,7 @@
  *     T067 / Phase 6 will lift that into a dedicated module.
  */
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -287,6 +288,28 @@ export function createApp(deps: CreateAppDeps): Hono {
   void baseUrl;
 
   const app = new Hono();
+
+  // 2026-05-21 — CORS for cross-origin SPA on Vercel (sthrip.dev) talking
+  // to api.tensol.ru. Credentials required for tensol_session cookie.
+  // Explicit origin (not *) because credentials + wildcard is forbidden
+  // per Fetch spec. Add localhost:5173 + 5175 for vite dev.
+  const ALLOWED_ORIGINS = new Set<string>([
+    "https://sthrip.dev",
+    "https://www.sthrip.dev",
+    "https://tensol.ru",
+    "https://www.tensol.ru",
+    "https://app.tensol.ru",
+    "http://localhost:5173",
+    "http://localhost:5175",
+  ]);
+  app.use("*", cors({
+    origin: (origin) => (origin && ALLOWED_ORIGINS.has(origin) ? origin : ""),
+    credentials: true,
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "X-Telegram-Bot-Api-Secret-Token", "X-Tensol-Signature"],
+    exposeHeaders: ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+    maxAge: 600,
+  }));
 
   // Health probe is registered before auth so load-balancers can probe
   // the process without holding a session.
