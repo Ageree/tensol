@@ -17,6 +17,12 @@
 # ----- stage 1: deps -----
 FROM oven/bun:1.3.11-alpine AS deps
 
+# Native-addon toolchain for transitive deps that ship a C/C++ binding
+# (e.g. better-sqlite3, sharp). Without this, `bun install` on alpine
+# falls back to source builds that fail. Promoted from a manual VM patch
+# applied during master deploy v2 — see `fix(deploy)` commit.
+RUN apk add --no-cache python3 make g++
+
 WORKDIR /app
 
 # Monorepo manifests required for the workspace install. We deliberately
@@ -40,6 +46,10 @@ WORKDIR /app
 
 # Bring installed node_modules from the deps stage.
 COPY --from=deps /app/node_modules ./node_modules
+# Workspace `server` symlinks live here — without this the runtime stage
+# starts with `cannot find module` on bun:sqlite consumers. Promoted from
+# a manual VM patch applied during master deploy v2.
+COPY --from=deps /app/server/node_modules ./server/node_modules
 COPY --from=deps /app/package.json /app/bun.lock ./
 COPY --from=deps /app/server/package.json ./server/
 
