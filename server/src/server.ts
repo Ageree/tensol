@@ -70,7 +70,7 @@ import {
   sendMessage as sendTelegramMessage,
   createTelegramNotifier,
 } from "./notify/telegram.ts";
-import { createYandexCloudProvider } from "./vps/yandex.ts";
+import { createGcpCloudProvider } from "./vps/gcp.ts";
 import { refundFreeQuickQuota } from "./free-tier/service.ts";
 import { createLoggingTelegramNotifier } from "./notify/telegram-placeholder.ts";
 import { S3Client } from "@aws-sdk/client-s3";
@@ -605,12 +605,17 @@ export async function main(): Promise<{
   // reconciler just enqueued.
   //
   // T066 — wire the new 002 handlers alongside the legacy 4. New handlers
-  // require external creds (Yandex, S3, Telegram); we read each optional
-  // env var and degrade gracefully when missing — production deployments
-  // populate `.env.yandex` per the handoff doc. Boot does NOT fail when
-  // a 002 cred is missing; the handler itself throws at invoke time so
-  // the runner's permanent-failure branch captures it in the audit log.
-  const yandexProvider = createYandexCloudProvider();
+  // require external creds (GCP SA JSON via GOOGLE_APPLICATION_CREDENTIALS,
+  // S3, Telegram); we read each optional env var and degrade gracefully
+  // when missing. Boot does NOT fail when a 002 cred is missing; the
+  // handler itself throws at invoke time so the runner's permanent-failure
+  // branch captures it in the audit log.
+  //
+  // 2026-05-22 pivot: cloud-provider switched from Yandex to GCP. See
+  // memory project_tensol_gcp_pivot_2026-05-22.md. Env contract:
+  // GCP_PROJECT_ID, GCP_ZONE (default europe-west1-b),
+  // GOOGLE_APPLICATION_CREDENTIALS (path to SA JSON).
+  const cloudProvider = createGcpCloudProvider();
   const evidenceBucket = process.env.TENSOL_EVIDENCE_BUCKET ?? "";
   const awsRegion = process.env.AWS_REGION ?? "ru-central1";
   const awsEndpoint =
@@ -618,8 +623,8 @@ export async function main(): Promise<{
   const awsAccessKeyId = process.env.AWS_ACCESS_KEY_ID ?? "";
   const awsSecretAccessKey = process.env.AWS_SECRET_ACCESS_KEY ?? "";
   const decepticonImage =
-    process.env.DECEPTICON_IMAGE ?? "ghcr.io/purpleailab/decepticon:latest";
-  const vpsZone = process.env.YANDEX_PROD_SUBNET_ZONE ?? "ru-central1-a";
+    process.env.DECEPTICON_IMAGE ?? "ghcr.io/ageree/decepticon:latest";
+  const vpsZone = process.env.GCP_ZONE ?? "europe-west1-b";
   const evidencePrefix = process.env.TENSOL_EVIDENCE_PREFIX ?? "scans/";
 
   if (!evidenceBucket || !awsAccessKeyId || !awsSecretAccessKey) {
@@ -665,7 +670,7 @@ export async function main(): Promise<{
   const spawnYandexVm = adaptNewStyle(
     createSpawnYandexVmHandler({
       db,
-      provider: yandexProvider,
+      provider: cloudProvider,
       auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
       refundFreeQuickQuota,
       vpsZone,
@@ -685,7 +690,7 @@ export async function main(): Promise<{
   const teardownYandexVm = adaptNewStyle(
     createTeardownYandexVmHandler({
       db,
-      provider: yandexProvider,
+      provider: cloudProvider,
       auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
     }),
   );
@@ -769,35 +774,34 @@ export async function main(): Promise<{
   if (typeof watcherTimer.unref === "function") watcherTimer.unref();
 
   // T125 — wire the orphan-VM cleanup cron (T123) on a 15-minute cadence.
-  // Skipped when no folder ids are configured (dev environments) so the
-  // boot path stays env-light. The task is wired against the Yandex
-  // provider whose `listInstances` we just shipped (T123 extension).
-  const cleanupTestFolder = process.env.YANDEX_TEST_FOLDER_ID ?? "";
-  const cleanupProdFolder = process.env.YANDEX_PROD_FOLDER_ID ?? "";
-  const cleanupFolderIds = [cleanupTestFolder, cleanupProdFolder].filter(
-    (f) => f !== "",
-  );
+  // GCP has no "folder" concept — the closest analog is the project, which
+  // is implicit in the SA JSON. We pass a single dummy folder id so the
+  // cleanup loop runs once per tick; gcp.ts listInstances ignores the param.
+  // Cleanup runs whenever `GCP_PROJECT_ID` is set (the same env that the
+  // provider itself requires).
+  const cleanupFolderIds = process.env.GCP_PROJECT_ID
+    ? [process.env.GCP_PROJECT_ID]
+    : [];
   let cleanupTimer: Timer | null = null;
   if (cleanupFolderIds.length === 0) {
     // eslint-disable-next-line no-console
     console.warn(
-      "[tensol] T125: orphan-VM cleanup skipped — no YANDEX_TEST_FOLDER_ID " +
-        "or YANDEX_PROD_FOLDER_ID configured",
+      "[tensol] T125: orphan-VM cleanup skipped — GCP_PROJECT_ID not set",
     );
-  } else if (!yandexProvider.listInstances) {
-    // Defensive: should never trigger with the T123 yandex.ts shipped here.
+  } else if (!cloudProvider.listInstances) {
+    // Defensive: should never trigger with gcp.ts as the provider.
     // eslint-disable-next-line no-console
     console.warn(
       "[tensol] T125: orphan-VM cleanup skipped — provider lacks listInstances",
     );
   } else {
-    const listInstancesBound = yandexProvider.listInstances.bind(
-      yandexProvider,
+    const listInstancesBound = cloudProvider.listInstances.bind(
+      cloudProvider,
     );
     const cleanupTask = createCleanupOrphanVmsTask({
       provider: {
         listInstances: listInstancesBound,
-        teardownVm: yandexProvider.teardownVm.bind(yandexProvider),
+        teardownVm: cloudProvider.teardownVm.bind(cloudProvider),
       },
       folderIds: cleanupFolderIds,
       namePrefixes: ["tensol-test-", "tensol-scan-"],
