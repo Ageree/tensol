@@ -34,6 +34,11 @@ services:
       # render. Keep it on the host so a `docker compose pull` doesn't
       # re-extract ~120 MB every redeploy.
       - /opt/tensol/chrome-cache:/home/bun/.cache/puppeteer
+      # GCP Service Account JSON (read-only). The path inside the container
+      # MUST match GOOGLE_APPLICATION_CREDENTIALS in /opt/tensol/.env.prod
+      # (currently /opt/tensol/.gcp/tensol-vm-spawner.json). Per memory
+      # project_tensol_gcp_pivot_2026-05-22.md.
+      - /opt/tensol/.gcp:/opt/tensol/.gcp:ro
     ports:
       # Bind to loopback only — Caddy on the host reverse-proxies the public
       # api.tensol.ru endpoint to this port. Nothing from the internet hits
