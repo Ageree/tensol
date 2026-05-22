@@ -55,8 +55,13 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
     // Step 1 — Telegram auth
     const endStep1 = stepStart("Step 1: Telegram-auth webhook simulation");
     const ctx = await apiRequest.newContext();
+    // Capture the username ONCE so issue-link and the Telegram-update payload
+    // see the same value. Two separate Date.now() calls produced different
+    // strings → consumeLink returned username_mismatch and poll-link stayed
+    // pending forever. Bug found during GCP-pivot E2E 2026-05-22.
+    const tgUsername = `t128_${Date.now()}`;
     const issueResp = await ctx.post(`${API_URL}/api/auth/issue-link`, {
-      data: { telegram_username: `t128_${Date.now()}` },
+      data: { telegram_username: tgUsername },
     });
     expect(issueResp.status()).toBe(200);
     const issueData = await issueResp.json();
@@ -69,7 +74,7 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
           id: 999_000_002,
           is_bot: false,
           first_name: "T128",
-          username: `t128_${Date.now()}`,
+          username: tgUsername,
         },
         chat: { id: 999_000_002, type: "private" },
         text: `/start ${issueData.token}`,
