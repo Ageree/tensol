@@ -333,7 +333,13 @@ function buildInstanceCreateBody(
     ],
     metadata: {
       items: [
-        { key: "user-data", value: input.userData },
+        // GCP's google-guest-agent (built into all gcloud-published images)
+        // runs the `startup-script` metadata value on first boot. The
+        // alternative `user-data` key requires cloud-init, which is NOT
+        // installed in the minimal Debian 12 family — so the script would
+        // be silently ignored. Discovered 2026-05-22 when vps-agent never
+        // bound :8080 (cloud-init missing, no /var/log/cloud-init-output.log).
+        { key: "startup-script", value: input.userData },
         ...sshKeyItem,
       ],
     },
