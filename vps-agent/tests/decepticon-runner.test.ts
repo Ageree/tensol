@@ -1,51 +1,118 @@
 import { describe, expect, test } from "bun:test";
-import { runDecepticonScan, type SpawnImpl } from "../src/decepticon-runner.ts";
+import {
+  runDecepticonScan,
+  type FetcherImpl,
+  type SpawnImpl,
+} from "../src/decepticon-runner.ts";
 import type { CollectionResult } from "../src/findings-collector.ts";
 
 /**
- * Mock spawn factory. The returned `exited` promise is controlled by the
- * test: either it resolves with a chosen exit code (sync or after a delay)
- * or it never resolves (timeout path).
+ * Test scaffolding for the LangGraph-HTTP-based runner.
  *
- * `record` captures the cmd + opts so tests can assert on them after the
- * scan completes.
+ * `runDecepticonScan` orchestrates four stages:
+ *   1. `docker compose up -d`            → spawn #1 (synchronous exit)
+ *   2. poll  GET /ok                     → fetcher GET
+ *   3. POST  /threads                    → fetcher POST
+ *   4. POST  /threads/{id}/runs          → fetcher POST
+ *   5. poll  GET /threads/{id}/runs/{id} → fetcher GET (returns status)
+ *   6. `docker compose down -v ...`      → spawn #2
+ *
+ * Tests inject scripted spawn + fetcher + sleep + now so every branch
+ * runs deterministically without touching docker or the network.
  */
-type SpawnRecord = { cmd: string[]; opts: { env?: Record<string, string> } | undefined };
+
+type SpawnRecord = {
+  cmd: string[];
+  opts: { env?: Record<string, string> } | undefined;
+};
 
 function makeSpawn(opts: {
-  exitCode?: number;
-  delayMs?: number;
-  neverExits?: boolean;
+  exitCodes: number[];
   record: SpawnRecord[];
 }): SpawnImpl {
+  let call = 0;
   return (cmd, spawnOpts) => {
     opts.record.push({ cmd, opts: spawnOpts });
-    let killed = false;
+    const code = opts.exitCodes[call] ?? 0;
+    call += 1;
     let resolveExit: (code: number) => void = () => {};
     const exited = new Promise<number>((resolve) => {
       resolveExit = resolve;
     });
-    if (opts.neverExits) {
-      // Stays pending until kill() is called.
-    } else if (opts.delayMs !== undefined && opts.delayMs > 0) {
-      setTimeout(() => resolveExit(opts.exitCode ?? 0), opts.delayMs);
-    } else {
-      // Resolve on next microtask so the runner has a chance to start the race.
-      queueMicrotask(() => resolveExit(opts.exitCode ?? 0));
-    }
+    queueMicrotask(() => resolveExit(code));
     return {
       exited,
       kill: () => {
-        killed = true;
-        // When killed during timeout, surface a non-zero code so the runner
-        // doesn't accidentally treat a killed scan as success.
         resolveExit(137);
       },
-      // Expose for assertions
-      get killed() {
-        return killed;
-      },
-    } as ReturnType<SpawnImpl>;
+    };
+  };
+}
+
+type FetchCall = { url: string; method: string; body: unknown };
+
+type ScriptedResponse =
+  | { status: number; body: unknown }
+  | { error: true };
+
+function makeFetcher(opts: {
+  // Routes are matched in declaration order; first matching script entry
+  // is consumed per call. Format: predicate → array of scripted responses.
+  okResponses?: ScriptedResponse[];
+  threadsCreate?: ScriptedResponse;
+  runsCreate?: ScriptedResponse;
+  runStatus?: ScriptedResponse[];
+  cancel?: ScriptedResponse;
+  record: FetchCall[];
+}): FetcherImpl {
+  let okIdx = 0;
+  let runStatusIdx = 0;
+  return async (input, init) => {
+    const url = input;
+    const method = init?.method ?? "GET";
+    let body: unknown = null;
+    if (init?.body) {
+      try {
+        body = JSON.parse(init.body);
+      } catch {
+        body = init.body;
+      }
+    }
+    opts.record.push({ url, method, body });
+
+    const respond = (r: ScriptedResponse) => {
+      if ("error" in r) throw new Error("network failure");
+      return {
+        ok: r.status >= 200 && r.status < 300,
+        status: r.status,
+        json: async () => r.body,
+        text: async () => JSON.stringify(r.body),
+      };
+    };
+
+    if (url.endsWith("/ok") && method === "GET") {
+      const r = opts.okResponses?.[okIdx] ?? { status: 200, body: {} };
+      okIdx += 1;
+      return respond(r);
+    }
+    if (url.endsWith("/threads") && method === "POST") {
+      return respond(opts.threadsCreate ?? { status: 200, body: { thread_id: "t-1" } });
+    }
+    if (/\/threads\/[^/]+\/runs$/.test(url) && method === "POST") {
+      return respond(opts.runsCreate ?? { status: 200, body: { run_id: "r-1" } });
+    }
+    if (/\/threads\/[^/]+\/runs\/[^/]+\/cancel$/.test(url)) {
+      return respond(opts.cancel ?? { status: 200, body: {} });
+    }
+    if (/\/threads\/[^/]+\/runs\/[^/]+$/.test(url) && method === "GET") {
+      const r = opts.runStatus?.[runStatusIdx]
+        ?? opts.runStatus?.[opts.runStatus.length - 1]
+        ?? { status: 200, body: { status: "success" } };
+      runStatusIdx += 1;
+      return respond(r);
+    }
+    // Unmatched — return 404 so unexpected calls visibly fail tests.
+    return respond({ status: 404, body: { error: "unmatched", url, method } });
   };
 }
 
@@ -71,10 +138,27 @@ const TWO_FINDINGS: CollectionResult = {
   rejected: [],
 };
 
-describe("runDecepticonScan", () => {
-  test("happy path: compose exits 0 → status=done with collected findings", async () => {
-    const record: SpawnRecord[] = [];
-    const spawn = makeSpawn({ exitCode: 0, record });
+/**
+ * A virtual clock so tests can race wall-clock deadlines without
+ * waiting for real time. `now()` always advances by `sleep(ms)`'s
+ * argument, so loops bounded by a deadline terminate in O(1) wallclock
+ * even when the runner thinks minutes elapsed.
+ */
+function makeClock() {
+  let virtual = 0;
+  return {
+    now: () => virtual,
+    sleep: async (ms: number) => {
+      virtual += ms;
+    },
+  };
+}
+
+describe("runDecepticonScan (LangGraph HTTP)", () => {
+  test("happy path: compose up → /ok 200 → thread+run → status=success → status=done", async () => {
+    const spawnRec: SpawnRecord[] = [];
+    const fetchRec: FetchCall[] = [];
+    const clock = makeClock();
     const result = await runDecepticonScan(
       {
         scanId: "scan-abc",
@@ -84,179 +168,320 @@ describe("runDecepticonScan", () => {
         composeFile: "/opt/decepticon/docker-compose.yml",
       },
       {
-        spawn,
+        spawn: makeSpawn({ exitCodes: [0, 0], record: spawnRec }),
+        fetcher: makeFetcher({
+          okResponses: [{ status: 200, body: {} }],
+          threadsCreate: { status: 200, body: { thread_id: "thread-xyz" } },
+          runsCreate: { status: 200, body: { run_id: "run-xyz" } },
+          runStatus: [{ status: 200, body: { status: "success" } }],
+          record: fetchRec,
+        }),
         collectFindings: makeCollectFindings(TWO_FINDINGS),
+        now: clock.now,
+        sleep: clock.sleep,
       }
     );
     expect(result.status).toBe("done");
     expect(result.failure_reason).toBeNull();
     expect(result.findings.length).toBe(2);
-    expect(result.findings[0]!.title).toBe("SQLi in /api/products");
     expect(result.usage).toBeNull();
-  });
 
-  test("docker compose exits non-zero → status=failed with docker_exit_<code>", async () => {
-    const record: SpawnRecord[] = [];
-    const spawn = makeSpawn({ exitCode: 1, record });
-    const result = await runDecepticonScan(
-      {
-        scanId: "scan-xyz",
-        targetUrl: "https://target.test",
-        profile: "recon",
-        findingsDir: "/workspace/findings",
-        composeFile: "/opt/decepticon/docker-compose.yml",
-      },
-      {
-        spawn,
-        collectFindings: makeCollectFindings(TWO_FINDINGS),
-      }
-    );
-    expect(result.status).toBe("failed");
-    expect(result.failure_reason).toBe("docker_exit_1");
-    // findings still collected best-effort
-    expect(result.findings.length).toBe(2);
-  });
-
-  test("timeout: compose never exits → killed, status=failed, reason=timeout_exceeded", async () => {
-    const record: SpawnRecord[] = [];
-    let killSpy = false;
-    const spawn: SpawnImpl = (cmd, opts) => {
-      record.push({ cmd, opts });
-      let resolveExit: (code: number) => void = () => {};
-      const exited = new Promise<number>((resolve) => {
-        resolveExit = resolve;
-      });
-      // Never resolves on its own.
-      return {
-        exited,
-        kill: () => {
-          killSpy = true;
-          resolveExit(137);
-        },
-      };
-    };
-    const result = await runDecepticonScan(
-      {
-        scanId: "scan-slow",
-        targetUrl: "https://slow.test",
-        profile: "max",
-        findingsDir: "/workspace/findings",
-        composeFile: "/opt/decepticon/docker-compose.yml",
-        timeoutMs: 50,
-      },
-      {
-        spawn,
-        collectFindings: makeCollectFindings(EMPTY_COLLECTION),
-      }
-    );
-    expect(result.status).toBe("failed");
-    expect(result.failure_reason).toBe("timeout_exceeded");
-    expect(killSpy).toBe(true);
-  });
-
-  test("env vars are passed: scan id, target url, profile, findings dir", async () => {
-    const record: SpawnRecord[] = [];
-    const spawn = makeSpawn({ exitCode: 0, record });
-    await runDecepticonScan(
-      {
-        scanId: "scan-env-1",
-        targetUrl: "https://app.example.com",
-        profile: "standard",
-        findingsDir: "/workspace/findings",
-        composeFile: "/opt/decepticon/docker-compose.yml",
-      },
-      {
-        spawn,
-        collectFindings: makeCollectFindings(EMPTY_COLLECTION),
-      }
-    );
-    expect(record.length).toBe(1);
-    const env = record[0]!.opts?.env ?? {};
-    expect(env.TENSOL_SCAN_ID).toBe("scan-env-1");
-    expect(env.DECEPTICON_TARGET_URL).toBe("https://app.example.com");
-    expect(env.DECEPTICON_PROFILE).toBe("standard");
-    expect(env.DECEPTICON_FINDINGS_DIR).toBe("/workspace/findings");
-  });
-
-  test("profile mapping is literal pass-through (max → max, recon → recon)", async () => {
-    const recordA: SpawnRecord[] = [];
-    await runDecepticonScan(
-      {
-        scanId: "s1",
-        targetUrl: "https://t.test",
-        profile: "max",
-        findingsDir: "/w",
-        composeFile: "/c.yml",
-      },
-      {
-        spawn: makeSpawn({ exitCode: 0, record: recordA }),
-        collectFindings: makeCollectFindings(EMPTY_COLLECTION),
-      }
-    );
-    expect(recordA[0]!.opts?.env?.DECEPTICON_PROFILE).toBe("max");
-
-    const recordB: SpawnRecord[] = [];
-    await runDecepticonScan(
-      {
-        scanId: "s2",
-        targetUrl: "https://t.test",
-        profile: "recon",
-        findingsDir: "/w",
-        composeFile: "/c.yml",
-      },
-      {
-        spawn: makeSpawn({ exitCode: 0, record: recordB }),
-        collectFindings: makeCollectFindings(EMPTY_COLLECTION),
-      }
-    );
-    expect(recordB[0]!.opts?.env?.DECEPTICON_PROFILE).toBe("recon");
-  });
-
-  test("compose command structure: docker compose -f <file> up --abort-on-container-exit", async () => {
-    const record: SpawnRecord[] = [];
-    const spawn = makeSpawn({ exitCode: 0, record });
-    await runDecepticonScan(
-      {
-        scanId: "scan-cmd",
-        targetUrl: "https://t.test",
-        profile: "standard",
-        findingsDir: "/w",
-        composeFile: "/opt/decepticon/docker-compose.yml",
-      },
-      {
-        spawn,
-        collectFindings: makeCollectFindings(EMPTY_COLLECTION),
-      }
-    );
-    expect(record.length).toBe(1);
-    expect(record[0]!.cmd).toEqual([
+    // compose up first, compose down last
+    expect(spawnRec[0]!.cmd).toEqual([
       "docker",
       "compose",
       "-f",
       "/opt/decepticon/docker-compose.yml",
       "up",
-      "--abort-on-container-exit",
+      "-d",
     ]);
+    expect(spawnRec[spawnRec.length - 1]!.cmd).toEqual([
+      "docker",
+      "compose",
+      "-f",
+      "/opt/decepticon/docker-compose.yml",
+      "down",
+      "-v",
+      "--remove-orphans",
+    ]);
+
+    // POST /threads then POST /threads/<id>/runs in that order
+    const posts = fetchRec.filter((c) => c.method === "POST");
+    expect(posts[0]!.url).toMatch(/\/threads$/);
+    expect(posts[1]!.url).toMatch(/\/threads\/thread-xyz\/runs$/);
+    const runBody = posts[1]!.body as {
+      assistant_id: string;
+      input: { target_url: string; messages: Array<{ content: string }> };
+      config: { recursion_limit: number };
+    };
+    expect(runBody.assistant_id).toBe("decepticon");
+    expect(runBody.input.target_url).toBe("https://example.com");
+    expect(runBody.input.messages[0]!.content).toContain("https://example.com");
+    expect(runBody.config.recursion_limit).toBe(400);
   });
 
-  test("failed compose + empty findings dir → result.findings=[] without crashing", async () => {
-    const record: SpawnRecord[] = [];
-    const spawn = makeSpawn({ exitCode: 2, record });
-    const result = await runDecepticonScan(
+  test("profile=recon → assistant_id=recon (literal map)", async () => {
+    const fetchRec: FetchCall[] = [];
+    const clock = makeClock();
+    await runDecepticonScan(
       {
-        scanId: "scan-empty",
+        scanId: "s1",
         targetUrl: "https://t.test",
         profile: "recon",
-        findingsDir: "/empty",
+        findingsDir: "/w",
         composeFile: "/c.yml",
       },
       {
-        spawn,
+        spawn: makeSpawn({ exitCodes: [0, 0], record: [] }),
+        fetcher: makeFetcher({
+          runStatus: [{ status: 200, body: { status: "success" } }],
+          record: fetchRec,
+        }),
         collectFindings: makeCollectFindings(EMPTY_COLLECTION),
+        now: clock.now,
+        sleep: clock.sleep,
+      }
+    );
+    const runPost = fetchRec.find((c) => /\/runs$/.test(c.url) && c.method === "POST");
+    expect(runPost).toBeTruthy();
+    expect((runPost!.body as { assistant_id: string }).assistant_id).toBe("recon");
+  });
+
+  test("profile=max → assistant_id=decepticon", async () => {
+    const fetchRec: FetchCall[] = [];
+    const clock = makeClock();
+    await runDecepticonScan(
+      {
+        scanId: "s2",
+        targetUrl: "https://t.test",
+        profile: "max",
+        findingsDir: "/w",
+        composeFile: "/c.yml",
+      },
+      {
+        spawn: makeSpawn({ exitCodes: [0, 0], record: [] }),
+        fetcher: makeFetcher({
+          runStatus: [{ status: 200, body: { status: "success" } }],
+          record: fetchRec,
+        }),
+        collectFindings: makeCollectFindings(EMPTY_COLLECTION),
+        now: clock.now,
+        sleep: clock.sleep,
+      }
+    );
+    const runPost = fetchRec.find((c) => /\/runs$/.test(c.url) && c.method === "POST");
+    expect((runPost!.body as { assistant_id: string }).assistant_id).toBe("decepticon");
+  });
+
+  test("compose up fails → status=failed, reason=docker_exit_<code>", async () => {
+    const spawnRec: SpawnRecord[] = [];
+    const result = await runDecepticonScan(
+      {
+        scanId: "s",
+        targetUrl: "https://t.test",
+        profile: "standard",
+        findingsDir: "/w",
+        composeFile: "/c.yml",
+      },
+      {
+        spawn: makeSpawn({ exitCodes: [1], record: spawnRec }),
+        fetcher: makeFetcher({ record: [] }),
+        collectFindings: makeCollectFindings(TWO_FINDINGS),
       }
     );
     expect(result.status).toBe("failed");
-    expect(result.failure_reason).toBe("docker_exit_2");
-    expect(result.findings).toEqual([]);
+    expect(result.failure_reason).toBe("docker_exit_1");
+    // No further compose calls (we never got past step 1)
+    expect(spawnRec.length).toBe(1);
+    // Findings still best-effort collected
+    expect(result.findings.length).toBe(2);
+  });
+
+  test("/ok never returns 200 → langgraph_boot_timeout, compose down called", async () => {
+    const spawnRec: SpawnRecord[] = [];
+    const fetchRec: FetchCall[] = [];
+    const clock = makeClock();
+    const result = await runDecepticonScan(
+      {
+        scanId: "s",
+        targetUrl: "https://t.test",
+        profile: "standard",
+        findingsDir: "/w",
+        composeFile: "/c.yml",
+        bootTimeoutMs: 100,
+        timeoutMs: 60_000,
+      },
+      {
+        spawn: makeSpawn({ exitCodes: [0, 0], record: spawnRec }),
+        fetcher: makeFetcher({
+          // Always 503 — never ready
+          okResponses: Array.from({ length: 50 }, () => ({ status: 503, body: {} })),
+          record: fetchRec,
+        }),
+        collectFindings: makeCollectFindings(EMPTY_COLLECTION),
+        now: clock.now,
+        sleep: clock.sleep,
+      }
+    );
+    expect(result.status).toBe("failed");
+    expect(result.failure_reason).toBe("langgraph_boot_timeout");
+    // compose up + compose down both called
+    expect(spawnRec.length).toBe(2);
+    expect(spawnRec[1]!.cmd).toContain("down");
+    // No thread / run created
+    const posts = fetchRec.filter((c) => c.method === "POST");
+    expect(posts.length).toBe(0);
+  });
+
+  test("run terminal status=error → langgraph_run_error", async () => {
+    const clock = makeClock();
+    const result = await runDecepticonScan(
+      {
+        scanId: "s",
+        targetUrl: "https://t.test",
+        profile: "standard",
+        findingsDir: "/w",
+        composeFile: "/c.yml",
+      },
+      {
+        spawn: makeSpawn({ exitCodes: [0, 0], record: [] }),
+        fetcher: makeFetcher({
+          runStatus: [{ status: 200, body: { status: "error" } }],
+          record: [],
+        }),
+        collectFindings: makeCollectFindings(EMPTY_COLLECTION),
+        now: clock.now,
+        sleep: clock.sleep,
+      }
+    );
+    expect(result.status).toBe("failed");
+    expect(result.failure_reason).toBe("langgraph_run_error");
+  });
+
+  test("run terminal status=cancelled → langgraph_run_cancelled", async () => {
+    const clock = makeClock();
+    const result = await runDecepticonScan(
+      {
+        scanId: "s",
+        targetUrl: "https://t.test",
+        profile: "standard",
+        findingsDir: "/w",
+        composeFile: "/c.yml",
+      },
+      {
+        spawn: makeSpawn({ exitCodes: [0, 0], record: [] }),
+        fetcher: makeFetcher({
+          runStatus: [{ status: 200, body: { status: "cancelled" } }],
+          record: [],
+        }),
+        collectFindings: makeCollectFindings(EMPTY_COLLECTION),
+        now: clock.now,
+        sleep: clock.sleep,
+      }
+    );
+    expect(result.status).toBe("failed");
+    expect(result.failure_reason).toBe("langgraph_run_cancelled");
+  });
+
+  test("wallclock timeoutMs exceeded → timeout_exceeded, cancel POST + compose down called", async () => {
+    const spawnRec: SpawnRecord[] = [];
+    const fetchRec: FetchCall[] = [];
+    const clock = makeClock();
+    const result = await runDecepticonScan(
+      {
+        scanId: "s",
+        targetUrl: "https://t.test",
+        profile: "standard",
+        findingsDir: "/w",
+        composeFile: "/c.yml",
+        bootTimeoutMs: 100,
+        timeoutMs: 200,
+      },
+      {
+        spawn: makeSpawn({ exitCodes: [0, 0], record: spawnRec }),
+        fetcher: makeFetcher({
+          okResponses: [{ status: 200, body: {} }],
+          // Always pending — never terminal
+          runStatus: Array.from({ length: 100 }, () => ({
+            status: 200,
+            body: { status: "pending" },
+          })),
+          record: fetchRec,
+        }),
+        collectFindings: makeCollectFindings(EMPTY_COLLECTION),
+        now: clock.now,
+        sleep: clock.sleep,
+      }
+    );
+    expect(result.status).toBe("failed");
+    expect(result.failure_reason).toBe("timeout_exceeded");
+    // Cancel POST attempted
+    const cancelCalls = fetchRec.filter((c) => /\/cancel$/.test(c.url));
+    expect(cancelCalls.length).toBe(1);
+    // compose down called
+    expect(spawnRec[spawnRec.length - 1]!.cmd).toContain("down");
+  });
+
+  test("thread create fails → langgraph_submit_<msg>, compose down called", async () => {
+    const spawnRec: SpawnRecord[] = [];
+    const clock = makeClock();
+    const result = await runDecepticonScan(
+      {
+        scanId: "s",
+        targetUrl: "https://t.test",
+        profile: "standard",
+        findingsDir: "/w",
+        composeFile: "/c.yml",
+      },
+      {
+        spawn: makeSpawn({ exitCodes: [0, 0], record: spawnRec }),
+        fetcher: makeFetcher({
+          threadsCreate: { status: 500, body: { error: "boom" } },
+          record: [],
+        }),
+        collectFindings: makeCollectFindings(EMPTY_COLLECTION),
+        now: clock.now,
+        sleep: clock.sleep,
+      }
+    );
+    expect(result.status).toBe("failed");
+    expect(result.failure_reason).toContain("langgraph_submit_");
+    expect(spawnRec[spawnRec.length - 1]!.cmd).toContain("down");
+  });
+
+  test("kickoff prompt mentions target URL, scan id, and load_skill", async () => {
+    const fetchRec: FetchCall[] = [];
+    const clock = makeClock();
+    await runDecepticonScan(
+      {
+        scanId: "scan-007",
+        targetUrl: "https://target.test/app",
+        profile: "standard",
+        findingsDir: "/w",
+        composeFile: "/c.yml",
+      },
+      {
+        spawn: makeSpawn({ exitCodes: [0, 0], record: [] }),
+        fetcher: makeFetcher({
+          runStatus: [{ status: 200, body: { status: "success" } }],
+          record: fetchRec,
+        }),
+        collectFindings: makeCollectFindings(EMPTY_COLLECTION),
+        now: clock.now,
+        sleep: clock.sleep,
+      }
+    );
+    const runPost = fetchRec.find((c) => /\/runs$/.test(c.url) && c.method === "POST");
+    const body = runPost!.body as {
+      input: { messages: Array<{ content: string }>; engagement_name: string; workspace_path: string };
+      config: { configurable: { workspace: string } };
+    };
+    const prompt = body.input.messages[0]!.content;
+    expect(prompt).toContain("https://target.test/app");
+    expect(prompt).toContain("scan-007");
+    expect(prompt).toContain("load_skill");
+    expect(body.input.engagement_name).toBe("tensol-scan-007");
+    expect(body.input.workspace_path).toBe("/workspace/tensol-scan-007");
+    expect(body.config.configurable.workspace).toBe("/workspace/tensol-scan-007");
   });
 });

@@ -1,26 +1,34 @@
 /**
- * decepticon-runner — wraps `docker compose up` for the Decepticon stack on
- * the VPS agent. Translates a `POST /scan` payload (scanId/targetUrl/profile)
- * into Decepticon env vars, runs compose with `--abort-on-container-exit`,
- * and resolves with a terminal status (`done` | `failed`) plus whatever
- * findings the agent wrote to `/workspace/findings/`.
+ * decepticon-runner — triggers a Decepticon pentest scan against the
+ * locally-running LangGraph Platform server (port 2024) on the ephemeral
+ * Tensol scan VM.
  *
- * Terminal signals (in priority order):
- *   1. `docker compose` process exits           → done if 0 else failed/exit-code
- *   2. Wallclock `timeoutMs` exceeded           → failed/timeout_exceeded, compose killed
+ * Flow (matches `external/decepticon/benchmark/harness.py:_invoke_agent`):
+ *   1. `docker compose up -d` to start postgres/neo4j/litellm/sandbox/langgraph
+ *      (compose has `restart: unless-stopped`, so we DO NOT use
+ *      `--abort-on-container-exit`; the langgraph container is a server, not
+ *      a one-shot job).
+ *   2. Poll `http://127.0.0.1:2024/ok` until the LangGraph runtime is ready
+ *      (bounded by `bootTimeoutMs`).
+ *   3. `POST /threads` to create a thread.
+ *   4. `POST /threads/{thread_id}/runs` with assistant_id derived from
+ *      `args.profile` and the engagement input (target URL, workspace path,
+ *      kickoff message that loads the recon skill).
+ *   5. Poll `GET /threads/{thread_id}/runs/{run_id}` every 10s until terminal
+ *      (`success | error | interrupted | cancelled | timeout`).
+ *   6. Always: `docker compose down -v --remove-orphans` (best-effort).
+ *   7. Always: collect findings from `args.findingsDir`.
  *
- * Findings are collected best-effort on BOTH the success and failure paths
- * so that partial scan results aren't lost when compose crashes mid-run.
+ * Terminal mapping:
+ *   success                                     → status=done
+ *   error|interrupted|cancelled|timeout         → status=failed, reason=langgraph_run_<status>
+ *   /ok never returns 200 within bootTimeoutMs  → status=failed, reason=langgraph_boot_timeout
+ *   wallclock timeoutMs exceeded                → status=failed, reason=timeout_exceeded
+ *                                                 (best-effort cancel POST + compose down)
  *
- * Design notes:
- * - Pure-ish: all side-effecting deps (`spawn`, `collectFindings`, `now`,
- *   `sleep`) are injectable so tests never touch real docker or Bun.spawn.
- * - Profile is a literal pass-through env var — any internal mapping
- *   (recon → smaller agent pool, max → wider toolbelt) is Decepticon's job,
- *   not ours.
- * - We never throw on a docker failure; the result envelope always carries
- *   a status + failure_reason so the caller (T072 webhook poster) can
- *   relay either outcome through one code path.
+ * All side-effecting dependencies (`spawn`, `fetcher`, `collectFindings`,
+ * `now`, `sleep`) are injectable so tests can drive every branch without
+ * touching docker or the network.
  */
 
 import {
@@ -37,7 +45,12 @@ export type RunScanArgs = {
   profile: ScanProfile;
   findingsDir: string;
   composeFile: string;
+  /** Wall-clock budget for the entire scan (default 30 min). */
   timeoutMs?: number;
+  /** Wall-clock budget for langgraph /ok readiness (default 10 min). */
+  bootTimeoutMs?: number;
+  /** LangGraph Platform base URL (default http://127.0.0.1:2024). */
+  langgraphUrl?: string;
 };
 
 export type RunScanResult = {
@@ -59,8 +72,18 @@ export type SpawnImpl = (
   kill: () => void;
 };
 
+export type FetcherImpl = (
+  input: string,
+  init?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+  }
+) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown>; text: () => Promise<string> }>;
+
 export type RunDecepticonDeps = {
   spawn?: SpawnImpl;
+  fetcher?: FetcherImpl;
   collectFindings?: (
     opts: { dir: string }
   ) => Promise<CollectionResult>;
@@ -68,15 +91,24 @@ export type RunDecepticonDeps = {
   sleep?: (ms: number) => Promise<void>;
 };
 
-const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000; // 1h
+const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
+const DEFAULT_BOOT_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
+const DEFAULT_LANGGRAPH_URL = "http://127.0.0.1:2024";
+const BOOT_POLL_INTERVAL_MS = 5_000;
+const RUN_POLL_INTERVAL_MS = 10_000;
+const TERMINAL_STATUSES = new Set([
+  "success",
+  "error",
+  "interrupted",
+  "cancelled",
+  "timeout",
+]);
 
 /**
- * Default spawn wrapper around `Bun.spawn`. Kept tiny so the test surface
- * doesn't have to mock Bun.spawn itself — tests inject a different
+ * Default spawn wrapper around `Bun.spawn`. Tests inject a different
  * `SpawnImpl` and never reach this code path.
  */
 function defaultSpawn(cmd: string[], opts?: SpawnOpts): ReturnType<SpawnImpl> {
-  // We delegate to the Bun runtime; only invoked in production runs.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bun = (globalThis as any).Bun;
   if (!bun || typeof bun.spawn !== "function") {
@@ -93,7 +125,7 @@ function defaultSpawn(cmd: string[], opts?: SpawnOpts): ReturnType<SpawnImpl> {
       try {
         proc.kill();
       } catch {
-        // Ignore — process may already be terminated.
+        // Already terminated.
       }
     },
   };
@@ -101,6 +133,53 @@ function defaultSpawn(cmd: string[], opts?: SpawnOpts): ReturnType<SpawnImpl> {
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function defaultNow(): number {
+  return Date.now();
+}
+
+const defaultFetcher: FetcherImpl = async (input, init) => {
+  const res = await fetch(input, init);
+  return {
+    ok: res.ok,
+    status: res.status,
+    json: () => res.json(),
+    text: () => res.text(),
+  };
+};
+
+/**
+ * Map Tensol scan profile → Decepticon LangGraph assistant_id.
+ *
+ * Source of truth: `external/decepticon/langgraph.json`. Valid IDs include
+ * `decepticon` (full kill-chain orchestrator), `recon` (autonomous recon
+ * sub-agent), `soundwave`, `exploit`, etc.
+ *
+ * Tensol profiles:
+ *   - recon    → only OSINT + surface mapping → `recon`
+ *   - standard → full kill-chain              → `decepticon`
+ *   - max      → full kill-chain              → `decepticon`
+ */
+function assistantIdForProfile(profile: ScanProfile): string {
+  if (profile === "recon") return "recon";
+  return "decepticon";
+}
+
+function buildComposeUpCmd(args: RunScanArgs): string[] {
+  return ["docker", "compose", "-f", args.composeFile, "up", "-d"];
+}
+
+function buildComposeDownCmd(args: RunScanArgs): string[] {
+  return [
+    "docker",
+    "compose",
+    "-f",
+    args.composeFile,
+    "down",
+    "-v",
+    "--remove-orphans",
+  ];
 }
 
 function buildEnv(args: RunScanArgs): Record<string, string> {
@@ -112,22 +191,38 @@ function buildEnv(args: RunScanArgs): Record<string, string> {
   };
 }
 
-function buildCmd(args: RunScanArgs): string[] {
-  return [
-    "docker",
-    "compose",
-    "-f",
-    args.composeFile,
-    "up",
-    "--abort-on-container-exit",
-  ];
+function buildKickoffPrompt(args: RunScanArgs): string {
+  return (
+    `Pentest target: ${args.targetUrl}. ` +
+    `Use load_skill("/skills/recon/SKILL.md"). ` +
+    `Write findings to /workspace/findings/${args.scanId}/ ` +
+    `as YAML-frontmatter markdown files.`
+  );
+}
+
+function buildRunInput(args: RunScanArgs): {
+  assistant_id: string;
+  input: Record<string, unknown>;
+  config: Record<string, unknown>;
+} {
+  const workspace = `/workspace/tensol-${args.scanId}`;
+  return {
+    assistant_id: assistantIdForProfile(args.profile),
+    input: {
+      messages: [{ role: "human", content: buildKickoffPrompt(args) }],
+      engagement_name: `tensol-${args.scanId}`,
+      workspace_path: workspace,
+      target_url: args.targetUrl,
+    },
+    config: {
+      configurable: { workspace },
+      recursion_limit: 400,
+    },
+  };
 }
 
 /**
- * Best-effort findings collection that never throws. If the findings dir
- * is missing or unreadable (common when compose crashed before mounting
- * anything), we treat it as "no findings yet" and let the caller decide
- * what to do with the failure_reason.
+ * Best-effort findings collection that never throws.
  */
 async function collectSafe(
   collect: (opts: { dir: string }) => Promise<CollectionResult>,
@@ -141,37 +236,252 @@ async function collectSafe(
   }
 }
 
-type TimeoutOutcome = { kind: "timeout" };
-type ExitOutcome = { kind: "exit"; code: number };
+/**
+ * Best-effort `docker compose down` — used in both success and failure
+ * paths to release the ephemeral VM resources. Swallows errors because
+ * the scan envelope must always be returned to the server.
+ */
+async function composeDown(
+  spawn: SpawnImpl,
+  args: RunScanArgs
+): Promise<void> {
+  try {
+    const proc = spawn(buildComposeDownCmd(args), { env: buildEnv(args) });
+    await proc.exited;
+  } catch {
+    // Compose may already be down; nothing to do.
+  }
+}
+
+/**
+ * Poll `<langgraphUrl>/ok` until 200 or boot budget exhausted.
+ *
+ * Returns `true` on ready, `false` on timeout. Treats any non-200 / network
+ * error as "not yet ready" — that mirrors langgraph's startup behaviour
+ * where the HTTP listener binds before agents finish loading.
+ */
+async function waitForLanggraph(
+  baseUrl: string,
+  budgetMs: number,
+  fetcher: FetcherImpl,
+  sleep: (ms: number) => Promise<void>,
+  now: () => number
+): Promise<boolean> {
+  const deadline = now() + budgetMs;
+  while (now() < deadline) {
+    try {
+      const res = await fetcher(`${baseUrl}/ok`, { method: "GET" });
+      if (res.ok) return true;
+    } catch {
+      // Connection refused or similar → still booting.
+    }
+    await sleep(BOOT_POLL_INTERVAL_MS);
+  }
+  return false;
+}
+
+/**
+ * Create a thread on the LangGraph server.
+ */
+async function createThread(
+  baseUrl: string,
+  fetcher: FetcherImpl
+): Promise<string> {
+  const res = await fetcher(`${baseUrl}/threads`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    throw new Error(`thread create failed: HTTP ${res.status}`);
+  }
+  const body = (await res.json()) as { thread_id?: string };
+  if (!body.thread_id || typeof body.thread_id !== "string") {
+    throw new Error("thread create response missing thread_id");
+  }
+  return body.thread_id;
+}
+
+/**
+ * Submit a run on a thread and return the run_id.
+ */
+async function createRun(
+  baseUrl: string,
+  threadId: string,
+  payload: Record<string, unknown>,
+  fetcher: FetcherImpl
+): Promise<string> {
+  const res = await fetcher(`${baseUrl}/threads/${threadId}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`run create failed: HTTP ${res.status}`);
+  }
+  const body = (await res.json()) as { run_id?: string };
+  if (!body.run_id || typeof body.run_id !== "string") {
+    throw new Error("run create response missing run_id");
+  }
+  return body.run_id;
+}
+
+type RunPollOutcome =
+  | { kind: "terminal"; status: string }
+  | { kind: "wallclock" };
+
+/**
+ * Poll the run status until terminal or wallclock deadline.
+ *
+ * Network errors during polling are tolerated (transient langgraph hiccups
+ * shouldn't fail the scan); only the wallclock budget can abort.
+ */
+async function pollRun(
+  baseUrl: string,
+  threadId: string,
+  runId: string,
+  deadline: number,
+  fetcher: FetcherImpl,
+  sleep: (ms: number) => Promise<void>,
+  now: () => number
+): Promise<RunPollOutcome> {
+  while (now() < deadline) {
+    try {
+      const res = await fetcher(
+        `${baseUrl}/threads/${threadId}/runs/${runId}`,
+        { method: "GET" }
+      );
+      if (res.ok) {
+        const body = (await res.json()) as { status?: unknown };
+        const status = typeof body.status === "string" ? body.status : null;
+        if (status !== null && TERMINAL_STATUSES.has(status)) {
+          return { kind: "terminal", status };
+        }
+      }
+    } catch {
+      // Transient — keep polling.
+    }
+    await sleep(RUN_POLL_INTERVAL_MS);
+  }
+  return { kind: "wallclock" };
+}
+
+/**
+ * Best-effort run cancellation (used when wallclock budget expires).
+ */
+async function cancelRun(
+  baseUrl: string,
+  threadId: string,
+  runId: string,
+  fetcher: FetcherImpl
+): Promise<void> {
+  try {
+    await fetcher(`${baseUrl}/threads/${threadId}/runs/${runId}/cancel`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+  } catch {
+    // Best-effort — VM is about to be torn down anyway.
+  }
+}
 
 export async function runDecepticonScan(
   args: RunScanArgs,
   deps: RunDecepticonDeps = {}
 ): Promise<RunScanResult> {
   const spawn = deps.spawn ?? defaultSpawn;
+  const fetcher = deps.fetcher ?? defaultFetcher;
   const collect = deps.collectFindings ?? defaultCollectFindings;
   const sleep = deps.sleep ?? defaultSleep;
+  const now = deps.now ?? defaultNow;
+
   const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const bootTimeoutMs = args.bootTimeoutMs ?? DEFAULT_BOOT_TIMEOUT_MS;
+  const langgraphUrl = args.langgraphUrl ?? DEFAULT_LANGGRAPH_URL;
+  const startTime = now();
+  const deadline = startTime + timeoutMs;
 
-  const cmd = buildCmd(args);
-  const env = buildEnv(args);
-  const proc = spawn(cmd, { env });
+  // ----------------------------------------------------------------------
+  // Step 1: compose up -d
+  // ----------------------------------------------------------------------
+  const upProc = spawn(buildComposeUpCmd(args), { env: buildEnv(args) });
+  const upCode = await upProc.exited;
+  if (upCode !== 0) {
+    const findings = await collectSafe(collect, args.findingsDir);
+    return {
+      status: "failed",
+      failure_reason: `docker_exit_${upCode}`,
+      findings,
+      usage: null,
+    };
+  }
 
-  const exitPromise: Promise<ExitOutcome> = proc.exited.then((code) => ({
-    kind: "exit",
-    code,
-  }));
-  const timeoutPromise: Promise<TimeoutOutcome> = sleep(timeoutMs).then(() => ({
-    kind: "timeout",
-  }));
+  // ----------------------------------------------------------------------
+  // Step 2: wait for langgraph /ok
+  // ----------------------------------------------------------------------
+  // Respect the smaller of bootTimeoutMs and the overall wallclock budget.
+  const bootBudget = Math.min(bootTimeoutMs, Math.max(0, deadline - now()));
+  const ready = await waitForLanggraph(
+    langgraphUrl,
+    bootBudget,
+    fetcher,
+    sleep,
+    now
+  );
+  if (!ready) {
+    await composeDown(spawn, args);
+    const findings = await collectSafe(collect, args.findingsDir);
+    return {
+      status: "failed",
+      failure_reason: "langgraph_boot_timeout",
+      findings,
+      usage: null,
+    };
+  }
 
-  const outcome = await Promise.race([exitPromise, timeoutPromise]);
+  // ----------------------------------------------------------------------
+  // Step 3+4: thread + run
+  // ----------------------------------------------------------------------
+  let threadId: string;
+  let runId: string;
+  try {
+    threadId = await createThread(langgraphUrl, fetcher);
+    runId = await createRun(
+      langgraphUrl,
+      threadId,
+      buildRunInput(args),
+      fetcher
+    );
+  } catch (err) {
+    await composeDown(spawn, args);
+    const findings = await collectSafe(collect, args.findingsDir);
+    const reason =
+      err instanceof Error ? `langgraph_submit_${err.message}` : "langgraph_submit_unknown";
+    return {
+      status: "failed",
+      failure_reason: reason,
+      findings,
+      usage: null,
+    };
+  }
 
-  if (outcome.kind === "timeout") {
-    proc.kill();
-    // Give the kill signal a tick to land so any flushed findings are
-    // visible before we collect; but don't block the runner forever.
-    await sleep(0);
+  // ----------------------------------------------------------------------
+  // Step 5: poll run until terminal or wallclock
+  // ----------------------------------------------------------------------
+  const outcome = await pollRun(
+    langgraphUrl,
+    threadId,
+    runId,
+    deadline,
+    fetcher,
+    sleep,
+    now
+  );
+
+  if (outcome.kind === "wallclock") {
+    await cancelRun(langgraphUrl, threadId, runId, fetcher);
+    await composeDown(spawn, args);
     const findings = await collectSafe(collect, args.findingsDir);
     return {
       status: "failed",
@@ -181,9 +491,10 @@ export async function runDecepticonScan(
     };
   }
 
-  // Compose has exited on its own.
+  // Terminal status observed — map to envelope.
+  await composeDown(spawn, args);
   const findings = await collectSafe(collect, args.findingsDir);
-  if (outcome.code === 0) {
+  if (outcome.status === "success") {
     return {
       status: "done",
       failure_reason: null,
@@ -193,7 +504,7 @@ export async function runDecepticonScan(
   }
   return {
     status: "failed",
-    failure_reason: `docker_exit_${outcome.code}`,
+    failure_reason: `langgraph_run_${outcome.status}`,
     findings,
     usage: null,
   };

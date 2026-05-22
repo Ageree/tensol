@@ -107,6 +107,7 @@ services:
 
   sandbox:
     image: ghcr.io/purpleailab/decepticon-sandbox:${DECEPTICON_VERSION:-latest}
+    container_name: decepticon-sandbox
     restart: unless-stopped
     depends_on:
       neo4j:
@@ -139,7 +140,9 @@ services:
       DECEPTICON_NEO4J_USER: neo4j
       DECEPTICON_NEO4J_PASSWORD: ${NEO4J_PASSWORD:-decepticon-graph}
       DECEPTICON_MODEL_PROFILE: ${DECEPTICON_MODEL_PROFILE:-eco}
-      DECEPTICON_ASSISTANT_ID: ${DECEPTICON_ASSISTANT_ID:-recon}
+      # assistant_id is now driven by the HTTP run payload from vps-agent
+      # (see vps-agent/src/decepticon-runner.ts), not from this env var.
+      DECEPTICON_DOCKER__SANDBOX_CONTAINER_NAME: decepticon-sandbox
     # Override CMD so verifier's sync Neo4j calls don't trip blockbuster
     # (see infra/decepticon-overrides/docker-compose.override.yml).
     command: ["langgraph", "dev", "--host", "0.0.0.0", "--port", "2024", "--no-browser", "--allow-blocking"]
