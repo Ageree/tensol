@@ -120,12 +120,17 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
     endStep2();
 
     // Step 3 — Attack-surface
+    // Schema (server/src/schemas/scan-orders.ts): AttackSurfaceEntry =
+    // { domain, primary, headers[] }. NOT the older {host, kind} that
+    // was in the test pre-2026-05-22.
     const endStep3 = stepStart("Step 3: PUT attack-surface");
     const asResp = await sCtx.put(
       `${API_URL}/v1/scan-orders/${orderId}/attack-surface`,
       {
         data: {
-          attack_surface: [{ host: TARGET_DOMAIN, kind: "domain" }],
+          attack_surface: [
+            { domain: TARGET_DOMAIN, primary: true, headers: [] },
+          ],
         },
       },
     );
