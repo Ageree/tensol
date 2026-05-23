@@ -96,6 +96,12 @@ services:
       LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-sk-decepticon-salt}
       DATABASE_URL: postgresql://decepticon:${POSTGRES_PASSWORD:-decepticon}@postgres:5432/litellm
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      # Qwen3.7-max with reasoning_effort=high on OpenRouter regularly
+      # exceeds the default httpx 60s read timeout — E2E #24 manifested as
+      # `task=tools: CancelledError()` cascading from the inner LLM call.
+      # LITELLM_REQUEST_TIMEOUT bounds litellm's outbound httpx client; set
+      # to 600s (10 min) to match the recon agent's worst-case turn budget.
+      LITELLM_REQUEST_TIMEOUT: "600"
     ports:
       - "127.0.0.1:4000:4000"
     volumes:
@@ -151,6 +157,15 @@ services:
       # assistant_id is now driven by the HTTP run payload from vps-agent
       # (see vps-agent/src/decepticon-runner.ts), not from this env var.
       DECEPTICON_DOCKER__SANDBOX_CONTAINER_NAME: decepticon-sandbox
+      # Bound the Decepticon LiteLLM client's per-call timeout to match
+      # the litellm proxy's 600s — without this `DECEPTICON_LLM__TIMEOUT`
+      # falls back to the in-source default of 120s which can fire on a
+      # slow Qwen3.7-max turn and surface as a tools-node CancelledError.
+      DECEPTICON_LLM__TIMEOUT: "600"
+      # Disable any cooperative drain timer the langgraph dev queue might
+      # apply to idle in-flight runs (we hold the run for the full scan
+      # via on_disconnect=continue from vps-agent).
+      LANGGRAPH_AUTH_TYPE: noop
     # Override CMD so verifier's sync Neo4j calls don't trip blockbuster
     # (see infra/decepticon-overrides/docker-compose.override.yml).
     command: ["langgraph", "dev", "--host", "0.0.0.0", "--port", "2024", "--no-browser", "--allow-blocking"]

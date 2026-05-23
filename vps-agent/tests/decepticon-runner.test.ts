@@ -215,11 +215,20 @@ describe("runDecepticonScan (LangGraph HTTP)", () => {
       assistant_id: string;
       input: { target_url: string; messages: Array<{ content: string }> };
       config: { recursion_limit: number };
+      on_disconnect: string;
+      multitask_strategy: string;
+      durability: string;
     };
     expect(runBody.assistant_id).toBe("decepticon");
     expect(runBody.input.target_url).toBe("https://example.com");
     expect(runBody.input.messages[0]!.content).toContain("https://example.com");
     expect(runBody.config.recursion_limit).toBe(400);
+    // Cancellation-resilience knobs (E2E #24 fix): vps-agent submits and
+    // polls separately, so the POST connection closes immediately —
+    // on_disconnect must be "continue" or langgraph cancels the run.
+    expect(runBody.on_disconnect).toBe("continue");
+    expect(runBody.multitask_strategy).toBe("enqueue");
+    expect(runBody.durability).toBe("sync");
   });
 
   test("profile=recon → assistant_id=recon (literal map)", async () => {

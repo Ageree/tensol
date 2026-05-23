@@ -212,10 +212,35 @@ function buildKickoffPrompt(args: RunScanArgs): string {
   );
 }
 
+/**
+ * Run-level knobs that defend against premature cancellation of long-running
+ * recon turns (root cause of E2E #24 `task=tools: CancelledError()` after 60s
+ * — Decepticon was mid-tool-call when the langgraph runtime cancelled it
+ * because vps-agent had no client connection holding the run open).
+ *
+ *   - `on_disconnect: "continue"` — vps-agent submits the run then polls via
+ *     a separate GET, so the original POST connection drops immediately.
+ *     Default `"cancel"` would treat that drop as a cancellation request.
+ *   - `durability: "sync"` — checkpoint persists BEFORE the next step starts,
+ *     so any findings the recon agent wrote to /workspace before an upstream
+ *     cancellation still land in the thread state for post-mortem.
+ *   - `multitask_strategy: "enqueue"` — defensive: if a stale run is still
+ *     in-flight on the thread, queue ours instead of interrupting it.
+ *   - `recursion_limit: 400` — preserved from prior behaviour.
+ *
+ * NOTE: LangGraph Pregel's `step_timeout` is a compile-time attribute on
+ * the graph (not settable via run config), and Decepticon's recon graph
+ * leaves it at `None` (no per-step cap). So the 60s ceiling we observed is
+ * NOT from step_timeout — it's from the runtime treating client disconnect
+ * as cancellation. `on_disconnect: "continue"` is the documented fix.
+ */
 function buildRunInput(args: RunScanArgs): {
   assistant_id: string;
   input: Record<string, unknown>;
   config: Record<string, unknown>;
+  on_disconnect: "continue";
+  multitask_strategy: "enqueue";
+  durability: "sync";
 } {
   const workspace = `/workspace/tensol-${args.scanId}`;
   return {
@@ -230,6 +255,9 @@ function buildRunInput(args: RunScanArgs): {
       configurable: { workspace },
       recursion_limit: 400,
     },
+    on_disconnect: "continue",
+    multitask_strategy: "enqueue",
+    durability: "sync",
   };
 }
 
