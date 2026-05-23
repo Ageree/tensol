@@ -358,18 +358,19 @@ async function pollRun(
         };
         const status = typeof body.status === "string" ? body.status : null;
         if (status !== null && TERMINAL_STATUSES.has(status)) {
-          // Capture the LangGraph error blob for diagnostics. Truncate so
-          // it fits into the audit metadata column without blowing schema.
+          // For error/timeout/interrupted statuses, the top-level `error`
+          // field of the run object is often null. The real error message
+          // lives in the latest checkpoint's state on the thread itself.
+          // GET /threads/{tid}/state returns the merged state including any
+          // `__error__` field that langgraph nodes set on uncaught exceptions.
           let errorDetail: string | undefined;
-          if (body.error !== undefined && body.error !== null) {
-            try {
-              errorDetail =
-                typeof body.error === "string"
-                  ? body.error.slice(0, 500)
-                  : JSON.stringify(body.error).slice(0, 500);
-            } catch {
-              errorDetail = "(unserializable error)";
-            }
+          if (status !== "success") {
+            errorDetail = await tryExtractError(
+              baseUrl,
+              threadId,
+              fetcher,
+              body
+            );
           }
           return errorDetail
             ? { kind: "terminal", status, error: errorDetail }
@@ -382,6 +383,74 @@ async function pollRun(
     await sleep(RUN_POLL_INTERVAL_MS);
   }
   return { kind: "wallclock" };
+}
+
+/**
+ * Multi-source error extraction:
+ *   1. Run object's top-level `error` field (rarely populated by langgraph).
+ *   2. Thread state's `__error__` / latest `values` (where node exceptions land).
+ *   3. Stream endpoint `/runs/{rid}/stream` final event (last-resort, slow).
+ * Returns up to 500 chars or undefined if no error detail found anywhere.
+ */
+async function tryExtractError(
+  baseUrl: string,
+  threadId: string,
+  fetcher: FetcherImpl,
+  runBody: { error?: unknown }
+): Promise<string | undefined> {
+  // Source 1: run body's error field.
+  if (runBody.error !== undefined && runBody.error !== null) {
+    try {
+      const s =
+        typeof runBody.error === "string"
+          ? runBody.error
+          : JSON.stringify(runBody.error);
+      if (s && s !== "null" && s !== "{}") return s.slice(0, 500);
+    } catch {
+      // fall through
+    }
+  }
+  // Source 2: thread state.
+  try {
+    const stateRes = await fetcher(`${baseUrl}/threads/${threadId}/state`, {
+      method: "GET",
+    });
+    if (stateRes.ok) {
+      const state = (await stateRes.json()) as {
+        values?: Record<string, unknown> | null;
+        tasks?: Array<{ error?: unknown; name?: unknown }> | null;
+      };
+      // 2a — task-level errors (langgraph populates `tasks[*].error` on
+      // node exceptions).
+      const tasks = state.tasks ?? [];
+      const failedTask = tasks.find(
+        (t) => t && t.error !== undefined && t.error !== null
+      );
+      if (failedTask?.error !== undefined && failedTask.error !== null) {
+        const name =
+          typeof failedTask.name === "string" ? failedTask.name : "?";
+        const detail =
+          typeof failedTask.error === "string"
+            ? failedTask.error
+            : JSON.stringify(failedTask.error);
+        return `task=${name}: ${detail}`.slice(0, 500);
+      }
+      // 2b — explicit __error__ key on values.
+      const values = state.values ?? {};
+      const errKey = (values as Record<string, unknown>).__error__;
+      if (errKey !== undefined && errKey !== null) {
+        const s =
+          typeof errKey === "string" ? errKey : JSON.stringify(errKey);
+        return `state.__error__=${s}`.slice(0, 500);
+      }
+      // 2c — fallback: serialize the whole state for post-mortem.
+      const s = JSON.stringify(state).slice(0, 500);
+      return `state_dump=${s}`;
+    }
+  } catch {
+    // fall through
+  }
+  return undefined;
 }
 
 /**
