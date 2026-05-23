@@ -47,6 +47,15 @@ export type RunScanArgs = {
   profile: ScanProfile;
   findingsDir: string;
   composeFile: string;
+  /**
+   * Optional Decepticon workspace root on the host (Bug #1 fix). When
+   * provided, the findings collector ALSO scans
+   * `<reconDir>/tensol-<scanId>/` recursively for narrative recon output
+   * (SUMMARY.md, report_<target>.md) that Decepticon writes without
+   * YAML frontmatter. Defaults to `/opt/decepticon/workspace` in
+   * production (`agent.ts`).
+   */
+  reconDir?: string;
   /** Wall-clock budget for the entire scan (default 30 min). */
   timeoutMs?: number;
   /** Wall-clock budget for langgraph /ok readiness (default 10 min). */
@@ -87,7 +96,7 @@ export type RunDecepticonDeps = {
   spawn?: SpawnImpl;
   fetcher?: FetcherImpl;
   collectFindings?: (
-    opts: { dir: string }
+    opts: { dir?: string; dirs?: string[] }
   ) => Promise<CollectionResult>;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -262,14 +271,25 @@ function buildRunInput(args: RunScanArgs): {
 }
 
 /**
- * Best-effort findings collection that never throws.
+ * Best-effort findings collection that never throws. Walks BOTH the
+ * vps-agent's own `findingsDir` (where diag dumps land) AND the
+ * Decepticon workspace under `<reconDir>/tensol-<scanId>/` (where the
+ * recon assistant writes SUMMARY.md / report_<target>.md without
+ * frontmatter — Bug #1).
  */
 async function collectSafe(
-  collect: (opts: { dir: string }) => Promise<CollectionResult>,
-  dir: string
+  collect: (opts: { dir?: string; dirs?: string[] }) => Promise<CollectionResult>,
+  args: RunScanArgs
 ): Promise<CollectedFinding[]> {
+  const roots: string[] = [args.findingsDir];
+  if (args.reconDir) {
+    // Decepticon's `workspace_path` is `/workspace/tensol-<scanId>` inside
+    // the sandbox container; on the host it lives at
+    // `<reconDir>/tensol-<scanId>/`. The recon assistant writes there.
+    roots.push(`${args.reconDir}/tensol-${args.scanId}`);
+  }
   try {
-    const { findings } = await collect({ dir });
+    const { findings } = await collect({ dirs: roots });
     return findings;
   } catch {
     return [];
@@ -394,7 +414,13 @@ export async function dumpComposeLogs(
           ["docker", "logs", "--tail", String(DUMP_LOGS_TAIL_LINES), container],
           { env: buildEnv(args) }
         );
-        const trimmed = stdout.slice(-64_000); // hard cap per file (~64KiB)
+        // Hard cap per file. Bug #2 fix: was 64_000, which when wrapped in
+        // markdown frontmatter+fences produces a `body_md` that exceeds the
+        // server's `FindingSchema.body_md.max = 50_000` Zod cap → webhook
+        // returns 400, agent doesn't retry (4xx terminal), scan dangles in
+        // `running` forever. 45_000 leaves ~5KiB headroom for fence/wrapper
+        // overhead and the collector's own truncation safety net.
+        const trimmed = stdout.slice(-45_000);
         const rawPath = `${diagDir}/${container}.log`;
         const mdPath = `${findingsDir}/diag-${container}.md`;
         await fs.writeFile(rawPath, trimmed);
@@ -746,7 +772,7 @@ export async function runDecepticonScan(
   const upCode = await upProc.exited;
   console.error(`[runner] compose up exited code=${upCode}`);
   if (upCode !== 0) {
-    const findings = await collectSafe(collect, args.findingsDir);
+    const findings = await collectSafe(collect, args);
     console.error(
       `[runner] result: status=failed failure_reason=docker_exit_${upCode} findings=${findings.length}`,
     );
@@ -777,7 +803,7 @@ export async function runDecepticonScan(
   if (!ready) {
     await dumpLogs(spawn, args);
     await composeDown(spawn, args);
-    const findings = await collectSafe(collect, args.findingsDir);
+    const findings = await collectSafe(collect, args);
     console.error(
       `[runner] result: status=failed failure_reason=langgraph_boot_timeout findings=${findings.length}`,
     );
@@ -810,7 +836,7 @@ export async function runDecepticonScan(
     );
     await dumpLogs(spawn, args);
     await composeDown(spawn, args);
-    const findings = await collectSafe(collect, args.findingsDir);
+    const findings = await collectSafe(collect, args);
     const reason =
       err instanceof Error ? `langgraph_submit_${err.message}` : "langgraph_submit_unknown";
     console.error(
@@ -842,7 +868,7 @@ export async function runDecepticonScan(
     await cancelRun(langgraphUrl, threadId, runId, fetcher);
     await dumpLogs(spawn, args);
     await composeDown(spawn, args);
-    const findings = await collectSafe(collect, args.findingsDir);
+    const findings = await collectSafe(collect, args);
     console.error(
       `[runner] compose down: complete (wallclock path)`,
     );
@@ -864,7 +890,7 @@ export async function runDecepticonScan(
   await dumpLogs(spawn, args);
   await composeDown(spawn, args);
   console.error(`[runner] compose down: complete`);
-  const findings = await collectSafe(collect, args.findingsDir);
+  const findings = await collectSafe(collect, args);
   if (outcome.status === "success") {
     console.error(
       `[runner] result: status=done failure_reason=null findings=${findings.length}`,

@@ -237,6 +237,60 @@ describe("V1 webhook /api/webhooks/scan-progress — diag-finding payload", () =
     expect(jobs[0]!.type).toBe("teardown_vps");
   });
 
+  test("Bug #2 regression — post-fix 45KiB diag payload (5 findings) → 200", async () => {
+    // Reproduces the prod E2E #25 webhook 400 fix: vps-agent capped each
+    // container log at 64_000 chars which, wrapped in ``` fences,
+    // produced a `body_md` of ~64KiB that the server's
+    // `FindingSchema.body_md.max = 50_000` Zod schema rejected as
+    // `invalid_body` (400). Agent's `callback.ts` treats 4xx as terminal
+    // and never retries → scan dangles in `running` forever.
+    //
+    // Post-fix the agent caps raw log at 45_000 chars, leaving room for
+    // the fenced wrapper. This test sends exactly that worst-case
+    // payload (5 containers × 45KiB) and expects 200.
+    const now = 1_716_400_000_010;
+    const db = freshMemDb();
+    seedRunningScan(db, now);
+    const app = buildApp(db, now);
+
+    const bigBody = "L".repeat(45_000);
+    const findings = [
+      diagFinding("tensol-litellm-1", bigBody),
+      diagFinding("tensol-langgraph-1", bigBody),
+      diagFinding("tensol-sandbox-1", bigBody),
+      diagFinding("tensol-postgres-1", bigBody),
+      diagFinding("tensol-neo4j-1", bigBody),
+    ];
+    // Sanity: each body_md must stay under server cap.
+    for (const f of findings) {
+      expect(f.body_md.length).toBeLessThanOrEqual(50_000);
+    }
+
+    const body = JSON.stringify({
+      scan_id: SCAN_ID,
+      status: "failed",
+      failure_reason: "decepticon_crash",
+      usage: null,
+      findings,
+    });
+    const { sig } = signed(body);
+
+    const res = await app.fetch(
+      new Request("http://test/api/webhooks/scan-progress", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Tensol-Scan-Id": SCAN_ID,
+          "X-Tensol-Signature": sig,
+        },
+        body,
+      }),
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { inserted: number };
+    expect(json.inserted).toBe(5);
+  });
+
   test("regular Decepticon findings (severity=critical/high) still work", async () => {
     const now = 1_716_400_000_001;
     const db = freshMemDb();

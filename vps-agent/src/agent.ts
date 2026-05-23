@@ -71,6 +71,15 @@ export type CreateAgentDeps = {
    * `/opt/tensol/workspace/findings`).
    */
   findingsDir?: string;
+  /**
+   * Override for the Decepticon workspace root on the VPS host (defaults
+   * to `/opt/decepticon/workspace`). Bug #1 fix: the findings collector
+   * walks `<reconDir>/tensol-<scanId>/` recursively so Decepticon's
+   * narrative recon output (SUMMARY.md, report_<target>.md without
+   * frontmatter) rides the webhook to the server as `info` findings
+   * instead of being lost when the compose volume is torn down.
+   */
+  reconDir?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -139,6 +148,7 @@ export function createAgent(deps: CreateAgentDeps): {
     now = () => Date.now(),
     composeFile = "/opt/tensol/docker-compose.yml",
     findingsDir = "/opt/tensol/workspace/findings",
+    reconDir = "/opt/decepticon/workspace",
   } = deps;
 
   // Singleton state. Mutated only by handlers + the async scan worker.
@@ -210,6 +220,7 @@ export function createAgent(deps: CreateAgentDeps): {
       signKey,
       composeFile,
       findingsDir,
+      reconDir,
       exitImpl,
       setState: (next) => {
         state = next;
@@ -233,6 +244,7 @@ type RunScanAsyncArgs = {
   signKey: string;
   composeFile: string;
   findingsDir: string;
+  reconDir: string;
   exitImpl: (code: number) => void;
   setState: (next: AgentState) => void;
 };
@@ -250,6 +262,7 @@ async function runScanAsync(opts: RunScanAsyncArgs): Promise<void> {
     signKey,
     composeFile,
     findingsDir,
+    reconDir,
     exitImpl,
     setState,
   } = opts;
@@ -264,6 +277,7 @@ async function runScanAsync(opts: RunScanAsyncArgs): Promise<void> {
       targetUrl: args.target_url,
       profile: args.profile,
       findingsDir,
+      reconDir,
       composeFile,
       // langgraph runs on host inside the compose `decepticon-net` network.
       // vps-agent runs on docker's default `bridge` network. To bridge them,
