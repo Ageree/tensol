@@ -199,17 +199,164 @@ describe("collectFindings (in-memory injection)", () => {
     expect(findings[0]!.evidence?.response).toBeUndefined();
   });
 
-  test("evidence not an object → rejected", async () => {
+  test("evidence not an object → silently dropped (Bug #8: never reject)", async () => {
+    // Old behaviour rejected entire finding as invalid_evidence; new lenient
+    // policy drops the field and keeps the finding so the operator still
+    // sees it in the audit/UI.
     const { readDir, readFile } = inMemoryFs({
       "/f/x.md":
         "---\nseverity: low\ntitle: t\nevidence: 'not an object'\n---\n\nbody",
     });
-    const { rejected } = await collectFindings({
+    const { findings, rejected } = await collectFindings({
       dir: "/f",
       readDir,
       readFile,
     });
-    expect(rejected[0]!.reason).toBe("invalid_evidence");
+    expect(rejected).toEqual([]);
+    expect(findings.length).toBe(1);
+    expect(findings[0]!.title).toBe("t");
+    expect(findings[0]!.evidence).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug #8 fix: normalize evidence + preserve evidence_pointer in body_md
+//
+// Server's `FindingEvidenceSchema` is strict {request?, response?}. Any other
+// shape on `evidence:` would cause Zod 400 → 4xx terminal → scan dangles
+// in `running` forever. The collector now NEVER rejects on evidence shape:
+// it normalizes/drops at the agent boundary. Decepticon's `evidence_pointer:`
+// (top-level frontmatter, NOT inside evidence) is preserved by appending
+// to body_md so operators can still find the verifier artifact.
+// ---------------------------------------------------------------------------
+
+describe("collectFindings — evidence normalization + pointer preservation (Bug #8)", () => {
+  test("Decepticon real finding with evidence_pointer preserved in body_md", async () => {
+    // Mirrors a real FIND-001 critical from Decepticon's verifier.
+    const { readDir, readFile } = inMemoryFs({
+      "/f/FIND-001.md":
+        "---\nseverity: critical\ntitle: SQL injection auth bypass\nevidence_pointer: findings/evidence/FIND-001.txt\n---\n\n## Proof\n\nadmin JWT extracted via UNION select.",
+    });
+    const { findings, rejected } = await collectFindings({
+      dir: "/f",
+      readDir,
+      readFile,
+    });
+    expect(rejected).toEqual([]);
+    expect(findings.length).toBe(1);
+    const f = findings[0]!;
+    expect(f.severity).toBe("critical");
+    expect(f.title).toBe("SQL injection auth bypass");
+    expect(f.body_md).toContain("admin JWT extracted");
+    // Pointer appended so info survives at wire boundary.
+    expect(f.body_md).toContain("**Evidence**: findings/evidence/FIND-001.txt");
+    // Strict shape: no `evidence` field present.
+    expect(f.evidence).toBeUndefined();
+  });
+
+  test("diag finding with {type: diagnostic, container: ...} evidence shape: dropped, not rejected", async () => {
+    // Mimics the dumpComposeLogs output if anyone ever puts the metadata
+    // inside `evidence:` instead of top-level (defensive normalization).
+    const { readDir, readFile } = inMemoryFs({
+      "/f/diag.md":
+        "---\nseverity: info\ntitle: Container log litellm\nevidence:\n  type: diagnostic\n  container: tensol-litellm-1\n---\n\n```\nlog body\n```",
+    });
+    const { findings, rejected } = await collectFindings({
+      dir: "/f",
+      readDir,
+      readFile,
+    });
+    expect(rejected).toEqual([]);
+    expect(findings.length).toBe(1);
+    const f = findings[0]!;
+    expect(f.title).toBe("Container log litellm");
+    expect(f.body_md).toContain("log body");
+    // Non-conforming evidence shape silently dropped; finding survives.
+    expect(f.evidence).toBeUndefined();
+  });
+
+  test("evidence with non-string request/response halves: half dropped", async () => {
+    const { readDir, readFile } = inMemoryFs({
+      "/f/x.md":
+        "---\nseverity: low\ntitle: t\nevidence:\n  request: 'GET /'\n  response: 500\n---\n\nbody",
+    });
+    const { findings, rejected } = await collectFindings({
+      dir: "/f",
+      readDir,
+      readFile,
+    });
+    expect(rejected).toEqual([]);
+    expect(findings.length).toBe(1);
+    const f = findings[0]!;
+    expect(f.evidence?.request).toBe("GET /");
+    expect(f.evidence?.response).toBeUndefined();
+  });
+
+  test("evidence_pointer as array → joined into body_md", async () => {
+    const { readDir, readFile } = inMemoryFs({
+      "/f/x.md":
+        "---\nseverity: critical\ntitle: t\nevidence_pointer:\n  - findings/evidence/a.txt\n  - findings/evidence/b.txt\n---\n\nbody",
+    });
+    const { findings } = await collectFindings({
+      dir: "/f",
+      readDir,
+      readFile,
+    });
+    expect(findings.length).toBe(1);
+    expect(findings[0]!.body_md).toContain(
+      "**Evidence**: findings/evidence/a.txt, findings/evidence/b.txt",
+    );
+  });
+
+  test("evidence_pointer empty string → body unchanged", async () => {
+    const { readDir, readFile } = inMemoryFs({
+      "/f/x.md":
+        "---\nseverity: low\ntitle: t\nevidence_pointer: ''\n---\n\nbody",
+    });
+    const { findings } = await collectFindings({
+      dir: "/f",
+      readDir,
+      readFile,
+    });
+    expect(findings[0]!.body_md).toContain("body");
+    expect(findings[0]!.body_md).not.toContain("**Evidence**");
+  });
+
+  test("real and diag findings together: all pass through with contract-strict evidence", async () => {
+    const { readDir, readFile } = inMemoryFs({
+      "/f/FIND-001.md":
+        "---\nseverity: critical\ntitle: SQLi\nevidence_pointer: findings/evidence/FIND-001.txt\n---\n\nbody",
+      "/f/FIND-002.md":
+        "---\nseverity: high\ntitle: XSS\nevidence_pointer: findings/evidence/FIND-002.txt\n---\n\nbody",
+      "/f/FIND-003.md":
+        "---\nseverity: high\ntitle: Open redirect\nevidence_pointer: findings/evidence/FIND-003.txt\n---\n\nbody",
+      "/f/FIND-004.md":
+        "---\nseverity: critical\ntitle: RCE\nevidence_pointer: findings/evidence/FIND-004.txt\n---\n\nbody",
+      "/f/SUMMARY.md": "# Recon Summary\n\nbody",
+    });
+    const { findings, rejected } = await collectFindings({
+      dir: "/f",
+      readDir,
+      readFile,
+    });
+    expect(rejected).toEqual([]);
+    expect(findings.length).toBe(5);
+    // Every emitted finding has either NO evidence field OR strictly
+    // {request?, response?} shape — the contract the server enforces.
+    for (const f of findings) {
+      if (f.evidence !== undefined) {
+        const keys = Object.keys(f.evidence).sort();
+        for (const key of keys) {
+          expect(["request", "response"]).toContain(key);
+        }
+      }
+    }
+    // All 4 real findings have evidence pointer preserved in body.
+    const findIds = findings
+      .filter((f) => f.body_md.includes("**Evidence**: findings/evidence/"))
+      .map((f) => f.title)
+      .sort();
+    expect(findIds).toEqual(["Open redirect", "RCE", "SQLi", "XSS"]);
   });
 });
 

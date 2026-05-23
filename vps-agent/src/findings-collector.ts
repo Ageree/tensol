@@ -52,8 +52,7 @@ export type RejectedFinding = {
     | "missing_frontmatter"
     | "invalid_yaml"
     | "missing_title"
-    | "invalid_severity"
-    | "invalid_evidence";
+    | "invalid_severity";
 };
 
 export type CollectionResult = {
@@ -148,29 +147,75 @@ function coerceSeverity(raw: unknown): FindingSeverity | null {
     : null;
 }
 
+/**
+ * Normalize the `evidence:` frontmatter field to the strict server contract
+ * shape `{request?: string, response?: string}`.
+ *
+ * Bug #8 fix: the server's `FindingEvidenceSchema` (server/src/schemas/webhook.ts)
+ * uses `z.object({request?, response?})`. While Zod strips unknown keys, any
+ * Decepticon or diag finding that puts NON-conforming TYPES on `request` /
+ * `response` (e.g. nested object, array, number) would trip Zod validation
+ * → server returns HTTP 400 → vps-agent treats 4xx as terminal → scan
+ * dangles in `running` forever (the exact production incident).
+ *
+ * Lenient strategy: NEVER reject the finding just for a bad evidence shape.
+ * Instead:
+ *   - `evidence` is `undefined` / `null`       → no evidence field
+ *   - `evidence` is not an object              → drop, no evidence field
+ *   - `evidence.request` is not a string       → drop that half
+ *   - `evidence.response` is not a string      → drop that half
+ *   - Any other extra keys                     → silently ignored
+ *
+ * The net contract: every CollectedFinding we emit has EITHER no `evidence`
+ * field OR strictly `{request?: string, response?: string}` — guaranteed
+ * to pass the server's Zod validator.
+ */
 function coerceEvidence(
   raw: unknown
-): { ok: true; value: CollectedFinding["evidence"] } | { ok: false } {
-  if (raw === undefined || raw === null) return { ok: true, value: undefined };
-  if (typeof raw !== "object" || Array.isArray(raw)) return { ok: false };
+): CollectedFinding["evidence"] {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "object" || Array.isArray(raw)) return undefined;
 
   const obj = raw as Record<string, unknown>;
   const request = obj.request;
   const response = obj.response;
 
-  if (request !== undefined && typeof request !== "string") return { ok: false };
-  if (response !== undefined && typeof response !== "string") return { ok: false };
-
-  // Only include keys that were actually provided so callers can distinguish
-  // "field absent" from "field present and empty".
+  // Only include keys that are strings (per server contract).
   const evidence: { request?: string; response?: string } = {};
   if (typeof request === "string") evidence.request = request;
   if (typeof response === "string") evidence.response = response;
 
   if (evidence.request === undefined && evidence.response === undefined) {
-    return { ok: true, value: undefined };
+    return undefined;
   }
-  return { ok: true, value: evidence };
+  return evidence;
+}
+
+/**
+ * Decepticon's verifier writes findings with a top-level frontmatter field
+ * `evidence_pointer: findings/evidence/FIND-001.txt` pointing at a sibling
+ * artifact file. That data is NOT inside `evidence:` (so it's lost when we
+ * extract the strict {request, response} subset) but it's load-bearing for
+ * operators chasing real critical findings.
+ *
+ * This helper extracts a pointer (or list of pointers) from frontmatter so
+ * callers can preserve the information by appending it to `body_md`. Returns
+ * `null` when no pointer is present or the value is malformed.
+ */
+function extractEvidencePointer(fm: Record<string, unknown>): string | null {
+  const raw = fm.evidence_pointer;
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (Array.isArray(raw)) {
+    const pointers = raw
+      .filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+      .map((p) => p.trim());
+    return pointers.length > 0 ? pointers.join(", ") : null;
+  }
+  return null;
 }
 
 function truncate(body: string, cap: number): string {
@@ -250,22 +295,29 @@ function parseOne(
     };
   }
 
-  const evidenceResult = coerceEvidence(fm.evidence);
-  if (!evidenceResult.ok) {
-    return {
-      ok: true,
-      rejected: { file: filename, reason: "invalid_evidence" },
-    };
-  }
+  // Normalize evidence: never reject, always return a contract-compliant
+  // shape (or undefined). See Bug #8 fix above.
+  const evidence = coerceEvidence(fm.evidence);
+
+  // Preserve Decepticon's `evidence_pointer:` by appending to body_md.
+  // Without this, real critical findings (FIND-001..004) lose the pointer
+  // at the wire boundary, leaving operators with no way to reach the
+  // verifier-captured artifact.
+  const pointer = extractEvidencePointer(fm);
 
   // Body is preserved verbatim aside from a single trailing newline that's
   // an artefact of frontmatter parsing — never the user's whitespace.
-  const body_md = truncate(bodyRaw.replace(/\n$/, ""), bodyCharCap);
+  let bodyTrimmed = bodyRaw.replace(/\n$/, "");
+  if (pointer !== null) {
+    const suffix = `\n\n**Evidence**: ${pointer}`;
+    bodyTrimmed = `${bodyTrimmed}${suffix}`;
+  }
+  const body_md = truncate(bodyTrimmed, bodyCharCap);
 
   const finding: CollectedFinding =
-    evidenceResult.value === undefined
+    evidence === undefined
       ? { severity, title: title.slice(0, 500), body_md }
-      : { severity, title: title.slice(0, 500), body_md, evidence: evidenceResult.value };
+      : { severity, title: title.slice(0, 500), body_md, evidence };
 
   return { ok: true, value: finding };
 }
