@@ -147,7 +147,11 @@ services:
     # (see infra/decepticon-overrides/docker-compose.override.yml).
     command: ["langgraph", "dev", "--host", "0.0.0.0", "--port", "2024", "--no-browser", "--allow-blocking"]
     ports:
-      - "127.0.0.1:2024:2024"
+      # Bind to all host interfaces (NOT just 127.0.0.1) so the vps-agent
+      # container on the default `bridge` network can reach :2024 via the
+      # docker bridge gateway (host.docker.internal == 172.17.0.1).
+      # GCP firewall only opens :8080 — :2024 stays unreachable externally.
+      - "2024:2024"
     volumes:
       - /opt/decepticon/decepticon/agents/prompts/recon.md:/app/decepticon/agents/prompts/recon.md:ro
       - /opt/decepticon/workspace:/workspace

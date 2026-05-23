@@ -262,6 +262,16 @@ async function runScanAsync(opts: RunScanAsyncArgs): Promise<void> {
       profile: args.profile,
       findingsDir,
       composeFile,
+      // langgraph runs on host inside the compose `decepticon-net` network.
+      // vps-agent runs on docker's default `bridge` network. To bridge them,
+      // cloud-init starts the agent with `--add-host=host.docker.internal:
+      // host-gateway` AND injects `DECEPTICON_LANGGRAPH_URL` env. Compose
+      // binds :2024 on 0.0.0.0 (not 127.0.0.1) so this gateway-routed call
+      // resolves. Falls back to the runner's `http://127.0.0.1:2024` default
+      // when env unset (matches local dev where agent runs on host network).
+      ...(process.env.DECEPTICON_LANGGRAPH_URL
+        ? { langgraphUrl: process.env.DECEPTICON_LANGGRAPH_URL }
+        : {}),
     });
   } catch (err) {
     // runScan promised never to throw, but defensive-by-default: synthesize
