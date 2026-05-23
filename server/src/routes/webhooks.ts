@@ -71,6 +71,7 @@ import type { DB } from "../db/client.ts";
 import { withTx } from "../db/client.ts";
 import {
   jobs as jobsTable,
+  scanOrders as scanOrdersTable,
   scans as scansTable,
   vpsInstances as vpsInstancesTable,
 } from "../db/schema.ts";
@@ -99,6 +100,7 @@ export function createWebhookRoutes(deps: CreateWebhookRoutesDeps): Hono {
   const app = new Hono();
 
   app.post("/scan-progress", async (c) => {
+    try {
     // -------------------------------------------------------------------
     // 1. Read auth headers.
     // -------------------------------------------------------------------
@@ -228,9 +230,20 @@ export function createWebhookRoutes(deps: CreateWebhookRoutesDeps): Hono {
     //     findings present without a terminal scan. The next webhook
     //     retry will (a) re-insert findings (all skipped) and (b) finish
     //     the terminal transition — net effect is identical.
+    // Look up the parent scan_order to populate findings.target (E5
+    // NOT NULL). Falls back to the empty string when missing — diag-only
+    // payloads from the agent don't need a meaningful target.
+    const orderRow = db
+      .select({ primaryDomain: scanOrdersTable.primaryDomain })
+      .from(scanOrdersTable)
+      .where(eq(scanOrdersTable.id, scanRow.scanOrderId))
+      .get();
+    const target = orderRow?.primaryDomain ?? "";
+
     const storeResult = await storeFindings(db, {
       scanId: scanRow.id,
       findings: parsed.findings,
+      target,
       now: clock,
     });
 
@@ -280,7 +293,6 @@ export function createWebhookRoutes(deps: CreateWebhookRoutesDeps): Hono {
         outcome: auditOutcome,
         ts,
         user_id: scanRow.userId,
-        target_id: scanRow.targetId,
         scan_id: scanRow.id,
         vps_instance_id: vps.id,
         metadata: {
@@ -305,6 +317,19 @@ export function createWebhookRoutes(deps: CreateWebhookRoutesDeps): Hono {
       },
       200,
     );
+    } catch (err) {
+      // Structured error log — without this, Hono swallows the throw and
+      // returns a bare 500 with no body, which is exactly what trapped
+      // the prod debug session that produced this fix. Surface enough
+      // context to identify the failure mode AND the scan that hit it.
+      const scanIdSafe = c.req.header("x-tensol-scan-id") ?? "<missing>";
+      console.error(
+        `[webhooks] scan-progress 500 scan_id=${scanIdSafe}: ${
+          err instanceof Error ? err.stack ?? err.message : String(err)
+        }`,
+      );
+      return c.json({ error: "internal_error" }, 500);
+    }
   });
 
   return app;

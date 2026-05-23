@@ -1,33 +1,34 @@
 /**
- * T043 — Findings service.
+ * T043 — Findings service (compatibility shim).
  *
- * Spec refs:
- *   - `specs/001-backend-v2/data-model.md` § findings  (table shape + indexes)
- *   - `specs/001-backend-v2/contracts/webhook.md`      (wire schema, idempotency)
+ * Originally written against the **001-backend-v2** `findings` table shape
+ * (8 columns including `dedup_key` and `evidence_json`). Migration 0010
+ * (blackbox MVP) dropped that stub table and re-created `findings` with the
+ * full E5 18-column shape used by the V2 webhook (`webhooks-scan-complete.ts`
+ * + `findings/ingest.ts`).
  *
- * Two operations:
+ * The V1 webhook (`/api/webhooks/scan-progress`) still uses this module
+ * because it is the only path the vps-agent actually hits today (the V2
+ * webhook is wired but vps-agent never POSTs to it — see
+ * `server/src/jobs/handlers/spawn-yandex-vm.ts` line 426). To keep the V1
+ * path alive without losing data, `storeFindings` now writes into the
+ * current 18-column schema while preserving its old call signature.
  *
- *   - `storeFindings({scanId, findings[]})` — bulk-insert with
- *     `INSERT ... ON CONFLICT(dedup_key) DO NOTHING`. Idempotent: duplicate
- *     callbacks from a retrying VPS agent dedupe by `${scan_id}:sha256(title)`.
- *   - `listFindings({scanId})` — fetch all findings for a scan, ordered by
- *     severity descending (critical → info), ties broken by `created_at` asc.
+ * Translation rules:
+ *   - severity `info` (V1 wire enum)  → `informational` (DB CHECK enum)
+ *   - external_id   → first 32 hex chars of `sha256(title)` — stable per
+ *     (scan_id, title) so retries from the agent dedupe naturally.
+ *   - target        → callers pass `target` (typically the scan_order's
+ *     `primaryDomain`); empty string is allowed for diag findings.
+ *   - cwe/mitre/evidence_keys JSON  → empty array defaults.
+ *   - raw_yaml_json → JSON snapshot of `{severity, title, evidence?}` so
+ *     the report renderer has SOMETHING to chew on even though the V1
+ *     wire shape doesn't carry frontmatter.
  *
- * Dedup formula (per data-model.md L153):
- *
- *     dedup_key = scan_id + ":" + sha256_hex(title)
- *
- * Notes on shape:
- *   - The wire-schema `Finding` (from `schemas/webhook.ts`) does NOT carry
- *     `id`, `created_at`, or `dedup_key`. We mint those server-side here.
- *   - Evidence (`{request?, response?}`) is serialized to a JSON string in
- *     `evidence_json`; absent / empty evidence stores NULL.
- *
- * Concurrency:
- *   - The whole batch runs inside `withTx` so a partial failure rolls back
- *     cleanly. SQLite's `INSERT ... ON CONFLICT DO NOTHING` reports
- *     `changes() === 0` for skipped rows; we use that to drive the
- *     inserted/skipped counters.
+ * Idempotency: a duplicate webhook (same scan_id + identical title) is
+ * detected via the deterministic `external_id` (sha256 of title). We do
+ * a cheap SELECT-then-INSERT inside the per-row tx; race window is one
+ * webhook delivery and acceptable for v1.
  */
 
 import { createHash } from "node:crypto";
@@ -43,17 +44,26 @@ import type { Finding, FindingSeverity } from "../schemas/webhook.ts";
 // ---------------------------------------------------------------------------
 
 /**
- * Persisted finding row, snake_case to match the data-model column names
- * (rather than Drizzle's camelCase $inferSelect output). This is the shape
- * downstream consumers (`GET /scans/:id/findings`, report renderer) expect.
+ * The DB-level severity enum (post-0010). Note the V1 wire enum uses
+ * `info`; we translate `info` → `informational` at write time.
+ */
+type DbSeverity = "critical" | "high" | "medium" | "low" | "informational";
+
+/**
+ * Slim row returned to V1 callers (matches the legacy shape — id, title,
+ * severity, etc.). NOTE the legacy `dedup_key` and `evidence_json` columns
+ * are GONE from the schema; we return synthetic values so older callers
+ * compile, but they map to the new columns under the hood.
  */
 export type StoredFinding = {
   id: string;
   scan_id: string;
+  /** Deterministic per (scan_id, title); replaces dropped dedup_key column. */
   dedup_key: string;
   severity: FindingSeverity;
   title: string;
   body_md: string;
+  /** Always null in the new schema — kept for type compatibility. */
   evidence_json: string | null;
   created_at: number;
 };
@@ -61,6 +71,15 @@ export type StoredFinding = {
 export type StoreFindingsArgs = {
   scanId: string;
   findings: Finding[];
+  /**
+   * Default target for findings that don't carry an `affected_target`
+   * (V1 wire schema has no such field). The V1 webhook handler passes
+   * the scan_order's `primaryDomain` here.
+   *
+   * Optional for backward-compat with the old test surface; falls back
+   * to the empty string when omitted.
+   */
+  target?: string;
   /** Clock injection — defaults to `Date.now`. Tests use a frozen clock. */
   now?: () => number;
 };
@@ -77,18 +96,26 @@ export type ListFindingsArgs = {
 };
 
 // ---------------------------------------------------------------------------
-// Dedup-key helper
+// External-id (dedup) helper
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the canonical dedup_key for a finding.
+ * Compute a deterministic external_id from the title.
  *
- * Formula (data-model.md L153): `${scan_id}:${sha256_hex(title)}`.
+ * Replaces the dropped `dedup_key` column. Two findings with identical
+ * titles will collide on `(scan_id, external_id)`, which our pre-INSERT
+ * SELECT uses to skip the duplicate.
  *
- * The title is hashed verbatim — no trim, no case-fold. Whitespace
- * normalization is the agent's job; whatever the agent reports IS the
- * canonical title, and two payloads with subtly different whitespace
- * legitimately count as two findings.
+ * Length 32 hex chars (= 128 bits) is plenty to avoid accidental
+ * collisions while staying well under typical text-column page limits.
+ */
+export function computeExternalId(title: string): string {
+  return createHash("sha256").update(title).digest("hex").slice(0, 32);
+}
+
+/**
+ * Legacy export — kept so older imports compile. Returns the same
+ * `${scan_id}:sha256(title)` shape used by the dropped dedup_key column.
  */
 export function computeDedupKey(scanId: string, title: string): string {
   const hex = createHash("sha256").update(title).digest("hex");
@@ -96,45 +123,55 @@ export function computeDedupKey(scanId: string, title: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Severity ordering for listFindings
+// Severity translation
 // ---------------------------------------------------------------------------
 
-const SEVERITY_RANK: Record<FindingSeverity, number> = {
+const SEVERITY_RANK: Record<DbSeverity, number> = {
   critical: 0,
   high: 1,
   medium: 2,
   low: 3,
-  info: 4,
+  informational: 4,
 };
+
+/**
+ * Map the V1 wire severity (`info`) onto the DB CHECK enum
+ * (`informational`). All other values pass through unchanged.
+ */
+function toDbSeverity(s: FindingSeverity): DbSeverity {
+  return s === "info" ? "informational" : (s as DbSeverity);
+}
+
+/**
+ * Map the DB severity back onto the V1 wire enum for the return shape.
+ * `informational` → `info`; everything else passes through.
+ */
+function toWireSeverity(s: DbSeverity): FindingSeverity {
+  return s === "informational" ? "info" : (s as FindingSeverity);
+}
 
 // ---------------------------------------------------------------------------
 // storeFindings
 // ---------------------------------------------------------------------------
 
 /**
- * Bulk-insert findings for a scan with idempotent `ON CONFLICT DO NOTHING`.
+ * Bulk-insert findings for a scan into the post-0010 18-column `findings`
+ * table.
  *
  * Returns:
- *   - `inserted`: count of rows actually written (changes() === 1)
- *   - `skipped`:  count of rows that hit the unique `dedup_key` index
- *   - `rows`:     the freshly-inserted rows, in the order they were inserted
+ *   - `inserted`: count of rows actually written
+ *   - `skipped`:  count of rows that hit the (scan_id, external_id) dedup
+ *   - `rows`:     the freshly-inserted rows in insertion order
  *
  * Behaviour:
- *   - Empty `findings[]` → `{inserted: 0, skipped: 0, rows: []}` with no
- *     transaction (cheap fast-path).
+ *   - Empty `findings[]` → `{inserted: 0, skipped: 0, rows: []}` (fast path).
  *   - Each row gets a freshly-minted ULID, a server-clock `created_at`,
- *     and a computed `dedup_key`.
- *   - Evidence shape: if both `request` and `response` are omitted,
- *     `evidence_json` is NULL (not `"{}"`); otherwise the object is
- *     JSON-stringified verbatim.
- *
- * Surprise: drizzle-orm's `onConflictDoNothing()` returning behaviour with
- * bun:sqlite does not surface aggregate row counts when used in a single
- * `.values(array)` call. We therefore loop and insert one row at a time,
- * reading the `{changes, lastInsertRowid}` object that bun:sqlite's
- * `.run()` returns. This is fine because (a) the batch is bounded at 1000
- * (schema cap) and (b) the whole batch runs inside one `BEGIN IMMEDIATE`
- * so it's still a single fsync.
+ *     and a deterministic `external_id` (sha256 prefix of the title).
+ *   - Severity `info` is translated to `informational` to satisfy the
+ *     post-0010 CHECK constraint.
+ *   - All NOT NULL columns are populated with sensible defaults; the
+ *     raw evidence object is stashed under `raw_yaml_json` so the
+ *     report renderer can still surface it.
  */
 export async function storeFindings(
   db: DB,
@@ -142,6 +179,7 @@ export async function storeFindings(
 ): Promise<StoreFindingsResult> {
   const { scanId, findings } = args;
   const now = args.now ?? (() => Date.now());
+  const target = args.target ?? "";
 
   if (findings.length === 0) {
     return { inserted: 0, skipped: 0, rows: [] };
@@ -152,43 +190,80 @@ export async function storeFindings(
     let skipped = 0;
 
     for (const f of findings) {
+      const externalId = computeExternalId(f.title);
+
+      // Dedup probe: skip if a row with (scan_id, external_id) already
+      // exists. This replaces the dropped UNIQUE(dedup_key) index.
+      const existing = tx
+        .select({ id: findingsTable.id })
+        .from(findingsTable)
+        .where(
+          and(
+            eq(findingsTable.scanId, scanId),
+            eq(findingsTable.externalId, externalId),
+          ),
+        )
+        .limit(1)
+        .get();
+
+      if (existing) {
+        skipped += 1;
+        continue;
+      }
+
       const id = ulid();
       const createdAt = now();
-      const dedupKey = computeDedupKey(scanId, f.title);
-      const evidenceJson = serialiseEvidence(f.evidence);
+      const dbSeverity = toDbSeverity(f.severity);
 
-      // bun:sqlite's `.run()` returns `{changes, lastInsertRowid}` (this
-      // surface is preserved by Drizzle's bun-sqlite adapter). When the
-      // ON CONFLICT clause skips the row, `changes === 0`.
-      const runResult = tx
-        .insert(findingsTable)
+      // Build a forward-compat snapshot of the V1 wire payload so the
+      // report renderer + downstream listers can reconstruct the full
+      // finding even though the V1 wire shape lacks frontmatter.
+      const rawYamlJson = JSON.stringify({
+        severity: dbSeverity,
+        title: f.title,
+        ...(f.evidence ? { evidence: f.evidence } : {}),
+      });
+
+      // Surface which evidence halves were provided for analytics
+      // without storing the (potentially huge) bodies a second time.
+      const evidenceKeys: string[] = [];
+      if (f.evidence?.request !== undefined) evidenceKeys.push("request");
+      if (f.evidence?.response !== undefined) evidenceKeys.push("response");
+
+      tx.insert(findingsTable)
         .values({
           id,
           scanId,
-          severity: f.severity,
+          externalId,
+          severity: dbSeverity,
           title: f.title,
+          target,
+          cvssScore: null,
+          cvssVector: null,
+          cvssVersion: null,
+          cweJson: "[]",
+          mitreJson: "[]",
+          confidence: null,
+          phase: null,
+          agent: null,
           bodyMd: f.body_md,
-          evidenceJson,
+          rawYamlJson,
+          evidenceKeysJson: JSON.stringify(evidenceKeys),
+          discoveredAt: null,
           createdAt,
-          dedupKey,
         })
-        .onConflictDoNothing({ target: findingsTable.dedupKey })
-        .run() as unknown as { changes: number; lastInsertRowid: number | bigint };
+        .run();
 
-      if (runResult.changes === 1) {
-        insertedRows.push({
-          id,
-          scan_id: scanId,
-          dedup_key: dedupKey,
-          severity: f.severity,
-          title: f.title,
-          body_md: f.body_md,
-          evidence_json: evidenceJson,
-          created_at: createdAt,
-        });
-      } else {
-        skipped += 1;
-      }
+      insertedRows.push({
+        id,
+        scan_id: scanId,
+        dedup_key: computeDedupKey(scanId, f.title),
+        severity: f.severity,
+        title: f.title,
+        body_md: f.body_md,
+        evidence_json: null,
+        created_at: createdAt,
+      });
     }
 
     return {
@@ -207,11 +282,7 @@ export async function storeFindings(
 
 /**
  * Fetch all findings for a scan, ordered by severity descending
- * (critical → high → medium → low → info), ties broken by `created_at` asc.
- *
- * SQLite does not natively know our severity ordering — alphabetic string
- * sort would give `critical < high < info < low < medium` which is wrong.
- * We use a `CASE` expression to map each severity to its rank.
+ * (critical → informational), ties broken by `created_at` asc.
  */
 export async function listFindings(
   db: DB,
@@ -222,7 +293,7 @@ export async function listFindings(
     WHEN 'high' THEN 1
     WHEN 'medium' THEN 2
     WHEN 'low' THEN 3
-    WHEN 'info' THEN 4
+    WHEN 'informational' THEN 4
     ELSE 5
   END`;
 
@@ -233,28 +304,18 @@ export async function listFindings(
     .orderBy(severityRankSql, asc(findingsTable.createdAt))
     .all();
 
+  // Silence "unused" lint warning on the rank table — it documents the
+  // intended ordering even though we run the rank via raw SQL above.
+  void SEVERITY_RANK;
+
   return rows.map((r) => ({
     id: r.id,
     scan_id: r.scanId,
-    dedup_key: r.dedupKey,
-    severity: r.severity,
+    dedup_key: computeDedupKey(r.scanId, r.title),
+    severity: toWireSeverity(r.severity as DbSeverity),
     title: r.title,
     body_md: r.bodyMd,
-    evidence_json: r.evidenceJson,
+    evidence_json: null,
     created_at: r.createdAt,
   }));
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-function serialiseEvidence(
-  ev: Finding["evidence"] | undefined,
-): string | null {
-  if (!ev) return null;
-  // Both halves optional per FindingEvidenceSchema. If both omitted, treat
-  // as "no evidence" (NULL) rather than storing `{}`.
-  if (ev.request === undefined && ev.response === undefined) return null;
-  return JSON.stringify(ev);
 }
