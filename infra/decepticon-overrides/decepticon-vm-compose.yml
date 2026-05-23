@@ -80,6 +80,14 @@ services:
   litellm:
     image: ghcr.io/purpleailab/decepticon-litellm:${DECEPTICON_VERSION:-latest}
     restart: unless-stopped
+    # Upstream Decepticon docker-compose.yml uses a custom Python entrypoint
+    # (litellm_startup.py + litellm_dynamic_config.py) that registers OAuth
+    # routes + loads our --config explicitly. WITHOUT these, the base
+    # ghcr.io/berriai/litellm image's default CMD ignores our mounted
+    # /app/config.yaml and routes nvidia_nim/* to upstream NVIDIA (which
+    # 400s without NVIDIA_API_KEY). Diagnosed via E2E #17-18 audit.
+    entrypoint: ["python", "/app/litellm_startup.py"]
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
     depends_on:
       postgres:
         condition: service_healthy
