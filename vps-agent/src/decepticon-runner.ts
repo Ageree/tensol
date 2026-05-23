@@ -327,7 +327,7 @@ async function createRun(
 }
 
 type RunPollOutcome =
-  | { kind: "terminal"; status: string }
+  | { kind: "terminal"; status: string; error?: string }
   | { kind: "wallclock" };
 
 /**
@@ -352,10 +352,28 @@ async function pollRun(
         { method: "GET" }
       );
       if (res.ok) {
-        const body = (await res.json()) as { status?: unknown };
+        const body = (await res.json()) as {
+          status?: unknown;
+          error?: unknown;
+        };
         const status = typeof body.status === "string" ? body.status : null;
         if (status !== null && TERMINAL_STATUSES.has(status)) {
-          return { kind: "terminal", status };
+          // Capture the LangGraph error blob for diagnostics. Truncate so
+          // it fits into the audit metadata column without blowing schema.
+          let errorDetail: string | undefined;
+          if (body.error !== undefined && body.error !== null) {
+            try {
+              errorDetail =
+                typeof body.error === "string"
+                  ? body.error.slice(0, 500)
+                  : JSON.stringify(body.error).slice(0, 500);
+            } catch {
+              errorDetail = "(unserializable error)";
+            }
+          }
+          return errorDetail
+            ? { kind: "terminal", status, error: errorDetail }
+            : { kind: "terminal", status };
         }
       }
     } catch {
@@ -502,9 +520,16 @@ export async function runDecepticonScan(
       usage: null,
     };
   }
+  // Surface the LangGraph error detail when present so the audit_log
+  // failure_reason carries WHY the run errored (LLM 401? graph timeout?
+  // tool exception?) instead of an opaque "langgraph_run_error".
+  const baseReason = `langgraph_run_${outcome.status}`;
+  const reasonWithDetail = outcome.error
+    ? `${baseReason}: ${outcome.error}`
+    : baseReason;
   return {
     status: "failed",
-    failure_reason: `langgraph_run_${outcome.status}`,
+    failure_reason: reasonWithDetail,
     findings,
     usage: null,
   };
