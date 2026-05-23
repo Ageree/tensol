@@ -212,20 +212,30 @@ model_list:
       api_key: os.environ/OPENROUTER_API_KEY
 
   # ── Nvidia NIM ─────────────────────────────────────────────────────
+  # [TENSOL OVERRIDE 2026-05-23] Hijack nvidia_nim/* → qwen3.7-max.
+  # Recon (LOW tier) maps to nvidia_nim/meta/llama-3.2-3b-instruct in
+  # Decepticon's default model resolver. Without NVIDIA_API_KEY this 400s
+  # at upstream. Route through OpenRouter for parity with anthropic/* hijack.
   - model_name: nvidia_nim/meta/llama-3.3-70b-instruct
     litellm_params:
-      model: nvidia_nim/meta/llama-3.3-70b-instruct
-      api_key: os.environ/NVIDIA_API_KEY
+      model: openrouter/qwen/qwen3.7-max
+      api_key: os.environ/OPENROUTER_API_KEY
+      extra_body:
+        reasoning_effort: "high"
 
   - model_name: nvidia_nim/nvidia/llama-3.1-nemotron-70b-instruct
     litellm_params:
-      model: nvidia_nim/nvidia/llama-3.1-nemotron-70b-instruct
-      api_key: os.environ/NVIDIA_API_KEY
+      model: openrouter/qwen/qwen3.7-max
+      api_key: os.environ/OPENROUTER_API_KEY
+      extra_body:
+        reasoning_effort: "high"
 
   - model_name: nvidia_nim/meta/llama-3.2-3b-instruct
     litellm_params:
-      model: nvidia_nim/meta/llama-3.2-3b-instruct
-      api_key: os.environ/NVIDIA_API_KEY
+      model: openrouter/qwen/qwen3.7-max
+      api_key: os.environ/OPENROUTER_API_KEY
+      extra_body:
+        reasoning_effort: "high"
 
   # ── Subscription OAuth routes ──────────────────────────────────────────
   # ChatGPT (auth/gpt-*), Gemini Advanced (gemini-sub/*), Copilot

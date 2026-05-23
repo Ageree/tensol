@@ -661,9 +661,13 @@ export async function runDecepticonScan(
   // Surface the LangGraph error detail when present so the audit_log
   // failure_reason carries WHY the run errored (LLM 401? graph timeout?
   // tool exception?) instead of an opaque "langgraph_run_error".
+  // Server-side `ScanProgressCallbackSchema.failure_reason` is .max(255).
+  // We cap at 240 chars (after the "langgraph_run_<status>: " prefix) so
+  // the assembled reason fits without tripping Zod's `invalid_body` 400
+  // that silently drops the callback (no scan_failed audit, scan dangles).
   const baseReason = `langgraph_run_${outcome.status}`;
   const reasonWithDetail = outcome.error
-    ? `${baseReason}: ${outcome.error}`
+    ? `${baseReason}: ${outcome.error}`.slice(0, 250)
     : baseReason;
   console.error(
     `[runner] result: status=failed failure_reason=${reasonWithDetail} findings=${findings.length}`,
