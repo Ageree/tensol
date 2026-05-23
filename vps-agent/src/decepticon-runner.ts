@@ -267,16 +267,35 @@ async function waitForLanggraph(
   sleep: (ms: number) => Promise<void>,
   now: () => number
 ): Promise<boolean> {
-  const deadline = now() + budgetMs;
+  const startedAt = now();
+  const deadline = startedAt + budgetMs;
+  let attempt = 0;
   while (now() < deadline) {
+    attempt += 1;
+    let outcome = "err";
     try {
       const res = await fetcher(`${baseUrl}/ok`, { method: "GET" });
-      if (res.ok) return true;
+      outcome = String(res.status);
+      if (res.ok) {
+        console.error(
+          `[runner] /ok poll: status=${res.status} after ${now() - startedAt}ms (attempt ${attempt})`,
+        );
+        return true;
+      }
     } catch {
       // Connection refused or similar → still booting.
     }
+    // Log every 10th attempt to avoid spamming.
+    if (attempt === 1 || attempt % 10 === 0) {
+      console.error(
+        `[runner] /ok poll: status=${outcome} after ${now() - startedAt}ms (attempt ${attempt})`,
+      );
+    }
     await sleep(BOOT_POLL_INTERVAL_MS);
   }
+  console.error(
+    `[runner] /ok poll: budget exhausted after ${now() - startedAt}ms attempts=${attempt}`,
+  );
   return false;
 }
 
@@ -345,7 +364,11 @@ async function pollRun(
   sleep: (ms: number) => Promise<void>,
   now: () => number
 ): Promise<RunPollOutcome> {
+  const startedAt = now();
+  let attempt = 0;
+  let lastStatus: string | null = null;
   while (now() < deadline) {
+    attempt += 1;
     try {
       const res = await fetcher(
         `${baseUrl}/threads/${threadId}/runs/${runId}`,
@@ -357,6 +380,16 @@ async function pollRun(
           error?: unknown;
         };
         const status = typeof body.status === "string" ? body.status : null;
+        if (status !== lastStatus) {
+          console.error(
+            `[runner] run poll: status=${status} after ${now() - startedAt}ms (attempt ${attempt})`,
+          );
+          lastStatus = status;
+        } else if (attempt % 10 === 0) {
+          console.error(
+            `[runner] run poll: status=${status} after ${now() - startedAt}ms (attempt ${attempt})`,
+          );
+        }
         if (status !== null && TERMINAL_STATUSES.has(status)) {
           // For error/timeout/interrupted statuses, the top-level `error`
           // field of the run object is often null. The real error message
@@ -492,10 +525,17 @@ export async function runDecepticonScan(
   // ----------------------------------------------------------------------
   // Step 1: compose up -d
   // ----------------------------------------------------------------------
+  console.error(
+    `[runner] compose up started scan_id=${args.scanId} target=${args.targetUrl} profile=${args.profile} compose=${args.composeFile}`,
+  );
   const upProc = spawn(buildComposeUpCmd(args), { env: buildEnv(args) });
   const upCode = await upProc.exited;
+  console.error(`[runner] compose up exited code=${upCode}`);
   if (upCode !== 0) {
     const findings = await collectSafe(collect, args.findingsDir);
+    console.error(
+      `[runner] result: status=failed failure_reason=docker_exit_${upCode} findings=${findings.length}`,
+    );
     return {
       status: "failed",
       failure_reason: `docker_exit_${upCode}`,
@@ -509,6 +549,9 @@ export async function runDecepticonScan(
   // ----------------------------------------------------------------------
   // Respect the smaller of bootTimeoutMs and the overall wallclock budget.
   const bootBudget = Math.min(bootTimeoutMs, Math.max(0, deadline - now()));
+  console.error(
+    `[runner] waiting for langgraph url=${langgraphUrl} budget_ms=${bootBudget}`,
+  );
   const ready = await waitForLanggraph(
     langgraphUrl,
     bootBudget,
@@ -516,9 +559,13 @@ export async function runDecepticonScan(
     sleep,
     now
   );
+  console.error(`[runner] langgraph ready=${ready}`);
   if (!ready) {
     await composeDown(spawn, args);
     const findings = await collectSafe(collect, args.findingsDir);
+    console.error(
+      `[runner] result: status=failed failure_reason=langgraph_boot_timeout findings=${findings.length}`,
+    );
     return {
       status: "failed",
       failure_reason: "langgraph_boot_timeout",
@@ -534,17 +581,25 @@ export async function runDecepticonScan(
   let runId: string;
   try {
     threadId = await createThread(langgraphUrl, fetcher);
+    console.error(`[runner] thread created: ${threadId}`);
     runId = await createRun(
       langgraphUrl,
       threadId,
       buildRunInput(args),
       fetcher
     );
+    console.error(`[runner] run created: ${runId}`);
   } catch (err) {
+    console.error(
+      `[runner] langgraph submit failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
     await composeDown(spawn, args);
     const findings = await collectSafe(collect, args.findingsDir);
     const reason =
       err instanceof Error ? `langgraph_submit_${err.message}` : "langgraph_submit_unknown";
+    console.error(
+      `[runner] result: status=failed failure_reason=${reason} findings=${findings.length}`,
+    );
     return {
       status: "failed",
       failure_reason: reason,
@@ -567,9 +622,16 @@ export async function runDecepticonScan(
   );
 
   if (outcome.kind === "wallclock") {
+    console.error(`[runner] run terminal: status=wallclock_timeout`);
     await cancelRun(langgraphUrl, threadId, runId, fetcher);
     await composeDown(spawn, args);
     const findings = await collectSafe(collect, args.findingsDir);
+    console.error(
+      `[runner] compose down: complete (wallclock path)`,
+    );
+    console.error(
+      `[runner] result: status=failed failure_reason=timeout_exceeded findings=${findings.length}`,
+    );
     return {
       status: "failed",
       failure_reason: "timeout_exceeded",
@@ -579,9 +641,16 @@ export async function runDecepticonScan(
   }
 
   // Terminal status observed — map to envelope.
+  console.error(
+    `[runner] run terminal: status=${outcome.status} error=${outcome.error ?? "<none>"}`,
+  );
   await composeDown(spawn, args);
+  console.error(`[runner] compose down: complete`);
   const findings = await collectSafe(collect, args.findingsDir);
   if (outcome.status === "success") {
+    console.error(
+      `[runner] result: status=done failure_reason=null findings=${findings.length}`,
+    );
     return {
       status: "done",
       failure_reason: null,
@@ -596,6 +665,9 @@ export async function runDecepticonScan(
   const reasonWithDetail = outcome.error
     ? `${baseReason}: ${outcome.error}`
     : baseReason;
+  console.error(
+    `[runner] result: status=failed failure_reason=${reasonWithDetail} findings=${findings.length}`,
+  );
   return {
     status: "failed",
     failure_reason: reasonWithDetail,

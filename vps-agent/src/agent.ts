@@ -254,6 +254,9 @@ async function runScanAsync(opts: RunScanAsyncArgs): Promise<void> {
     setState,
   } = opts;
 
+  console.error(
+    `[agent] runScanAsync start scan_id=${args.scan_id} target=${args.target_url} profile=${args.profile} webhook=${args.webhook_url}`,
+  );
   let result: RunScanResult;
   try {
     result = await runScan({
@@ -274,6 +277,9 @@ async function runScanAsync(opts: RunScanAsyncArgs): Promise<void> {
         : {}),
     });
   } catch (err) {
+    console.error(
+      `[agent] runScan THREW (defensive synthesis): ${err instanceof Error ? err.message : String(err)}`,
+    );
     // runScan promised never to throw, but defensive-by-default: synthesize
     // a failed envelope so the callback can still fire.
     result = {
@@ -284,6 +290,10 @@ async function runScanAsync(opts: RunScanAsyncArgs): Promise<void> {
       usage: null,
     };
   }
+
+  console.error(
+    `[agent] runScan returned: status=${result.status} failure_reason=${result.failure_reason ?? "<null>"} findings=${result.findings.length}`,
+  );
 
   let callbackOutcome: CallbackResult;
   try {
@@ -299,6 +309,9 @@ async function runScanAsync(opts: RunScanAsyncArgs): Promise<void> {
       },
     });
   } catch (err) {
+    console.error(
+      `[agent] sendCallback THREW (defensive synthesis): ${err instanceof Error ? err.message : String(err)}`,
+    );
     // sendCallback also promises never to throw, but treat any escape as
     // a hard callback failure.
     callbackOutcome = {
@@ -309,13 +322,22 @@ async function runScanAsync(opts: RunScanAsyncArgs): Promise<void> {
     };
   }
 
+  const cbStatus = callbackOutcome.ok
+    ? `HTTP ${callbackOutcome.status}`
+    : `lastStatus=${callbackOutcome.lastStatus ?? "<none>"} lastError=${callbackOutcome.lastError ?? "<none>"}`;
+  console.error(
+    `[agent] sendCallback delivered=${callbackOutcome.ok} attempts=${callbackOutcome.attempts} ${cbStatus}`,
+  );
+
   setState({ phase: "callback_sent", scan_id: args.scan_id });
   setState({ phase: "shutdown_pending", scan_id: args.scan_id });
 
+  const exitCode = callbackOutcome.ok ? 0 : 1;
+  console.error(`[agent] exitImpl invoked with code ${exitCode}`);
   // Exit code: 0 on clean delivery, 1 on callback failure (so logs / VPS
   // teardown automation can disambiguate). Either way the VPS tears itself
   // down; backend watchdog covers the "callback never arrived" gap.
-  exitImpl(callbackOutcome.ok ? 0 : 1);
+  exitImpl(exitCode);
 }
 
 // ---------------------------------------------------------------------------
@@ -334,6 +356,24 @@ let exported: { port: number; fetch: typeof Hono.prototype.fetch } | null =
   null;
 
 if (import.meta.main) {
+  // Surface any silent process death so docker logs show WHY the container
+  // restarted (without these handlers an unhandledRejection or uncaughtException
+  // would terminate bun with no observable trace, then `restart: unless-stopped`
+  // would relaunch a fresh container with phase=idle and the original scan lost).
+  process.on("unhandledRejection", (reason) => {
+    console.error(
+      `[agent] FATAL unhandledRejection: ${reason instanceof Error ? `${reason.message}\n${reason.stack}` : String(reason)}`,
+    );
+  });
+  process.on("uncaughtException", (err) => {
+    console.error(
+      `[agent] FATAL uncaughtException: ${err.message}\n${err.stack}`,
+    );
+  });
+  process.on("exit", (code) => {
+    console.error(`[agent] process.exit code=${code}`);
+  });
+
   const signKey = readRequiredEnv("TENSOL_SIGN_KEY");
   const scanId = readRequiredEnv("TENSOL_SCAN_ID");
 
