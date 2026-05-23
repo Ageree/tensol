@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  diagDirFor,
   runDecepticonScan,
   type FetcherImpl,
+  type RunScanArgs,
   type SpawnImpl,
 } from "../src/decepticon-runner.ts";
 import type { CollectionResult } from "../src/findings-collector.ts";
@@ -447,6 +449,70 @@ describe("runDecepticonScan (LangGraph HTTP)", () => {
     expect(result.status).toBe("failed");
     expect(result.failure_reason).toContain("langgraph_submit_");
     expect(spawnRec[spawnRec.length - 1]!.cmd).toContain("down");
+  });
+
+  test("dumpComposeLogs runs BEFORE composeDown on terminal-error path", async () => {
+    // Test contract: when the LangGraph run terminates with `error`, the
+    // runner must persist `docker logs --tail` for every compose container
+    // BEFORE invoking `docker compose down -v` (which wipes the logs).
+    const events: string[] = [];
+    const spawnRec: SpawnRecord[] = [];
+    const clock = makeClock();
+
+    // Wrap makeSpawn so we can record when "down" actually fires.
+    const baseSpawn = makeSpawn({ exitCodes: [0, 0], record: spawnRec });
+    const spawn: SpawnImpl = (cmd, opts) => {
+      if (cmd.includes("down")) events.push("compose_down");
+      return baseSpawn(cmd, opts);
+    };
+
+    const seenScans: string[] = [];
+    const dumpStub = async (
+      _spawn: SpawnImpl,
+      args: RunScanArgs
+    ): Promise<void> => {
+      events.push("dump_logs");
+      seenScans.push(args.scanId);
+    };
+
+    const result = await runDecepticonScan(
+      {
+        scanId: "scan-diag-1",
+        targetUrl: "https://t.test",
+        profile: "standard",
+        findingsDir: "/opt/tensol/workspace/findings",
+        composeFile: "/c.yml",
+      },
+      {
+        spawn,
+        fetcher: makeFetcher({
+          runStatus: [{ status: 200, body: { status: "error" } }],
+          record: [],
+        }),
+        collectFindings: makeCollectFindings(EMPTY_COLLECTION),
+        now: clock.now,
+        sleep: clock.sleep,
+        dumpComposeLogs: dumpStub,
+      }
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.failure_reason).toBe("langgraph_run_error");
+    // dump must fire exactly once, BEFORE compose_down.
+    expect(events).toEqual(["dump_logs", "compose_down"]);
+    expect(seenScans).toEqual(["scan-diag-1"]);
+  });
+
+  test("diagDirFor resolves to <findingsDir-parent>/diag/<scanId>", () => {
+    expect(
+      diagDirFor({
+        scanId: "scan-xyz",
+        targetUrl: "https://t.test",
+        profile: "standard",
+        findingsDir: "/opt/tensol/workspace/findings",
+        composeFile: "/c.yml",
+      })
+    ).toBe("/opt/tensol/workspace/diag/scan-xyz");
   });
 
   test("kickoff prompt mentions target URL, scan id, and load_skill", async () => {

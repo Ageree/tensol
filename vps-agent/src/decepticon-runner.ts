@@ -31,6 +31,8 @@
  * touching docker or the network.
  */
 
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import {
   collectFindings as defaultCollectFindings,
   type CollectedFinding,
@@ -89,6 +91,16 @@ export type RunDecepticonDeps = {
   ) => Promise<CollectionResult>;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Test seam: persists `docker logs` for each compose container into the
+   * findings dir + diag dir BEFORE `composeDown` wipes them. Default impl
+   * uses `Bun.spawn` + `node:fs`. Tests inject a stub to assert ordering
+   * against `composeDown` without touching docker.
+   */
+  dumpComposeLogs?: (
+    spawn: SpawnImpl,
+    args: RunScanArgs
+  ) => Promise<void>;
 };
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
@@ -234,6 +246,179 @@ async function collectSafe(
   } catch {
     return [];
   }
+}
+
+/**
+ * Container names whose `docker logs` we persist before `compose down -v`
+ * wipes them. Mirrors the service names in `external/decepticon/docker-compose.yml`
+ * — compose appends `-1` to the project-name-prefixed container name.
+ */
+const COMPOSE_CONTAINERS = [
+  "tensol-litellm-1",
+  "tensol-langgraph-1",
+  "tensol-sandbox-1",
+  "tensol-postgres-1",
+  "tensol-neo4j-1",
+] as const;
+
+/** Wall-clock cap for the full diag dump (all containers). */
+const DUMP_LOGS_TIMEOUT_MS = 30_000;
+
+/** Per-container `docker logs --tail` line budget. */
+const DUMP_LOGS_TAIL_LINES = 200;
+
+/**
+ * `fs` adapters injectable for tests. We deliberately don't widen
+ * `RunDecepticonDeps` for these — the diag dump is internal to the runner
+ * and should not be wired through call sites.
+ */
+type FsAdapter = {
+  mkdir: (path: string, opts: { recursive: true }) => Promise<unknown>;
+  writeFile: (path: string, data: string) => Promise<void>;
+};
+
+const defaultFs: FsAdapter = {
+  mkdir: (path, opts) => mkdir(path, opts),
+  writeFile: (path, data) => writeFile(path, data, "utf8"),
+};
+
+/**
+ * Resolve the on-VM diag directory for a scan:
+ *   `<findingsDir>/../diag/<scanId>/`
+ * With production `findingsDir=/opt/tensol/workspace/findings` this gives
+ * `/opt/tensol/workspace/diag/<scanId>/`, which the operator can `scp`
+ * post-mortem even after compose volumes are gone.
+ */
+export function diagDirFor(args: RunScanArgs): string {
+  const parent = dirname(resolve(args.findingsDir));
+  return resolve(parent, "diag", args.scanId);
+}
+
+/**
+ * Render a single container log as a YAML-frontmatter markdown file so the
+ * existing `collectFindings` parser ingests it without a schema change.
+ * Severity `info` is the only enum value compatible with raw diagnostics.
+ */
+function renderLogAsMarkdown(
+  container: string,
+  scanId: string,
+  body: string
+): string {
+  const title = `Container log: ${container}`;
+  return [
+    "---",
+    `severity: info`,
+    `title: ${JSON.stringify(title)}`,
+    `type: diagnostic`,
+    `scan_id: ${JSON.stringify(scanId)}`,
+    `container: ${JSON.stringify(container)}`,
+    "---",
+    "",
+    "```",
+    body,
+    "```",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Best-effort persistence of `docker logs --tail N` for every compose
+ * container. Writes:
+ *   - one `.md` (frontmatter + fenced log body) per container into
+ *     `args.findingsDir/` so the existing findings collector picks them up
+ *     and they ride the webhook to the server as `info` findings; AND
+ *   - a plain `.log` copy into `diagDirFor(args)/` for post-mortem `scp`.
+ *
+ * Hard-capped at `DUMP_LOGS_TIMEOUT_MS` total. Never throws — diagnostics
+ * must not block the scan envelope.
+ */
+export async function dumpComposeLogs(
+  spawn: SpawnImpl,
+  args: RunScanArgs,
+  deps: {
+    sleep?: (ms: number) => Promise<void>;
+    fs?: FsAdapter;
+    captureStdout?: (
+      cmd: string[],
+      opts?: SpawnOpts
+    ) => Promise<{ code: number; stdout: string }>;
+  } = {}
+): Promise<void> {
+  const sleep = deps.sleep ?? defaultSleep;
+  const fs = deps.fs ?? defaultFs;
+  const capture = deps.captureStdout ?? defaultCaptureStdout;
+  const diagDir = diagDirFor(args);
+  const findingsDir = resolve(args.findingsDir);
+
+  const work = (async () => {
+    try {
+      await fs.mkdir(diagDir, { recursive: true });
+      await fs.mkdir(findingsDir, { recursive: true });
+    } catch (err) {
+      console.error(
+        `[runner] dumpComposeLogs mkdir failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+    for (const container of COMPOSE_CONTAINERS) {
+      try {
+        const { stdout } = await capture(
+          ["docker", "logs", "--tail", String(DUMP_LOGS_TAIL_LINES), container],
+          { env: buildEnv(args) }
+        );
+        const trimmed = stdout.slice(-64_000); // hard cap per file (~64KiB)
+        const rawPath = `${diagDir}/${container}.log`;
+        const mdPath = `${findingsDir}/diag-${container}.md`;
+        await fs.writeFile(rawPath, trimmed);
+        await fs.writeFile(
+          mdPath,
+          renderLogAsMarkdown(container, args.scanId, trimmed)
+        );
+      } catch (err) {
+        console.error(
+          `[runner] dumpComposeLogs ${container} failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  })();
+
+  await Promise.race([
+    work,
+    sleep(DUMP_LOGS_TIMEOUT_MS).then(() => {
+      console.error(
+        `[runner] dumpComposeLogs: wallclock cap ${DUMP_LOGS_TIMEOUT_MS}ms reached`,
+      );
+    }),
+  ]);
+  // Mark spawn as referenced even if no fallback path uses it directly —
+  // tests rely on this being part of the signature for future extension.
+  void spawn;
+}
+
+/**
+ * Spawn a command and capture its stdout. Used by `dumpComposeLogs` to
+ * read `docker logs` output. Default implementation depends on `Bun.spawn`
+ * which exposes a readable `stdout` stream when `stdout:"pipe"`.
+ */
+async function defaultCaptureStdout(
+  cmd: string[],
+  opts?: SpawnOpts
+): Promise<{ code: number; stdout: string }> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bun = (globalThis as any).Bun;
+  if (!bun || typeof bun.spawn !== "function") {
+    throw new Error("Bun.spawn is not available in this runtime");
+  }
+  const proc = bun.spawn(cmd, {
+    env: { ...process.env, ...(opts?.env ?? {}) },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stdoutText, code] = await Promise.all([
+    new Response(proc.stdout).text() as Promise<string>,
+    proc.exited as Promise<number>,
+  ]);
+  return { code, stdout: stdoutText };
 }
 
 /**
@@ -515,6 +700,7 @@ export async function runDecepticonScan(
   const collect = deps.collectFindings ?? defaultCollectFindings;
   const sleep = deps.sleep ?? defaultSleep;
   const now = deps.now ?? defaultNow;
+  const dumpLogs = deps.dumpComposeLogs ?? dumpComposeLogs;
 
   const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const bootTimeoutMs = args.bootTimeoutMs ?? DEFAULT_BOOT_TIMEOUT_MS;
@@ -561,6 +747,7 @@ export async function runDecepticonScan(
   );
   console.error(`[runner] langgraph ready=${ready}`);
   if (!ready) {
+    await dumpLogs(spawn, args);
     await composeDown(spawn, args);
     const findings = await collectSafe(collect, args.findingsDir);
     console.error(
@@ -593,6 +780,7 @@ export async function runDecepticonScan(
     console.error(
       `[runner] langgraph submit failed: ${err instanceof Error ? err.message : String(err)}`,
     );
+    await dumpLogs(spawn, args);
     await composeDown(spawn, args);
     const findings = await collectSafe(collect, args.findingsDir);
     const reason =
@@ -624,6 +812,7 @@ export async function runDecepticonScan(
   if (outcome.kind === "wallclock") {
     console.error(`[runner] run terminal: status=wallclock_timeout`);
     await cancelRun(langgraphUrl, threadId, runId, fetcher);
+    await dumpLogs(spawn, args);
     await composeDown(spawn, args);
     const findings = await collectSafe(collect, args.findingsDir);
     console.error(
@@ -644,6 +833,7 @@ export async function runDecepticonScan(
   console.error(
     `[runner] run terminal: status=${outcome.status} error=${outcome.error ?? "<none>"}`,
   );
+  await dumpLogs(spawn, args);
   await composeDown(spawn, args);
   console.error(`[runner] compose down: complete`);
   const findings = await collectSafe(collect, args.findingsDir);
