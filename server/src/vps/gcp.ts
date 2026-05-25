@@ -74,6 +74,18 @@ export type GcpProviderConfig = {
   subnetName: string;
   /** Optional ssh-keys metadata value, format `tensol:ssh-ed25519 AAA…`. */
   sshPublicKey: string;
+  /**
+   * Whether `spawnVm` should idempotently ensure the agent-ingress firewall
+   * rule exists before provisioning (follow-up #2). Default true. Set false
+   * for operators who manage firewalls out-of-band (Terraform, etc.).
+   */
+  ensureAgentFirewall: boolean;
+  /** Firewall rule name for the server→vps-agent ingress. */
+  agentFirewallName: string;
+  /** TCP port the vps-agent binds — opened by the firewall rule. */
+  agentFirewallPort: number;
+  /** Source CIDR ranges allowed to reach the agent port. */
+  agentFirewallSourceRanges: readonly string[];
 };
 
 export type CreateGcpProviderOpts = {
@@ -91,8 +103,22 @@ export function createGcpCloudProvider(
   const cfg = resolveConfig(opts.config);
   const getToken = opts.getToken ?? defaultGetToken;
 
+  // Instance-scoped cache: ensure the agent-ingress firewall rule at most
+  // once per provider lifetime (avoids an extra GET per spawn). Kept on the
+  // closure — NOT module-level — so test providers don't share state.
+  let firewallEnsured = false;
+
   return {
     async spawnVm(input: SpawnVmInput): Promise<SpawnVmResult> {
+      // Follow-up #2: a fresh GCP project has no ingress rule for the
+      // vps-agent port, so the server's POST /scan silently times out after
+      // 8 minutes. Ensure the rule exists BEFORE provisioning — fail fast
+      // with an actionable error if it is missing and we cannot create it.
+      if (cfg.ensureAgentFirewall && !firewallEnsured) {
+        await ensureFirewallRule({ fetcher, getToken, cfg });
+        firewallEnsured = true;
+      }
+
       const body = buildInstanceCreateBody(cfg, input);
       const token = await getToken();
       const requestId = scanIdToUuid(input.scanId);
@@ -491,7 +517,110 @@ function resolveConfig(
       override?.subnetName ?? process.env.GCP_SUBNET_NAME ?? "default",
     sshPublicKey:
       override?.sshPublicKey ?? process.env.GCP_SSH_PUBLIC_KEY ?? "",
+    ensureAgentFirewall:
+      override?.ensureAgentFirewall ??
+      // Opt-out via env (operators managing firewalls externally).
+      process.env.GCP_AGENT_FIREWALL_ENSURE !== "false",
+    agentFirewallName:
+      override?.agentFirewallName ??
+      process.env.GCP_AGENT_FIREWALL_NAME ??
+      "allow-tensol-agent-8080",
+    agentFirewallPort:
+      override?.agentFirewallPort ??
+      parseInt(process.env.GCP_AGENT_FIREWALL_PORT ?? "8080", 10),
+    agentFirewallSourceRanges:
+      override?.agentFirewallSourceRanges ??
+      (process.env.GCP_AGENT_FIREWALL_SOURCE_RANGES
+        ? process.env.GCP_AGENT_FIREWALL_SOURCE_RANGES.split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : ["0.0.0.0/0"]),
   };
+}
+
+/**
+ * Follow-up #2 — idempotently ensure the server→vps-agent ingress firewall
+ * rule exists before provisioning a VM.
+ *
+ * Contract (see test/integration/gcp-firewall.test.ts):
+ *   - GET 200  → rule exists, return.
+ *   - GET 404  → POST create. 200/409 → success; 403 → throw an ACTIONABLE
+ *     error naming the rule + the manual `gcloud` command (fail fast rather
+ *     than letting the spawn proceed into an 8-minute agent-dispatch
+ *     timeout); any other code → throw with the HTTP detail.
+ *   - GET 403 / other non-404 → cannot verify (SA lacks
+ *     `compute.firewalls.get`), but an operator may have provisioned the
+ *     rule out-of-band. Proceed rather than break a working deployment.
+ *
+ * Firewalls are GLOBAL resources: /projects/{proj}/global/firewalls.
+ */
+async function ensureFirewallRule(args: {
+  fetcher: typeof fetch;
+  getToken: () => Promise<string>;
+  cfg: GcpProviderConfig;
+}): Promise<void> {
+  const { fetcher, getToken, cfg } = args;
+  const name = cfg.agentFirewallName;
+  const base = `${COMPUTE_BASE_URL}/projects/${cfg.projectId}/global/firewalls`;
+  const token = await getToken();
+
+  const getResp = await fetcher(`${base}/${encodeURIComponent(name)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (getResp.ok) {
+    await readBodySafe(getResp);
+    return;
+  }
+  if (getResp.status !== 404) {
+    // Cannot verify (typically 403: SA lacks compute.firewalls.get). The rule
+    // may already exist (operator-managed). Proceed — do not break prod.
+    await readBodySafe(getResp);
+    return;
+  }
+
+  // 404 — create the rule.
+  const createBody = {
+    name,
+    network: `global/networks/${cfg.networkName}`,
+    direction: "INGRESS",
+    priority: 1000,
+    sourceRanges: [...cfg.agentFirewallSourceRanges],
+    allowed: [
+      { IPProtocol: "tcp", ports: [String(cfg.agentFirewallPort)] },
+    ],
+    description:
+      "Tensol: allow server→vps-agent HMAC callbacks (auto-provisioned by gcp.ts ensureFirewallRule)",
+  };
+  const createResp = await fetcher(base, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(createBody),
+  });
+  if (createResp.ok || createResp.status === 409) {
+    // 409 = another spawn raced us to create it. Both are success.
+    await readBodySafe(createResp);
+    return;
+  }
+  const detail = await readBodySafe(createResp);
+  if (createResp.status === 403) {
+    const ranges = cfg.agentFirewallSourceRanges.join(",");
+    throw new Error(
+      `gcp ensureFirewallRule: firewall '${name}' is missing and the ` +
+        `service account lacks compute.firewalls.create (HTTP 403). ` +
+        `Create it once manually:\n` +
+        `  gcloud compute firewall-rules create ${name} ` +
+        `--project=${cfg.projectId} --network=${cfg.networkName} ` +
+        `--direction=INGRESS --action=ALLOW ` +
+        `--rules=tcp:${cfg.agentFirewallPort} --source-ranges=${ranges}\n` +
+        `:: ${detail}`,
+    );
+  }
+  throw new Error(
+    `gcp ensureFirewallRule: HTTP ${createResp.status} ${createResp.statusText} :: ${detail}`,
+  );
 }
 
 let _authClient: GoogleAuth | null = null;
