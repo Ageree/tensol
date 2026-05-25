@@ -64,6 +64,30 @@ export const CHROMIUM_PACK_URL =
   process.env.CHROMIUM_PACK_URL ??
   "https://github.com/Sparticuz/chromium/releases/download/v148.0.0/chromium-v148.0.0-pack.x64.tar";
 
+/**
+ * Path to a system-installed Chromium (fix D2 2026-05-25). When set, pdf.ts
+ * uses this binary directly INSTEAD of downloading the @sparticuz pack — the
+ * prod image is Alpine (musl) and the @sparticuz pack is glibc-linked, so it
+ * cannot exec there (posix_spawn ENOENT). The Dockerfile installs Alpine's
+ * musl-native `chromium` package and sets this to /usr/bin/chromium-browser.
+ * Unset (local/dev) → falls back to the downloadable pack.
+ */
+export const CHROMIUM_EXECUTABLE_PATH = process.env.CHROMIUM_EXECUTABLE_PATH;
+
+/**
+ * Container-safe launch flags for a system Chromium. The @sparticuz
+ * `chromium.args` are tuned for their Lambda binary (e.g. --single-process)
+ * and can crash a distro chromium during PDF generation, so we use a minimal
+ * well-known set when launching the system binary.
+ */
+const SYSTEM_CHROMIUM_ARGS = [
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-dev-shm-usage",
+  "--disable-gpu",
+  "--headless=new",
+];
+
 /** Default A4 page margins, mirrors the @page rule in template CSS. */
 const DEFAULT_MARGIN = {
   top: "24mm",
@@ -103,14 +127,21 @@ export async function renderReport(
   const launcher: PuppeteerLauncher = opts.puppeteerLauncher ?? puppeteer.launch;
   const execPathResolver =
     opts.chromiumExecutablePath ??
-    (() => chromium.executablePath(CHROMIUM_PACK_URL));
+    (CHROMIUM_EXECUTABLE_PATH
+      ? () => Promise.resolve(CHROMIUM_EXECUTABLE_PATH)
+      : () => chromium.executablePath(CHROMIUM_PACK_URL));
+  // System chromium needs the minimal container-safe flags; the downloadable
+  // pack uses @sparticuz's tuned args.
+  const launchArgs = CHROMIUM_EXECUTABLE_PATH
+    ? SYSTEM_CHROMIUM_ARGS
+    : chromium.args;
   const timeoutMs = opts.timeoutMs ?? RENDER_TIMEOUT_MS;
 
   let browser: Browser | undefined;
   try {
     const executablePath = await execPathResolver();
     browser = await launcher({
-      args: chromium.args,
+      args: launchArgs,
       executablePath,
       headless: true,
     });

@@ -40,7 +40,14 @@ RUN bun install --frozen-lockfile
 FROM oven/bun:1.3.11-alpine AS runtime
 
 # wget needed for HEALTHCHECK; tini for proper PID-1 signal handling.
-RUN apk add --no-cache wget tini ca-certificates
+# chromium + deps: the PDF report renderer (reports/pdf.ts) needs a runnable
+# headless browser. @sparticuz/chromium-min ships a glibc-linked binary that
+# CANNOT execute on Alpine (musl) — posix_spawn fails with ENOENT (fix D2
+# 2026-05-25). Alpine's own `chromium` package is musl-native; pdf.ts points
+# puppeteer-core at it via CHROMIUM_EXECUTABLE_PATH below. nss/freetype/
+# harfbuzz/ttf-freefont are chromium's runtime + font deps.
+RUN apk add --no-cache wget tini ca-certificates \
+    chromium nss freetype harfbuzz ttf-freefont
 
 WORKDIR /app
 
@@ -80,7 +87,8 @@ EXPOSE 3000
 
 ENV NODE_ENV=production \
     PORT=3000 \
-    PUPPETEER_CACHE_DIR=/home/bun/.cache/puppeteer
+    PUPPETEER_CACHE_DIR=/home/bun/.cache/puppeteer \
+    CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000/healthz || exit 1
