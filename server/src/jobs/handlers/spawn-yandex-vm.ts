@@ -168,12 +168,27 @@ export interface SpawnYandexVmHandlerDeps {
   readonly neo4jPassword: string;
   readonly vpsAgentImage?: string;
   readonly agentPort?: number;
+  /**
+   * HTTP client for the agent-dispatch probe. Injected so tests can drive
+   * the agent-readiness loop without a real socket. Defaults to global
+   * `fetch`.
+   */
+  readonly fetchImpl?: typeof fetch;
+  /** Total budget to wait for the vps-agent to bind :8080 (cloud-init). */
+  readonly agentWaitBudgetMs?: number;
+  /** Sleep between agent-readiness probes. Tests override to ~1ms. */
+  readonly agentProbeIntervalMs?: number;
+  /** Per-probe request timeout. */
+  readonly agentProbeTimeoutMs?: number;
 }
 
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_POLL_TIMEOUT_MS = 5 * 60 * 1_000;
 const DEFAULT_RETRY_BACKOFF_MS = 1_000;
+const DEFAULT_AGENT_WAIT_BUDGET_MS = 8 * 60 * 1_000; // cloud-init 3-5 min
+const DEFAULT_AGENT_PROBE_INTERVAL_MS = 10_000;
+const DEFAULT_AGENT_PROBE_TIMEOUT_MS = 5_000;
 
 /** Heuristic transient-error classifier — rate limits, 5xx, network blips,
  *  read/connect timeouts. Anything else is treated as permanent. */
@@ -230,6 +245,10 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
     neo4jPassword,
     vpsAgentImage,
     agentPort,
+    fetchImpl = fetch,
+    agentWaitBudgetMs = DEFAULT_AGENT_WAIT_BUDGET_MS,
+    agentProbeIntervalMs = DEFAULT_AGENT_PROBE_INTERVAL_MS,
+    agentProbeTimeoutMs = DEFAULT_AGENT_PROBE_TIMEOUT_MS,
   } = deps;
 
   /**
@@ -429,38 +448,40 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
     const signature = hmacSha256(signKey, rawBody);
     const dispatchUrl = `http://${publicIp}:${port}/scan`;
 
-    // Wait-for-agent: probe POST /scan up to AGENT_WAIT_BUDGET_MS,
-    // 10s between attempts. Any HTTP response (success or signed-rejection)
-    // means the agent has bound and is processing.
-    const AGENT_WAIT_BUDGET_MS = 8 * 60 * 1_000; // 8 min for cloud-init
-    const AGENT_PROBE_INTERVAL_MS = 10_000;
-    const PROBE_TIMEOUT_MS = 5_000;
-    const waitDeadline = now() + AGENT_WAIT_BUDGET_MS;
+    // Wait-for-agent: probe POST /scan up to agentWaitBudgetMs,
+    // agentProbeIntervalMs between attempts. Any HTTP response (success or
+    // signed-rejection) means the agent has bound and is processing.
+    const waitDeadline = now() + agentWaitBudgetMs;
     let dispatchRes: Response | null = null;
     let lastProbeErr: string | null = null;
     while (now() < waitDeadline) {
       try {
-        const probe = await fetch(dispatchUrl, {
+        const probe = await fetchImpl(dispatchUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "X-Tensol-Signature": signature,
           },
           body: rawBody,
-          signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+          signal: AbortSignal.timeout(agentProbeTimeoutMs),
         });
         // Any HTTP status from the agent (incl. 401) proves it's alive.
-        // We only care about 2xx for success; non-2xx → audit failure +
-        // throw so the runner can decide to retry vs. give up.
+        // We only care about 2xx for success; non-2xx → terminal failure.
         dispatchRes = probe;
         break;
       } catch (e) {
         lastProbeErr = (e as Error).message ?? String(e);
-        await sleep(AGENT_PROBE_INTERVAL_MS);
+        await sleep(agentProbeIntervalMs);
       }
     }
     if (!dispatchRes) {
-      const msg = `spawn_yandex_vm: vps-agent at ${dispatchUrl} did not respond within ${AGENT_WAIT_BUDGET_MS}ms (last error: ${lastProbeErr ?? "-"})`;
+      // Follow-up #3: the VM spawned but its agent never bound within the
+      // budget — cloud-init likely failed. Throwing here would let the runner
+      // retry the whole job against a dead VM (idempotency gate stays in
+      // `vm_provisioning`), wasting ~8 min/attempt while the VM runs until the
+      // 35-min orphan reaper. Instead: enqueue a teardown, mark the order/scan
+      // terminally failed, refund, alert — then return (no retry).
+      const msg = `spawn_yandex_vm: vps-agent at ${dispatchUrl} did not respond within ${agentWaitBudgetMs}ms (last error: ${lastProbeErr ?? "-"})`;
       await emitSignedAudit(
         db,
         {
@@ -480,7 +501,20 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
         },
         { key: auditKey },
       );
-      throw new Error(msg);
+      await markFailure({
+        db,
+        scanOrderId,
+        scanId,
+        userId: orderRow.userId,
+        error: new Error(msg),
+        reason: "agent_dispatch_failed",
+        teardown: { vpsInstanceId: finalInstanceId, vpsZone },
+        auditKey,
+        refundFreeQuickQuota,
+        now,
+        newId,
+      });
+      return;
     }
     if (!dispatchRes.ok) {
       const errText = await dispatchRes.text().catch(() => "<no body>");
@@ -504,7 +538,21 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
         },
         { key: auditKey },
       );
-      throw new Error(msg);
+      // Same rationale as the timeout branch — terminal + teardown, no retry.
+      await markFailure({
+        db,
+        scanOrderId,
+        scanId,
+        userId: orderRow.userId,
+        error: new Error(msg),
+        reason: "agent_dispatch_failed",
+        teardown: { vpsInstanceId: finalInstanceId, vpsZone },
+        auditKey,
+        refundFreeQuickQuota,
+        now,
+        newId,
+      });
+      return;
     }
     // Dispatch succeeded → emit decepticon_invoked + fall through to
     // vm_ready commit below.
@@ -624,6 +672,20 @@ interface MarkFailureArgs {
   ) => Promise<{ refunded: boolean }>;
   readonly now: () => number;
   readonly newId: () => string;
+  /**
+   * Domain failure reason persisted on `scan_orders`/`scans` and carried in
+   * the `scan_failed` audit metadata. Defaults to `vm_spawn_failed` (the
+   * provider-spawn branch). The agent-dispatch branch passes
+   * `agent_dispatch_failed`.
+   */
+  readonly reason?: string;
+  /**
+   * When the VM was already provisioned before the failure (agent-dispatch
+   * branch), enqueue a `teardown_yandex_vm` job in the SAME tx so the orphan
+   * is reaped promptly instead of waiting for the 35-minute cron (follow-up
+   * #3). Omitted for the pre-spawn failure branches (no VM to tear down).
+   */
+  readonly teardown?: { readonly vpsInstanceId: string; readonly vpsZone: string };
 }
 
 async function markFailure(args: MarkFailureArgs): Promise<void> {
@@ -637,24 +699,41 @@ async function markFailure(args: MarkFailureArgs): Promise<void> {
     refundFreeQuickQuota,
     now,
     newId,
+    reason = "vm_spawn_failed",
+    teardown,
   } = args;
 
   const ts = now();
   const telegramJobId = newId();
+  const alertKind =
+    reason === "agent_dispatch_failed"
+      ? "operator_alert_agent_dispatch_failed"
+      : "operator_alert_vm_spawn_failed";
   const telegramPayload = JSON.stringify({
     type: "retry_telegram_notification",
-    kind: "operator_alert_vm_spawn_failed",
+    kind: alertKind,
     scan_order_id: scanOrderId,
     scan_id: scanId,
     error: error.message,
   });
+  const teardownJobId = teardown ? newId() : null;
+  const teardownPayload = teardown
+    ? JSON.stringify({
+        type: "teardown_yandex_vm",
+        scanOrderId,
+        scanId,
+        vpsInstanceId: teardown.vpsInstanceId,
+        vpsZone: teardown.vpsZone,
+      })
+    : null;
 
-  // 1. Persist domain failure + enqueue operator alert in one tx.
+  // 1. Persist domain failure + enqueue operator alert (+ optional teardown)
+  //    in one tx.
   await withTx(db, async (tx) => {
     tx.update(scanOrders)
       .set({
         status: "failed",
-        failureReason: "vm_spawn_failed",
+        failureReason: reason,
         updatedAt: ts,
       })
       .where(eq(scanOrders.id, scanOrderId))
@@ -663,7 +742,7 @@ async function markFailure(args: MarkFailureArgs): Promise<void> {
     tx.update(scans)
       .set({
         status: "failed",
-        failureReason: "vm_spawn_failed",
+        failureReason: reason,
         completedAt: ts,
       })
       .where(eq(scans.id, scanId))
@@ -682,6 +761,22 @@ async function markFailure(args: MarkFailureArgs): Promise<void> {
         updatedAt: ts,
       })
       .run();
+
+    if (teardownJobId && teardownPayload) {
+      tx.insert(jobsTable)
+        .values({
+          id: teardownJobId,
+          type: "teardown_yandex_vm",
+          payloadJson: teardownPayload,
+          status: "pending",
+          scheduledAt: ts,
+          attempts: 0,
+          lastError: null,
+          createdAt: ts,
+          updatedAt: ts,
+        })
+        .run();
+    }
   });
 
   // 2. Refund free-tier quota OUTSIDE the tx (statement-level lock; see
@@ -699,7 +794,7 @@ async function markFailure(args: MarkFailureArgs): Promise<void> {
       scan_id: scanId,
       metadata: {
         scan_order_id: scanOrderId,
-        reason: "vm_spawn_failed",
+        reason,
         error: error.message,
       },
     },
@@ -716,7 +811,7 @@ async function markFailure(args: MarkFailureArgs): Promise<void> {
         user_id: userId,
         metadata: {
           scan_order_id: scanOrderId,
-          reason: "vm_spawn_failed",
+          reason,
         },
       },
       { key: auditKey },

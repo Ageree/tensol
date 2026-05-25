@@ -122,6 +122,14 @@ const CLOUD_INIT_DEPS = {
   litellmMasterKey: "sk-test-litellm-internal",
   postgresPassword: "test-postgres-pw",
   neo4jPassword: "test-neo4j-pw",
+  // Agent-dispatch (section 4b) is injectable so tests never touch a real
+  // socket. Default = the agent answers 200 immediately + tiny timings.
+  // Dispatch-failure tests override `fetchImpl` AFTER spreading this object.
+  fetchImpl: (async () =>
+    new Response("{}", { status: 200 })) as unknown as typeof fetch,
+  agentWaitBudgetMs: 50,
+  agentProbeIntervalMs: 1,
+  agentProbeTimeoutMs: 50,
 };
 
 function seedQuickQueuedOrder(db: DB, now: number): void {
@@ -509,4 +517,163 @@ test("idempotency: handler is a no-op when order is no longer in vm_provisioning
     .get();
   expect(orderRow!.status).toBe("cancelled");
   expect(orderRow!.vpsInstanceId).toBeNull();
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Test 5 — AGENT-DISPATCH TIMEOUT → auto-teardown (follow-up #3)
+//
+// VM spawns fine but its agent never binds within the wait budget. The
+// handler must NOT throw (which would let the runner retry the whole job
+// against the dead VM and leak it until the 35-min reaper). Instead it
+// enqueues a `teardown_yandex_vm` job for the instance, marks the
+// order/scan terminally failed (reason='agent_dispatch_failed'), refunds the
+// free-tier quota, and enqueues an operator alert.
+// ───────────────────────────────────────────────────────────────────────────
+test("agent-dispatch timeout: enqueues teardown + order=failed(agent_dispatch_failed) + refund, no throw", async () => {
+  const db = createDb(":memory:");
+  applyMigrations(db);
+  const ts = 1_700_000_000_000;
+  seedQuickQueuedOrder(db, ts);
+
+  const provider = new FakeCloudProvider();
+  let clock = ts + 1;
+
+  const handler = createSpawnYandexVmHandler({
+    db,
+    provider,
+    auditKey: TEST_AUDIT_KEY,
+    refundFreeQuickQuota,
+    now: () => clock++,
+    pollIntervalMs: 1,
+    pollTimeoutMs: 1_000,
+    ...CLOUD_INIT_DEPS,
+    // Agent never answers — every probe throws.
+    fetchImpl: (async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch,
+    agentWaitBudgetMs: 20,
+    agentProbeIntervalMs: 1,
+    agentProbeTimeoutMs: 5,
+  });
+
+  // MUST NOT throw.
+  await handler(FIXED_JOB_ID, BASE_PAYLOAD);
+
+  // Order + scan flipped to failed with the agent-dispatch reason.
+  const orderRow = db
+    .select()
+    .from(scanOrders)
+    .where(eq(scanOrders.id, FIXED_ORDER_ID))
+    .get();
+  expect(orderRow!.status).toBe("failed");
+  expect(orderRow!.failureReason).toBe("agent_dispatch_failed");
+  const scanRow = db
+    .select()
+    .from(scans)
+    .where(eq(scans.id, FIXED_SCAN_ID))
+    .get();
+  expect(scanRow!.status).toBe("failed");
+  expect(scanRow!.failureReason).toBe("agent_dispatch_failed");
+
+  // A teardown_yandex_vm job was enqueued for the spawned instance.
+  const teardownJobs = db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.type, "teardown_yandex_vm"))
+    .all();
+  expect(teardownJobs).toHaveLength(1);
+  expect(teardownJobs[0]!.status).toBe("pending");
+  const tdPayload = JSON.parse(teardownJobs[0]!.payloadJson) as Record<string, unknown>;
+  expect(tdPayload.vpsInstanceId).toBe("fake-vm-1");
+  expect(tdPayload.scanOrderId).toBe(FIXED_ORDER_ID);
+
+  // Operator alert enqueued with the agent-dispatch kind.
+  const telJobs = db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.type, "retry_telegram_notification"))
+    .all();
+  expect(telJobs).toHaveLength(1);
+  const telPayload = JSON.parse(telJobs[0]!.payloadJson) as Record<string, unknown>;
+  expect(telPayload.kind).toBe("operator_alert_agent_dispatch_failed");
+
+  // Free-tier quota refunded.
+  const userAfter = db.select().from(users).where(eq(users.id, FIXED_USER_ID)).get();
+  expect(userAfter!.freeQuickConsumedAt).toBeNull();
+
+  // scan_failed audit carries the agent-dispatch reason; a decepticon_invoked
+  // failure audit was emitted for diagnostics.
+  const failedAudit = db
+    .select()
+    .from(auditLog)
+    .where(eq(auditLog.event, "scan_failed"))
+    .all();
+  expect(failedAudit).toHaveLength(1);
+  const failMeta = JSON.parse(failedAudit[0]!.metadataJson) as Record<string, unknown>;
+  expect(failMeta.reason).toBe("agent_dispatch_failed");
+  const invokedAudit = db
+    .select()
+    .from(auditLog)
+    .where(eq(auditLog.event, "decepticon_invoked"))
+    .all();
+  expect(invokedAudit).toHaveLength(1);
+  expect(invokedAudit[0]!.outcome).toBe("failure");
+
+  // Audit chain still valid.
+  const chain = verifyChain(db, TEST_AUDIT_KEY);
+  expect(chain.ok).toBe(true);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Test 6 — AGENT-DISPATCH HTTP non-2xx → auto-teardown (follow-up #3)
+//
+// The agent IS reachable but rejects the dispatch (e.g. 500). Same terminal
+// + teardown behaviour as the timeout branch.
+// ───────────────────────────────────────────────────────────────────────────
+test("agent-dispatch HTTP 500: enqueues teardown + order=failed, no throw", async () => {
+  const db = createDb(":memory:");
+  applyMigrations(db);
+  const ts = 1_700_000_000_000;
+  seedQuickQueuedOrder(db, ts);
+
+  const provider = new FakeCloudProvider();
+  let clock = ts + 1;
+
+  const handler = createSpawnYandexVmHandler({
+    db,
+    provider,
+    auditKey: TEST_AUDIT_KEY,
+    refundFreeQuickQuota,
+    now: () => clock++,
+    pollIntervalMs: 1,
+    pollTimeoutMs: 1_000,
+    ...CLOUD_INIT_DEPS,
+    fetchImpl: (async () =>
+      new Response("agent boom", { status: 500 })) as unknown as typeof fetch,
+    agentWaitBudgetMs: 50,
+    agentProbeIntervalMs: 1,
+    agentProbeTimeoutMs: 5,
+  });
+
+  await handler(FIXED_JOB_ID, BASE_PAYLOAD);
+
+  const orderRow = db
+    .select()
+    .from(scanOrders)
+    .where(eq(scanOrders.id, FIXED_ORDER_ID))
+    .get();
+  expect(orderRow!.status).toBe("failed");
+  expect(orderRow!.failureReason).toBe("agent_dispatch_failed");
+
+  const teardownJobs = db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.type, "teardown_yandex_vm"))
+    .all();
+  expect(teardownJobs).toHaveLength(1);
+  const tdPayload = JSON.parse(teardownJobs[0]!.payloadJson) as Record<string, unknown>;
+  expect(tdPayload.vpsInstanceId).toBe("fake-vm-1");
+
+  const chain = verifyChain(db, TEST_AUDIT_KEY);
+  expect(chain.ok).toBe(true);
 });
