@@ -222,8 +222,10 @@ describe("V1 webhook /api/webhooks/scan-progress — diag-finding payload", () =
       expect(r.evidenceKeysJson).toBe("[]");
     }
 
-    // Scan + teardown job: scan flipped to `failed`, one teardown_vps
-    // job queued.
+    // Scan + teardown job: scan flipped to `failed`, one teardown_yandex_vm
+    // job queued (GCP-aware teardown — see fix B 2026-05-25). The legacy
+    // `teardown_vps` kind routed to the Hetzner provider and never deleted
+    // the GCP VM, yet still emitted vps_destroyed → orphan leak.
     const scan = db
       .select()
       .from(scansTable)
@@ -234,7 +236,13 @@ describe("V1 webhook /api/webhooks/scan-progress — diag-finding payload", () =
 
     const jobs = db.select().from(jobsTable).all();
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]!.type).toBe("teardown_vps");
+    expect(jobs[0]!.type).toBe("teardown_yandex_vm");
+    const tdPayload = JSON.parse(jobs[0]!.payloadJson) as Record<string, unknown>;
+    // vpsInstanceId MUST be the GCP provider name (providerServerId), which
+    // gcp.teardownVm() uses as the instance name — NOT the vps_instances PK.
+    expect(tdPayload.vpsInstanceId).toBe("fhm0test0000000000000");
+    expect(tdPayload.scanId).toBe(SCAN_ID);
+    expect(tdPayload.scanOrderId).toBe(SCAN_ORDER_ID);
   });
 
   test("Bug #2 regression — post-fix 45KiB diag payload (5 findings) → 200", async () => {

@@ -46,7 +46,7 @@
  *                          completed_at = now(),
  *                          failure_reason = body.failure_reason (if failed),
  *                          usage_tokens / usage_usd_cents (if body.usage).
- *        - INSERT teardown_vps job.
+ *        - INSERT teardown_yandex_vm job (GCP-aware; fix B 2026-05-25).
  *   9. AFTER commit: emit `scan_completed` (done) or `scan_failed` (failed)
  *      audit. `emitSignedAudit` owns its own BEGIN IMMEDIATE, so we cannot
  *      nest it inside the withTx above (bun:sqlite forbids nested BEGINs;
@@ -83,7 +83,7 @@ import {
   ScanProgressCallbackSchema,
   type ScanProgressCallback,
 } from "../schemas/webhook.ts";
-import type { TeardownVpsJob } from "../jobs/types.ts";
+import type { TeardownYandexVmJob } from "../jobs/types.ts";
 
 export interface CreateWebhookRoutesDeps {
   readonly db: DB;
@@ -218,7 +218,7 @@ export function createWebhookRoutes(deps: CreateWebhookRoutesDeps): Hono {
 
     // -------------------------------------------------------------------
     // 8. Mutate state in a single transaction:
-    //    findings → scan.status → teardown_vps job.
+    //    findings → scan.status → teardown_yandex_vm job.
     // -------------------------------------------------------------------
     const ts = clock();
     const targetStatus = parsed.status === "done" ? "completed" : "failed";
@@ -234,7 +234,10 @@ export function createWebhookRoutes(deps: CreateWebhookRoutesDeps): Hono {
     // NOT NULL). Falls back to the empty string when missing — diag-only
     // payloads from the agent don't need a meaningful target.
     const orderRow = db
-      .select({ primaryDomain: scanOrdersTable.primaryDomain })
+      .select({
+        primaryDomain: scanOrdersTable.primaryDomain,
+        vpsZone: scanOrdersTable.vpsZone,
+      })
       .from(scanOrdersTable)
       .where(eq(scanOrdersTable.id, scanRow.scanOrderId))
       .get();
@@ -260,15 +263,24 @@ export function createWebhookRoutes(deps: CreateWebhookRoutesDeps): Hono {
         .where(eq(scansTable.id, scanRow.id))
         .run();
 
-      const teardownPayload: TeardownVpsJob = {
-        type: "teardown_vps",
-        vps_instance_id: vps.id,
-        reason: targetStatus,
+      // Enqueue a GCP-aware teardown. The legacy `teardown_vps` kind routed
+      // to the Hetzner provider and never deleted the GCP VM (yet still
+      // emitted vps_destroyed → orphan leak until the 35-min reaper). The
+      // `teardown_yandex_vm` handler calls the injected CloudProvider
+      // (=GCP in prod). `vpsInstanceId` MUST be the GCP instance NAME =
+      // vps_instances.providerServerId (what gcp.teardownVm uses), NOT the
+      // vps_instances PK. Fix B, 2026-05-25.
+      const teardownPayload: TeardownYandexVmJob = {
+        type: "teardown_yandex_vm",
+        scanOrderId: scanRow.scanOrderId,
+        scanId: scanRow.id,
+        vpsInstanceId: vps.providerServerId,
+        ...(orderRow?.vpsZone ? { vpsZone: orderRow.vpsZone } : {}),
       };
       tx.insert(jobsTable)
         .values({
           id: ulid(ts),
-          type: "teardown_vps",
+          type: "teardown_yandex_vm",
           payloadJson: JSON.stringify(teardownPayload),
           status: "pending",
           scheduledAt: ts,
