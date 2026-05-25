@@ -51,6 +51,19 @@ export class PDFRenderError extends Error {
 /** Default render timeout per research §R7. */
 export const RENDER_TIMEOUT_MS = 60_000;
 
+/**
+ * Remote Chromium "pack" URL for `@sparticuz/chromium-min` (fix D 2026-05-25).
+ * The `-min` package ships WITHOUT the browser binary — `executablePath()`
+ * MUST be given a URL to a hosted brotli pack, otherwise it looks in a local
+ * `bin/` dir that does not exist and render fails with "input directory ...
+ * does not exist". Pinned to the pack matching the installed
+ * `@sparticuz/chromium-min@148.0.0`; override via `CHROMIUM_PACK_URL` (e.g. a
+ * self-hosted mirror or an arm64 pack). Downloaded + cached on first render.
+ */
+export const CHROMIUM_PACK_URL =
+  process.env.CHROMIUM_PACK_URL ??
+  "https://github.com/Sparticuz/chromium/releases/download/v148.0.0/chromium-v148.0.0-pack.x64.tar";
+
 /** Default A4 page margins, mirrors the @page rule in template CSS. */
 const DEFAULT_MARGIN = {
   top: "24mm",
@@ -89,7 +102,8 @@ export async function renderReport(
 ): Promise<Buffer> {
   const launcher: PuppeteerLauncher = opts.puppeteerLauncher ?? puppeteer.launch;
   const execPathResolver =
-    opts.chromiumExecutablePath ?? (() => chromium.executablePath());
+    opts.chromiumExecutablePath ??
+    (() => chromium.executablePath(CHROMIUM_PACK_URL));
   const timeoutMs = opts.timeoutMs ?? RENDER_TIMEOUT_MS;
 
   let browser: Browser | undefined;
