@@ -247,7 +247,14 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
     `NEO4J_PASSWORD=${e.neo4jPassword}`,
     "DECEPTICON_MODEL_PROFILE=eco",
     "DECEPTICON_ASSISTANT_ID=recon",
-    "DECEPTICON_AUTH_PRIORITY=",
+    // [FIX A 2026-05-25] Pin the resolver to a single provider so all tiers
+    // resolve to anthropic/* names → litellm hijacks them to qwen3.7-max.
+    // Avoids the unauthed nvidia_nim fallback tail that crashed prod scan
+    // 01KSF7X1… The synthetic key only satisfies Decepticon's _is_real_key
+    // gate; it is never sent upstream. These also feed the compose
+    // ${VAR:-default} interpolation for the langgraph container env.
+    "DECEPTICON_AUTH_PRIORITY=anthropic_api",
+    "ANTHROPIC_API_KEY=sk-ant-tensol-routes-via-litellm-qwen",
     "ENV_EOF",
     "chmod 600 /opt/decepticon/.env",
     "",

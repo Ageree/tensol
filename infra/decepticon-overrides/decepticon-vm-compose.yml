@@ -154,6 +154,19 @@ services:
       DECEPTICON_NEO4J_USER: neo4j
       DECEPTICON_NEO4J_PASSWORD: ${NEO4J_PASSWORD:-decepticon-graph}
       DECEPTICON_MODEL_PROFILE: ${DECEPTICON_MODEL_PROFILE:-eco}
+      # [TENSOL FIX A 2026-05-25] Pin Decepticon's credential resolver to a
+      # SINGLE provider so every tier/role resolves to anthropic/* model
+      # names — which litellm.yaml hijacks to openrouter/qwen3.7-max. Without
+      # this, the resolver (decepticon/llm/factory.py) sees no creds + empty
+      # AUTH_PRIORITY, defaults to ALL providers, and builds a fallback chain
+      # whose tail is the UNAUTHED nvidia_nim/meta/llama-3.2-3b-instruct. On
+      # any transient qwen hiccup ModelFallbackMiddleware walks to that tail
+      # and the run dies with "no provider fallback" (prod scan 01KSF7X1…,
+      # 2026-05-25). The ANTHROPIC_API_KEY is a synthetic sk-ant- placeholder
+      # that only satisfies the resolver's _is_real_key gate — it is NEVER
+      # sent upstream (every anthropic/* name is rerouted to qwen at litellm).
+      DECEPTICON_AUTH_PRIORITY: ${DECEPTICON_AUTH_PRIORITY:-anthropic_api}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-sk-ant-tensol-routes-via-litellm-qwen}
       # assistant_id is now driven by the HTTP run payload from vps-agent
       # (see vps-agent/src/decepticon-runner.ts), not from this env var.
       DECEPTICON_DOCKER__SANDBOX_CONTAINER_NAME: decepticon-sandbox
