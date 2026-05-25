@@ -38,6 +38,9 @@ services:
       # MUST match GOOGLE_APPLICATION_CREDENTIALS in /opt/tensol/.env.prod
       # (currently /opt/tensol/.gcp/tensol-vm-spawner.json). Per memory
       # project_tensol_gcp_pivot_2026-05-22.md.
+      # NOTE: this container runs as the bun user (uid 1000); deploy.sh step
+      # 4/9 chmod 0644s the *.json so google-auth-library can read it. Without
+      # that, GCP auth fails and every scan dangles in vm_provisioning.
       - /opt/tensol/.gcp:/opt/tensol/.gcp:ro
     ports:
       # Bind to loopback only — Caddy on the host reverse-proxies the public

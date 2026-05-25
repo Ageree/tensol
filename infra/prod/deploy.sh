@@ -95,7 +95,33 @@ fi
 chmod 600 "$ENV_FILE"
 
 # -------------------------------------------------------------
-log "4/8  Build apps/site (static SPA) -> $SITE_DIST"
+log "4/9  GCP service-account credential perms"
+# -------------------------------------------------------------
+# The server container runs as the oven/bun image's `bun` user (uid 1000) and
+# mounts /opt/tensol/.gcp read-only (see docker-compose.prod.yml). On the
+# first GCP spawn, google-auth-library fs.readFile()s the SA JSON named by
+# GOOGLE_APPLICATION_CREDENTIALS. If that file is mode 600 owned by root, the
+# container user cannot read it and EVERY scan fails auth (then dangles in
+# vm_provisioning). The operator drops the key into .gcp out-of-band, so we
+# normalize perms here every deploy: dir traversable, *.json readable by the
+# container uid. (Single-tenant host — world-readable JSON is acceptable; the
+# key is already on this disk in .env.prod.) Idempotent + skips cleanly when
+# the GCP rail is not provisioned on this host.
+GCP_CREDS_DIR="$DEPLOY_DIR/.gcp"
+if [[ -d $GCP_CREDS_DIR ]]; then
+    chmod 0755 "$GCP_CREDS_DIR"
+    if compgen -G "$GCP_CREDS_DIR/*.json" >/dev/null; then
+        find "$GCP_CREDS_DIR" -maxdepth 1 -name '*.json' -exec chmod 0644 {} +
+        log "  normalized $GCP_CREDS_DIR (dir 0755, *.json 0644) for container uid 1000"
+    else
+        log "  $GCP_CREDS_DIR exists but holds no *.json — drop the SA key there if using the GCP rail"
+    fi
+else
+    log "  $GCP_CREDS_DIR absent — skipping (GCP rail not provisioned on this host)"
+fi
+
+# -------------------------------------------------------------
+log "5/9  Build apps/site (static SPA) -> $SITE_DIST"
 # -------------------------------------------------------------
 mkdir -p "$SITE_DIST" "$DEPLOY_DIR/data" "$DEPLOY_DIR/chrome-cache"
 docker run --rm \
@@ -106,7 +132,7 @@ docker run --rm \
 rsync -a --delete "$REPO_DIR/apps/site/dist/" "$SITE_DIST/"
 
 # -------------------------------------------------------------
-log "5/8  Build server image (tensol-server:latest)"
+log "6/9  Build server image (tensol-server:latest)"
 # -------------------------------------------------------------
 docker build \
     -t tensol-server:latest \
@@ -114,7 +140,7 @@ docker build \
     "$REPO_DIR"
 
 # -------------------------------------------------------------
-log "6/8  DB migrate"
+log "7/9  DB migrate"
 # -------------------------------------------------------------
 # Use the bun-native migrator (server/scripts/migrate.ts), NOT
 # `drizzle-kit migrate`. The drizzle-kit migrator relies on
@@ -133,13 +159,13 @@ docker run --rm \
     bun run scripts/migrate.ts
 
 # -------------------------------------------------------------
-log "7/8  Start server stack (docker compose up -d)"
+log "8/9  Start server stack (docker compose up -d)"
 # -------------------------------------------------------------
 cd "$REPO_DIR/infra/prod"
 docker compose -f docker-compose.prod.yml up -d --build
 
 # -------------------------------------------------------------
-log "8/8  Caddy config"
+log "9/9  Caddy config"
 # -------------------------------------------------------------
 install -m 0644 "$CADDYFILE_SRC" "$CADDYFILE_DST"
 caddy validate --config "$CADDYFILE_DST"
