@@ -39,6 +39,7 @@ import {
   vpsInstances as vpsInstancesTable,
   findings as findingsTable,
   jobs as jobsTable,
+  reports as reportsTable,
 } from "../../src/db/schema.ts";
 import { createWebhookRoutes } from "../../src/routes/webhooks.ts";
 
@@ -243,6 +244,69 @@ describe("V1 webhook /api/webhooks/scan-progress — diag-finding payload", () =
     expect(tdPayload.vpsInstanceId).toBe("fhm0test0000000000000");
     expect(tdPayload.scanId).toBe(SCAN_ID);
     expect(tdPayload.scanOrderId).toBe(SCAN_ORDER_ID);
+  });
+
+  test("status=done → completed + reports row + render_pdf & telegram & teardown enqueued (fix C)", async () => {
+    const now = 1_716_400_000_000;
+    const db = freshMemDb();
+    seedRunningScan(db, now);
+    const app = buildApp(db, now);
+
+    const body = JSON.stringify({
+      scan_id: SCAN_ID,
+      status: "done",
+      failure_reason: null,
+      usage: { tokens: 1234, usd_cents: 42 },
+      findings: [diagFinding("tensol-litellm-1", "ok")],
+    });
+    const { sig } = signed(body);
+
+    const res = await app.fetch(
+      new Request("http://test/api/webhooks/scan-progress", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Tensol-Scan-Id": SCAN_ID,
+          "X-Tensol-Signature": sig,
+        },
+        body,
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    const scan = db
+      .select()
+      .from(scansTable)
+      .where(eq(scansTable.id, SCAN_ID))
+      .get();
+    expect(scan?.status).toBe("completed");
+
+    // A reports row was created (pending) so GET /:id/report won't 404.
+    const report = db
+      .select()
+      .from(reportsTable)
+      .where(eq(reportsTable.scanId, SCAN_ID))
+      .get();
+    expect(report).toBeDefined();
+    expect(report?.status).toBe("pending");
+
+    // Three jobs enqueued: render_pdf, send_scan_complete_telegram, teardown.
+    const jobs = db.select().from(jobsTable).all();
+    const byType = new Map(jobs.map((j) => [j.type, j]));
+    expect(byType.has("render_pdf")).toBe(true);
+    expect(byType.has("send_scan_complete_telegram")).toBe(true);
+    expect(byType.has("teardown_yandex_vm")).toBe(true);
+
+    // render_pdf MUST carry the reportId of the row we just created
+    // (render-pdf.ts throws on a missing reportId).
+    const renderP = JSON.parse(byType.get("render_pdf")!.payloadJson) as Record<string, unknown>;
+    expect(renderP.scanId).toBe(SCAN_ID);
+    expect(renderP.reportId).toBe(report!.id);
+
+    const telP = JSON.parse(byType.get("send_scan_complete_telegram")!.payloadJson) as Record<string, unknown>;
+    expect(telP.scanId).toBe(SCAN_ID);
+    expect(telP.scanOrderId).toBe(SCAN_ORDER_ID);
+    expect(telP.userId).toBeDefined();
   });
 
   test("Bug #2 regression — post-fix 45KiB diag payload (5 findings) → 200", async () => {

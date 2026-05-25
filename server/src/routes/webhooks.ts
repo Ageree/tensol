@@ -71,6 +71,7 @@ import type { DB } from "../db/client.ts";
 import { withTx } from "../db/client.ts";
 import {
   jobs as jobsTable,
+  reports as reportsTable,
   scanOrders as scanOrdersTable,
   scans as scansTable,
   vpsInstances as vpsInstancesTable,
@@ -83,7 +84,11 @@ import {
   ScanProgressCallbackSchema,
   type ScanProgressCallback,
 } from "../schemas/webhook.ts";
-import type { TeardownYandexVmJob } from "../jobs/types.ts";
+import type {
+  RenderPdfJob,
+  SendScanCompleteTelegramJob,
+  TeardownYandexVmJob,
+} from "../jobs/types.ts";
 
 export interface CreateWebhookRoutesDeps {
   readonly db: DB;
@@ -290,6 +295,72 @@ export function createWebhookRoutes(deps: CreateWebhookRoutesDeps): Hono {
           updatedAt: ts,
         })
         .run();
+
+      // On COMPLETED only: create the report row + enqueue render_pdf and the
+      // user scan-complete Telegram. The agent hits this legacy handler (NOT
+      // the V2 scan-complete router), so without this a completed scan never
+      // gets a `reports` row → GET /:id/report 404. render_pdf REQUIRES a
+      // pre-existing reports row + reportId (render-pdf.ts normalizePayload
+      // throws otherwise) — so we INSERT the row here and pass its id, mirror
+      // of POST /:id/report/regenerate. Fix C, 2026-05-25.
+      if (targetStatus === "completed") {
+        const reportId = ulid(ts);
+        tx.insert(reportsTable)
+          .values({
+            id: reportId,
+            scanId: scanRow.id,
+            status: "pending",
+            bucket: null,
+            key: null,
+            byteSize: null,
+            renderAttempts: 0,
+            lastError: null,
+            expiresAt: null,
+            createdAt: ts,
+            updatedAt: ts,
+          })
+          .run();
+
+        const renderPayload: RenderPdfJob = {
+          type: "render_pdf",
+          scanId: scanRow.id,
+          reportId,
+        };
+        tx.insert(jobsTable)
+          .values({
+            id: ulid(ts),
+            type: "render_pdf",
+            payloadJson: JSON.stringify(renderPayload),
+            status: "pending",
+            scheduledAt: ts,
+            attempts: 0,
+            lastError: null,
+            createdAt: ts,
+            updatedAt: ts,
+          })
+          .run();
+
+        const telegramPayload: SendScanCompleteTelegramJob = {
+          type: "send_scan_complete_telegram",
+          scanId: scanRow.id,
+          scanOrderId: scanRow.scanOrderId,
+          reportId,
+          userId: scanRow.userId,
+        };
+        tx.insert(jobsTable)
+          .values({
+            id: ulid(ts),
+            type: "send_scan_complete_telegram",
+            payloadJson: JSON.stringify(telegramPayload),
+            status: "pending",
+            scheduledAt: ts,
+            attempts: 0,
+            lastError: null,
+            createdAt: ts,
+            updatedAt: ts,
+          })
+          .run();
+      }
     });
 
     // -------------------------------------------------------------------
