@@ -1,5 +1,5 @@
 /**
- * Unit tests for `sanitizeLabels` — Yandex Compute label sanitiser.
+ * Unit tests for `sanitizeLabels` — GCP Compute label sanitiser.
  *
  * Regression test for production bug found 2026-05-21:
  * ULID label values (uppercase Crockford-base32) were passed raw to
@@ -9,7 +9,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { sanitizeLabels } from "./yandex";
+import { sanitizeLabels } from "./gcp";
 
 describe("sanitizeLabels", () => {
   test("lowercases ULID keys and values", () => {

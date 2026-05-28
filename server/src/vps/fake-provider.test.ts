@@ -3,7 +3,7 @@
  *
  * Written before the implementation per Constitution VI (TDD: Red → Green).
  * The fake is the default test fixture for CloudProvider-consuming code;
- * the real Yandex provider is gated behind `TENSOL_TEST_REAL_YANDEX=1`.
+ * the real GCP provider is never exercised in tests.
  */
 
 import { describe, expect, test, beforeEach } from "bun:test";

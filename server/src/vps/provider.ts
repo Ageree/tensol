@@ -15,7 +15,7 @@
  *      `stopped` / `error`).
  *
  * Both interfaces coexist until the legacy Hetzner path is fully removed in
- * a later phase. Concrete `CloudProvider` implementations: `./yandex.ts`
+ * a later phase. Concrete `CloudProvider` implementations: `./gcp.ts`
  * (real) and `./fake-provider.ts` (deterministic in-memory, default test
  * fixture per Constitution VI).
  */
@@ -158,8 +158,8 @@ export type VmInstanceSummary = {
  * Provider-agnostic abstraction over the ephemeral-VM lifecycle.
  *
  * Concrete impls:
- *   - `./yandex.ts` — real Yandex Cloud Compute, gated behind
- *     `TENSOL_TEST_REAL_YANDEX=1` per Constitution VI.
+ *   - `./gcp.ts` — real GCP Compute Engine.
+ *     (default real cloud rail).
  *   - `./fake-provider.ts` — deterministic in-memory, default test fixture.
  */
 export type CloudProvider = {

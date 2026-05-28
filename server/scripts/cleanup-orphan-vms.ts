@@ -6,6 +6,14 @@
  * sweep of `createCleanupOrphanVmsTask` and exits with the appropriate
  * code.
  *
+ * Provider note (post-GCP-pivot): the in-process server already runs this
+ * same cleanup task on a 15-minute cadence (see server.ts T125). This
+ * standalone entrypoint exists for host-cron / one-off operator use and
+ * uses the GCP provider — the only live cloud rail. GCP has no "folder"
+ * concept; the project is implicit in the SA JSON, so we pass a single
+ * dummy folder id (the project id) and gcp.ts `listInstances` ignores the
+ * param, mirroring server.ts.
+ *
  * Why this lives outside `src/`:
  *   The script is an operational entrypoint, not part of the server
  *   library surface. Keeping it in `scripts/` mirrors `seed-golden-db.ts`
@@ -14,52 +22,50 @@
  *   resolution.
  *
  * Env contract (read at startup, NOT logged):
- *   - `YANDEX_TEST_FOLDER_ID`   — optional, defaults to absent
- *   - `YANDEX_PROD_FOLDER_ID`   — optional, defaults to absent
+ *   - `GCP_PROJECT_ID`   — required; absent → no-op (nothing to sweep).
+ *   - `GOOGLE_APPLICATION_CREDENTIALS` — the SA JSON the provider needs.
  *   - `TENSOL_TELEGRAM_BOT_TOKEN`, `TENSOL_TELEGRAM_CHAT_ID` — required
- *      if any folder is configured AND the run deletes >0 VMs (the
- *      `sendMessage` call surfaces a clear TelegramSendError if absent).
+ *      if the run deletes >0 VMs (the `sendMessage` call surfaces a clear
+ *      TelegramSendError if absent).
  *
  * Exit codes:
  *   - 0  → tick completed (with or without deletions)
- *   - 1  → unhandled error / missing required env (Yandex IAM / token bag)
+ *   - 1  → unhandled error / missing required env (GCP creds / token bag)
  *
  * Constitution alignment:
  *   - I  — never touches `external/decepticon/`.
- *   - VI — uses the production Yandex provider only when the script runs
- *     on a real cron; tests use the task factory directly with a fake.
+ *   - VI — uses the production GCP provider only when the script runs on a
+ *     real cron; tests use the task factory directly with a fake.
  *   - VII — file ≤ 100 LOC.
  */
 import { createCleanupOrphanVmsTask } from "../src/jobs/handlers/cleanup-orphan-vms.ts";
-import { createYandexCloudProvider } from "../src/vps/yandex.ts";
+import { createGcpCloudProvider } from "../src/vps/gcp.ts";
 import { sendMessage } from "../src/notify/telegram.ts";
 
 const TEST_MIN_AGE_MS = 30 * 60 * 1000;
 const PROD_MIN_AGE_MS = 120 * 60 * 1000;
 
 async function main(): Promise<void> {
-  const testFolder = process.env.YANDEX_TEST_FOLDER_ID ?? "";
-  const prodFolder = process.env.YANDEX_PROD_FOLDER_ID ?? "";
-  const folderIds = [testFolder, prodFolder].filter((f) => f !== "");
+  // GCP has no "folder" concept — the project is implicit in the SA JSON.
+  // Pass the project id as a single dummy folder so the cleanup loop runs
+  // once per tick; gcp.ts listInstances ignores the param (mirrors T125).
+  const projectId = process.env.GCP_PROJECT_ID ?? "";
+  const folderIds = projectId === "" ? [] : [projectId];
 
   if (folderIds.length === 0) {
     // eslint-disable-next-line no-console
     console.warn(
-      "[cleanup-orphan-vms] no folder ids configured " +
-        "(YANDEX_TEST_FOLDER_ID, YANDEX_PROD_FOLDER_ID) — nothing to do",
+      "[cleanup-orphan-vms] GCP_PROJECT_ID not set — nothing to do",
     );
     return;
   }
 
-  // We build a Yandex provider per-folder because each folder may live
-  // under a different service account. For MVP both folders share the
-  // same IAM creds, so a single provider suffices.
-  const provider = createYandexCloudProvider();
+  const provider = createGcpCloudProvider();
 
   const listInstances = provider.listInstances;
   if (!listInstances) {
     throw new Error(
-      "yandex provider missing listInstances — cleanup script cannot run",
+      "gcp provider missing listInstances — cleanup script cannot run",
     );
   }
 
