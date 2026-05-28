@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **пентест ИИ** (3716 symbols, 7866 relationships, 187 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **пентест ИИ** (2257 symbols, 4370 relationships, 171 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -102,5 +102,14 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
+shell commands, and other important information, read the current plan:
+
+- Plan: `specs/001-backend-v2/plan.md`
+- Spec: `specs/001-backend-v2/spec.md`
+- Constitution: `.specify/memory/constitution.md` (v1.0.0)
+- Data model: `specs/001-backend-v2/data-model.md`
+- API contract: `specs/001-backend-v2/contracts/openapi.yaml`
+- Webhook contract: `specs/001-backend-v2/contracts/webhook.md`
+- Quickstart: `specs/001-backend-v2/quickstart.md`
+- Original design doc: `docs/superpowers/specs/2026-05-18-backend-v2-design.md`
 <!-- SPECKIT END -->

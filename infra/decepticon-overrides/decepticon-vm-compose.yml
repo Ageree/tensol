@@ -1,0 +1,215 @@
+# =============================================================================
+# Decepticon stack — minimal VM-side compose for Tensol ephemeral scan VMs.
+# =============================================================================
+# Embedded into the cloud-init payload by
+# `server/src/vps/decepticon-embedded.ts` and dropped onto each spawned VM at
+# `/opt/decepticon/docker-compose.yml` (symlinked to /opt/tensol/docker-compose.yml
+# where vps-agent expects it).
+#
+# Diff vs upstream PurpleAILAB/Decepticon docker-compose.yml:
+#   - Drops `web`, `cli`, `c2-sliver` services (interactive / red-team helpers
+#     not needed for autonomous recon).
+#   - Drops the `./containers/postgres-init` bind-mount (web/cli's
+#     decepticon_web DB init — unused without those services).
+#   - Drops the optional Claude/Codex OAuth credential mounts (Tensol routes
+#     entirely through OpenRouter qwen3.7-max — see config/litellm.yaml).
+#   - Reads secrets from a sibling `.env` (POSTGRES_PASSWORD, NEO4J_PASSWORD,
+#     LITELLM_MASTER_KEY, OPENROUTER_API_KEY, DECEPTICON_VERSION).
+#   - Loopback-only port bindings preserved (the VM has no inbound traffic
+#     to the Decepticon ports; vps-agent inside the VM is the only client).
+#
+# Mounts (absolute host paths so docker compose resolves them identically
+# whether the compose file is loaded directly from /opt/decepticon/ or
+# via the /opt/tensol/docker-compose.yml symlink that vps-agent expects):
+#   - /opt/decepticon/config/litellm.yaml → /app/config.yaml:ro inside litellm
+#   - /opt/decepticon/decepticon/agents/prompts/recon.md → same path inside
+#     langgraph (Tensol Rule 4b KG_PERSISTENCE override)
+#   - /opt/decepticon/workspace → /workspace inside sandbox + langgraph
+#     (findings, evidence — directory created by cloud-init)
+# =============================================================================
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: decepticon
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-decepticon}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U decepticon -d litellm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - decepticon-net
+
+  neo4j:
+    image: neo4j:5.24-community
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-decepticon-graph}
+      NEO4J_server_memory_heap_initial__size: 128m
+      NEO4J_server_memory_heap_max__size: 384m
+      NEO4J_server_memory_pagecache_size: 128m
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+    networks:
+      - decepticon-net
+      - sandbox-net
+
+  litellm:
+    image: ghcr.io/purpleailab/decepticon-litellm:${DECEPTICON_VERSION:-latest}
+    restart: unless-stopped
+    # Upstream Decepticon docker-compose.yml uses a custom Python entrypoint
+    # (litellm_startup.py + litellm_dynamic_config.py) that registers OAuth
+    # routes + loads our --config explicitly. WITHOUT these, the base
+    # ghcr.io/berriai/litellm image's default CMD ignores our mounted
+    # /app/config.yaml and routes nvidia_nim/* to upstream NVIDIA (which
+    # 400s without NVIDIA_API_KEY). Diagnosed via E2E #17-18 audit.
+    entrypoint: ["python", "/app/litellm_startup.py"]
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-decepticon-master}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-sk-decepticon-salt}
+      DATABASE_URL: postgresql://decepticon:${POSTGRES_PASSWORD:-decepticon}@postgres:5432/litellm
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      # Qwen3.7-max with reasoning_effort=high on OpenRouter regularly
+      # exceeds the default httpx 60s read timeout — E2E #24 manifested as
+      # `task=tools: CancelledError()` cascading from the inner LLM call.
+      # LITELLM_REQUEST_TIMEOUT bounds litellm's outbound httpx client; set
+      # to 600s (10 min) to match the recon agent's worst-case turn budget.
+      LITELLM_REQUEST_TIMEOUT: "600"
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - /opt/decepticon/config/litellm.yaml:/app/config.yaml:ro
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/readiness')"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 300s
+    networks:
+      - decepticon-net
+
+  sandbox:
+    image: ghcr.io/purpleailab/decepticon-sandbox:${DECEPTICON_VERSION:-latest}
+    container_name: decepticon-sandbox
+    restart: unless-stopped
+    depends_on:
+      neo4j:
+        condition: service_started
+    environment:
+      SANDBOX_DAEMON: "1"
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-decepticon-graph}
+    volumes:
+      - /opt/decepticon/workspace:/workspace
+    networks:
+      - sandbox-net
+
+  langgraph:
+    image: ghcr.io/purpleailab/decepticon-langgraph:${DECEPTICON_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      litellm:
+        condition: service_healthy
+      sandbox:
+        condition: service_started
+      neo4j:
+        condition: service_healthy
+    environment:
+      DECEPTICON_LLM__PROXY_URL: http://litellm:4000
+      DECEPTICON_LLM__PROXY_API_KEY: ${LITELLM_MASTER_KEY:-sk-decepticon-master}
+      SAAS_SANDBOX_URL: http://sandbox:9999
+      DECEPTICON_NEO4J_URI: bolt://neo4j:7687
+      DECEPTICON_NEO4J_USER: neo4j
+      DECEPTICON_NEO4J_PASSWORD: ${NEO4J_PASSWORD:-decepticon-graph}
+      DECEPTICON_MODEL_PROFILE: ${DECEPTICON_MODEL_PROFILE:-eco}
+      # [TENSOL FIX A 2026-05-25] Pin Decepticon's credential resolver to a
+      # SINGLE provider so every tier/role resolves to anthropic/* model
+      # names — which litellm.yaml hijacks to openrouter/qwen3.7-max. Without
+      # this, the resolver (decepticon/llm/factory.py) sees no creds + empty
+      # AUTH_PRIORITY, defaults to ALL providers, and builds a fallback chain
+      # whose tail is the UNAUTHED nvidia_nim/meta/llama-3.2-3b-instruct. On
+      # any transient qwen hiccup ModelFallbackMiddleware walks to that tail
+      # and the run dies with "no provider fallback" (prod scan 01KSF7X1…,
+      # 2026-05-25). The ANTHROPIC_API_KEY is a synthetic sk-ant- placeholder
+      # that only satisfies the resolver's _is_real_key gate — it is NEVER
+      # sent upstream (every anthropic/* name is rerouted to qwen at litellm).
+      DECEPTICON_AUTH_PRIORITY: ${DECEPTICON_AUTH_PRIORITY:-anthropic_api}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-sk-ant-tensol-routes-via-litellm-qwen}
+      # assistant_id is now driven by the HTTP run payload from vps-agent
+      # (see vps-agent/src/decepticon-runner.ts), not from this env var.
+      DECEPTICON_DOCKER__SANDBOX_CONTAINER_NAME: decepticon-sandbox
+      # Bound the Decepticon LiteLLM client's per-call timeout to match
+      # the litellm proxy's 600s — without this `DECEPTICON_LLM__TIMEOUT`
+      # falls back to the in-source default of 120s which can fire on a
+      # slow Qwen3.7-max turn and surface as a tools-node CancelledError.
+      DECEPTICON_LLM__TIMEOUT: "600"
+      # Disable any cooperative drain timer the langgraph dev queue might
+      # apply to idle in-flight runs (we hold the run for the full scan
+      # via on_disconnect=continue from vps-agent).
+      LANGGRAPH_AUTH_TYPE: noop
+    # Override CMD so verifier's sync Neo4j calls don't trip blockbuster
+    # (see infra/decepticon-overrides/docker-compose.override.yml).
+    command: ["langgraph", "dev", "--host", "0.0.0.0", "--port", "2024", "--no-browser", "--allow-blocking"]
+    ports:
+      # Bind to all host interfaces (NOT just 127.0.0.1) so the vps-agent
+      # container on the default `bridge` network can reach :2024 via the
+      # docker bridge gateway (host.docker.internal == 172.17.0.1).
+      # GCP firewall only opens :8080 — :2024 stays unreachable externally.
+      - "2024:2024"
+    volumes:
+      - /opt/decepticon/decepticon/agents/prompts/recon.md:/app/decepticon/agents/prompts/recon.md:ro
+      - /opt/decepticon/workspace:/workspace
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:2024/ok')"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 90s
+    networks:
+      - decepticon-net
+      - sandbox-net
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:
+
+networks:
+  decepticon-net:
+  sandbox-net:

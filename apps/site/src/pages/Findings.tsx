@@ -1,479 +1,319 @@
-// Tensol — C7 Findings list + drawer + C8 Evidence viewer.
-// Ported 1:1 from tensol-platform-design-v2/source/blocks/09_FindingsScreen.jsx.
-import { useMemo, useState, type ReactElement, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { AppShell } from '../components/AppShell';
-import { RouteHead } from '../components/RouteHead.tsx';
+// T085 — Findings list (Blackbox MVP).
+//
+// URL: /scan/:id/findings  (the legacy /findings route used to render the
+// design-doc mock; this rewrite is data-driven and fetches from the v1 API).
+//
+// Renders:
+//   - CSS-only severity-distribution donut (conic-gradient, NO chart lib per
+//     driver constraint)
+//   - Filter bar: per-severity checkboxes + title substring search
+//   - Sortable table (default: severity rank DESC, then created_at ASC —
+//     matches T071 server-side sort)
+//   - Each row links to /scan/:id/findings/:findingId (T086 detail page)
+
 import {
-  Btn,
-  Drawer,
-  Eyebrow,
-  HalftoneBg,
-  Modal,
-  Mono,
-  Segmented,
-  Sparkline,
-  SeverityChip,
-  StatusChip,
-} from '../components/primitives';
-import { useTensol } from '../context';
-import { TENSOL_DATA, type Finding, type FindingSeverity } from '../data';
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+} from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { AppShell } from '../components/AppShell.tsx';
+import { RouteHead } from '../components/RouteHead.tsx';
+import { Btn, Mono, SeverityChip } from '../components/primitives.tsx';
+import { useTensol } from '../context.tsx';
+import {
+  ApiError,
+  scans,
+  type Finding,
+  type Severity,
+} from '../lib/api-client.ts';
 
-type SevFilter = 'all' | FindingSeverity;
+// ─── Severity helpers ─────────────────────────────────────────────────────
+// API ships severity as `informational` (full word); primitives.SeverityChip
+// expects the abbreviated `info` token. Map at the rendering boundary.
 
-function Section({ h, children }: { h: string; children: ReactNode }): ReactElement {
-  return (
-    <div>
-      <Eyebrow style={{ marginBottom: 8 }}>{`// ${h.toUpperCase()}`}</Eyebrow>
-      {children}
-    </div>
-  );
+const SEV_ORDER: readonly Severity[] = [
+  'critical',
+  'high',
+  'medium',
+  'low',
+  'informational',
+] as const;
+
+const SEV_RANK: Record<Severity, number> = {
+  critical: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+  informational: 0,
+};
+
+const SEV_COLOR: Record<Severity, string> = {
+  critical: 'var(--red)',
+  high: '#F26B1F',
+  medium: '#E6C76B',
+  low: '#5A6B5A',
+  informational: 'var(--line-soft)',
+};
+
+// SeverityChip wants `info`, API gives `informational`. One-shot adapter.
+type ChipSev = 'critical' | 'high' | 'medium' | 'low' | 'info';
+function toChipSev(s: Severity): ChipSev {
+  return s === 'informational' ? 'info' : s;
 }
 
-function FindingDetail({
-  f,
-  onOpenEvidence,
-}: {
-  f: Finding;
-  onOpenEvidence: () => void;
-}): ReactElement {
-  const { t } = useTensol();
-  return (
-    <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 22 }}>
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          <SeverityChip sev={f.sev} />
-          <StatusChip
-            status={f.status}
-            tone={f.status === 'confirmed' ? 'inverse' : 'muted'}
-            size="sm"
-          />
-          <StatusChip status={`confidence: ${f.conf}`} tone="muted" size="sm" />
-        </div>
-        <h2
-          style={{
-            fontFamily: "'Space Grotesk', sans-serif",
-            fontWeight: 500,
-            fontSize: 24,
-            letterSpacing: '-0.02em',
-            margin: 0,
-            lineHeight: 1.2,
-          }}
-        >
-          {f.title}
-        </h2>
-        <Mono size={11.5} color="var(--fg-3)" style={{ display: 'block', marginTop: 6 }}>
-          {f.asset} · {f.endpoint} · found {f.foundAt} · {f.source}
-        </Mono>
-      </div>
+// ─── Donut (CSS conic-gradient, no chart lib) ─────────────────────────────
 
-      <Section h={t.fImpact}>
-        <p
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 13.5,
-            lineHeight: 1.55,
-            color: 'var(--fg)',
-            margin: 0,
-            maxWidth: '62ch',
-          }}
-        >
-          {f.impact}
-        </p>
-      </Section>
-
-      <Section h={t.fRepro}>
-        <pre
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 11.5,
-            lineHeight: 1.6,
-            margin: 0,
-            color: 'var(--paper)',
-            background: 'var(--ink)',
-            padding: 14,
-            whiteSpace: 'pre-wrap',
-          }}
-        >
-          {f.repro.map((r, i) => `${String(i + 1).padStart(2, '0')}  ${r}`).join('\n')}
-        </pre>
-      </Section>
-
-      <Section h={t.fValidator}>
-        <pre
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 11.5,
-            lineHeight: 1.6,
-            margin: 0,
-            color: 'var(--fg-2)',
-            background: 'var(--bg-2)',
-            border: '1px solid var(--line-soft)',
-            padding: 14,
-          }}
-        >
-          {f.validatorLog.join('\n')}
-        </pre>
-        <div style={{ marginTop: 10 }}>
-          <Btn size="sm" kind="secondary" onClick={onOpenEvidence}>
-            {t.fOpenEvidence} →
-          </Btn>
-        </div>
-      </Section>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 22 }}>
-        <Section h={t.fAttack}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {f.mappings.mitre.length === 0 && (
-              <Mono size={11} color="var(--fg-3)">
-                none
-              </Mono>
-            )}
-            {f.mappings.mitre.map((m) => (
-              <Mono key={m} size={11} color="var(--fg)" style={{ display: 'block' }}>
-                ■ {m}
-              </Mono>
-            ))}
-          </div>
-        </Section>
-        <Section h={t.fMappings}>
-          {f.mappings.nistCsf.length > 0 && (
-            <div>
-              <Mono size={10} color="var(--fg-3)">
-                NIST CSF
-              </Mono>
-              <div>
-                {f.mappings.nistCsf.map((x) => (
-                  <Mono key={x} size={11} style={{ display: 'block' }}>
-                    ■ {x}
-                  </Mono>
-                ))}
-              </div>
-            </div>
-          )}
-          {f.mappings.atlas.length > 0 && (
-            <div style={{ marginTop: 10 }}>
-              <Mono size={10} color="var(--fg-3)">
-                MITRE ATLAS
-              </Mono>
-              <div>
-                {f.mappings.atlas.map((x) => (
-                  <Mono key={x} size={11} style={{ display: 'block' }}>
-                    ■ {x}
-                  </Mono>
-                ))}
-              </div>
-            </div>
-          )}
-          {f.mappings.d3fend.length > 0 && (
-            <div style={{ marginTop: 10 }}>
-              <Mono size={10} color="var(--fg-3)">
-                D3FEND
-              </Mono>
-              <div>
-                {f.mappings.d3fend.map((x) => (
-                  <Mono key={x} size={11} style={{ display: 'block' }}>
-                    ■ {x}
-                  </Mono>
-                ))}
-              </div>
-            </div>
-          )}
-          {f.mappings.aiRmf.length > 0 && (
-            <div style={{ marginTop: 10 }}>
-              <Mono size={10} color="var(--fg-3)">
-                NIST AI RMF
-              </Mono>
-              <div>
-                {f.mappings.aiRmf.map((x) => (
-                  <Mono key={x} size={11} style={{ display: 'block' }}>
-                    ■ {x}
-                  </Mono>
-                ))}
-              </div>
-            </div>
-          )}
-        </Section>
-      </div>
-
-      <Section h={t.fRemediation}>
-        <p
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 13,
-            lineHeight: 1.55,
-            color: 'var(--fg)',
-            margin: 0,
-            maxWidth: '62ch',
-          }}
-        >
-          {f.remediation}
-        </p>
-      </Section>
-
-      {f.comments.length > 0 && (
-        <Section h={t.fComments}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {f.comments.map((c, i) => (
-              <div
-                key={i}
-                style={{
-                  padding: '10px 12px',
-                  borderLeft: '2px solid var(--fg)',
-                  background: 'var(--bg-2)',
-                }}
-              >
-                <Mono size={10} color="var(--fg-3)">
-                  {c.who} · {c.when}
-                </Mono>
-                <p
-                  style={{
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 13,
-                    margin: '4px 0 0',
-                    color: 'var(--fg)',
-                  }}
-                >
-                  {c.text}
-                </p>
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
-    </div>
-  );
+interface SevCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  informational: number;
 }
 
-function EvidenceViewer({ f }: { f: Finding }): ReactElement {
-  const { t } = useTensol();
+function countBySeverity(rows: readonly Finding[]): SevCounts {
+  const out: SevCounts = {
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+    informational: 0,
+  };
+  for (const f of rows) out[f.severity] += 1;
+  return out;
+}
+
+interface DonutProps {
+  counts: SevCounts;
+  total: number;
+  size?: number;
+}
+
+function SeverityDonut({ counts, total, size = 140 }: DonutProps): ReactElement {
+  // Build conic-gradient stops in fixed severity order. If total === 0 the
+  // ring is rendered as a single neutral track.
+  const stops: string[] = [];
+  if (total === 0) {
+    stops.push('var(--line-soft) 0deg 360deg');
+  } else {
+    let acc = 0;
+    for (const sev of SEV_ORDER) {
+      const c = counts[sev];
+      if (c === 0) continue;
+      const start = (acc / total) * 360;
+      acc += c;
+      const end = (acc / total) * 360;
+      stops.push(`${SEV_COLOR[sev]} ${start}deg ${end}deg`);
+    }
+  }
+  const gradient = `conic-gradient(${stops.join(', ')})`;
+  const hole = Math.round(size * 0.58);
+
   return (
-    <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16 }}>
-        <div>
-          <Eyebrow style={{ marginBottom: 6 }}>{t.evScreenshot}</Eyebrow>
-          <div
-            style={{
-              position: 'relative',
-              height: 260,
-              border: '1px solid var(--fg)',
-              background: '#0d0d0d',
-              overflow: 'hidden',
-            }}
-          >
-            <HalftoneBg size={4} opacity={0.25} color="var(--paper)" />
-            <div
-              style={{
-                position: 'absolute',
-                inset: 14,
-                border: '1px dashed rgba(255,255,255,0.3)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                padding: 12,
-                fontFamily: 'monospace',
-                fontSize: 10,
-                color: 'rgba(255,255,255,0.6)',
-              }}
-            >
-              <div>app.acme-bank.ru/search?q=&lt;svg/onload=…&gt;</div>
-              <div style={{ alignSelf: 'center', textAlign: 'center' }}>
-                <Mono size={10} color="rgba(255,255,255,0.4)" style={{ display: 'block' }}>
-                  // rendered DOM at validator t+441ms
-                </Mono>
-                <Mono
-                  size={28}
-                  color="#fff"
-                  style={{
-                    display: 'block',
-                    marginTop: 8,
-                    fontFamily: "'Space Grotesk',sans-serif",
-                    letterSpacing: '-0.02em',
-                  }}
-                >
-                  XSS landed
-                </Mono>
-                <Mono
-                  size={10}
-                  color="rgba(255,255,255,0.4)"
-                  style={{ display: 'block', marginTop: 8 }}
-                >
-                  cookie exfiltrated → oob.tensol.dev/c/8f2c
-                </Mono>
-              </div>
-              <div>ev_8f2c_001.png · 184 KB · sha256:9a4b…</div>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <Eyebrow style={{ marginBottom: 6 }}>{t.evOob}</Eyebrow>
-          <pre
-            style={{
-              margin: 0,
-              padding: 14,
-              background: 'var(--ink)',
-              color: 'var(--paper)',
-              fontFamily: 'monospace',
-              fontSize: 11,
-              lineHeight: 1.6,
-              height: 260,
-              overflow: 'auto',
-            }}
-          >
-{`source     oob.tensol.dev (interactsh-pinned)
-token      8f2c
-when       2026-05-04 11:14:02.412 UTC
-soft-corr  match (token in path)
-hard-corr  match (assessment seed=42 fingerprint)
-payload    GET /c/8f2c?c=session=eyJhbGciOi… (redacted)
-ttl        retained until report.delivered + 30d
-hash       sha256:9a4b1c…7f23ad`}
-          </pre>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <div>
-          <Eyebrow style={{ marginBottom: 6 }}>{t.evHttp}</Eyebrow>
-          <pre
-            style={{
-              margin: 0,
-              padding: 14,
-              background: 'var(--bg-2)',
-              border: '1px solid var(--line-soft)',
-              fontFamily: 'monospace',
-              fontSize: 10.5,
-              lineHeight: 1.55,
-              height: 200,
-              overflow: 'auto',
-              color: 'var(--fg-2)',
-            }}
-          >
-{`> GET /search?q=<svg/onload=fetch(...)> HTTP/1.1
-> Host: app.acme-bank.ru
-> Cookie: session=eyJ… [REDACTED]
-> User-Agent: Mozilla/5.0 (X11; Linux) playwright
-
-< HTTP/1.1 200 OK
-< Content-Type: text/html; charset=utf-8
-< Content-Security-Policy: script-src 'self' 'unsafe-inline'
-< Set-Cookie: csrf=… SameSite=Lax
-<
-< <h1>Results for: <svg/onload=fetch(...)></h1>
-< [DOM executes inline svg]`}
-          </pre>
-        </div>
-
-        <div>
-          <Eyebrow style={{ marginBottom: 6 }}>
-            {t.evHar} · {t.evTrace}
-          </Eyebrow>
-          <div
-            style={{
-              padding: 14,
-              background: 'var(--bg-2)',
-              border: '1px solid var(--line-soft)',
-              height: 200,
-              overflow: 'auto',
-            }}
-          >
-            <Mono size={11} color="var(--fg-2)" style={{ display: 'block' }}>
-              17 requests · 12 200 · 3 304 · 2 oob
-            </Mono>
-            <Mono size={11} color="var(--fg-2)" style={{ display: 'block' }}>
-              1.2s total · 441ms first byte
-            </Mono>
-            <div style={{ marginTop: 10 }}>
-              <Sparkline
-                values={[120, 280, 110, 90, 60, 441, 80, 70, 60, 60, 70, 90, 50, 30, 140, 60, 70]}
-                height={36}
-              />
-            </div>
-            <div
-              style={{
-                marginTop: 12,
-                paddingTop: 10,
-                borderTop: '1px dashed var(--line-soft)',
-              }}
-            >
-              <Mono size={11} color="var(--fg)" style={{ display: 'block' }}>
-                playwright trace
-              </Mono>
-              <Mono size={10} color="var(--fg-3)" style={{ display: 'block' }}>
-                ev_{f.id}_trace.zip · 4.1 MB
-              </Mono>
-              <div style={{ marginTop: 8 }}>
-                <Btn size="sm" kind="secondary">
-                  Download trace
-                </Btn>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
+    <div
+      role="img"
+      aria-label={`Severity distribution: ${total} findings`}
+      style={{
+        width: size,
+        height: size,
+        background: gradient,
+        borderRadius: '50%',
+        position: 'relative',
+        flexShrink: 0,
+      }}
+    >
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: 16,
-          paddingTop: 12,
-          borderTop: '1px solid var(--line-soft)',
+          position: 'absolute',
+          inset: (size - hole) / 2,
+          background: 'var(--paper)',
+          borderRadius: '50%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
       >
-        <div>
-          <Eyebrow style={{ marginBottom: 6 }}>{t.evRedaction}</Eyebrow>
-          <Mono size={11} color="var(--fg-2)" style={{ display: 'block' }}>
-            ■ Cookie header value · reason: session-token · policy: redact-pii
-          </Mono>
-          <Mono size={11} color="var(--fg-2)" style={{ display: 'block' }}>
-            ■ Response body · regex pii.email · 2 occurrences
-          </Mono>
-        </div>
-        <div>
-          <Eyebrow style={{ marginBottom: 6 }}>{t.evHash}</Eyebrow>
-          <Mono size={11} color="var(--fg)" style={{ display: 'block' }}>
-            artifact bundle · sha256:c7b22a0e…f9a1
-          </Mono>
-          <Mono size={10} color="var(--fg-3)" style={{ display: 'block' }}>
-            signed by validator-key prod-2026-q2
-          </Mono>
-        </div>
+        <Mono size={22} color="var(--fg)" style={{ fontWeight: 500 }}>
+          {total}
+        </Mono>
+        <Mono size={9} color="var(--fg-3)" style={{ letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          findings
+        </Mono>
       </div>
     </div>
   );
+}
+
+interface DonutLegendProps {
+  counts: SevCounts;
+  labels: Record<Severity, string>;
+}
+
+function DonutLegend({ counts, labels }: DonutLegendProps): ReactElement {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 18px' }}>
+      {SEV_ORDER.map((sev) => (
+        <div key={sev} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              background: SEV_COLOR[sev],
+              border: '1px solid var(--ink)',
+              flexShrink: 0,
+            }}
+          />
+          <Mono size={11} color="var(--fg-2)" style={{ minWidth: 80 }}>
+            {labels[sev]}
+          </Mono>
+          <Mono size={11} color="var(--fg)" style={{ fontWeight: 500 }}>
+            {counts[sev]}
+          </Mono>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Page component ───────────────────────────────────────────────────────
+
+type SortKey = 'severity' | 'title' | 'cvss';
+type SortDir = 'asc' | 'desc';
+
+function sortFindings(
+  rows: readonly Finding[],
+  key: SortKey,
+  dir: SortDir,
+): Finding[] {
+  const mul = dir === 'asc' ? 1 : -1;
+  const copy = [...rows];
+  copy.sort((a, b) => {
+    let cmp = 0;
+    if (key === 'severity') {
+      cmp = SEV_RANK[a.severity] - SEV_RANK[b.severity];
+      // Stable secondary: created_at ASC (matches T071 server contract).
+      if (cmp === 0) cmp = a.created_at - b.created_at;
+      // For severity sort, primary direction inverts the rank delta only.
+      return cmp * mul;
+    }
+    if (key === 'title') cmp = a.title.localeCompare(b.title);
+    if (key === 'cvss') {
+      const av = a.cvss_score ?? -1;
+      const bv = b.cvss_score ?? -1;
+      cmp = av - bv;
+    }
+    return cmp * mul;
+  });
+  return copy;
 }
 
 export default function Findings(): ReactElement {
   const { t } = useTensol();
-  const navigate = useNavigate();
-  const [sevFilter, setSevFilter] = useState<SevFilter>('all');
-  const [openF, setOpenF] = useState<Finding | null>(null);
-  const [evOpen, setEvOpen] = useState(false);
+  const { id: scanId } = useParams<{ id: string }>();
 
-  const filtered = useMemo<readonly Finding[]>(
-    () =>
-      TENSOL_DATA.findings.filter(
-        (f) => sevFilter === 'all' || f.sev === sevFilter,
-      ),
-    [sevFilter],
+  const [rows, setRows] = useState<readonly Finding[] | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  // Filter state: which severities are visible (default = all checked).
+  const [sevFilter, setSevFilter] = useState<Record<Severity, boolean>>({
+    critical: true,
+    high: true,
+    medium: true,
+    low: true,
+    informational: true,
+  });
+  const [search, setSearch] = useState<string>('');
+  const [sortKey, setSortKey] = useState<SortKey>('severity');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  // One-shot fetch on mount. Findings are static once a scan is complete —
+  // Constitution V mandates polling only for evolving state (Live, Report).
+  useEffect(() => {
+    if (!scanId) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    scans
+      .getFindings(scanId)
+      .then((data) => {
+        if (cancelled) return;
+        setRows(data);
+        setLoadErr(null);
+        setLoading(false);
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setLoadErr(e instanceof ApiError ? e.code : 'network_error');
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scanId]);
+
+  const allRows: readonly Finding[] = rows ?? [];
+  const counts = useMemo(() => countBySeverity(allRows), [allRows]);
+  const total = allRows.length;
+
+  const filtered = useMemo<readonly Finding[]>(() => {
+    const q = search.trim().toLowerCase();
+    return allRows.filter((f) => {
+      if (!sevFilter[f.severity]) return false;
+      if (q.length > 0 && !f.title.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [allRows, sevFilter, search]);
+
+  const sorted = useMemo(
+    () => sortFindings(filtered, sortKey, sortDir),
+    [filtered, sortKey, sortDir],
   );
 
-  const goReports = (): void => {
-    navigate('/reports');
+  const toggleSev = useCallback((sev: Severity) => {
+    setSevFilter((prev) => ({ ...prev, [sev]: !prev[sev] }));
+  }, []);
+
+  const toggleSort = useCallback(
+    (key: SortKey) => {
+      if (sortKey === key) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      } else {
+        setSortKey(key);
+        setSortDir(key === 'severity' || key === 'cvss' ? 'desc' : 'asc');
+      }
+    },
+    [sortKey],
+  );
+
+  const sevLabels: Record<Severity, string> = {
+    critical: t.findings.sevCritical,
+    high: t.findings.sevHigh,
+    medium: t.findings.sevMedium,
+    low: t.findings.sevLow,
+    informational: t.findings.sevInformational,
   };
 
   return (
-    <AppShell breadcrumb={[t.navFindings]} role="security_lead" density="comfortable">
-      <RouteHead title="Findings — Tensol" />
-      <div data-screen-label="10 App — findings">
+    <AppShell
+      breadcrumb={[t.navFindings, scanId ?? '—']}
+      role="security_lead"
+      density="comfortable"
+    >
+      <RouteHead title={`Tensol · ${t.findings.title}`} />
+      <div data-screen-label="Findings (T085)">
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'flex-end',
-            marginBottom: 32,
+            marginBottom: 24,
           }}
         >
           <h1
@@ -486,135 +326,249 @@ export default function Findings(): ReactElement {
               margin: 0,
             }}
           >
-            {t.fTitle}
+            {t.findings.title}
           </h1>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Btn kind="secondary">Export CSV</Btn>
-            <Btn kind="primary" onClick={goReports}>
-              Generate report →
-            </Btn>
-          </div>
+          {scanId && (
+            <Link
+              to={`/scan/${encodeURIComponent(scanId)}/report`}
+              style={{ textDecoration: 'none' }}
+            >
+              <Btn kind="primary">{t.findings.gotoReport} →</Btn>
+            </Link>
+          )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
-          <Mono
-            size={11}
-            color="var(--fg-3)"
-            style={{ letterSpacing: '0.08em', textTransform: 'uppercase' }}
-          >
-            severity
+        {!scanId && (
+          <Mono size={12} color="var(--fg-3)">
+            {t.findings.noScanId}
           </Mono>
-          <Segmented<SevFilter>
-            size="sm"
-            value={sevFilter}
-            onChange={setSevFilter}
-            options={[
-              { value: 'all', label: 'all' },
-              { value: 'critical', label: 'critical' },
-              { value: 'high', label: 'high' },
-              { value: 'medium', label: 'med' },
-              { value: 'low', label: 'low' },
-            ]}
-          />
-        </div>
+        )}
 
-        <table
-          style={{
-            width: '100%',
-            borderCollapse: 'collapse',
-            background: 'transparent',
-            marginTop: 16,
-          }}
-        >
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--line-soft)' }}>
-              {[t.fColTitle, t.fColSev, t.fColAsset, t.fColStatus, ''].map((h, i) => (
-                <th
-                  key={`${i}-${h}`}
+        {scanId && loading && (
+          <Mono size={12} color="var(--fg-3)">
+            {t.findings.loading}
+          </Mono>
+        )}
+
+        {scanId && loadErr && !loading && (
+          <Mono size={12} color="var(--red)">
+            {t.findings.loadError}: {loadErr}
+          </Mono>
+        )}
+
+        {scanId && !loading && !loadErr && (
+          <>
+            {/* Donut + legend */}
+            <div
+              style={{
+                display: 'flex',
+                gap: 32,
+                alignItems: 'center',
+                padding: '24px 0',
+                borderTop: '1px solid var(--line-soft)',
+                borderBottom: '1px solid var(--line-soft)',
+                marginBottom: 24,
+              }}
+            >
+              <SeverityDonut counts={counts} total={total} />
+              <div style={{ flex: 1 }}>
+                <Mono
+                  size={10}
+                  color="var(--fg-3)"
                   style={{
-                    textAlign: 'left',
-                    padding: '10px 4px',
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 10,
                     letterSpacing: '0.08em',
                     textTransform: 'uppercase',
-                    fontWeight: 500,
-                    color: 'var(--fg-3)',
+                    display: 'block',
+                    marginBottom: 8,
                   }}
                 >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((f) => (
-              <tr
-                key={f.id}
-                style={{ borderBottom: '1px solid var(--line-soft)', cursor: 'pointer' }}
-                onClick={() => setOpenF(f)}
+                  {t.findings.distribution}
+                </Mono>
+                <DonutLegend counts={counts} labels={sevLabels} />
+              </div>
+            </div>
+
+            {/* Filter bar */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16,
+                flexWrap: 'wrap',
+                marginBottom: 12,
+              }}
+            >
+              <Mono
+                size={11}
+                color="var(--fg-3)"
+                style={{ letterSpacing: '0.08em', textTransform: 'uppercase' }}
               >
-                <td style={{ padding: '16px 4px' }}>
-                  <div
+                {t.findings.filterSeverity}
+              </Mono>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {SEV_ORDER.map((sev) => (
+                  <label
+                    key={sev}
                     style={{
-                      fontFamily: "'Inter', sans-serif",
-                      fontSize: 14,
-                      color: 'var(--fg)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      cursor: 'pointer',
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: 11,
+                      color: 'var(--fg-2)',
                     }}
                   >
-                    {f.title}
-                  </div>
-                  <Mono size={10.5} color="var(--fg-3)" style={{ marginTop: 4, display: 'block' }}>
-                    {f.endpoint}
-                  </Mono>
-                </td>
-                <td style={{ padding: '16px 4px' }}>
-                  <SeverityChip sev={f.sev} size="sm" />
-                </td>
-                <td style={{ padding: '16px 4px' }}>
-                  <Mono size={11} color="var(--fg-2)">
-                    {f.asset}
-                  </Mono>
-                </td>
-                <td style={{ padding: '16px 4px' }}>
-                  <StatusChip status={f.status} tone="muted" size="sm" />
-                </td>
-                <td style={{ padding: '16px 4px', textAlign: 'right' }}>
-                  <Mono size={14} color="var(--fg-3)">
-                    →
-                  </Mono>
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={5} style={{ padding: 60, textAlign: 'center' }}>
-                  <Mono size={12} color="var(--fg-3)">
-                    no findings match these filters.
-                  </Mono>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                    <input
+                      type="checkbox"
+                      checked={sevFilter[sev]}
+                      onChange={() => toggleSev(sev)}
+                      style={{ accentColor: SEV_COLOR[sev] }}
+                    />
+                    {sevLabels[sev]} ({counts[sev]})
+                  </label>
+                ))}
+              </div>
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t.findings.searchPlaceholder}
+                style={{
+                  marginLeft: 'auto',
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 12,
+                  padding: '6px 10px',
+                  background: 'var(--bg)',
+                  border: '1px solid var(--line-soft)',
+                  color: 'var(--fg)',
+                  minWidth: 220,
+                }}
+              />
+            </div>
 
-        <Drawer
-          open={openF != null}
-          onClose={() => setOpenF(null)}
-          title={`// finding · ${openF?.id ?? ''}`}
-          width={780}
-        >
-          {openF && <FindingDetail f={openF} onOpenEvidence={() => setEvOpen(true)} />}
-        </Drawer>
+            <Mono size={10.5} color="var(--fg-3)" style={{ display: 'block', marginBottom: 8 }}>
+              {t.findings.countOf
+                .replace('{shown}', String(sorted.length))
+                .replace('{total}', String(total))}
+            </Mono>
 
-        <Modal
-          open={evOpen}
-          onClose={() => setEvOpen(false)}
-          title={`${t.evTitle} · ${openF?.id ?? ''}`}
-          width={920}
-        >
-          {openF && <EvidenceViewer f={openF} />}
-        </Modal>
+            {/* Table */}
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                background: 'transparent',
+              }}
+            >
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--line-soft)' }}>
+                  {(
+                    [
+                      { key: 'severity' as SortKey, label: t.findings.colSeverity },
+                      { key: 'title' as SortKey, label: t.findings.colTitle },
+                      { key: null, label: t.findings.colSlug },
+                      { key: 'cvss' as SortKey, label: t.findings.colCvss },
+                      { key: null, label: '' },
+                    ] as const
+                  ).map((col, i) => (
+                    <th
+                      key={`${i}-${col.label}`}
+                      style={{
+                        textAlign: 'left',
+                        padding: '10px 4px',
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: 10,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        fontWeight: 500,
+                        color: 'var(--fg-3)',
+                        cursor: col.key ? 'pointer' : 'default',
+                        userSelect: 'none',
+                      }}
+                      onClick={() => col.key && toggleSort(col.key)}
+                    >
+                      {col.label}
+                      {col.key === sortKey && (
+                        <span style={{ marginLeft: 4 }}>
+                          {sortDir === 'asc' ? '▲' : '▼'}
+                        </span>
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((f) => (
+                  <tr
+                    key={f.id}
+                    style={{ borderBottom: '1px solid var(--line-soft)' }}
+                  >
+                    <td style={{ padding: '14px 4px', verticalAlign: 'top' }}>
+                      <SeverityChip sev={toChipSev(f.severity)} size="sm" />
+                    </td>
+                    <td style={{ padding: '14px 4px', verticalAlign: 'top' }}>
+                      <div
+                        style={{
+                          fontFamily: "'Inter', sans-serif",
+                          fontSize: 14,
+                          color: 'var(--fg)',
+                        }}
+                      >
+                        {f.title}
+                      </div>
+                      <Mono
+                        size={10.5}
+                        color="var(--fg-3)"
+                        style={{ marginTop: 4, display: 'block' }}
+                      >
+                        {f.target}
+                      </Mono>
+                    </td>
+                    <td style={{ padding: '14px 4px', verticalAlign: 'top' }}>
+                      <Mono size={11} color="var(--fg-2)">
+                        {f.external_id}
+                      </Mono>
+                    </td>
+                    <td style={{ padding: '14px 4px', verticalAlign: 'top' }}>
+                      <Mono size={11} color="var(--fg)">
+                        {f.cvss_score != null ? f.cvss_score.toFixed(1) : '—'}
+                      </Mono>
+                    </td>
+                    <td
+                      style={{
+                        padding: '14px 4px',
+                        textAlign: 'right',
+                        verticalAlign: 'top',
+                      }}
+                    >
+                      <Link
+                        to={`/scan/${encodeURIComponent(scanId)}/findings/${encodeURIComponent(f.id)}`}
+                        style={{
+                          fontFamily: "'JetBrains Mono', monospace",
+                          fontSize: 11,
+                          color: 'var(--fg)',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        {t.findings.detail} →
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+                {sorted.length === 0 && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 60, textAlign: 'center' }}>
+                      <Mono size={12} color="var(--fg-3)">
+                        {total === 0 ? t.findings.empty : t.findings.noMatch}
+                      </Mono>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
       </div>
     </AppShell>
   );

@@ -29,45 +29,47 @@ if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
 
 type Lead = {
   name: string;
-  email: string;
-  company: string;
-  role?: string;
-  size?: string;
-  scope?: string;
-  urgency?: string;
-  phone?: string;
+  telegram: string;
+  phone: string;
   consent?: boolean;
 };
+
+const TELEGRAM_HANDLE_RE = /^[A-Za-z0-9_]{4,32}$/;
+
+const normalizeTelegram = (raw: string): string => {
+  let v = raw.trim();
+  v = v.replace(/^https?:\/\/(t\.me|telegram\.me)\//i, '');
+  if (v.startsWith('@')) v = v.slice(1);
+  return v;
+};
+
+const phoneDigits = (raw: string): string => raw.replace(/\D/g, '');
 
 const isLead = (v: unknown): v is Lead => {
   if (!v || typeof v !== 'object') return false;
   const o = v as Record<string, unknown>;
-  return typeof o['name'] === 'string' && o['name'].trim().length > 0
-    && typeof o['email'] === 'string' && o['email'].includes('@')
-    && typeof o['company'] === 'string' && o['company'].trim().length > 0;
+  if (typeof o['name'] !== 'string' || o['name'].trim().length === 0) return false;
+  if (typeof o['telegram'] !== 'string') return false;
+  if (!TELEGRAM_HANDLE_RE.test(normalizeTelegram(o['telegram']))) return false;
+  if (typeof o['phone'] !== 'string') return false;
+  const digits = phoneDigits(o['phone']);
+  if (digits.length < 10 || digits.length > 15) return false;
+  return true;
 };
 
 const escapeMd = (s: string): string => s.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, (c) => `\\${c}`);
 
 const formatMessage = (lead: Lead): string => {
-  const safeRole = escapeMd(lead.role ?? '—');
-  const safeCompany = escapeMd(lead.company);
+  const tg = normalizeTelegram(lead.telegram);
   const safeName = escapeMd(lead.name);
-  const safeSize = escapeMd(lead.size ?? '—');
-  const safeEmail = escapeMd(lead.email);
-  const safePhone = escapeMd(lead.phone || '—');
-  const safeUrgency = escapeMd(lead.urgency ?? '—');
-  const safeScope = escapeMd(lead.scope ?? '—');
+  const safeTg = escapeMd(tg);
+  const safePhone = escapeMd(lead.phone);
   return [
     '*🐎 Tensol — new lead*',
     '',
-    `*${safeName}* · ${safeRole} @ *${safeCompany}* \\(${safeSize}\\)`,
-    `✉️ ${safeEmail}`,
+    `*${safeName}*`,
+    `✈️ [@${safeTg}](https://t.me/${tg})`,
     `📞 ${safePhone}`,
-    `⏱ ${safeUrgency}`,
-    '',
-    '*Scope:*',
-    safeScope,
     '',
     `_submitted ${escapeMd(new Date().toISOString())}_`,
   ].join('\n');

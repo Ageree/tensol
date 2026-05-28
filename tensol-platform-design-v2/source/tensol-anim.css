@@ -1,0 +1,118 @@
+
+/* ──────────────────────────────────────────────────────────────────────
+   Tensol — motion layer.
+   Pixel/terminal aesthetic: short durations, hard easing, no bouncing.
+   Most animation is reveal-on-scroll + small ambient loops.
+   ────────────────────────────────────────────────────────────────────── */
+@keyframes tns-fade-up   { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes tns-fade-in   { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tns-slide-l   { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: none; } }
+@keyframes tns-wipe      { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes tns-blink     { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes tns-pulse-red { 0%, 100% { box-shadow: 0 0 0 0 rgba(224,0,27,.55); } 50% { box-shadow: 0 0 0 6px rgba(224,0,27,0); } }
+@keyframes tns-scan      { 0% { transform: translateY(-100%); } 100% { transform: translateY(2200%); } }
+@keyframes tns-tick      { 0% { transform: scaleX(0); } 100% { transform: scaleX(1); } }
+@keyframes tns-marquee   { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+@keyframes tns-horse-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes tns-flicker   { 0%, 100% { opacity: 1; } 47%, 49% { opacity: .55; } 48% { opacity: .8; } }
+
+/* Reveal targets start hidden; tns-anim.js flips data-in="1" when in view. */
+[data-tns-reveal]            { opacity: 0; will-change: opacity, transform; }
+[data-tns-reveal][data-in="1"] {
+  animation: tns-fade-up 520ms cubic-bezier(.22,1,.36,1) forwards;
+}
+[data-tns-reveal="left"][data-in="1"] {
+  animation: tns-slide-l 520ms cubic-bezier(.22,1,.36,1) forwards;
+}
+[data-tns-reveal="wipe"][data-in="1"] {
+  animation: tns-wipe 700ms steps(14, end) forwards, tns-fade-in 200ms linear forwards;
+}
+
+/* Stagger children: 60ms steps, capped at ~1s total. */
+[data-tns-stagger] > *           { opacity: 0; }
+[data-tns-stagger][data-in="1"] > * {
+  animation: tns-fade-up 480ms cubic-bezier(.22,1,.36,1) forwards;
+}
+[data-tns-stagger][data-in="1"] > *:nth-child(1)  { animation-delay:  40ms; }
+[data-tns-stagger][data-in="1"] > *:nth-child(2)  { animation-delay: 100ms; }
+[data-tns-stagger][data-in="1"] > *:nth-child(3)  { animation-delay: 160ms; }
+[data-tns-stagger][data-in="1"] > *:nth-child(4)  { animation-delay: 220ms; }
+[data-tns-stagger][data-in="1"] > *:nth-child(5)  { animation-delay: 280ms; }
+[data-tns-stagger][data-in="1"] > *:nth-child(n+6){ animation-delay: 340ms; }
+
+/* Typing caret on hero accent line. */
+.tns-caret::after {
+  content: "▌"; display: inline-block; margin-left: 4px;
+  color: var(--red); animation: tns-blink 900ms steps(2, end) infinite;
+  font-weight: 400;
+}
+
+/* Critical severity chips get a subtle pulse — signals "live alarm". */
+.tensol-app [data-screen-label="LIVE"] span[data-status],
+[data-tns-pulse="critical"] {
+  animation: tns-pulse-red 1800ms ease-out infinite;
+}
+
+/* Hero horse mark: a slow, almost-imperceptible bob. */
+section [aria-hidden="true"][style*="background-color"] {
+  animation: tns-horse-bob 4200ms ease-in-out infinite;
+}
+
+/* Hairline progress bars in confirmed-finding card "tick" in. */
+[data-tns-reveal][data-in="1"] [data-progress-fill] {
+  transform-origin: left center;
+  animation: tns-tick 800ms cubic-bezier(.22,1,.36,1) 200ms both;
+}
+
+/* Mono terminal lines: line-by-line wipe inside .tns-term-anim. */
+.tns-term-anim > * { opacity: 0; }
+.tns-term-anim[data-in="1"] > * {
+  animation: tns-fade-in 220ms steps(8, end) forwards, tns-wipe 380ms steps(18, end) forwards;
+}
+.tns-term-anim[data-in="1"] > *:nth-child(1) { animation-delay:   0ms,   0ms; }
+.tns-term-anim[data-in="1"] > *:nth-child(2) { animation-delay: 280ms, 280ms; }
+.tns-term-anim[data-in="1"] > *:nth-child(3) { animation-delay: 580ms, 580ms; }
+.tns-term-anim[data-in="1"] > *:nth-child(4) { animation-delay: 880ms, 880ms; }
+.tns-term-anim[data-in="1"] > *:nth-child(5) { animation-delay:1180ms,1180ms; }
+.tns-term-anim[data-in="1"] > *:nth-child(n+6){ animation-delay:1480ms,1480ms; }
+
+/* CTA buttons: micro lift on hover. */
+button:not([class*="twk-"]):not([class*="deck-"]),
+a[role="button"], a.tns-cta {
+  transition: transform 140ms cubic-bezier(.22,1,.36,1),
+              background-color 140ms ease, color 140ms ease,
+              border-color 140ms ease, box-shadow 140ms ease;
+}
+button:not([class*="twk-"]):not([class*="deck-"]):not(:disabled):hover {
+  transform: translateY(-1px);
+}
+button:not([class*="twk-"]):not([class*="deck-"]):not(:disabled):active {
+  transform: translateY(0);
+}
+
+/* Dark "proof" terminal: scanline sweep overlay. */
+.tns-scanline { position: relative; overflow: hidden; }
+.tns-scanline::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: linear-gradient(to right, transparent, rgba(255,255,255,.18), transparent);
+  pointer-events: none; animation: tns-scan 6s linear infinite;
+}
+
+/* Marquee for the trust strip if present. */
+.tns-marquee { display: flex; gap: 28px; animation: tns-marquee 28s linear infinite; will-change: transform; }
+.tns-marquee:hover { animation-play-state: paused; }
+
+/* Subtle CRT flicker on dark marketing sections. */
+section[style*="var(--ink)"][style*="color: var(--paper)"] > * {
+  animation: tns-flicker 9s linear infinite;
+}
+
+/* Respect reduced motion: kill non-essential keyframes, keep transitions short. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+  [data-tns-reveal], [data-tns-stagger] > * { opacity: 1 !important; transform: none !important; }
+}

@@ -1,0 +1,60 @@
+# Tensol production stack — single-node Timeweb VM (5.42.106.25).
+#
+# Only the server runs here. The SPA (apps/site) is built to static files and
+# served directly by Caddy on the host from /opt/tensol/site-dist (see
+# infra/prod/Caddyfile). Caddy also terminates TLS for all 4 hostnames and
+# reverse-proxies api.tensol.ru -> 127.0.0.1:3000.
+#
+# Usage (from repo root, after `infra/prod/deploy.sh` provisions the host):
+#
+#   cd /opt/tensol/repo/infra/prod
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Required env file: /opt/tensol/.env.prod  (template at .env.prod.example).
+
+name: tensol-prod
+
+services:
+  server:
+    image: tensol-server:latest
+    build:
+      context: ../..
+      dockerfile: server/Dockerfile
+    container_name: tensol-server
+    restart: unless-stopped
+    env_file:
+      - /opt/tensol/.env.prod
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    volumes:
+      # SQLite database + WAL/SHM files persist across container restarts.
+      - /opt/tensol/data:/app/server/data
+      # @sparticuz/chromium-min unpacks the headless binary on first PDF
+      # render. Keep it on the host so a `docker compose pull` doesn't
+      # re-extract ~120 MB every redeploy.
+      - /opt/tensol/chrome-cache:/home/bun/.cache/puppeteer
+      # GCP Service Account JSON (read-only). The path inside the container
+      # MUST match GOOGLE_APPLICATION_CREDENTIALS in /opt/tensol/.env.prod
+      # (currently /opt/tensol/.gcp/tensol-vm-spawner.json). Per memory
+      # project_tensol_gcp_pivot_2026-05-22.md.
+      # NOTE: this container runs as the bun user (uid 1000); deploy.sh step
+      # 4/9 chmod 0644s the *.json so google-auth-library can read it. Without
+      # that, GCP auth fails and every scan dangles in vm_provisioning.
+      - /opt/tensol/.gcp:/opt/tensol/.gcp:ro
+    ports:
+      # Bind to loopback only — Caddy on the host reverse-proxies the public
+      # api.tensol.ru endpoint to this port. Nothing from the internet hits
+      # :3000 directly.
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

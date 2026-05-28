@@ -13,11 +13,19 @@ export async function startDevServer(): Promise<void> {
 
   if (await isPortUp()) return;
 
+  // Forward VITE_DEV_API_TARGET so vite.config.ts proxies /api to the
+  // E2E backend instead of the (possibly absent) default :3000. Quoted
+  // for safety even though the value is always a plain http:// URL.
+  const apiTarget = process.env.VITE_DEV_API_TARGET ?? '';
+  const exportApi = apiTarget
+    ? `export VITE_DEV_API_TARGET='${apiTarget.replace(/'/g, "'\\''")}'`
+    : '';
   fs.writeFileSync(
     SCRIPT_PATH,
     [
       '#!/usr/bin/env bash',
       `cd /Users/saveliy/Documents/пентест\\ ИИ/apps/site`,
+      ...(exportApi ? [exportApi] : []),
       'exec npx vite',
     ].join('\n'),
     { mode: 0o755 },

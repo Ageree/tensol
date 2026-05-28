@@ -1,8 +1,9 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, type ComponentType } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Placeholder } from './components/Placeholder.tsx';
 import { TensolProvider } from './context.tsx';
 import { MarketingPage } from './pages/Marketing.tsx';
+import type { ScanWizardContainerProps } from './pages/scan-wizard/ScanWizardContainer.tsx';
 
 // Lazy-loaded screens — files written by parallel agents.
 // If a file is missing the lazy import will throw → caught by ErrorBoundary fallback.
@@ -10,12 +11,11 @@ const Login = lazy(() => safeImport(() => import('./pages/Login.tsx'), 'login'))
 const Bootstrap = lazy(() => safeImport(() => import('./pages/Bootstrap.tsx'), 'bootstrap'));
 const Invite = lazy(() => safeImport(() => import('./pages/Invite.tsx'), 'invite'));
 const Dashboard = lazy(() => safeImport(() => import('./pages/Dashboard.tsx'), 'dashboard'));
-const Projects = lazy(() => safeImport(() => import('./pages/Projects.tsx'), 'projects'));
-const Targets = lazy(() => safeImport(() => import('./pages/Targets.tsx'), 'targets'));
-const Builder = lazy(() => safeImport(() => import('./pages/Builder.tsx'), 'builder'));
-const Approval = lazy(() => safeImport(() => import('./pages/Approval.tsx'), 'approval'));
 const Live = lazy(() => safeImport(() => import('./pages/Live.tsx'), 'live'));
 const Findings = lazy(() => safeImport(() => import('./pages/Findings.tsx'), 'findings'));
+const FindingDetail = lazy(() =>
+  safeImport(() => import('./pages/FindingDetail.tsx'), 'finding-detail'),
+);
 const Reports = lazy(() => safeImport(() => import('./pages/Reports.tsx'), 'reports'));
 const Settings = lazy(() => safeImport(() => import('./pages/Settings.tsx'), 'settings'));
 const ErrorScreen = lazy(() => safeImport(() => import('./pages/ErrorScreen.tsx'), 'errors'));
@@ -23,9 +23,26 @@ const Contact = lazy(() => safeImport(() => import('./pages/Contact.tsx'), 'cont
 const Pricing = lazy(() => safeImport(() => import('./pages/Pricing.tsx'), 'pricing'));
 const Trust = lazy(() => safeImport(() => import('./pages/Trust.tsx'), 'trust'));
 const Legal = lazy(() => safeImport(() => import('./pages/Legal.tsx'), 'legal'));
-const AuthorizeTarget = lazy(() =>
-  safeImport(() => import('./pages/AuthorizeTarget.tsx'), 'authorize'),
+const Blog = lazy(() => safeImport(() => import('./pages/Blog.tsx'), 'blog'));
+const Method = lazy(() => safeImport(() => import('./pages/Method.tsx'), 'method'));
+const DeepInquiry = lazy(() =>
+  safeImport(() => import('./pages/DeepInquiry.tsx'), 'deep-inquiry'),
 );
+const DeepInquiryThankYou = lazy(() =>
+  safeImport(
+    () => import('./pages/DeepInquiryThankYou.tsx'),
+    'deep-inquiry-thank-you',
+  ),
+);
+const ScanWizard = lazy(() =>
+  safeImport(
+    () =>
+      import('./pages/scan-wizard/ScanWizardContainer.tsx') as unknown as Promise<{
+        default: ComponentType<unknown>;
+      }>,
+    'wizard',
+  ),
+) as unknown as ComponentType<ScanWizardContainerProps>;
 
 function safeImport<T extends { default: React.ComponentType<unknown> }>(
   load: () => Promise<T>,
@@ -64,10 +81,6 @@ export const App = () => (
         <Route path="/bootstrap" element={<Bootstrap />} />
         <Route path="/invite" element={<Invite />} />
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/projects" element={<Projects />} />
-        <Route path="/targets" element={<Targets />} />
-        <Route path="/builder" element={<Builder />} />
-        <Route path="/approval" element={<Approval />} />
         <Route path="/live" element={<Live />} />
         <Route path="/findings" element={<Findings />} />
         <Route path="/reports" element={<Reports />} />
@@ -77,9 +90,29 @@ export const App = () => (
         <Route path="/pricing" element={<Pricing />} />
         <Route path="/trust" element={<Trust />} />
         <Route path="/legal/:kind" element={<Legal />} />
+        <Route path="/blog" element={<Blog />} />
+        <Route path="/method" element={<Method />} />
+        {/* T108 — US2 Deep audit lead-gen funnel. */}
+        <Route path="/deep-inquiry" element={<DeepInquiry />} />
         <Route
-          path="/projects/:projectId/targets/:targetId/authorize"
-          element={<AuthorizeTarget />}
+          path="/deep-inquiry/thank-you"
+          element={<DeepInquiryThankYou />}
+        />
+        {/* T083 — canonical Blackbox MVP scan routes. */}
+        <Route path="/scan/new" element={<ScanWizard mode="create" />} />
+        <Route
+          path="/scan/new/:orderId/:step"
+          element={<ScanWizard mode="edit" />}
+        />
+        <Route path="/scan/:id" element={<Live />} />
+        <Route path="/scan/:id/findings" element={<Findings />} />
+        <Route path="/scan/:id/findings/:findingId" element={<FindingDetail />} />
+        <Route path="/scan/:id/report" element={<Reports />} />
+        {/* Legacy aliases — keep existing /wizard/* links working. */}
+        <Route path="/wizard/new" element={<ScanWizard mode="create" />} />
+        <Route
+          path="/wizard/:orderId/:step"
+          element={<ScanWizard mode="edit" />}
         />
         <Route path="*" element={<Navigate to="/err/404" replace />} />
       </Routes>

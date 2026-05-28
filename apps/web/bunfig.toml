@@ -1,4 +1,0 @@
-# Web app tests run under Vitest (jsdom), not Bun's test runner.
-# This local config prevents bun test from discovering web test files.
-[test]
-root = ".no-such-dir"

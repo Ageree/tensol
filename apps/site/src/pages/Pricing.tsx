@@ -10,7 +10,6 @@ import {
   Eyebrow,
   HalftoneBg,
   LogoLockup,
-  Mono,
 } from '../components/primitives.tsx';
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -35,10 +34,10 @@ function PricingNav() {
     >
       <LogoLockup size={20} color="var(--ink)" onClick={() => navigate('/')} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
-        {t.nav.map((l, i) => (
-          <a
+        {t.navItems.map((l, i) => (
+          <Link
             key={i}
-            href={`/#sec-${i}`}
+            to={l.to}
             onMouseEnter={() => setHov(i)}
             onMouseLeave={() => setHov(-1)}
             style={{
@@ -51,8 +50,8 @@ function PricingNav() {
               transition: 'color 120ms',
             }}
           >
-            {l}
-          </a>
+            {l.label}
+          </Link>
         ))}
         <LangSwitcher />
         <Btn kind="secondary" size="sm" onClick={() => navigate('/login')}>
@@ -91,7 +90,6 @@ function PricingHero() {
         }}
       />
       <div style={{ position: 'relative', maxWidth: 880 }}>
-        <Eyebrow>{t.pricing.eyebrow}</Eyebrow>
         <h1
           style={{
             fontFamily: "'Space Grotesk', sans-serif",
@@ -99,7 +97,7 @@ function PricingHero() {
             fontSize: 'clamp(48px, 7.2vw, 80px)',
             lineHeight: 0.98,
             letterSpacing: '-0.03em',
-            margin: '20px 0 24px',
+            margin: '0 0 24px',
             color: 'var(--ink)',
             textWrap: 'balance',
           }}
@@ -129,7 +127,6 @@ function PricingHero() {
 function PricingPlans() {
   const { t } = useTensol();
   const navigate = useNavigate();
-  const goContact = () => navigate('/contact');
 
   return (
     <section
@@ -141,125 +138,166 @@ function PricingPlans() {
         position: 'relative',
       }}
     >
+      <p
+        style={{
+          fontFamily: "'Inter', sans-serif",
+          fontSize: 17,
+          lineHeight: 1.55,
+          color: 'var(--fg-2)',
+          maxWidth: '62ch',
+          margin: '0 0 40px',
+        }}
+      >
+        {t.pricing.mythosPositioning}
+      </p>
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: 24,
+          gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: 32,
         }}
       >
-        {t.pricing.plans.map((plan, i) => {
-          const isMiddle = i === 1;
-          return (
-            <Card
-              key={plan.name}
-              style={{
-                position: 'relative',
-                padding: '32px 28px 28px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 18,
-                minHeight: 560,
-              }}
-            >
-              {isMiddle && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: -1,
-                    left: -1,
-                    background: 'var(--red)',
-                    color: 'var(--paper)',
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 10,
-                    letterSpacing: '0.12em',
-                    padding: '5px 10px',
-                    border: '1px solid var(--red)',
-                    fontWeight: 500,
-                  }}
-                >
-                  ★ {t.pricing.popularLabel}
-                </span>
-              )}
-
-              <div style={{ marginTop: isMiddle ? 16 : 0 }}>
-                <Mono size={11} color="var(--fg-2)" style={{ letterSpacing: '0.1em' }}>
-                  {`// 0${i + 1} ${plan.name.toUpperCase()}`}
-                </Mono>
-                <h3
-                  style={{
-                    fontFamily: "'Space Grotesk', sans-serif",
-                    fontWeight: 500,
-                    fontSize: 32,
-                    letterSpacing: '-0.02em',
-                    lineHeight: 1.05,
-                    margin: '10px 0 6px',
-                    color: 'var(--ink)',
-                  }}
-                >
-                  {plan.name}
-                </h3>
-                <Mono size={12} color="var(--fg-2)" style={{ letterSpacing: '0.02em' }}>
-                  {plan.tagline}
-                </Mono>
-              </div>
-
-              <div style={{ borderTop: '1px solid var(--line-soft)' }} />
-
-              <ul
+        {t.pricing.plans.map((plan) => (
+          <Card
+            key={plan.name}
+            style={{
+              position: 'relative',
+              padding: '40px 36px 36px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 28,
+              minHeight: 560,
+            }}
+          >
+            <div>
+              <h3
                 style={{
-                  listStyle: 'none',
-                  padding: 0,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontWeight: 500,
+                  fontSize: 44,
+                  letterSpacing: '-0.01em',
+                  lineHeight: 1,
                   margin: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
-                  flex: 1,
+                  color: 'var(--ink)',
                 }}
               >
-                {plan.features.map((f, fi) => (
-                  <li
-                    key={fi}
-                    style={{
-                      display: 'flex',
-                      gap: 10,
-                      alignItems: 'flex-start',
-                      fontFamily: "'Inter', sans-serif",
-                      fontSize: 14,
-                      lineHeight: 1.5,
-                      color: 'var(--fg-2)',
-                    }}
-                  >
-                    <span
-                      aria-hidden
-                      style={{
-                        color: isMiddle ? 'var(--red)' : 'var(--ink)',
-                        fontFamily: "'JetBrains Mono', monospace",
-                        fontSize: 13,
-                        marginTop: 1,
-                        flexShrink: 0,
-                      }}
-                    >
-                      ✓
-                    </span>
-                    <span>{f}</span>
-                  </li>
-                ))}
-              </ul>
+                {plan.name}
+              </h3>
+              <div style={{ borderTop: '1px solid var(--line-soft)', marginTop: 18 }} />
+            </div>
 
-              <div style={{ marginTop: 'auto', paddingTop: 8 }}>
-                <Btn
-                  kind={isMiddle ? 'red' : 'secondary'}
-                  size="md"
-                  fullWidth
-                  onClick={goContact}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span
+                  style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontWeight: 600,
+                    fontSize: 28,
+                    letterSpacing: '-0.01em',
+                    color: 'var(--ink)',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
                 >
-                  {t.pricing.contactCta}
-                </Btn>
+                  {plan.price}
+                </span>
+                <span
+                  style={{
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 15,
+                    color: 'var(--fg-2)',
+                  }}
+                >
+                  {plan.unit}
+                </span>
               </div>
-            </Card>
-          );
-        })}
+              {plan.priceAlt ? (
+                <span
+                  style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 14,
+                    color: 'var(--fg-2)',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {plan.priceAlt}
+                </span>
+              ) : null}
+            </div>
+
+            <p
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 16,
+                fontWeight: 500,
+                lineHeight: 1.35,
+                color: 'var(--ink)',
+                margin: 0,
+                maxWidth: '32ch',
+              }}
+            >
+              {plan.claim}
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span
+                style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'var(--ink)',
+                }}
+              >
+                {t.pricing.bestForLabel}
+              </span>
+              <p
+                style={{
+                  fontFamily: "'Inter', sans-serif",
+                  fontSize: 15,
+                  lineHeight: 1.5,
+                  color: 'var(--fg-2)',
+                  margin: 0,
+                }}
+              >
+                {plan.bestFor}
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span
+                style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'var(--ink)',
+                }}
+              >
+                {t.pricing.depthLabel}
+              </span>
+              <p
+                style={{
+                  fontFamily: "'Inter', sans-serif",
+                  fontSize: 15,
+                  lineHeight: 1.5,
+                  color: 'var(--fg-2)',
+                  margin: 0,
+                }}
+              >
+                {plan.depth}
+              </p>
+            </div>
+
+            <div style={{ marginTop: 'auto', paddingTop: 8 }}>
+              <Btn
+                kind="secondary"
+                size="md"
+                fullWidth
+                onClick={() => navigate(plan.ctaHref ?? '/deep-inquiry')}
+              >
+                {plan.ctaLabel ?? t.pricing.contactCta}
+              </Btn>
+            </div>
+          </Card>
+        ))}
       </div>
     </section>
   );
@@ -279,31 +317,20 @@ function PricingFaq() {
         borderTop: '1px solid var(--ink)',
       }}
     >
-      <div
+      <h2
         style={{
-          display: 'grid',
-          gridTemplateColumns: '320px 1fr',
-          gap: 64,
-          alignItems: 'flex-start',
-          marginBottom: 48,
+          fontFamily: "'Space Grotesk', sans-serif",
+          fontWeight: 500,
+          fontSize: 38,
+          lineHeight: 1.05,
+          letterSpacing: '-0.02em',
+          margin: '0 0 48px',
+          maxWidth: '24ch',
+          color: 'var(--ink)',
         }}
       >
-        <Eyebrow>{t.pricing.faqEyebrow}</Eyebrow>
-        <h2
-          style={{
-            fontFamily: "'Space Grotesk', sans-serif",
-            fontWeight: 500,
-            fontSize: 38,
-            lineHeight: 1.05,
-            letterSpacing: '-0.02em',
-            margin: 0,
-            maxWidth: '24ch',
-            color: 'var(--ink)',
-          }}
-        >
-          {t.pricing.faqTitle}
-        </h2>
-      </div>
+        {t.pricing.faqTitle}
+      </h2>
       <div
         style={{
           display: 'grid',
@@ -320,13 +347,6 @@ function PricingFaq() {
               borderBottom: '1px solid var(--line-soft)',
             }}
           >
-            <Mono
-              size={11}
-              color="var(--fg-2)"
-              style={{ letterSpacing: '0.1em', display: 'block', marginBottom: 8 }}
-            >
-              Q · {String(i + 1).padStart(2, '0')}
-            </Mono>
             <h3
               style={{
                 fontFamily: "'Inter', sans-serif",
@@ -388,7 +408,6 @@ function PricingCta() {
         }}
       >
         <div>
-          <Eyebrow color="rgba(255,255,255,.7)">// CONTACT</Eyebrow>
           <h2
             style={{
               fontFamily: "'Space Grotesk', sans-serif",
@@ -396,7 +415,7 @@ function PricingCta() {
               fontSize: 44,
               lineHeight: 1.04,
               letterSpacing: '-0.03em',
-              margin: '14px 0 14px',
+              margin: '0 0 14px',
               textWrap: 'balance',
               maxWidth: '22ch',
               color: 'var(--paper)',
@@ -419,7 +438,7 @@ function PricingCta() {
         </div>
         <button
           type="button"
-          onClick={() => navigate('/contact')}
+          onClick={() => navigate('/deep-inquiry')}
           style={{
             fontFamily: "'JetBrains Mono', monospace",
             fontSize: 13,

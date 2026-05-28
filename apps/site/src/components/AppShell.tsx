@@ -8,11 +8,7 @@ import { Eyebrow, LogoLockup, Mono, StatusChip } from './primitives';
 
 export type AppRoute =
   | 'dashboard'
-  | 'projects'
-  | 'targets'
   | 'live'
-  | 'builder'
-  | 'approval'
   | 'findings'
   | 'reports'
   | 'settings';
@@ -36,11 +32,7 @@ export interface AppShellProps {
 
 const ROUTE_PATHS: Record<AppRoute, string> = {
   dashboard: '/dashboard',
-  projects: '/projects',
-  targets: '/targets',
   live: '/live',
-  builder: '/builder',
-  approval: '/approval',
   findings: '/findings',
   reports: '/reports',
   settings: '/settings',
@@ -125,7 +117,7 @@ export function AppShell({
   const location = useLocation();
   const route = pathToRoute(location.pathname);
   const isReadOnly = role === 'viewer' || role === 'auditor';
-  const assessmentsActive = route === 'live' || route === 'builder' || route === 'approval';
+  const assessmentsActive = route === 'live';
 
   const go = (r: AppRoute): void => {
     navigate(ROUTE_PATHS[r]);
@@ -163,8 +155,6 @@ export function AppShell({
         <div style={{ padding: '12px 0 0' }}>
           <Eyebrow style={{ padding: '0 16px 8px', fontSize: 10 }}>{t.navProduct}</Eyebrow>
           <NavItem icon="▸" label={t.navDashboard} active={route === 'dashboard'} onClick={() => go('dashboard')} />
-          <NavItem icon="▸" label={t.navProjects} active={route === 'projects'} onClick={() => go('projects')} />
-          <NavItem icon="▸" label={t.navTargets} active={route === 'targets'} onClick={() => go('targets')} />
           <NavItem
             icon="▸"
             label={t.navAssessments}

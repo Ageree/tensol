@@ -1,0 +1,70 @@
+name: Build & publish vps-agent
+
+# T7 — builds the vps-agent container image and publishes it to GHCR
+# (ghcr.io/ageree/tensol-vps-agent). Triggered on any push to main or
+# the active feature branch that touches `vps-agent/**`, plus manual
+# workflow_dispatch. Image visibility inherits from the repository
+# (private repo → private package); operator can flip to public via
+# GitHub Settings → Packages → tensol-vps-agent → Change visibility.
+
+on:
+  push:
+    branches: [main, 002-blackbox-mvp]
+    paths:
+      - "vps-agent/**"
+      - ".github/workflows/build-vps-agent.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          BRANCH=${{ github.ref_name }}
+          # tags: branch-shortsha + branch-latest, plus :latest on main
+          echo "primary=$BRANCH-$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "branch_latest=$BRANCH-latest" >> $GITHUB_OUTPUT
+          if [[ "$BRANCH" == "main" ]]; then
+            echo "stable_latest=latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: vps-agent
+          file: vps-agent/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/ageree/tensol-vps-agent:${{ steps.tag.outputs.primary }}
+            ghcr.io/ageree/tensol-vps-agent:${{ steps.tag.outputs.branch_latest }}
+            ${{ steps.tag.outputs.stable_latest && format('ghcr.io/ageree/tensol-vps-agent:{0}', steps.tag.outputs.stable_latest) || '' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image summary
+        run: |
+          echo "Pushed: ghcr.io/ageree/tensol-vps-agent:${{ steps.tag.outputs.primary }}" >> $GITHUB_STEP_SUMMARY
+          echo "Branch latest: ghcr.io/ageree/tensol-vps-agent:${{ steps.tag.outputs.branch_latest }}" >> $GITHUB_STEP_SUMMARY

@@ -1,39 +1,88 @@
-// B2 — Sign-in screen with optional MFA second step.
+// T081 — Magic-link sign-in. Posts to POST /api/auth/request-link and shows an
+// inbox-confirmation state. The actual session is established when the user
+// clicks the link in their email; that link hits GET /api/auth/verify which
+// sets the session cookie and 302-redirects to /dashboard server-side.
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthShell } from '../components/AuthShell.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Btn, Field, Input, Mono } from '../components/primitives.tsx';
 import { useTensol } from '../context.tsx';
+import { api, ApiError } from '../lib/api.ts';
+
+type LoginStatus = 'idle' | 'submitting' | 'sent' | 'error';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function Login() {
   const { t } = useTensol();
   const navigate = useNavigate();
-  const [step, setStep] = useState<1 | 2>(1);
-  const [email, setEmail] = useState('alex.k@acme.com');
-  const [pw, setPw] = useState('••••••••••••');
-  const [code, setCode] = useState('');
-  const [err] = useState<string | null>(null);
+  const [email, setEmail] = useState('');
+  const [status, setStatus] = useState<LoginStatus>('idle');
+  const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  const submit = () => {
-    if (step === 1) {
-      setStep(2);
+  const submit = async () => {
+    setErrMsg(null);
+    const trimmed = email.trim();
+    if (!EMAIL_RE.test(trimmed)) {
+      setStatus('error');
+      setErrMsg('invalid_email');
       return;
     }
-    navigate('/dashboard');
+    setStatus('submitting');
+    try {
+      await api.auth.requestLink(trimmed);
+      setStatus('sent');
+    } catch (err) {
+      const code = err instanceof ApiError ? err.code : 'unknown_error';
+      setStatus('error');
+      setErrMsg(code);
+    }
   };
 
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    submit();
+    if (status === 'submitting') return;
+    void submit();
   };
+
+  if (status === 'sent') {
+    return (
+      <AuthShell
+        onBack={() => navigate('/')}
+        eyebrow={t.authLoginEyebrow}
+        title="Check your inbox."
+        sub={`We just sent a sign-in link to ${email}. The link expires in 15 minutes.`}
+      >
+        <RouteHead title="Check your inbox — Tensol" />
+        <div
+          data-screen-label="03 Auth — magic link sent"
+          style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+        >
+          <Mono size={12} color="var(--fg-2)" style={{ letterSpacing: '0.04em' }}>
+            STATUS: link_dispatched
+          </Mono>
+          <Btn
+            kind="ghost"
+            fullWidth
+            onClick={() => {
+              setStatus('idle');
+              setErrMsg(null);
+            }}
+          >
+            ← use a different email
+          </Btn>
+        </div>
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell
       onBack={() => navigate('/')}
       eyebrow={t.authLoginEyebrow}
       title={t.authLoginTitle}
-      sub={t.authLoginSub}
+      sub="Enter your work email. We'll send you a one-time sign-in link."
     >
       <RouteHead title="Sign In — Tensol" />
       <form
@@ -46,28 +95,10 @@ export default function Login() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@company.com"
+            autoFocus
           />
         </Field>
-        <Field label={t.fPassword}>
-          <Input
-            type="password"
-            value={pw}
-            onChange={(e) => setPw(e.target.value)}
-          />
-        </Field>
-        {step === 2 && (
-          <Field label={t.fMfa} hint={t.fMfaHint}>
-            <Input
-              value={code}
-              onChange={(e) =>
-                setCode(e.target.value.replace(/\D/g, '').slice(0, 6))
-              }
-              placeholder="123456"
-              autoFocus
-            />
-          </Field>
-        )}
-        {err && (
+        {status === 'error' && errMsg && (
           <div
             style={{
               padding: '10px 12px',
@@ -76,10 +107,15 @@ export default function Login() {
               fontFamily: "'JetBrains Mono', monospace",
               fontSize: 12,
             }}
-          >{`[fail] ${err}`}</div>
+          >{`[fail] ${errMsg}`}</div>
         )}
-        <Btn kind="primary" fullWidth onClick={submit}>
-          {step === 1 ? t.authContinue : t.authSignIn} →
+        <Btn
+          kind="primary"
+          fullWidth
+          onClick={submit}
+          disabled={status === 'submitting'}
+        >
+          {status === 'submitting' ? 'sending…' : `${t.authContinue} →`}
         </Btn>
         <div
           style={{
@@ -88,20 +124,8 @@ export default function Login() {
             marginTop: 4,
           }}
         >
-          <a
-            href="#forgot"
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 11,
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-              color: 'var(--fg-2)',
-            }}
-          >
-            {t.authForgot}
-          </a>
           <Mono size={11} color="var(--fg-3)" style={{ letterSpacing: '0.04em' }}>
-            step {step}/2
+            magic link · no password
           </Mono>
         </div>
       </form>

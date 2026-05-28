@@ -3,6 +3,22 @@
 Multi-tenant SaaS / private-cloud platform for authorized autonomous pentest
 and adversary emulation in owned or explicitly authorized environments.
 
+## Quick start for new contributors
+
+The canonical setup doc for the current product (Blackbox MVP) is:
+
+> **[`specs/002-blackbox-mvp/quickstart.md`](./specs/002-blackbox-mvp/quickstart.md)**
+
+It covers repo bootstrap, env vars, DB migrations, running the
+`server` / `apps/site` / `vps-agent` stack in tmux, happy-path smoke,
+and the per-push / nightly / E2E test suites.
+
+The rest of this README documents the 001-backend-v2 era (Postgres +
+multi-service) and is being phased out as 002-blackbox-mvp lands; treat
+it as historical context until this notice is removed.
+
+---
+
 This repository is the implementation of the spec at
 `PROJECT-SPECS-cyberstrike-hybrid.md` (read-only) and the plan at
 `.omx/plans/implementation-cyberstrike-hybrid.md` (read-only). The current

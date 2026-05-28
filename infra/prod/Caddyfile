@@ -1,0 +1,87 @@
+# Tensol production Caddyfile — Timeweb VM 5.42.106.25.
+#
+# Caddy auto-provisions Let's Encrypt certificates for all four hostnames on
+# first boot (port 80 + 443 must be reachable from the public internet, which
+# Timeweb's default firewall already allows).
+#
+# Sites:
+#   tensol.ru, www.tensol.ru   -> marketing SPA from /opt/tensol/site-dist
+#   app.tensol.ru              -> same SPA (authed dashboard routes)
+#   api.tensol.ru              -> reverse-proxy to 127.0.0.1:3000 (Bun server)
+#
+# Place at /etc/caddy/Caddyfile and run `caddy reload` (or restart the
+# systemd unit).
+
+{
+	email ops@tensol.ru
+	# Uncomment to bring up the staging CA instead of production while testing:
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+
+	# Disable the admin endpoint on the public interface.
+	admin off
+}
+
+# ---- Apex + www redirect to canonical apex ----
+www.tensol.ru {
+	redir https://tensol.ru{uri} permanent
+}
+
+# ---- Marketing SPA (apex) and app.tensol.ru (auth/dashboard SPA) ----
+tensol.ru, app.tensol.ru {
+	root * /opt/tensol/site-dist
+	encode gzip zstd
+
+	# SPA fallback — any non-file URL serves index.html so React Router
+	# handles the route client-side.
+	try_files {path} /index.html
+	file_server
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options    "nosniff"
+		X-Frame-Options           "SAMEORIGIN"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		Permissions-Policy        "geolocation=(), microphone=(), camera=()"
+	}
+
+	# Cache hashed Vite assets aggressively; never cache index.html.
+	@hashed path_regexp ^/assets/.+\.[0-9a-f]{8,}\..+$
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+	@html        path /
+	@htmlIndex   path /index.html
+	header @html      Cache-Control "no-cache"
+	header @htmlIndex Cache-Control "no-cache"
+}
+
+# ---- API + webhooks ----
+api.tensol.ru {
+	encode gzip zstd
+
+	reverse_proxy 127.0.0.1:3000 {
+		header_up Host              {host}
+		header_up X-Real-IP         {remote_host}
+		header_up X-Forwarded-For   {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+
+		# vps-agent webhook callbacks can be large (signed audit payload +
+		# evidence index). 5 minutes is generous; the server itself caps the
+		# request body well below this.
+		transport http {
+			read_timeout  300s
+			write_timeout 300s
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options    "nosniff"
+		Referrer-Policy           "no-referrer"
+	}
+
+	# Health probe for uptime monitors (Caddy short-circuits this without
+	# round-tripping through the upstream).
+	respond /caddy-health 200 {
+		body "ok"
+		close
+	}
+}

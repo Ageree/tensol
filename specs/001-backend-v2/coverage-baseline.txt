@@ -1,0 +1,81 @@
+# Coverage baseline for Tensol backend v2 (server/)
+# Generated: 2026-05-19 via `cd server && bun test --coverage`
+# Bun: v1.3.11 (af24e281)
+# Total tests: 434 pass / 0 fail / 2607 expect() calls
+# Test files: 42 (ran in 1286ms)
+# Acceptance threshold: ≥80% combined coverage
+# Result: 94.62% functions / 93.92% lines — PASS (well above 80% threshold)
+#
+# Lowest-coverage files (candidates for follow-up coverage work):
+#   1. src/server.ts                — 37.50% funcs / 14.88% lines
+#      (top-level bootstrap/wiring; routes covered indirectly via integration tests;
+#       direct unit tests of the server bootstrap path are minimal by design.)
+#   2. src/audit/verify-chain.ts    — 50.00% funcs / 42.86% lines
+#      (admin-only chain verification CLI surface; happy path tested,
+#       error-recovery + repair branches uncovered.)
+#   3. src/db/schema.ts             — 57.89% funcs / 100.00% lines
+#      (drizzle schema definition helpers; all data lines covered, some
+#       relation-builder factory funcs are referenced only indirectly.)
+#
+# Notes:
+#   - All public route handlers (auth, auth-proof, projects, scans, targets,
+#     webhooks) sit between 88.50% and 97.52% line coverage.
+#   - All service modules (projects, targets, scans, findings) report ≥98.70% lines.
+#   - All Zod schema modules report 100% / 100%.
+#   - All job handlers (dispatch-scan, spawn-vps, teardown-vps, watchdog) ≥91.67% lines.
+#
+# Raw `bun test --coverage` output follows:
+#
+bun test v1.3.11 (af24e281)
+------------------------------------|---------|---------|-------------------
+File                                | % Funcs | % Lines | Uncovered Line #s
+------------------------------------|---------|---------|-------------------
+All files                           |   94.62 |   93.92 |
+ src/audit/emit.ts                  |  100.00 |   94.52 | 106-108
+ src/audit/sign.ts                  |  100.00 |  100.00 |
+ src/audit/verify-chain.ts          |   50.00 |   42.86 | 136-165,179-195,201-206,208-216,218-219
+ src/auth-proof/challenge.ts        |  100.00 |  100.00 |
+ src/auth-proof/middleware.ts       |  100.00 |   98.31 |
+ src/auth-proof/verify.ts           |  100.00 |   89.69 | 147-150,158,160,233-238,270-274,281-286,321-323
+ src/auth/magic-link.ts             |  100.00 |  100.00 |
+ src/auth/middleware.ts             |  100.00 |  100.00 |
+ src/auth/session.ts                |  100.00 |   89.19 | 43-46
+ src/config.ts                      |   75.00 |   91.18 | 115-120
+ src/db/client.ts                   |  100.00 |   97.92 |
+ src/db/schema.ts                   |   57.89 |  100.00 |
+ src/email/resend-client.ts         |   75.00 |  100.00 |
+ src/email/templates/magic-link.ts  |  100.00 |  100.00 |
+ src/findings/service.ts            |   87.50 |  100.00 |
+ src/jobs/handlers/dispatch-scan.ts |  100.00 |   91.67 | 80-82,88,96-98
+ src/jobs/handlers/spawn-vps.ts     |  100.00 |   97.03 | 89-91
+ src/jobs/handlers/teardown-vps.ts  |  100.00 |  100.00 |
+ src/jobs/handlers/watchdog.ts      |  100.00 |  100.00 |
+ src/jobs/runner.ts                 |   91.30 |   90.32 | 148,191,193-199,209-214,277,280-286,433,460-462
+ src/lib/crypto.ts                  |  100.00 |  100.00 |
+ src/lib/ids.ts                     |  100.00 |   96.36 | 53
+ src/lib/time.ts                    |  100.00 |  100.00 |
+ src/lib/url-guard.ts               |  100.00 |   97.22 | 64-65
+ src/projects/service.ts            |  100.00 |  100.00 |
+ src/routes/auth-proof.ts           |  100.00 |   88.50 | 147,156,161-169,178
+ src/routes/auth.ts                 |  100.00 |   97.30 | 113,153
+ src/routes/projects.ts             |  100.00 |   89.74 | 106,135,158,167,182,188,193-198
+ src/routes/scans.ts                |  100.00 |   95.04 | 97,141,168,194,210,252-253
+ src/routes/targets.ts              |  100.00 |   96.67 |
+ src/routes/webhooks.ts             |  100.00 |   97.52 | 108,118,191
+ src/scans/reconcile.ts             |  100.00 |  100.00 |
+ src/scans/service.ts               |  100.00 |   98.74 | 177,190
+ src/schemas/auth-proof.ts          |  100.00 |  100.00 |
+ src/schemas/auth.ts                |  100.00 |  100.00 |
+ src/schemas/projects.ts            |  100.00 |  100.00 |
+ src/schemas/scans.ts               |  100.00 |  100.00 |
+ src/schemas/targets.ts             |  100.00 |  100.00 |
+ src/schemas/webhook.ts             |  100.00 |  100.00 |
+ src/server.ts                      |   37.50 |   14.88 | 93-96,157-232,256-287,307-396,403-405
+ src/targets/service.ts             |  100.00 |   98.70 | 106
+ src/vps/hetzner.ts                 |  100.00 |   91.35 | 68,79,177-179,193-196
+------------------------------------|---------|---------|-------------------
+
+ 434 pass
+ 0 fail
+ 2607 expect() calls
+Ran 434 tests across 42 files. [1286.00ms]
