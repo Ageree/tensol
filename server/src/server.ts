@@ -88,6 +88,24 @@ import { createWebhookScanCompleteRouter } from "./routes/webhooks-scan-complete
 import { createWebhookTelegramRouter } from "./routes/webhooks-telegram.ts";
 import { createConfigFeatureFlagsRouter } from "./routes/config-feature-flags.ts";
 import { createTestV2Router } from "./routes/__test_v2.ts";
+// 003-whitebox — code-review engine (PR review + whitebox scan).
+import { createReviewRouter } from "./routes/review.ts";
+import { createReviewWebhookRouter } from "./routes/review-webhook.ts";
+import { createReviewService, type ReviewService } from "./review/service.ts";
+import { createPrReviewHandler } from "./jobs/handlers/pr-review.ts";
+import { createWhiteboxScanHandler } from "./jobs/handlers/whitebox-scan.ts";
+import { createOpenRouterClient } from "./review/llm/openrouter.ts";
+import type { LlmClient } from "./review/reviewer.ts";
+import {
+  createHttpGitHubClient,
+  type GitHubClient,
+} from "./review/github/client.ts";
+import { createGitRepoFetcher } from "./review/repo-fetch.ts";
+import {
+  CompositeSastRunner,
+  createCliSastRunner,
+  type SastRunner,
+} from "./review/sast/runner.ts";
 import { createScanOrdersService } from "./scan-orders/service.ts";
 import { createDeepInquiriesService } from "./deep-inquiries/service.ts";
 import { createRequireAuth } from "./auth/middleware.ts";
@@ -261,6 +279,14 @@ export interface CreateAppDeps {
    * every authenticated user (safe default).
    */
   readonly operatorEmails: ReadonlyArray<string>;
+  /**
+   * 003-whitebox — server-configured review LLM client (or null when no
+   * `TENSOL_REVIEW_LLM_API_KEY` is set). The synchronous `POST /v1/review`
+   * path returns 503 when this is null.
+   */
+  readonly reviewLlm?: LlmClient | null;
+  /** 003-whitebox — GITHUB_APP_WEBHOOK_SECRET (empty → webhook 401s all). */
+  readonly githubAppWebhookSecret?: string;
   readonly now?: () => number;
 }
 
@@ -479,6 +505,45 @@ export function createApp(deps: CreateAppDeps): Hono {
   // `TENSOL_YOOKASSA_LIVE` via the T019 isYookassaLive() helper at
   // request time so flag flips take effect without a restart.
   app.route("/v1/config/feature-flags", createConfigFeatureFlagsRouter());
+
+  // 003-whitebox — code-review engine surface.
+  //   - GitHub App webhook receiver (signature-authed, NO session) mounted at
+  //     `/v1/review/github` → `POST /v1/review/github/webhook`.
+  //   - Authenticated REST API mounted at `/v1/review`.
+  //
+  // The authed router's `app.use("*", requireAuth)` is SCOPED to that sub-app's
+  // own routing tree — Hono does NOT propagate a mounted sub-app's middleware
+  // onto a sibling sub-app mounted at a nested prefix. So the webhook sub-app at
+  // `/v1/review/github` is NOT gated by the authed router's requireAuth even
+  // though its path is under `/v1/review`. This is verified by a regression
+  // test (routes/review.test.ts: "webhook path stays un-gated under the authed
+  // /v1/review mount"). The webhook is mounted first for explicitness, but the
+  // isolation does not depend on mount order.
+  const reviewService = createReviewService({
+    db,
+    auditKey: signingKey,
+    ...maybeNow(now),
+  });
+  app.route(
+    "/v1/review/github",
+    createReviewWebhookRouter({
+      db,
+      service: reviewService,
+      webhookSecret: deps.githubAppWebhookSecret ?? "",
+      ...maybeNow(now),
+    }),
+  );
+  const requireAuthForReview = createRequireAuth({ db, ...maybeNow(now) });
+  app.route(
+    "/v1/review",
+    createReviewRouter({
+      db,
+      service: reviewService,
+      requireAuth: requireAuthForReview,
+      llm: deps.reviewLlm ?? null,
+      ...maybeNow(now),
+    }),
+  );
 
   // Post-loop step 2 — `/__test/v2/*` fixture seeders (T149 unblock).
   // ONLY mounted when NODE_ENV != "production". The factory does NOT
@@ -715,6 +780,75 @@ export async function main(): Promise<{
     }),
   );
 
+  // 003-whitebox — review engine deps. All optional/graceful: when a cred is
+  // missing the corresponding handler throws at invoke time (runner captures it
+  // as a permanent failure + audit row) rather than failing boot.
+  const reviewLlm: LlmClient | null = config.TENSOL_REVIEW_LLM_API_KEY
+    ? createOpenRouterClient({
+        apiKey: config.TENSOL_REVIEW_LLM_API_KEY,
+        baseUrl: config.TENSOL_REVIEW_LLM_BASE_URL,
+        model: config.TENSOL_REVIEW_LLM_MODEL,
+      })
+    : null;
+  if (!reviewLlm) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[tensol] 003-whitebox: review LLM not configured — POST /v1/review " +
+        "returns 503 and pr_review/whitebox_scan jobs fail at invoke time. " +
+        "Set TENSOL_REVIEW_LLM_API_KEY.",
+    );
+  }
+  const reviewServiceForJobs: ReviewService = createReviewService({
+    db,
+    auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
+  });
+  const githubReviewClient: GitHubClient | null =
+    config.GITHUB_APP_ID && config.GITHUB_APP_PRIVATE_KEY
+      ? createHttpGitHubClient({
+          appId: config.GITHUB_APP_ID,
+          privateKeyPem: config.GITHUB_APP_PRIVATE_KEY,
+        })
+      : null;
+  const repoFetcher = createGitRepoFetcher();
+  const reviewSastRunner: SastRunner = new CompositeSastRunner([
+    createCliSastRunner({ tool: "opengrep" }),
+    createCliSastRunner({ tool: "trivy" }),
+    createCliSastRunner({ tool: "gitleaks" }),
+  ]);
+  /** MVP clone URL: public https. Token-auth for private repos is a follow-up
+   *  (mint an installation token via the App JWT and embed `x-access-token`). */
+  const cloneUrlFor = (repo: { owner: string; name: string }): string =>
+    `https://github.com/${repo.owner}/${repo.name}.git`;
+
+  const prReviewHandler: (payload: unknown, ctx: { jobId: string; attempts: number }) => Promise<void> =
+    reviewLlm && githubReviewClient
+      ? adaptNewStyle(
+          createPrReviewHandler({
+            service: reviewServiceForJobs,
+            github: githubReviewClient,
+            llm: reviewLlm,
+          }),
+        )
+      : async () => {
+          throw new Error(
+            "pr_review: GitHub App or review LLM not configured (set GITHUB_APP_* + TENSOL_REVIEW_LLM_API_KEY)",
+          );
+        };
+  const whiteboxScanHandler: (payload: unknown, ctx: { jobId: string; attempts: number }) => Promise<void> =
+    reviewLlm
+      ? adaptNewStyle(
+          createWhiteboxScanHandler({
+            service: reviewServiceForJobs,
+            fetcher: repoFetcher,
+            llm: reviewLlm,
+            sastRunner: reviewSastRunner,
+            cloneUrlFor,
+          }),
+        )
+      : async () => {
+          throw new Error("whitebox_scan: review LLM not configured (set TENSOL_REVIEW_LLM_API_KEY)");
+        };
+
   const dispatcher: Dispatcher = {
     spawn_vps: createSpawnVpsHandler({
       db,
@@ -747,6 +881,13 @@ export async function main(): Promise<{
     // (vm spawn / teardown / pdf render) still INSERT rows of this kind;
     // the no-op marks them done so they don't accrete.
     retry_telegram_notification: async () => {},
+    // 003-whitebox — code-review engine handlers.
+    pr_review: prReviewHandler,
+    whitebox_scan: whiteboxScanHandler,
+    // `resolve_threads` + `index_repo` are no-op-acknowledged placeholders
+    // (thread reconciliation + repo pre-indexing are post-MVP — see plan.md).
+    resolve_threads: async () => {},
+    index_repo: async () => {},
   };
   const runner = createRunner({
     db,
@@ -889,6 +1030,9 @@ export async function main(): Promise<{
     telegramWebhookSecret: config.TENSOL_TELEGRAM_WEBHOOK_SECRET,
     operatorEmails: parseOperatorEmails(config.TENSOL_OPERATOR_EMAILS),
     ...maybeProp("resendApiKey", config.RESEND_API_KEY),
+    // 003-whitebox — review LLM (sync POST /v1/review) + GitHub webhook secret.
+    reviewLlm,
+    githubAppWebhookSecret: config.GITHUB_APP_WEBHOOK_SECRET,
   });
 
   const server = Bun.serve({

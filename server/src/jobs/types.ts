@@ -126,6 +126,42 @@ export interface RetryTelegramNotificationJob {
   readonly payload?: Record<string, unknown>;
 }
 
+// ---------------------------------------------------------------------------
+// 003-whitebox additions — code-review engine job kinds.
+//
+// `pr_review` and `whitebox_scan` both run the shared review engine and persist
+// via `review/service.ts`; they differ only in their candidate source (PR diff
+// vs whole-repo). `resolve_threads` reconciles GitHub review threads after a
+// re-review (resolving threads whose finding disappeared). `index_repo` is a
+// placeholder for the future repo-map pre-index (out of MVP scope — handler is
+// a no-op acknowledger today). All four are BlackboxJobType (optional in the
+// Dispatcher) so test fixtures need not stub them.
+// ---------------------------------------------------------------------------
+
+/** Review a GitHub pull request (diff-scoped). Enqueued by the GitHub webhook. */
+export interface PrReviewJob {
+  readonly type: "pr_review";
+  readonly reviewId: string;
+}
+
+/** Whitebox-scan a whole repository (full-tree-scoped). Enqueued by the API. */
+export interface WhiteboxScanJob {
+  readonly type: "whitebox_scan";
+  readonly reviewId: string;
+}
+
+/** Reconcile GitHub review threads after a re-review of the same PR. */
+export interface ResolveThreadsJob {
+  readonly type: "resolve_threads";
+  readonly reviewId: string;
+}
+
+/** Pre-index a repo's symbol map (future repo-map cache; no-op in MVP). */
+export interface IndexRepoJob {
+  readonly type: "index_repo";
+  readonly repoId: string;
+}
+
 export type Job =
   | SpawnVpsJob
   | DispatchScanJob
@@ -135,7 +171,11 @@ export type Job =
   | TeardownYandexVmJob
   | RenderPdfJob
   | SendScanCompleteTelegramJob
-  | RetryTelegramNotificationJob;
+  | RetryTelegramNotificationJob
+  | PrReviewJob
+  | WhiteboxScanJob
+  | ResolveThreadsJob
+  | IndexRepoJob;
 
 export type JobType = Job["type"];
 

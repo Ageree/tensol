@@ -34,6 +34,10 @@ const DeepInquiryThankYou = lazy(() =>
     'deep-inquiry-thank-you',
   ),
 );
+const Reviews = lazy(() => safeImport(() => import('./pages/Reviews.tsx'), 'reviews'));
+const ReviewDetail = lazy(() =>
+  safeImport(() => import('./pages/ReviewDetail.tsx'), 'review-detail'),
+);
 const ScanWizard = lazy(() =>
   safeImport(
     () =>
@@ -98,6 +102,9 @@ export const App = () => (
           path="/deep-inquiry/thank-you"
           element={<DeepInquiryThankYou />}
         />
+        {/* Reviews — PR Review + Whitebox Pentest (003-whitebox). */}
+        <Route path="/reviews" element={<Reviews />} />
+        <Route path="/reviews/:id" element={<ReviewDetail />} />
         {/* T083 — canonical Blackbox MVP scan routes. */}
         <Route path="/scan/new" element={<ScanWizard mode="create" />} />
         <Route

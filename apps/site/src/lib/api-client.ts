@@ -474,6 +474,116 @@ export const deepInquiries = {
     }),
 };
 
+// ─── Review (003-whitebox: PR Review + Whitebox Pentest) ───────────────────
+// Mirrors `server/src/review/*` + `.claude/skills/tensol-loop/references/api.md`.
+
+export type ReviewKind = "pr" | "whitebox";
+export type ReviewRunStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface ReviewFindingWire {
+  fingerprint: string;
+  file_path: string;
+  start_line?: number | null;
+  end_line?: number | null;
+  side: "LEFT" | "RIGHT";
+  severity: Severity;
+  cwe: string[];
+  cvss_vector?: string | null;
+  cvss_score?: number | null;
+  confidence?: FindingConfidence | null;
+  reachable?: boolean | null;
+  category?: string | null;
+  title: string;
+  rationale_md: string;
+  poc_md?: string | null;
+  fix_prompt_md?: string | null;
+  source: "llm" | "sast" | "secrets" | "sca";
+}
+
+export interface ReviewResultWire {
+  review_id: string;
+  kind?: ReviewKind;
+  status: ReviewRunStatus;
+  score_0_5?: number | null;
+  summary_md?: string | null;
+  pr_number?: number | null;
+  repo?: string | null;
+  created_at?: number;
+  completed_at?: number | null;
+  findings: ReviewFindingWire[];
+}
+
+export interface ReviewRepoWire {
+  id: string;
+  scm: "github" | "gitlab" | "bitbucket";
+  owner: string;
+  name: string;
+  default_branch: string;
+  status: "active" | "paused" | "revoked";
+  installation_id?: string | null;
+  created_at?: number;
+}
+
+export interface CreateReviewBody {
+  repo: string;
+  pr?: number;
+  head_sha?: string;
+  base_sha?: string;
+  diff?: string;
+  files?: Array<{
+    path: string;
+    status?: "added" | "modified" | "removed" | "renamed";
+    patch?: string;
+    contents?: string;
+    previous_path?: string;
+  }>;
+  sync?: boolean;
+}
+
+export interface LaunchWhiteboxBody {
+  repo_id?: string;
+  repo?: string;
+  ref?: string;
+  clone_url?: string;
+}
+
+export const review = {
+  /** POST /v1/review — trigger a review (sync or async). */
+  create: (body: CreateReviewBody): Promise<ReviewResultWire> =>
+    request<ReviewResultWire>("/v1/review", { method: "POST", body }),
+
+  /** GET /v1/review/:id — poll a review's status + findings. */
+  get: (id: string): Promise<ReviewResultWire> =>
+    request<ReviewResultWire>(`/v1/review/${encodeURIComponent(id)}`),
+
+  /** GET /v1/review — list the caller's recent reviews. */
+  list: (): Promise<ReviewResultWire[]> =>
+    request<ReviewResultWire[]>("/v1/review"),
+
+  /** GET /v1/review/repos — list connected source repos. */
+  listRepos: (): Promise<ReviewRepoWire[]> =>
+    request<ReviewRepoWire[]>("/v1/review/repos"),
+
+  /** POST /v1/review/whitebox — launch a whole-repo whitebox scan (202). */
+  launchWhitebox: (body: LaunchWhiteboxBody): Promise<{ review_id: string }> =>
+    request<{ review_id: string }>("/v1/review/whitebox", {
+      method: "POST",
+      body,
+    }),
+};
+
 // ─── Top-level convenience export ─────────────────────────────────────────
 
-export const apiClient = { scanOrders, scans, config, auth, deepInquiries };
+export const apiClient = {
+  scanOrders,
+  scans,
+  config,
+  auth,
+  deepInquiries,
+  review,
+};

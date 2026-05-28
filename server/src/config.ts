@@ -105,6 +105,25 @@ const ConfigSchema = z
     // `parseOperatorEmails` (see `routes/admin/deep-inquiries.ts`).
     TENSOL_OPERATOR_EMAILS: z.string().default(""),
 
+    // 003-whitebox — GitHub App (PR Review). All optional with empty defaults
+    // so dev boot doesn't halt; the review domain degrades gracefully and the
+    // webhook route 503s when unconfigured (no signature can verify against an
+    // empty secret). Production deployments populate these from the GitHub App
+    // settings page.
+    GITHUB_APP_ID: z.string().default(""),
+    // PEM private key (may contain literal `\n` — normalized at read time).
+    GITHUB_APP_PRIVATE_KEY: z.string().default(""),
+    GITHUB_APP_WEBHOOK_SECRET: z.string().default(""),
+    GITHUB_APP_CLIENT_ID: z.string().default(""),
+
+    // 003-whitebox — Review LLM (OpenRouter/LiteLLM-compatible). Falls back to
+    // the shared OpenRouter key when the review-specific one is unset.
+    TENSOL_REVIEW_LLM_API_KEY: z.string().default(""),
+    TENSOL_REVIEW_LLM_BASE_URL: z
+      .string()
+      .default("https://openrouter.ai/api/v1"),
+    TENSOL_REVIEW_LLM_MODEL: z.string().default("qwen/qwen3.7-max"),
+
     PORT: z.coerce
       .number({ invalid_type_error: "PORT must be a number" })
       .int()
