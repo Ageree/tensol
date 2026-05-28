@@ -19,7 +19,7 @@ const SESSION_ID = "sess-123";
 const MAX_AGE_30D_SEC = 30 * 24 * 60 * 60;
 
 describe("setSessionCookie", () => {
-  test("sets HttpOnly + Secure + SameSite=Lax + Path=/ + Max-Age on production", async () => {
+  test("sets HttpOnly + Secure + SameSite=None + Path=/ + Max-Age on production", async () => {
     const app = new Hono();
     app.get("/set", (c) => {
       setSessionCookie(c, SESSION_ID, { isProd: true });
@@ -32,7 +32,10 @@ describe("setSessionCookie", () => {
     expect(setCookie).toContain(`${SESSION_COOKIE_NAME}=${SESSION_ID}`);
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("Secure");
-    expect(setCookie).toMatch(/SameSite=Lax/i);
+    // Prod is cross-origin (SPA on sthrip.dev / Vercel → api.tensol.ru), so
+    // the session cookie must be SameSite=None (with Secure) to ride along
+    // on cross-site credentialed fetches. Non-prod stays Lax (see below).
+    expect(setCookie).toMatch(/SameSite=None/i);
     expect(setCookie).toContain("Path=/");
     expect(setCookie).toContain(`Max-Age=${MAX_AGE_30D_SEC}`);
   });

@@ -1,7 +1,7 @@
 /**
  * GCP Compute Engine `CloudProvider` implementation.
  *
- * Mirrors `./yandex.ts` shape (factory + DI, raw fetch + REST API, no SDK).
+ * Factory + DI, raw fetch + REST API, no SDK.
  * Auth via `google-auth-library` reading the SA JSON at
  * `GOOGLE_APPLICATION_CREDENTIALS` (e.g. `server/.gcp/tensol-vm-spawner.json`).
  *
@@ -43,7 +43,7 @@ const DEFAULT_OP_POLL_TIMEOUT_MS = 10 * 60 * 1_000;
 /**
  * GCP label keys/values must match `[a-z0-9_-]*` (and key must start with a
  * letter, but `_` prefix is fine for values). We lowercase and replace
- * invalid chars — same defensive sanitization as yandex.ts.
+ * invalid chars — same defensive sanitization the now-removed Yandex provider used.
  */
 export function sanitizeLabels(
   input: Record<string, string>,

@@ -1,8 +1,8 @@
 /**
  * T022 — Deterministic in-memory `CloudProvider` for tests.
  *
- * Constitution VI (NON-NEGOTIABLE): real cloud providers (Yandex) are gated
- * behind `TENSOL_TEST_REAL_YANDEX=1`; this fake is the default test fixture
+ * Constitution VI (NON-NEGOTIABLE): the real cloud provider (GCP) is never
+ * exercised in tests; this fake is the default test fixture
  * for every unit / integration test that touches the VM lifecycle.
  *
  * Design choices:
