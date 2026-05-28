@@ -91,7 +91,7 @@ export default function DeepInquiryThankYou(): ReactElement {
           </div>
           <div style={{ width: '100%', maxWidth: 520, marginTop: 64 }}>
             <Mono size={11} color="var(--fg-2)">
-              // STATUS · RECEIVED
+              STATUS · RECEIVED
             </Mono>
             <h1
               style={{

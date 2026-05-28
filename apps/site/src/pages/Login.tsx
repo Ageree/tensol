@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { AuthShell } from '../components/AuthShell.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Btn, Field, Input, Mono } from '../components/primitives.tsx';
-import { useTensol } from '../context.tsx';
+import { TENSOL_I18N } from '../i18n.ts';
 import { api, ApiError } from '../lib/api.ts';
 
 type LoginStatus = 'idle' | 'submitting' | 'sent' | 'error';
@@ -15,7 +15,7 @@ type LoginStatus = 'idle' | 'submitting' | 'sent' | 'error';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function Login() {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState<LoginStatus>('idle');
@@ -50,6 +50,8 @@ export default function Login() {
     return (
       <AuthShell
         onBack={() => navigate('/')}
+        language="en"
+        brand="sthrip"
         eyebrow={t.authLoginEyebrow}
         title="Check your inbox."
         sub={`We just sent a sign-in link to ${email}. The link expires in 15 minutes.`}
@@ -80,11 +82,13 @@ export default function Login() {
   return (
     <AuthShell
       onBack={() => navigate('/')}
+      language="en"
+      brand="sthrip"
       eyebrow={t.authLoginEyebrow}
-      title={t.authLoginTitle}
+      title="Log in to Sthrip."
       sub="Enter your work email. We'll send you a one-time sign-in link."
     >
-      <RouteHead title="Sign In — Tensol" />
+      <RouteHead title="Log In — Sthrip" />
       <form
         onSubmit={onSubmit}
         data-screen-label="03 Auth — sign in"

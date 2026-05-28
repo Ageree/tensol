@@ -24,8 +24,8 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from 're
 import { Link } from 'react-router-dom';
 import { AppShell } from '../components/AppShell.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
-import { Btn, Eyebrow, Mono, StatusChip } from '../components/primitives.tsx';
-import { useTensol } from '../context.tsx';
+import { Btn, Mono, StatusChip } from '../components/primitives.tsx';
+import { TENSOL_I18N } from '../i18n.ts';
 import { ApiError, scanOrders, type ScanOrder } from '../lib/api-client.ts';
 import {
   deriveFreeQuotaStatus,
@@ -68,7 +68,7 @@ interface QuotaBadgeProps {
 }
 
 function QuotaBadge({ quota }: QuotaBadgeProps): ReactElement {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   if (quota.state === 'available') {
     return <StatusChip status={t.dashboard.quotaAvailable} tone="ok" size="md" />;
   }
@@ -85,7 +85,7 @@ interface ScanRowProps {
 }
 
 function ScanRow({ order, nowMs }: ScanRowProps): ReactElement {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   const badge: BadgeMapping = mapStatusToBadge(order.status);
   const action: ActionMapping = mapStatusToAction(order.status);
   const updatedAt = order.updated_at ?? order.created_at;
@@ -157,7 +157,7 @@ function ScanRow({ order, nowMs }: ScanRowProps): ReactElement {
 // the empty-state is dashboard-specific in MVP (FindingDetail/Reports
 // have their own "no data" copy with different routing semantics).
 function EmptyState(): ReactElement {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   return (
     <div
       data-testid="dashboard-empty-state"
@@ -219,7 +219,7 @@ function EmptyState(): ReactElement {
 // ─── Main component ───────────────────────────────────────────────────────
 
 const Dashboard = (): ReactElement => {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
 
   const [orders, setOrders] = useState<readonly ScanOrder[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -251,8 +251,16 @@ const Dashboard = (): ReactElement => {
   const quota = useMemo(() => deriveFreeQuotaStatus(orders, nowMs), [orders, nowMs]);
 
   return (
-    <AppShell breadcrumb={[t.navDashboard]} role="security_lead" density="comfortable">
-      <RouteHead title="Dashboard — Tensol" />
+    <AppShell
+      breadcrumb={[t.navDashboard]}
+      role="security_lead"
+      density="comfortable"
+      brand="sthrip"
+      language="en"
+      showLanguageSwitcher={false}
+      surface="white-mono"
+    >
+      <RouteHead title="Dashboard — Sthrip" />
       <div data-screen-label="T117 — your scans dashboard" style={{ position: 'relative' }}>
         {/* ── Header ─────────────────────────────────────────────── */}
         <div
@@ -281,7 +289,6 @@ const Dashboard = (): ReactElement => {
             data-testid="dashboard-quota"
             style={{ display: 'flex', alignItems: 'center', gap: 10 }}
           >
-            <Eyebrow color="var(--fg-3)">{t.dashboard.quotaLabel}</Eyebrow>
             <QuotaBadge quota={quota} />
           </div>
         </div>
@@ -298,17 +305,10 @@ const Dashboard = (): ReactElement => {
             alignItems: 'center',
             gap: 24,
             flexWrap: 'wrap',
-            background: 'var(--bg)',
+            background: 'var(--paper)',
           }}
         >
           <div style={{ minWidth: 0, flex: '1 1 380px' }}>
-            <Mono
-              size={11}
-              color="var(--fg-3)"
-              style={{ letterSpacing: '0.08em', textTransform: 'uppercase' }}
-            >
-              // DEEP AUDIT
-            </Mono>
             <div
               style={{
                 fontFamily: "'Space Grotesk', sans-serif",
@@ -316,7 +316,7 @@ const Dashboard = (): ReactElement => {
                 fontSize: 22,
                 lineHeight: 1.15,
                 letterSpacing: '-0.01em',
-                margin: '8px 0 6px',
+                margin: '0 0 6px',
               }}
             >
               {t.dashboard.deepBanner.title}
@@ -344,14 +344,13 @@ const Dashboard = (): ReactElement => {
           <div
             style={{
               display: 'flex',
-              justifyContent: 'space-between',
+              justifyContent: 'flex-end',
               alignItems: 'baseline',
               marginBottom: 12,
               paddingBottom: 8,
               borderBottom: '1px solid var(--fg)',
             }}
           >
-            <Eyebrow color="var(--fg)">{t.dashboard.tableTitle}</Eyebrow>
             <button
               type="button"
               onClick={() => void load()}
@@ -416,7 +415,7 @@ const Dashboard = (): ReactElement => {
 
           {!loading && error && (
             <div style={{ padding: '32px 16px' }}>
-              <Mono size={12} color="var(--red)">
+              <Mono size={12} color="var(--fg)">
                 {t.dashboard.loadError}: {error}
               </Mono>
             </div>

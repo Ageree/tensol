@@ -18,7 +18,7 @@ import { AppShell } from '../components/AppShell.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Eyebrow, Mono, SeverityChip } from '../components/primitives.tsx';
 import { MarkdownRenderer } from '../components/MarkdownRenderer.tsx';
-import { useTensol } from '../context.tsx';
+import { TENSOL_I18N } from '../i18n.ts';
 import {
   ApiError,
   scans,
@@ -76,7 +76,7 @@ function Badge({ label, value }: BadgeProps): ReactElement {
 }
 
 export default function FindingDetail(): ReactElement {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   const { id: scanId, findingId } = useParams<{ id: string; findingId: string }>();
 
   const [data, setData] = useState<FindingDetailDto | null>(null);
@@ -117,8 +117,12 @@ export default function FindingDetail(): ReactElement {
       breadcrumb={[t.navFindings, scanId ?? '—', findingId ?? '—']}
       role="security_lead"
       density="comfortable"
+      brand="sthrip"
+      language="en"
+      showLanguageSwitcher={false}
+      surface="white-mono"
     >
-      <RouteHead title={`Tensol · ${t.findingDetail.title}`} />
+      <RouteHead title={`Sthrip · ${t.findingDetail.title}`} />
       <div data-screen-label="Finding detail (T086)">
         <div style={{ marginBottom: 16 }}>
           <Link

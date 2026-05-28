@@ -15,7 +15,7 @@ import { useEffect, useState, type ReactElement } from 'react';
 import { AppShell } from '../components/AppShell';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Btn, Card, Eyebrow, Mono, StatusChip } from '../components/primitives';
-import { useTensol } from '../context';
+import { TENSOL_I18N } from '../i18n.ts';
 import {
   ApiError,
   auth,
@@ -43,7 +43,7 @@ const INITIAL_STATE: SettingsState = {
 };
 
 export default function Settings(): ReactElement {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   const [state, setState] = useState<SettingsState>(INITIAL_STATE);
 
   useEffect(() => {
@@ -76,8 +76,16 @@ export default function Settings(): ReactElement {
   }, []);
 
   return (
-    <AppShell breadcrumb={[t.navSettings]} role="security_lead" density="comfortable">
-      <RouteHead title="Settings — Tensol" />
+    <AppShell
+      breadcrumb={[t.navSettings]}
+      role="security_lead"
+      density="comfortable"
+      brand="sthrip"
+      language="en"
+      showLanguageSwitcher={false}
+      surface="white-mono"
+    >
+      <RouteHead title="Settings — Sthrip" />
       <div data-screen-label="T118 — settings (mvp)">
         <div style={{ marginBottom: 32 }}>
           <h1
@@ -125,7 +133,7 @@ export default function Settings(): ReactElement {
               }}
             >
               <Eyebrow style={{ marginBottom: 12 }} color="var(--fg)">
-                // {t.settingsMvp.accountTitle}
+                {t.settingsMvp.accountTitle}
               </Eyebrow>
               <div
                 style={{
@@ -159,7 +167,7 @@ export default function Settings(): ReactElement {
               }}
             >
               <Eyebrow style={{ marginBottom: 12 }} color="var(--fg)">
-                // {t.settingsMvp.quotaTitle}
+                {t.settingsMvp.quotaTitle}
               </Eyebrow>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 {state.quota?.state === 'available' ? (
@@ -194,7 +202,7 @@ export default function Settings(): ReactElement {
               style={{ padding: '24px 28px' }}
             >
               <Eyebrow style={{ marginBottom: 10 }} color="var(--fg-3)">
-                // {t.settingsMvp.mvpTitle}
+                {t.settingsMvp.mvpTitle}
               </Eyebrow>
               <Mono
                 size={12}

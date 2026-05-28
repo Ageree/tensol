@@ -16,7 +16,7 @@ import { Link, useParams } from 'react-router-dom';
 import { AppShell } from '../components/AppShell.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Btn, Mono, Scroll, StatusChip } from '../components/primitives.tsx';
-import { useTensol } from '../context.tsx';
+import { TENSOL_I18N } from '../i18n.ts';
 import {
   ApiError,
   scans,
@@ -182,7 +182,7 @@ function isTerminalStatus(s: ScanStatus): boolean {
 }
 
 export default function Live(): ReactElement {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   const { id } = useParams<{ id: string }>();
 
   // Accumulated events across polls + monotonically advancing cursor.
@@ -266,8 +266,15 @@ export default function Live(): ReactElement {
   const terminal = scan ? isTerminalStatus(scan.status) : false;
 
   return (
-    <AppShell breadcrumb={[t.navAssessments, id ?? '—']} density="comfortable">
-      <RouteHead title={`Tensol · ${t.live.title}`} />
+    <AppShell
+      breadcrumb={[t.navAssessments, id ?? '—']}
+      density="comfortable"
+      brand="sthrip"
+      language="en"
+      showLanguageSwitcher={false}
+      surface="white-mono"
+    >
+      <RouteHead title={`Sthrip · ${t.live.title}`} />
       <div data-screen-label="C6 Live (T084)">
         <div
           style={{

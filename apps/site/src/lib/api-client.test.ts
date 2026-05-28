@@ -79,6 +79,27 @@ describe("scanOrders client", () => {
     expect(calls[0]?.init.credentials).toBe("include");
   });
 
+  test("list — non-JSON 200 throws parse_error instead of returning undefined", async () => {
+    installFetchStub(() =>
+      new Response("<!doctype html><title>Vite fallback</title>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    let caught: unknown;
+    try {
+      await scanOrders.list();
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    const err = caught as ApiError;
+    expect(err.status).toBe(200);
+    expect(err.code).toBe("parse_error");
+  });
+
   test("create — POST /v1/scan-orders sends JSON body and parses 201", async () => {
     const fixture: ScanOrder = {
       id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",

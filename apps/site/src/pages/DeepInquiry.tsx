@@ -350,7 +350,7 @@ export default function DeepInquiry(): ReactElement {
 
           <div style={{ position: 'relative', maxWidth: 420 }}>
             <Mono size={11} color="rgba(255,255,255,.6)">
-              // DEEP AUDIT
+              DEEP AUDIT
             </Mono>
             <p
               style={{

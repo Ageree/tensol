@@ -71,10 +71,10 @@ test.describe('/contact', () => {
 });
 
 test.describe('marketing — html lang attribute', () => {
-  test('default lang is ru', async ({ page }) => {
+  test('default lang is en', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     const lang = await page.evaluate(() => document.documentElement.lang);
-    expect(lang).toBe('ru');
+    expect(lang).toBe('en');
   });
 });

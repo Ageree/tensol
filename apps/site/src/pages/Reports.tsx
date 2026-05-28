@@ -13,7 +13,7 @@ import { Link, useParams } from 'react-router-dom';
 import { AppShell } from '../components/AppShell.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Btn, Eyebrow, Mono, StatusChip } from '../components/primitives.tsx';
-import { useTensol } from '../context.tsx';
+import { TENSOL_I18N } from '../i18n.ts';
 import {
   ApiError,
   scans,
@@ -62,7 +62,7 @@ function StatusPanel({
   regenerating,
   toast,
 }: StatusPanelProps): ReactElement {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   const statusLabels: Record<ReportStatus, string> = {
     pending: t.reports.statusPending,
     rendering: t.reports.statusRendering,
@@ -157,7 +157,7 @@ function StatusPanel({
 }
 
 export default function Reports(): ReactElement {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   const { id: scanId } = useParams<{ id: string }>();
 
   const [networkErr, setNetworkErr] = useState<string | null>(null);
@@ -217,8 +217,12 @@ export default function Reports(): ReactElement {
       breadcrumb={[t.navReports, scanId ?? '—']}
       role="security_lead"
       density="comfortable"
+      brand="sthrip"
+      language="en"
+      showLanguageSwitcher={false}
+      surface="white-mono"
     >
-      <RouteHead title={`Tensol · ${t.reports.title}`} />
+      <RouteHead title={`Sthrip · ${t.reports.title}`} />
       <div data-screen-label="Reports (T087)">
         <div
           style={{

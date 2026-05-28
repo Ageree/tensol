@@ -1,6 +1,7 @@
 // Shared split-panel shell for the three Tensol auth screens.
 import type { ReactNode } from 'react';
 import { useTensol } from '../context.tsx';
+import { TENSOL_I18N, type TensolLang } from '../i18n.ts';
 import { LangSwitcher } from './LangSwitcher.tsx';
 import { AuthWave } from './PixelWaveBg.tsx';
 import { Eyebrow, HalftoneBg, LogoLockup } from './primitives.tsx';
@@ -11,10 +12,24 @@ type AuthShellProps = {
   title: ReactNode;
   sub?: ReactNode;
   onBack?: () => void;
+  language?: TensolLang;
+  brand?: 'tensol' | 'sthrip';
 };
 
-export function AuthShell({ children, eyebrow, title, sub, onBack }: AuthShellProps) {
-  const { t } = useTensol();
+export function AuthShell({
+  children,
+  eyebrow,
+  title,
+  sub,
+  onBack,
+  language,
+  brand = 'tensol',
+}: AuthShellProps) {
+  const { t: contextT } = useTensol();
+  const t = language ? TENSOL_I18N[language] : contextT;
+  const panelLabel = t.authPanelLeft.replace(/^\/\/\s*/, '');
+  const isSthrip = brand === 'sthrip';
+
   return (
     <div
       style={{
@@ -54,7 +69,20 @@ export function AuthShell({ children, eyebrow, title, sub, onBack }: AuthShellPr
               gap: 10,
             }}
           >
-            <LogoLockup size={20} color="var(--paper)" onClick={onBack} />
+            {isSthrip ? (
+              <img
+                src="/assets/sthrip-wordmark-white.png"
+                alt="STHRIP"
+                style={{
+                  display: 'block',
+                  width: 126,
+                  height: 'auto',
+                  imageRendering: 'pixelated',
+                }}
+              />
+            ) : (
+              <LogoLockup size={20} color="var(--paper)" onClick={onBack} />
+            )}
           </button>
         </div>
         <div
@@ -68,7 +96,7 @@ export function AuthShell({ children, eyebrow, title, sub, onBack }: AuthShellPr
             justifyContent: 'space-between',
           }}
         >
-          <span>{t.authPanelLeft}</span>
+          <span>{panelLabel}</span>
         </div>
       </aside>
       <main
