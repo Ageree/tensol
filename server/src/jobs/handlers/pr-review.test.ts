@@ -292,6 +292,7 @@ describe("createPrReviewHandler", () => {
       postReview: async () => ({ reviewId: "r1" }),
       createCheckRun: async () => ({ checkRunId: "c1" }),
       resolveReviewThread: async () => {},
+      listInstallationRepos: async () => [],
     };
     const handler = createPrReviewHandler({
       service: svc,

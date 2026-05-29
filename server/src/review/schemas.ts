@@ -156,10 +156,33 @@ const GhRepoSchema = z
   })
   .passthrough();
 
+/** Minimal shape of a repository entry in installation payloads. */
+const GhInstallationRepoSchema = z
+  .object({
+    id: z.number(),
+    full_name: z.string(),
+    name: z.string(),
+    private: z.boolean().optional(),
+  })
+  .passthrough();
+
 export const GithubWebhookSchema = z
   .object({
     action: z.string().optional(),
-    installation: z.object({ id: z.number() }).passthrough().optional(),
+    installation: z
+      .object({
+        id: z.number(),
+        /** Present on `installation` events; carries the account (user/org) that installed the App. */
+        account: z
+          .object({ login: z.string(), type: z.string().optional() })
+          .passthrough()
+          .optional(),
+        repository_selection: z.enum(["all", "selected"]).optional(),
+        /** Repositories listed on initial install (installation.created). */
+        repositories: z.array(GhInstallationRepoSchema).optional(),
+      })
+      .passthrough()
+      .optional(),
     repository: GhRepoSchema.optional(),
     pull_request: z
       .object({
@@ -186,6 +209,10 @@ export const GithubWebhookSchema = z
       .passthrough()
       .optional(),
     check_run: z.object({}).passthrough().optional(),
+    /** Repos added in an `installation_repositories.added` event. */
+    repositories_added: z.array(GhInstallationRepoSchema).optional(),
+    /** Repos removed in an `installation_repositories.removed` event. */
+    repositories_removed: z.array(GhInstallationRepoSchema).optional(),
   })
   .passthrough();
 

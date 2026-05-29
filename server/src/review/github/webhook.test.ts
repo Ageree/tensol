@@ -7,11 +7,15 @@
  *   - pull_request opened on a DRAFT                     → ignored (draft skip)
  *   - pull_request closed / labeled                      → ignored
  *   - issue_comment "@tensol review" by human            → review_requested
+ *   - issue_comment "@sthrip review" by human            → review_requested (rebrand)
  *   - issue_comment "/tensol review" (case-insensitive)  → review_requested
+ *   - issue_comment "/sthrip review" (case-insensitive)  → review_requested (rebrand)
  *   - issue_comment by a Bot user                        → ignored (loop guard)
  *   - issue_comment on a plain issue (no pull_request)   → ignored
  *   - issue_comment without the trigger phrase           → ignored
  *   - any other event name                               → ignored
+ *   - installation created/deleted/suspend/unsuspend     → installation_* kinds
+ *   - installation_repositories added/removed            → installation_repos_* kinds
  *
  * Payloads are validated through `GithubWebhookSchema` so the fixtures match
  * the real wire shape the boundary parser accepts.
@@ -173,5 +177,228 @@ describe("classifyWebhook — other events", () => {
   test("ping → ignored", () => {
     const ev = classifyWebhook("ping", parse({}));
     expect(ev.kind).toBe("ignored");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sthrip rebranded command trigger
+// ---------------------------------------------------------------------------
+
+describe("classifyWebhook — @sthrip / /sthrip review trigger (rebrand)", () => {
+  test("@sthrip review by a human → review_requested", () => {
+    const ev = classifyWebhook(
+      "issue_comment",
+      commentPayload({ body: "please @sthrip review this" }),
+    );
+    expect(ev.kind).toBe("review_requested");
+    expect(ev.prNumber).toBe(9);
+    expect(ev.repoFullName).toBe("acme/widgets");
+    expect(ev.installationId).toBe("42");
+  });
+
+  test("/sthrip review → review_requested (case-insensitive)", () => {
+    const ev = classifyWebhook(
+      "issue_comment",
+      commentPayload({ body: "/STHRIP REVIEW" }),
+    );
+    expect(ev.kind).toBe("review_requested");
+  });
+
+  test("@tensol review still works (back-compat)", () => {
+    const ev = classifyWebhook(
+      "issue_comment",
+      commentPayload({ body: "@tensol review this PR" }),
+    );
+    expect(ev.kind).toBe("review_requested");
+  });
+
+  test("/tensol review still works (back-compat)", () => {
+    const ev = classifyWebhook(
+      "issue_comment",
+      commentPayload({ body: "/tensol review" }),
+    );
+    expect(ev.kind).toBe("review_requested");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// installation events
+// ---------------------------------------------------------------------------
+
+function installationPayload(opts: {
+  action: string;
+  installationId?: number;
+  accountLogin?: string;
+  accountType?: string;
+  repositorySelection?: string;
+  repositories?: Array<{ id: number; full_name: string; name: string; private: boolean }>;
+}) {
+  return parse({
+    action: opts.action,
+    installation: {
+      id: opts.installationId ?? 1001,
+      account: {
+        login: opts.accountLogin ?? "acme-org",
+        type: opts.accountType ?? "Organization",
+      },
+      repository_selection: opts.repositorySelection ?? "all",
+      ...(opts.repositories !== undefined ? { repositories: opts.repositories } : {}),
+    },
+  });
+}
+
+function installationReposPayload(opts: {
+  action: "added" | "removed";
+  installationId?: number;
+  repositoriesAdded?: Array<{ id: number; full_name: string; name: string; private: boolean }>;
+  repositoriesRemoved?: Array<{ id: number; full_name: string; name: string; private: boolean }>;
+}) {
+  return parse({
+    action: opts.action,
+    installation: { id: opts.installationId ?? 1001 },
+    repositories_added: opts.repositoriesAdded ?? [],
+    repositories_removed: opts.repositoriesRemoved ?? [],
+  });
+}
+
+describe("classifyWebhook — installation events", () => {
+  test("installation created → installation_created with required fields", () => {
+    const ev = classifyWebhook(
+      "installation",
+      installationPayload({
+        action: "created",
+        installationId: 555,
+        accountLogin: "my-org",
+        accountType: "Organization",
+        repositorySelection: "all",
+        repositories: [
+          { id: 1, full_name: "my-org/repo-a", name: "repo-a", private: false },
+          { id: 2, full_name: "my-org/repo-b", name: "repo-b", private: true },
+        ],
+      }),
+    );
+    expect(ev.kind).toBe("installation_created");
+    expect(ev.installationId).toBe("555");
+    expect(ev.accountLogin).toBe("my-org");
+    expect(ev.accountType).toBe("Organization");
+    expect(ev.repositorySelection).toBe("all");
+    expect(ev.repositories).toHaveLength(2);
+    expect(ev.repositories?.[0]).toBe("my-org/repo-a");
+    expect(ev.repositories?.[1]).toBe("my-org/repo-b");
+  });
+
+  test("installation deleted → installation_deleted", () => {
+    const ev = classifyWebhook(
+      "installation",
+      installationPayload({ action: "deleted", installationId: 777 }),
+    );
+    expect(ev.kind).toBe("installation_deleted");
+    expect(ev.installationId).toBe("777");
+    expect(ev.accountLogin).toBe("acme-org");
+  });
+
+  test("installation suspend → installation_suspend", () => {
+    const ev = classifyWebhook(
+      "installation",
+      installationPayload({ action: "suspend", installationId: 888 }),
+    );
+    expect(ev.kind).toBe("installation_suspend");
+    expect(ev.installationId).toBe("888");
+  });
+
+  test("installation unsuspend → installation_unsuspend", () => {
+    const ev = classifyWebhook(
+      "installation",
+      installationPayload({ action: "unsuspend", installationId: 999 }),
+    );
+    expect(ev.kind).toBe("installation_unsuspend");
+    expect(ev.installationId).toBe("999");
+  });
+
+  test("installation unhandled action → ignored", () => {
+    const ev = classifyWebhook(
+      "installation",
+      installationPayload({ action: "new_permissions_accepted" }),
+    );
+    expect(ev.kind).toBe("ignored");
+    expect(ev.reason).toBeDefined();
+  });
+
+  test("installation created without account → ignored gracefully", () => {
+    // account is missing → can't extract required accountLogin; emit ignored
+    const ev = classifyWebhook(
+      "installation",
+      parse({ action: "created", installation: { id: 12 } }),
+    );
+    expect(ev.kind).toBe("ignored");
+    expect(ev.reason).toBeDefined();
+  });
+
+  test("installation without installation field → ignored", () => {
+    const ev = classifyWebhook("installation", parse({ action: "created" }));
+    expect(ev.kind).toBe("ignored");
+    expect(ev.reason).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// installation_repositories events
+// ---------------------------------------------------------------------------
+
+describe("classifyWebhook — installation_repositories events", () => {
+  test("installation_repositories added → installation_repos_added with slugs", () => {
+    const ev = classifyWebhook(
+      "installation_repositories",
+      installationReposPayload({
+        action: "added",
+        installationId: 1001,
+        repositoriesAdded: [
+          { id: 10, full_name: "acme/backend", name: "backend", private: false },
+          { id: 11, full_name: "acme/frontend", name: "frontend", private: true },
+        ],
+        repositoriesRemoved: [],
+      }),
+    );
+    expect(ev.kind).toBe("installation_repos_added");
+    expect(ev.installationId).toBe("1001");
+    expect(ev.repositories).toHaveLength(2);
+    expect(ev.repositories).toContain("acme/backend");
+    expect(ev.repositories).toContain("acme/frontend");
+  });
+
+  test("installation_repositories removed → installation_repos_removed with slugs", () => {
+    const ev = classifyWebhook(
+      "installation_repositories",
+      installationReposPayload({
+        action: "removed",
+        installationId: 2002,
+        repositoriesAdded: [],
+        repositoriesRemoved: [
+          { id: 20, full_name: "acme/old-service", name: "old-service", private: false },
+        ],
+      }),
+    );
+    expect(ev.kind).toBe("installation_repos_removed");
+    expect(ev.installationId).toBe("2002");
+    expect(ev.repositories).toHaveLength(1);
+    expect(ev.repositories?.[0]).toBe("acme/old-service");
+  });
+
+  test("installation_repositories unhandled action → ignored", () => {
+    const ev = classifyWebhook(
+      "installation_repositories",
+      parse({ action: "unknown", installation: { id: 1 } }),
+    );
+    expect(ev.kind).toBe("ignored");
+    expect(ev.reason).toBeDefined();
+  });
+
+  test("installation_repositories missing installation field → ignored", () => {
+    const ev = classifyWebhook(
+      "installation_repositories",
+      parse({ action: "added" }),
+    );
+    expect(ev.kind).toBe("ignored");
+    expect(ev.reason).toBeDefined();
   });
 });

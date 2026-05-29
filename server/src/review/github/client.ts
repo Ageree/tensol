@@ -96,6 +96,9 @@ export interface GitHubClient {
     installationId?: string;
   }): Promise<{ checkRunId: string }>;
   resolveReviewThread(a: { threadId: string; installationId?: string }): Promise<void>;
+  listInstallationRepos(a: {
+    installationId: string;
+  }): Promise<Array<{ owner: string; name: string; defaultBranch: string; repoId?: string }>>;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -136,6 +139,10 @@ type CreateCheckRunCall = {
 };
 /** Recorded shape of a `resolveReviewThread` call. */
 type ResolveThreadCall = { threadId: string; installationId?: string };
+/** Recorded shape of a `listInstallationRepos` call. */
+type ListInstallationReposCall = { installationId: string };
+/** A repo entry returned by `listInstallationRepos`. */
+type InstallationRepo = { owner: string; name: string; defaultBranch: string; repoId?: string };
 
 /**
  * In-memory `GitHubClient`. All calls are appended to public arrays for
@@ -146,6 +153,8 @@ export class FakeGitHubClient implements GitHubClient {
   readonly fileContents: Record<string, string>;
   /** Pre-seeded existing PR review comments (their bodies may carry markers). */
   readonly existingComments: ExistingReviewComment[];
+  /** Pre-seeded repos returned by `listInstallationRepos`. */
+  readonly installationRepos: InstallationRepo[];
 
   readonly getFilesCalls: GetFilesCall[] = [];
   readonly listCommentsCalls: ListCommentsCall[] = [];
@@ -153,6 +162,7 @@ export class FakeGitHubClient implements GitHubClient {
   readonly postReviewCalls: PostReviewCall[] = [];
   readonly createCheckRunCalls: CreateCheckRunCall[] = [];
   readonly resolveThreadCalls: ResolveThreadCall[] = [];
+  readonly listInstallationReposCalls: ListInstallationReposCall[] = [];
 
   #reviewSeq = 0;
   #checkSeq = 0;
@@ -161,11 +171,15 @@ export class FakeGitHubClient implements GitHubClient {
     files?: DiffFile[];
     fileContents?: Record<string, string>;
     existingComments?: ExistingReviewComment[];
+    installationRepos?: InstallationRepo[];
   }) {
     this.files = opts?.files ? [...opts.files] : [];
     this.fileContents = opts?.fileContents ? { ...opts.fileContents } : {};
     this.existingComments = opts?.existingComments
       ? opts.existingComments.map((c) => ({ ...c }))
+      : [];
+    this.installationRepos = opts?.installationRepos
+      ? opts.installationRepos.map((r) => ({ ...r }))
       : [];
   }
 
@@ -200,6 +214,11 @@ export class FakeGitHubClient implements GitHubClient {
   resolveReviewThread(a: ResolveThreadCall): Promise<void> {
     this.resolveThreadCalls.push({ ...a });
     return Promise.resolve();
+  }
+
+  listInstallationRepos(a: ListInstallationReposCall): Promise<InstallationRepo[]> {
+    this.listInstallationReposCalls.push({ ...a });
+    return Promise.resolve(this.installationRepos.map((r) => ({ ...r })));
   }
 }
 
@@ -405,6 +424,43 @@ export function createHttpGitHubClient(a: {
       if (json.errors && json.errors.length > 0) {
         throw new Error("GitHub: resolveReviewThread returned GraphQL errors");
       }
+    },
+
+    async listInstallationRepos(args): Promise<InstallationRepo[]> {
+      const out: InstallationRepo[] = [];
+      const perPage = 100;
+      // Authenticate with the installation token (not the App JWT).
+      for (let page = 1; ; page += 1) {
+        const url = `${GITHUB_API}/installation/repositories?per_page=${perPage}&page=${page}`;
+        const res = await authed(args.installationId, url, { method: "GET" });
+        if (!res.ok) {
+          throw new Error(`GitHub: listInstallationRepos failed (${res.status})`);
+        }
+        const json = (await res.json()) as {
+          repositories?: Array<{
+            owner?: { login?: string };
+            name?: string;
+            default_branch?: string;
+            id?: number | string;
+          }>;
+        };
+        const batch = json.repositories ?? [];
+        if (batch.length === 0) break;
+        for (const raw of batch) {
+          const owner = raw.owner?.login ?? "";
+          const name = raw.name ?? "";
+          const defaultBranch = raw.default_branch ?? "main";
+          const repoIdVal = raw.id !== undefined ? String(raw.id) : undefined;
+          out.push({
+            owner,
+            name,
+            defaultBranch,
+            ...(repoIdVal !== undefined ? { repoId: repoIdVal } : {}),
+          });
+        }
+        if (batch.length < perPage) break;
+      }
+      return out;
     },
   };
 }

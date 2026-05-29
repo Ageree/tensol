@@ -15,6 +15,7 @@ import { emitSignedAudit } from "../audit/emit.ts";
 import type { DB } from "../db/client.ts";
 import { withTx } from "../db/client.ts";
 import {
+  installations as installationsTable,
   jobs as jobsTable,
   reviewFeedback as reviewFeedbackTable,
   reviewFindings as reviewFindingsTable,
@@ -22,6 +23,7 @@ import {
   reviews as reviewsTable,
   reviewThreads as reviewThreadsTable,
   webhookDedup as webhookDedupTable,
+  type Installation,
   type Review,
   type ReviewFeedback,
   type ReviewFinding as ReviewFindingRow,
@@ -75,6 +77,17 @@ export interface RecordFeedbackArgs {
   readonly signal: "up" | "down" | "addressed" | "ignored";
   readonly commentText?: string | null;
   readonly embeddingJson?: string | null;
+}
+
+export interface UpsertInstallationArgs {
+  readonly userId: string;
+  readonly scm?: string;
+  readonly installationId: string;
+  readonly accountLogin: string;
+  readonly accountType: "User" | "Organization";
+  readonly repositorySelection: "all" | "selected";
+  readonly status?: "active" | "suspended" | "deleted";
+  readonly setupAction?: string | null;
 }
 
 export interface ReviewService {
@@ -152,6 +165,42 @@ export interface ReviewService {
     repoId: string,
     signal?: "up" | "down" | "addressed" | "ignored",
   ): Promise<ReviewFeedback[]>;
+
+  // -------------------------------------------------------------------------
+  // Installations CRUD (T005/T006 — feature 004: Sthrip PR Review)
+  // -------------------------------------------------------------------------
+  /**
+   * Create or update a GitHub App installation row.
+   * Idempotent by (scm, installationId) — the UNIQUE index prevents two rows
+   * for the same external installation. On insert, emits `github_app_installed`.
+   * Ownership (userId) is set at creation and NEVER reassigned on upsert.
+   */
+  upsertInstallation(args: UpsertInstallationArgs): Promise<Installation>;
+  /**
+   * Resolve an installation by its SCM-signed external id.
+   * Returns null when absent — callers treat unknown ids as 404.
+   */
+  getInstallationByGithubId(
+    scm: string,
+    installationId: string,
+  ): Promise<Installation | null>;
+  /** Return all active/suspended installations owned by a user. */
+  getInstallationsForUser(userId: string): Promise<Installation[]>;
+  /**
+   * Mark an installation as deleted and cascade-disable all its linked
+   * `review_repos` rows (set enabled=0). Emits `github_app_uninstalled`.
+   */
+  markInstallationDeleted(installationId: string): Promise<void>;
+  /**
+   * Transition installation status (active ↔ suspended).
+   * Emits `github_app_suspended` when transitioning TO suspended.
+   * Does NOT re-emit when transitioning back to active (no audit event
+   * for unsuspend — the install audit chain already records the round-trip).
+   */
+  setInstallationStatus(
+    installationId: string,
+    status: "active" | "suspended",
+  ): Promise<Installation>;
 }
 
 /** True when a SQLite error is a UNIQUE-constraint violation. */
@@ -675,6 +724,184 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
         .where(where)
         .orderBy(desc(reviewFeedbackTable.createdAt))
         .all() as ReviewFeedback[];
+    },
+
+    // -------------------------------------------------------------------------
+    // Installations CRUD (T005/T006 — feature 004: Sthrip PR Review)
+    // -------------------------------------------------------------------------
+
+    async upsertInstallation(args) {
+      const scm = args.scm ?? "github";
+      const ts = clock();
+
+      // USER-SCOPED lookup: an installation row's ownership is fixed at creation.
+      // The UNIQUE index is (scm, installationId) — one external installation
+      // maps to exactly ONE internal row and ONE owning user.
+      const existing = db
+        .select()
+        .from(installationsTable)
+        .where(
+          and(
+            eq(installationsTable.scm, scm),
+            eq(installationsTable.installationId, args.installationId),
+          ),
+        )
+        .get();
+
+      if (existing) {
+        // Update mutable fields; userId (ownership) is immutable after creation.
+        db.update(installationsTable)
+          .set({
+            accountLogin: args.accountLogin,
+            accountType: args.accountType,
+            repositorySelection: args.repositorySelection,
+            ...(args.status !== undefined ? { status: args.status } : {}),
+            ...(args.setupAction !== undefined
+              ? { setupAction: args.setupAction }
+              : {}),
+            updatedAt: ts,
+          })
+          .where(eq(installationsTable.id, existing.id))
+          .run();
+        const updated = db
+          .select()
+          .from(installationsTable)
+          .where(eq(installationsTable.id, existing.id))
+          .get();
+        return updated as Installation;
+      }
+
+      const id = ulid(ts);
+      const row = {
+        id,
+        userId: args.userId,
+        scm,
+        installationId: args.installationId,
+        accountLogin: args.accountLogin,
+        accountType: args.accountType,
+        repositorySelection: args.repositorySelection,
+        status: (args.status ?? "active") as "active" | "suspended" | "deleted",
+        ...(args.setupAction !== undefined
+          ? { setupAction: args.setupAction }
+          : { setupAction: null }),
+        createdAt: ts,
+        updatedAt: ts,
+      };
+      db.insert(installationsTable).values(row).run();
+
+      await emit(
+        "github_app_installed",
+        "success",
+        {
+          installation_id: args.installationId,
+          scm,
+          account_login: args.accountLogin,
+          account_type: args.accountType,
+        },
+        args.userId,
+      );
+
+      return row as Installation;
+    },
+
+    async getInstallationByGithubId(scm, installationId) {
+      const row = db
+        .select()
+        .from(installationsTable)
+        .where(
+          and(
+            eq(installationsTable.scm, scm),
+            eq(installationsTable.installationId, installationId),
+          ),
+        )
+        .get();
+      return (row as Installation) ?? null;
+    },
+
+    async getInstallationsForUser(userId) {
+      return db
+        .select()
+        .from(installationsTable)
+        .where(eq(installationsTable.userId, userId))
+        .orderBy(desc(installationsTable.createdAt))
+        .all() as Installation[];
+    },
+
+    async markInstallationDeleted(installationId) {
+      const ts = clock();
+
+      // Resolve the row first so we have the PK (for cascade) and userId (for audit).
+      const existing = db
+        .select()
+        .from(installationsTable)
+        .where(eq(installationsTable.installationId, installationId))
+        .get();
+      if (!existing) return;
+
+      // Cascade-disable all review_repos linked to this installation row.
+      // We match on installationRowId (the FK to installations.id) which is
+      // set when a repo is connected via this installation.
+      db.update(reviewReposTable)
+        .set({ enabled: 0, updatedAt: ts })
+        .where(eq(reviewReposTable.installationRowId, existing.id))
+        .run();
+
+      db.update(installationsTable)
+        .set({ status: "deleted", updatedAt: ts })
+        .where(eq(installationsTable.id, existing.id))
+        .run();
+
+      await emit(
+        "github_app_uninstalled",
+        "success",
+        {
+          installation_id: installationId,
+          scm: existing.scm,
+          account_login: existing.accountLogin,
+        },
+        existing.userId,
+      );
+    },
+
+    async setInstallationStatus(installationId, status) {
+      const ts = clock();
+
+      const existing = db
+        .select()
+        .from(installationsTable)
+        .where(eq(installationsTable.installationId, installationId))
+        .get();
+      if (!existing) {
+        throw new Error(
+          `setInstallationStatus: installation not found (id=${installationId})`,
+        );
+      }
+
+      db.update(installationsTable)
+        .set({ status, updatedAt: ts })
+        .where(eq(installationsTable.id, existing.id))
+        .run();
+
+      const updated = db
+        .select()
+        .from(installationsTable)
+        .where(eq(installationsTable.id, existing.id))
+        .get() as Installation;
+
+      if (status === "suspended") {
+        await emit(
+          "github_app_suspended",
+          "success",
+          {
+            installation_id: installationId,
+            scm: existing.scm,
+            account_login: existing.accountLogin,
+          },
+          existing.userId,
+        );
+      }
+
+      return updated;
     },
   };
 }

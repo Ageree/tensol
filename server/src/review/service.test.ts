@@ -13,6 +13,8 @@ import {
   reviews as reviewsTable,
   reviewFindings as reviewFindingsTable,
   reviewThreads as reviewThreadsTable,
+  reviewRepos as reviewReposTable,
+  installations as installationsTable,
   auditLog as auditLogTable,
 } from "../db/schema.ts";
 import { createReviewService } from "./service.ts";
@@ -255,5 +257,340 @@ describe("review service", () => {
     const fs = await svc.getReviewFindings(r.id);
     expect(fs.length).toBe(1);
     expect(fs[0]!.title).toBe("SQLi in query builder");
+  });
+});
+
+// ===========================================================================
+// T005 / T006 — installations CRUD (feature 004: Sthrip PR Review connect flow)
+// ===========================================================================
+
+describe("installations service (T005/T006)", () => {
+  let db: DB;
+  beforeEach(async () => {
+    db = freshMemDb();
+    // seed two users for cross-tenant assertions
+    await seedUser(db, "user_1");
+    await seedUser(db, "user_2");
+  });
+
+  // ---------------------------------------------------------------------------
+  // upsertInstallation — CREATE
+  // ---------------------------------------------------------------------------
+  test("upsertInstallation creates a new row and emits github_app_installed audit", async () => {
+    const svc = makeSvc(db);
+    const inst = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_111",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+      setupAction: "install",
+    });
+
+    expect(inst.id).toBeTruthy();
+    expect(inst.userId).toBe("user_1");
+    expect(inst.installationId).toBe("inst_111");
+    expect(inst.accountLogin).toBe("acme-org");
+    expect(inst.status).toBe("active");
+
+    // Verify row is in DB
+    const rows = db.select().from(installationsTable).all();
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.installationId).toBe("inst_111");
+
+    // Verify signed audit was emitted
+    const audits = db
+      .select()
+      .from(auditLogTable)
+      .where(eq(auditLogTable.event, "github_app_installed"))
+      .all();
+    expect(audits.length).toBe(1);
+    expect(audits[0]!.userId).toBe("user_1");
+  });
+
+  // ---------------------------------------------------------------------------
+  // upsertInstallation — UPSERT (idempotent update by installationId)
+  // ---------------------------------------------------------------------------
+  test("upsertInstallation updates existing row by (scm, installationId) — no duplicate row", async () => {
+    const svc = makeSvc(db);
+    const i1 = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_111",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+    const i2 = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_111",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "selected", // changed
+    });
+
+    expect(i2.id).toBe(i1.id);
+    expect(i2.repositorySelection).toBe("selected");
+
+    const rows = db.select().from(installationsTable).all();
+    expect(rows.length).toBe(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // getInstallationByGithubId
+  // ---------------------------------------------------------------------------
+  test("getInstallationByGithubId returns the matching installation or null", async () => {
+    const svc = makeSvc(db);
+    await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_111",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+
+    const found = await svc.getInstallationByGithubId("github", "inst_111");
+    expect(found).not.toBeNull();
+    expect(found!.accountLogin).toBe("acme-org");
+
+    const missing = await svc.getInstallationByGithubId("github", "does_not_exist");
+    expect(missing).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // getInstallationsForUser — multi-tenant isolation
+  // ---------------------------------------------------------------------------
+  test("getInstallationsForUser returns only this user's installations", async () => {
+    const svc = makeSvc(db);
+    await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_111",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+    await svc.upsertInstallation({
+      userId: "user_2",
+      scm: "github",
+      installationId: "inst_222",
+      accountLogin: "other-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+
+    const user1Installs = await svc.getInstallationsForUser("user_1");
+    expect(user1Installs.length).toBe(1);
+    expect(user1Installs[0]!.installationId).toBe("inst_111");
+
+    const user2Installs = await svc.getInstallationsForUser("user_2");
+    expect(user2Installs.length).toBe(1);
+    expect(user2Installs[0]!.installationId).toBe("inst_222");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Cross-tenant: installation belongs to exactly one userId
+  // ---------------------------------------------------------------------------
+  test("installation is uniquely owned — same (scm,installationId) cannot belong to two users", async () => {
+    const svc = makeSvc(db);
+    await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_111",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+
+    // Attempting to upsert the same installationId for user_2 should either:
+    // - throw a UNIQUE constraint (if we don't find and return the existing row) OR
+    // - refuse to reassign ownership (the row stays owned by user_1)
+    // The invariant: after both calls the row's userId must still be user_1.
+    try {
+      await svc.upsertInstallation({
+        userId: "user_2",
+        scm: "github",
+        installationId: "inst_111", // same external id
+        accountLogin: "acme-org",
+        accountType: "Organization",
+        repositorySelection: "all",
+      });
+    } catch {
+      // A UNIQUE violation is acceptable — the row is immutably owned by user_1
+    }
+
+    const rows = db.select().from(installationsTable).all();
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.userId).toBe("user_1");
+  });
+
+  // ---------------------------------------------------------------------------
+  // markInstallationDeleted — cascade disables review_repos
+  // ---------------------------------------------------------------------------
+  test("markInstallationDeleted sets status=deleted and emits github_app_uninstalled", async () => {
+    const svc = makeSvc(db);
+    const inst = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_111",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+
+    await svc.markInstallationDeleted(inst.installationId);
+
+    const row = db
+      .select()
+      .from(installationsTable)
+      .where(eq(installationsTable.id, inst.id))
+      .get();
+    expect(row!.status).toBe("deleted");
+
+    const audits = db
+      .select()
+      .from(auditLogTable)
+      .where(eq(auditLogTable.event, "github_app_uninstalled"))
+      .all();
+    expect(audits.length).toBe(1);
+    expect(audits[0]!.userId).toBe("user_1");
+  });
+
+  test("markInstallationDeleted cascade-disables linked review_repos (sets enabled=0)", async () => {
+    const svc = makeSvc(db);
+    const inst = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_111",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+
+    // Connect a repo linked to this installation
+    const repo1 = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme-org",
+      name: "repo-a",
+      installationId: "inst_111",
+    });
+    // Link the repo to the installation row
+    db.update(reviewReposTable)
+      .set({ installationRowId: inst.id })
+      .where(eq(reviewReposTable.id, repo1.id))
+      .run();
+
+    // Another repo NOT linked to this installation (should remain enabled)
+    const repo2 = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme-org",
+      name: "repo-b",
+      installationId: "inst_other",
+    });
+
+    await svc.markInstallationDeleted(inst.installationId);
+
+    const r1 = db.select().from(reviewReposTable).where(eq(reviewReposTable.id, repo1.id)).get();
+    expect(r1!.enabled).toBe(0);
+
+    // repo2 is NOT linked to this installation — must remain enabled
+    const r2 = db.select().from(reviewReposTable).where(eq(reviewReposTable.id, repo2.id)).get();
+    expect(r2!.enabled).toBe(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // setInstallationStatus — suspend / unsuspend
+  // ---------------------------------------------------------------------------
+  test("setInstallationStatus(suspended) updates status and emits github_app_suspended", async () => {
+    const svc = makeSvc(db);
+    const inst = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_111",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+
+    await svc.setInstallationStatus(inst.installationId, "suspended");
+
+    const row = db
+      .select()
+      .from(installationsTable)
+      .where(eq(installationsTable.id, inst.id))
+      .get();
+    expect(row!.status).toBe("suspended");
+
+    const audits = db
+      .select()
+      .from(auditLogTable)
+      .where(eq(auditLogTable.event, "github_app_suspended"))
+      .all();
+    expect(audits.length).toBe(1);
+    expect(audits[0]!.userId).toBe("user_1");
+  });
+
+  test("setInstallationStatus(active) unsuspends without emitting a second suspended audit", async () => {
+    const svc = makeSvc(db);
+    const inst = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_111",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+
+    await svc.setInstallationStatus(inst.installationId, "suspended");
+    await svc.setInstallationStatus(inst.installationId, "active");
+
+    const row = db
+      .select()
+      .from(installationsTable)
+      .where(eq(installationsTable.id, inst.id))
+      .get();
+    expect(row!.status).toBe("active");
+
+    // Only ONE suspended audit (for the suspend call)
+    const suspendedAudits = db
+      .select()
+      .from(auditLogTable)
+      .where(eq(auditLogTable.event, "github_app_suspended"))
+      .all();
+    expect(suspendedAudits.length).toBe(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Verify audit chain integrity (prev_signature linkage)
+  // ---------------------------------------------------------------------------
+  test("audit chain: each row's prev_signature matches the preceding row's signature", async () => {
+    const svc = makeSvc(db);
+    const inst = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_chain",
+      accountLogin: "chain-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+    await svc.setInstallationStatus(inst.installationId, "suspended");
+    await svc.markInstallationDeleted(inst.installationId);
+
+    const allAudits = db
+      .select()
+      .from(auditLogTable)
+      .all()
+      .sort((a, b) => a.id - b.id);
+
+    for (let i = 1; i < allAudits.length; i++) {
+      const prev = allAudits[i - 1]!;
+      const curr = allAudits[i]!;
+      expect(curr.prevSignature).toBe(prev.signature);
+    }
   });
 });

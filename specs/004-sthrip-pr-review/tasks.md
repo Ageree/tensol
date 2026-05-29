@@ -21,10 +21,10 @@ description: "Task list — Sthrip PR Review (feature 004)"
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] T001 Create migration `server/migrations/0013_pr_review_connect.sql`: new `installations` and `review_suppressions` tables; `review_repos` +cols (`enabled`, `status_check_enabled`, `merge_block_on_critical`, `last_review_id`, `installation_row_id`); `review_findings` +cols (`verification_status` default `'unverified'`, `reachability_evidence_md`). Per data-model.md.
-- [ ] T002 Add matching Drizzle definitions in `server/src/db/schema.ts` (`installations`, `reviewSuppressions`, new columns + inferred row types), preserving PG-portable SQL.
-- [ ] T003 [P] Extend `server/src/config.ts` Zod env schema: confirm `GITHUB_APP_*` present; add `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID/SECRET`, and review tuning knobs (`STHRIP_REVIEW_CONFIDENCE_FLOOR`, `STHRIP_SUPPRESS_AFTER_N_IGNORES`, `STHRIP_OPENGREP_RULES_DIR`) each with safe `.default(...)`.
-- [ ] T004 [P] Add a license-audit script `server/scripts/license-audit.sh` (asserts no `gitnexus` in `server/src`; asserts Opengrep rules dir is AikidoSec-MIT/self-authored, not semgrep-registry/opengrep-rules) — wired into CI in T0xx polish.
+- [X] T001 Create migration `server/migrations/0013_pr_review_connect.sql`: new `installations` and `review_suppressions` tables; `review_repos` +cols (`enabled`, `status_check_enabled`, `merge_block_on_critical`, `last_review_id`, `installation_row_id`); `review_findings` +cols (`verification_status` default `'unverified'`, `reachability_evidence_md`). Per data-model.md.
+- [X] T002 Add matching Drizzle definitions in `server/src/db/schema.ts` (`installations`, `reviewSuppressions`, new columns + inferred row types), preserving PG-portable SQL.
+- [X] T003 [P] Extend `server/src/config.ts` Zod env schema: confirm `GITHUB_APP_*` present; add `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID/SECRET`, and review tuning knobs (`STHRIP_REVIEW_CONFIDENCE_FLOOR`, `STHRIP_SUPPRESS_AFTER_N_IGNORES`, `STHRIP_OPENGREP_RULES_DIR`) each with safe `.default(...)`.
+- [X] T004 [P] Add a license-audit script `server/scripts/license-audit.sh` (asserts no `gitnexus` in `server/src`; asserts Opengrep rules dir is AikidoSec-MIT/self-authored, not semgrep-registry/opengrep-rules) — wired into CI in T0xx polish.
 
 **Checkpoint**: schema + config compile (`npx tsc --noEmit`), migration applies (`bun run migrate`).
 
@@ -34,11 +34,11 @@ description: "Task list — Sthrip PR Review (feature 004)"
 
 **⚠️ CRITICAL**: blocks all user stories.
 
-- [ ] T005 Write failing tests for the installations repository/service in `server/src/review/service.test.ts` (create/upsert by `installationId`, map to `userId`, suspend/delete cascade-disables `review_repos`, signed audit emitted) — real in-memory SQLite + fake audit signer.
-- [ ] T006 Implement installations CRUD + cross-tenant-safe lookup in `server/src/review/service.ts` (`upsertInstallation`, `getInstallationByGithubId`, `getInstallationsForUser`, `markInstallationDeleted`) emitting `github_app_installed`/`_uninstalled`/`_suspended` via `emitSignedAudit`.
-- [ ] T007 [P] Extend `server/src/review/github/client.ts`: add `listInstallationRepos({installationId})` (paginated `GET /installation/repositories`) + `FakeGitHubClient` parity; unit test in `client.test.ts`.
-- [ ] T008 Extend webhook classifier `server/src/review/github/webhook.ts` `classifyWebhook()` to recognize `installation` (created/deleted/suspend/unsuspend) and `installation_repositories` (added/removed); failing tests in `webhook.test.ts` first.
-- [ ] T009 [P] Add new audit event names to the audit allowlist/types wherever events are enumerated (search `emitSignedAudit` usages / event union) so the new events validate.
+- [X] T005 Write failing tests for the installations repository/service in `server/src/review/service.test.ts` (create/upsert by `installationId`, map to `userId`, suspend/delete cascade-disables `review_repos`, signed audit emitted) — real in-memory SQLite + fake audit signer.
+- [X] T006 Implement installations CRUD + cross-tenant-safe lookup in `server/src/review/service.ts` (`upsertInstallation`, `getInstallationByGithubId`, `getInstallationsForUser`, `markInstallationDeleted`) emitting `github_app_installed`/`_uninstalled`/`_suspended` via `emitSignedAudit`.
+- [X] T007 [P] Extend `server/src/review/github/client.ts`: add `listInstallationRepos({installationId})` (paginated `GET /installation/repositories`) + `FakeGitHubClient` parity; unit test in `client.test.ts`.
+- [X] T008 Extend webhook classifier `server/src/review/github/webhook.ts` `classifyWebhook()` to recognize `installation` (created/deleted/suspend/unsuspend) and `installation_repositories` (added/removed); failing tests in `webhook.test.ts` first.
+- [X] T009 [P] Add new audit event names to the audit allowlist/types wherever events are enumerated (search `emitSignedAudit` usages / event union) so the new events validate.
 
 **Checkpoint**: installation lifecycle persists + audits; foundation ready.
 

@@ -1,5 +1,5 @@
 /**
- * 003-whitebox — GitHub webhook classifier.
+ * 004-sthrip-pr-review — GitHub webhook classifier.
  *
  * Pure routing layer: given a validated `GithubWebhook` payload and the
  * `X-GitHub-Event` name, decide what (if anything) the review engine should
@@ -7,7 +7,13 @@
  *
  *   - a PR is opened / reopened / marked ready-for-review  → full review
  *   - new commits are pushed to an open PR (synchronize)   → re-review
- *   - a human comments `@tensol review` / `/tensol review` → on-demand review
+ *   - a human comments `@sthrip review` / `/sthrip review` → on-demand review
+ *     (also accepts `@tensol review` / `/tensol review` for back-compat)
+ *   - GitHub App installed / deleted / suspended / unsuspended
+ *     → installation_created / installation_deleted / installation_suspend /
+ *       installation_unsuspend
+ *   - Repos added or removed from an installation
+ *     → installation_repos_added / installation_repos_removed
  *
  * Everything else is `ignored` (with a `reason` where it aids debugging).
  *
@@ -21,26 +27,76 @@
  */
 import type { GithubWebhook } from "../schemas.ts";
 
-/** The decision emitted for one incoming webhook delivery. */
+/**
+ * The decision emitted for one incoming webhook delivery.
+ *
+ * A flat shape (all fields optional except `kind`) so callers can access any
+ * field without first narrowing on `kind`. Fields that are only meaningful for
+ * a specific kind are documented inline.
+ */
 export type WebhookEvent = {
-  kind: "pr_opened" | "pr_synchronize" | "review_requested" | "ignored";
+  kind:
+    | "pr_opened"
+    | "pr_synchronize"
+    | "review_requested"
+    | "ignored"
+    | "installation_created"
+    | "installation_deleted"
+    | "installation_suspend"
+    | "installation_unsuspend"
+    | "installation_repos_added"
+    | "installation_repos_removed";
+
+  // --- PR / issue_comment fields ---
   repoFullName?: string;
   prNumber?: number;
   headSha?: string;
   baseSha?: string;
-  installationId?: string;
+  /** Human-readable ignore reason (kind==="ignored"). */
   reason?: string;
+
+  // --- installation / installation_repositories fields ---
+  /** Numeric GitHub installation id as a string. Present on all installation* kinds. */
+  installationId?: string;
+  /** Login of the account (user or org) that installed the App. */
+  accountLogin?: string;
+  /** "User" or "Organization". */
+  accountType?: string;
+  /** "all" or "selected". */
+  repositorySelection?: string;
+  /**
+   * Full-name slugs ("owner/repo") of repositories relevant to this event:
+   *   - installation_created: repos listed on initial install
+   *   - installation_repos_added: added repos
+   *   - installation_repos_removed: removed repos
+   */
+  repositories?: string[];
 };
 
 /** PR actions that mean "run a fresh full review". */
 const OPEN_ACTIONS = new Set(["opened", "reopened", "ready_for_review"]);
 
 /**
- * Matches a human-issued review command anywhere in a comment body:
- *   `@tensol review`  or  `/tensol review`  (any surrounding whitespace,
- *   case-insensitive).
+ * Matches a human-issued Sthrip review command anywhere in a comment body:
+ *   `@sthrip review`  or  `/sthrip review`  (primary / rebranded)
+ *   `@tensol review`  or  `/tensol review`  (legacy back-compat)
+ * Any surrounding whitespace, case-insensitive.
  */
-const REVIEW_COMMAND = /(?:@|\/)tensol\s+review\b/i;
+const REVIEW_COMMAND = /(?:@|\/)(?:sthrip|tensol)\s+review\b/i;
+
+/** Installation actions that map 1-to-1 to a WebhookEvent kind. */
+const INSTALLATION_ACTION_MAP: Record<
+  string,
+  | "installation_created"
+  | "installation_deleted"
+  | "installation_suspend"
+  | "installation_unsuspend"
+> = {
+  created: "installation_created",
+  deleted: "installation_deleted",
+  suspend: "installation_suspend",
+  unsuspend: "installation_unsuspend",
+};
 
 /** Build an `ignored` decision with an optional human-readable reason. */
 function ignored(reason?: string): WebhookEvent {
@@ -112,6 +168,65 @@ function classifyIssueComment(payload: GithubWebhook): WebhookEvent {
   };
 }
 
+/** Classify an `installation` event. */
+function classifyInstallation(payload: GithubWebhook): WebhookEvent {
+  const action = payload.action;
+  const inst = payload.installation;
+  if (!inst) return ignored("installation: missing installation field");
+
+  const kind = action !== undefined ? INSTALLATION_ACTION_MAP[action] : undefined;
+  if (kind === undefined) {
+    return ignored(`installation: unhandled action ${action ?? "<none>"}`);
+  }
+
+  const account = inst.account;
+  if (!account?.login) {
+    return ignored("installation: missing installation.account.login");
+  }
+
+  const repositorySelection = inst.repository_selection ?? "all";
+  const repositories =
+    inst.repositories !== undefined
+      ? inst.repositories.map((r) => r.full_name)
+      : undefined;
+
+  return {
+    kind,
+    installationId: String(inst.id),
+    accountLogin: account.login,
+    accountType: account.type ?? "User",
+    repositorySelection,
+    ...(repositories !== undefined ? { repositories } : {}),
+  };
+}
+
+/** Classify an `installation_repositories` event. */
+function classifyInstallationRepositories(payload: GithubWebhook): WebhookEvent {
+  const action = payload.action;
+  const inst = payload.installation;
+  if (!inst) return ignored("installation_repositories: missing installation field");
+
+  if (action === "added") {
+    const repositories = (payload.repositories_added ?? []).map((r) => r.full_name);
+    return {
+      kind: "installation_repos_added",
+      installationId: String(inst.id),
+      repositories,
+    };
+  }
+
+  if (action === "removed") {
+    const repositories = (payload.repositories_removed ?? []).map((r) => r.full_name);
+    return {
+      kind: "installation_repos_removed",
+      installationId: String(inst.id),
+      repositories,
+    };
+  }
+
+  return ignored(`installation_repositories: unhandled action ${action ?? "<none>"}`);
+}
+
 /**
  * Map an incoming GitHub webhook delivery to a review-engine decision.
  *
@@ -124,6 +239,10 @@ export function classifyWebhook(eventName: string, payload: GithubWebhook): Webh
       return classifyPullRequest(payload);
     case "issue_comment":
       return classifyIssueComment(payload);
+    case "installation":
+      return classifyInstallation(payload);
+    case "installation_repositories":
+      return classifyInstallationRepositories(payload);
     default:
       return ignored(`unhandled event ${eventName}`);
   }

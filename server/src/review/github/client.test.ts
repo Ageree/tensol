@@ -353,6 +353,110 @@ describe("createHttpGitHubClient — resolveReviewThread", () => {
   });
 });
 
+describe("FakeGitHubClient — listInstallationRepos", () => {
+  test("returns canned repos and records the call", async () => {
+    const cannedRepos = [
+      { owner: "acme", name: "widgets", defaultBranch: "main" },
+      { owner: "acme", name: "backend", defaultBranch: "master", repoId: "R_123" },
+    ];
+    const c = new FakeGitHubClient({ installationRepos: cannedRepos });
+    const result = await c.listInstallationRepos({ installationId: "42" });
+    expect(result).toEqual(cannedRepos);
+    expect(c.listInstallationReposCalls).toHaveLength(1);
+    expect(c.listInstallationReposCalls[0]).toEqual({ installationId: "42" });
+  });
+
+  test("returns empty array when no repos configured", async () => {
+    const c = new FakeGitHubClient();
+    const result = await c.listInstallationRepos({ installationId: "99" });
+    expect(result).toEqual([]);
+    expect(c.listInstallationReposCalls).toHaveLength(1);
+  });
+});
+
+describe("createHttpGitHubClient — listInstallationRepos", () => {
+  /** Build a full page of 100 dummy repo entries (names repo-0 … repo-99). */
+  function makeFullPage(startId: number) {
+    return Array.from({ length: 100 }, (_, i) => ({
+      owner: { login: "acme" },
+      name: `repo-${startId + i}`,
+      default_branch: "main",
+      id: startId + i,
+    }));
+  }
+
+  test("GETs /installation/repositories with pagination and maps repos", async () => {
+    // page1 has 100 repos (full) → triggers page 2 request.
+    // page2 has 1 repo (partial) → pagination stops.
+    const page1Repos = makeFullPage(0);
+    const page2Repos = [
+      { owner: { login: "acme" }, name: "frontend", default_branch: "develop", id: 9999 },
+    ];
+
+    const { impl, calls } = makeFetch((rec) => {
+      if (rec.url.includes("/installation/repositories")) {
+        if (rec.url.includes("page=2")) return { json: { total_count: 101, repositories: page2Repos } };
+        return { json: { total_count: 101, repositories: page1Repos } };
+      }
+      return { json: {} };
+    });
+
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+    });
+
+    const repos = await c.listInstallationRepos({ installationId: "42" });
+
+    // Should have 101 repos total (100 from page1 + 1 from page2).
+    expect(repos).toHaveLength(101);
+    // First repo from page 1.
+    expect(repos[0]).toEqual({ owner: "acme", name: "repo-0", defaultBranch: "main", repoId: "0" });
+    // Last repo from page 2.
+    expect(repos[100]).toEqual({ owner: "acme", name: "frontend", defaultBranch: "develop", repoId: "9999" });
+
+    const repoCall = calls[0]!;
+    expect(repoCall.method).toBe("GET");
+    expect(repoCall.url).toContain("https://api.github.com/installation/repositories");
+    expect(repoCall.headers.authorization).toBe("Bearer ghs_installation_token_fake");
+    // Two pages were fetched.
+    expect(calls.length).toBe(2);
+  });
+
+  test("returns empty array when no repositories exist", async () => {
+    const { impl } = makeFetch(() => ({
+      json: { total_count: 0, repositories: [] },
+    }));
+
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+    });
+
+    const repos = await c.listInstallationRepos({ installationId: "42" });
+    expect(repos).toEqual([]);
+  });
+
+  test("throws on non-OK response", async () => {
+    const { impl } = makeFetch(() => ({ status: 403, json: { message: "Forbidden" } }));
+
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+    });
+
+    await expect(c.listInstallationRepos({ installationId: "42" })).rejects.toThrow(
+      "GitHub: listInstallationRepos failed (403)",
+    );
+  });
+});
+
 describe("createHttpGitHubClient — token minting fallback", () => {
   test("without a tokenProvider, mints an installation token via /access_tokens", async () => {
     const { impl, calls } = makeFetch((rec) => {

@@ -41,9 +41,10 @@ import { verifyChain } from "../../src/audit/verify-chain.ts";
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "migrations");
 const KEY = "test-key-new-events";
 
-/** The 29 literals from data-model.md §E8, copied verbatim. Source-of-truth
- *  duplication is deliberate: if `BLACKBOX_AUDIT_EVENTS` drifts from the
- *  spec, the equality assertion below catches it. */
+/** The 38 literals from data-model.md §E8 + feature 004 additions, copied
+ *  verbatim. Source-of-truth duplication is deliberate: if
+ *  `BLACKBOX_AUDIT_EVENTS` drifts from the spec, the equality assertion
+ *  below catches it. (29 blackbox-mvp events + 9 sthrip PR-review events) */
 const EXPECTED_NEW_EVENTS: readonly BlackboxAuditEvent[] = [
   "scan_order_created",
   "scan_order_attack_surface_updated",
@@ -74,6 +75,16 @@ const EXPECTED_NEW_EVENTS: readonly BlackboxAuditEvent[] = [
   "inquiry_status_changed",
   "webhook_invalid_signature",
   "webhook_received",
+  // 004-sthrip PR-review (9)
+  "github_app_installed",
+  "github_app_uninstalled",
+  "github_app_suspended",
+  "review_repo_enabled",
+  "review_repo_disabled",
+  "review_settings_changed",
+  "review_finding_verified",
+  "review_thread_resolved",
+  "review_category_suppressed",
 ] as const;
 
 function migrationSql(): string {
@@ -107,11 +118,12 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 // Test 1 — `BLACKBOX_AUDIT_EVENTS` matches the spec list exactly.
 // ---------------------------------------------------------------------------
-test("BLACKBOX_AUDIT_EVENTS exposes the 29 literals from data-model §E8", () => {
+test("BLACKBOX_AUDIT_EVENTS exposes the 38 literals from data-model §E8 + feature 004", () => {
   // Length first — surfaces a "you added or removed an event" drift loudly
   // before the set-equality assertion buries it.
+  // 29 blackbox-mvp events + 9 sthrip PR-review events = 38 total
   expect(BLACKBOX_AUDIT_EVENTS.length).toBe(EXPECTED_NEW_EVENTS.length);
-  expect(EXPECTED_NEW_EVENTS.length).toBe(29);
+  expect(EXPECTED_NEW_EVENTS.length).toBe(38);
 
   // Set-equality regardless of ordering — the union is order-insensitive at
   // the TypeScript level so we compare as sets.
