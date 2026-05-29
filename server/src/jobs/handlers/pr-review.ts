@@ -20,7 +20,7 @@
  */
 import type { GitHubClient } from "../../review/github/client.ts";
 import { runReview } from "../../review/engine.ts";
-import { postReviewResult } from "../../review/poster.ts";
+import { fingerprintsFromComments, postReviewResult } from "../../review/poster.ts";
 import type { LlmClient } from "../../review/reviewer.ts";
 import type { ReviewService } from "../../review/service.ts";
 
@@ -102,6 +102,18 @@ export function createPrReviewHandler(deps: PrReviewHandlerDeps) {
         const open = await service.getOpenThread(repo.id, f.fingerprint);
         if (open) alreadyPosted.add(f.fingerprint);
       }
+
+      // GitHub is the source of truth for what was actually posted: a retry
+      // after a successful post but BEFORE the local thread row committed would
+      // otherwise re-post identical inline comments. Reconcile fingerprints
+      // already present in the PR's existing comment bodies into the skip set.
+      const existing = await github.listReviewComments({
+        owner: repo.owner,
+        name: repo.name,
+        pr: review.prNumber,
+        ...(installationId !== undefined ? { installationId } : {}),
+      });
+      for (const fp of fingerprintsFromComments(existing)) alreadyPosted.add(fp);
 
       const out = await postReviewResult({
         result,

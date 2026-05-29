@@ -510,4 +510,60 @@ describe("normalizeSarif — defensive / garbage input", () => {
     normalizeSarif(input, "sast");
     expect(JSON.stringify(input)).toBe(snapshot);
   });
+
+  test("percent-decodes the artifactLocation.uri so filePath matches the real path", () => {
+    const out = normalizeSarif(
+      {
+        runs: [
+          {
+            results: [
+              {
+                ruleId: "r",
+                message: { text: "m" },
+                locations: [
+                  {
+                    physicalLocation: {
+                      artifactLocation: { uri: "src/my%20report.ts" },
+                      region: { startLine: 3 },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      "sast",
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]!.filePath).toBe("src/my report.ts");
+  });
+
+  test("malformed percent-escape in uri is left as-is (never throws)", () => {
+    const out = normalizeSarif(
+      {
+        runs: [
+          {
+            results: [
+              {
+                ruleId: "r",
+                message: { text: "m" },
+                locations: [
+                  {
+                    physicalLocation: {
+                      artifactLocation: { uri: "src/100%done.ts" },
+                      region: { startLine: 1 },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      "sast",
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]!.filePath).toBe("src/100%done.ts");
+  });
 });

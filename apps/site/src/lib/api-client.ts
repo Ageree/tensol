@@ -518,6 +518,23 @@ export interface ReviewResultWire {
   findings: ReviewFindingWire[];
 }
 
+/**
+ * GET /v1/review list-item shape. Distinct from `ReviewResultWire`: it carries
+ * a counted `findings_count` instead of a full `findings` array (the list never
+ * loads findings). Mirrors `server/src/routes/review.ts` GET / serializer.
+ */
+export interface ReviewListItemWire {
+  review_id: string;
+  kind?: ReviewKind;
+  status: ReviewRunStatus;
+  score_0_5?: number | null;
+  pr_number?: number | null;
+  repo?: string | null;
+  created_at?: number;
+  completed_at?: number | null;
+  findings_count: number;
+}
+
 export interface ReviewRepoWire {
   id: string;
   scm: "github" | "gitlab" | "bitbucket";
@@ -549,7 +566,6 @@ export interface LaunchWhiteboxBody {
   repo_id?: string;
   repo?: string;
   ref?: string;
-  clone_url?: string;
 }
 
 export const review = {
@@ -561,9 +577,9 @@ export const review = {
   get: (id: string): Promise<ReviewResultWire> =>
     request<ReviewResultWire>(`/v1/review/${encodeURIComponent(id)}`),
 
-  /** GET /v1/review — list the caller's recent reviews. */
-  list: (): Promise<ReviewResultWire[]> =>
-    request<ReviewResultWire[]>("/v1/review"),
+  /** GET /v1/review — list the caller's recent reviews (list-item shape). */
+  list: (): Promise<ReviewListItemWire[]> =>
+    request<ReviewListItemWire[]>("/v1/review"),
 
   /** GET /v1/review/repos — list connected source repos. */
   listRepos: (): Promise<ReviewRepoWire[]> =>

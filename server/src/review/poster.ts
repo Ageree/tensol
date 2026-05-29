@@ -31,6 +31,31 @@ const SEV_EMOJI: Record<string, string> = {
   informational: "⚪",
 };
 
+/**
+ * Hidden fingerprint marker embedded in every posted comment body — the
+ * internal HTML wire marker (NOT a user-facing brand string), kept verbatim.
+ * `g` so a single body containing several markers yields all of them.
+ */
+const FINGERPRINT_MARKER_RE = /<!--\s*tensol:fp:([^\s]+)\s*-->/g;
+
+/**
+ * Extract every `tensol:fp:<id>` fingerprint marker from a set of existing PR
+ * comment bodies. Used to reconcile against GitHub state (the source of truth)
+ * so a retry after a successful post — but before the local thread committed —
+ * does not re-post the same inline comments.
+ */
+export function fingerprintsFromComments(
+  comments: ReadonlyArray<{ body: string }>,
+): Set<string> {
+  const out = new Set<string>();
+  for (const c of comments) {
+    for (const m of c.body.matchAll(FINGERPRINT_MARKER_RE)) {
+      if (m[1]) out.add(m[1]);
+    }
+  }
+  return out;
+}
+
 /** Build the inline comment body for a finding (with hidden stable marker). */
 export function findingToComment(f: ReviewFinding): ReviewComment | null {
   // GitHub inline comments require a line anchor; un-anchored findings are

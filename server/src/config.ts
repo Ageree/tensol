@@ -123,6 +123,14 @@ const ConfigSchema = z
       .string()
       .default("https://openrouter.ai/api/v1"),
     TENSOL_REVIEW_LLM_MODEL: z.string().default("qwen/qwen3.7-max"),
+    // Per-request response timeout (ms) for the review LLM. Bun's fetch has no
+    // default; a stalled upstream would otherwise hang POST /v1/review forever
+    // and pin pr_review/whitebox_scan jobs in `running`. Default 90s.
+    TENSOL_REVIEW_LLM_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(90_000),
 
     PORT: z.coerce
       .number({ invalid_type_error: "PORT must be a number" })

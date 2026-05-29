@@ -14,7 +14,7 @@ import { Eyebrow, Mono, StatusChip } from '../components/primitives.tsx';
 import {
   ApiError,
   type ReviewKind,
-  type ReviewResultWire,
+  type ReviewListItemWire,
   type ReviewRepoWire,
   type ReviewRunStatus,
 } from '../lib/api-client.ts';
@@ -191,7 +191,7 @@ function ReposSection({ repos, loading, error }: ReposSectionProps): ReactElemen
 // ─── Reviews table ────────────────────────────────────────────────────────────
 
 interface ReviewsTableProps {
-  reviews: ReviewResultWire[];
+  reviews: ReviewListItemWire[];
   loading: boolean;
   error: string | null;
 }
@@ -279,7 +279,7 @@ function ReviewsTable({ reviews, loading, error }: ReviewsTableProps): ReactElem
                   </td>
                   <td style={{ padding: '14px 4px', verticalAlign: 'top' }}>
                     <Mono size={11} color="var(--fg)">
-                      {r.findings.length}
+                      {r.findings_count}
                     </Mono>
                   </td>
                   <td style={{ padding: '14px 4px', verticalAlign: 'top' }}>
@@ -313,7 +313,7 @@ function ReviewsTable({ reviews, loading, error }: ReviewsTableProps): ReactElem
 // ─── Page component ───────────────────────────────────────────────────────────
 
 export default function Reviews(): ReactElement {
-  const [reviews, setReviews] = useState<ReviewResultWire[] | null>(null);
+  const [reviews, setReviews] = useState<ReviewListItemWire[] | null>(null);
   const [reviewsErr, setReviewsErr] = useState<string | null>(null);
   const [reviewsLoading, setReviewsLoading] = useState<boolean>(true);
 

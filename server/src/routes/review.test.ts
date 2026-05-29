@@ -16,6 +16,7 @@ import { createRequireAuth } from "../auth/middleware.ts";
 import { hmacSha256 } from "../lib/crypto.ts";
 import { createReviewService } from "../review/service.ts";
 import { FakeLlmClient } from "../review/reviewer.ts";
+import { WhiteboxLaunchBodySchema } from "../review/schemas.ts";
 import { createReviewRouter } from "./review.ts";
 import { createReviewWebhookRouter } from "./review-webhook.ts";
 
@@ -105,13 +106,55 @@ describe("POST /v1/review (sync)", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as {
       review_id: string;
+      status: string;
       score_0_5: number;
-      findings: { severity: string; cvss_score: number }[];
+      findings: { severity: string; cvss_score: number; side: string }[];
     };
     expect(json.score_0_5).toBe(0);
     expect(json.findings.length).toBe(1);
     expect(json.findings[0]!.severity).toBe("critical");
     expect(json.findings[0]!.cvss_score).toBe(9.8);
+    // #10 — the sync 200 body MUST carry the required `status` field.
+    expect(json.status).toBe("completed");
+    // #13 — both serializers emit `side` (default RIGHT for added code).
+    expect(json.findings[0]!.side).toBe("RIGHT");
+  });
+
+  test("#5 an oversized body is rejected with 413 before buffering/parsing", async () => {
+    const db = freshMemDb();
+    const { app } = makeReviewApp(db);
+    // ~3 MiB body — over MAX_TOTAL_REVIEW_BYTES (2 MiB) + 256 KiB headroom.
+    const huge = "a".repeat(3 * 1024 * 1024);
+    const body = JSON.stringify({
+      repo: "acme/web",
+      files: [{ path: "src/x.ts", status: "modified", patch: huge }],
+    });
+    const res = await app.request("/", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(Buffer.byteLength(body, "utf8")),
+      },
+      body,
+    });
+    expect(res.status).toBe(413);
+  });
+
+  test("sync 200 body carries status + side; #4 oversized field is rejected 422", async () => {
+    const db = freshMemDb();
+    const { app } = makeReviewApp(db);
+    // A patch whose UTF-8 byte length exceeds MAX_PATCH_BYTES (512 KiB) via
+    // 3-byte CJK chars, while its .length (UTF-16 units) is under the old cap.
+    const big = "中".repeat(200_000); // 600 000 bytes, 200 000 UTF-16 units
+    const res = await app.request("/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        repo: "acme/web",
+        files: [{ path: "src/x.ts", status: "modified", patch: big }],
+      }),
+    });
+    expect(res.status).toBe(422);
   });
 
   test("503 when the review LLM is not configured", async () => {
@@ -193,7 +236,15 @@ describe("GET /v1/review/:id + list + repos", () => {
 
     const list = await app.request("/");
     expect(list.status).toBe(200);
-    expect(((await list.json()) as unknown[]).length).toBe(1);
+    const listJson = (await list.json()) as Array<Record<string, unknown>>;
+    expect(listJson.length).toBe(1);
+    // #9 — list items use `review_id` + a counted `findings_count`, and MUST
+    // NOT carry a `findings` array (that would crash the Reviews page).
+    const item = listJson[0]!;
+    expect(item.review_id).toBe(review_id);
+    expect(item.findings_count).toBe(1);
+    expect(item.findings).toBeUndefined();
+    expect(item.repo).toBe("acme/web");
 
     const repos = await app.request("/repos");
     expect(repos.status).toBe(200);
@@ -229,6 +280,32 @@ describe("POST /v1/review/whitebox (async)", () => {
       .get();
     expect(jobRow!.type).toBe("whitebox_scan");
     expect(JSON.parse(jobRow!.payloadJson).reviewId).toBe(json.review_id);
+  });
+
+  test("#12 clone_url is no longer an accepted field (stripped, not consumed)", async () => {
+    const db = freshMemDb();
+    const { app } = makeReviewApp(db);
+    // A caller-supplied clone_url has no effect — the field was removed from the
+    // schema (the clone URL is derived server-side from the slug). Zod strips
+    // the unknown key; the request still validates + enqueues.
+    const res = await app.request("/whitebox", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        repo: "acme/api",
+        ref: "main",
+        clone_url: "https://gitlab.example.com/acme/api.git",
+      }),
+    });
+    expect(res.status).toBe(202);
+    const json = (await res.json()) as { status: string; review_id: string };
+    expect(json.status).toBe("queued");
+    // The parsed schema type has no clone_url key (compile-time guarantee).
+    const parsed = WhiteboxLaunchBodySchema.parse({
+      repo: "acme/api",
+      clone_url: "https://x/y.git",
+    });
+    expect("clone_url" in parsed).toBe(false);
   });
 });
 
@@ -282,7 +359,14 @@ describe("POST /v1/review/github/webhook", () => {
   test("queues a pr_review job for a connected repo", async () => {
     const db = freshMemDb();
     const { app, service } = makeWebhookApp(db);
-    await service.upsertRepo({ userId: "user_1", owner: "acme", name: "web" });
+    // Repo is resolved by the SIGNED installation id (42 in prPayload), so it
+    // must be connected WITH that installation id.
+    await service.upsertRepo({
+      userId: "user_1",
+      owner: "acme",
+      name: "web",
+      installationId: "42",
+    });
 
     const res = await app.request("/webhook", {
       method: "POST",
@@ -304,7 +388,12 @@ describe("POST /v1/review/github/webhook", () => {
   test("duplicate delivery id returns 200 duplicate", async () => {
     const db = freshMemDb();
     const { app, service } = makeWebhookApp(db);
-    await service.upsertRepo({ userId: "user_1", owner: "acme", name: "web" });
+    await service.upsertRepo({
+      userId: "user_1",
+      owner: "acme",
+      name: "web",
+      installationId: "42",
+    });
     const headers = {
       "x-github-event": "pull_request",
       "x-github-delivery": "d-dup",
@@ -315,6 +404,110 @@ describe("POST /v1/review/github/webhook", () => {
     const second = await app.request("/webhook", { method: "POST", headers, body: prPayload });
     expect(second.status).toBe(200);
     expect(((await second.json()) as { status: string }).status).toBe("duplicate");
+  });
+
+  test("#3 cross-tenant: resolves the repo by SIGNED installation id, not (owner,name)", async () => {
+    const db = freshMemDb();
+    const { app, service } = makeWebhookApp(db);
+    // A second tenant exists who ALSO connected the same slug under a DIFFERENT
+    // installation (attacker minted a row for victim/web).
+    (db.$client as Database)
+      .query("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)")
+      .run("attacker", "attacker@x.io", clockNow);
+    await service.upsertRepo({
+      userId: "attacker",
+      owner: "acme",
+      name: "web",
+      installationId: "999", // NOT the webhook's installation id
+    });
+    // The victim's genuine row, bound to the webhook's installation id (42).
+    const victim = await service.upsertRepo({
+      userId: "user_1",
+      owner: "acme",
+      name: "web",
+      installationId: "42",
+    });
+
+    const res = await app.request("/webhook", {
+      method: "POST",
+      headers: {
+        "x-github-event": "pull_request",
+        "x-github-delivery": "d-xtenant",
+        "x-hub-signature-256": sign(prPayload),
+      },
+      body: prPayload,
+    });
+    expect(res.status).toBe(202);
+    const json = (await res.json()) as { status: string; review_id: string };
+    expect(json.status).toBe("queued");
+    // The review must bind to the VICTIM's row (installation 42), never the
+    // attacker's (installation 999).
+    const review = await service.getReview(json.review_id);
+    expect(review!.repoId).toBe(victim.id);
+    expect(review!.userId).toBe("user_1");
+  });
+
+  test("#3 a webhook whose installation has no connected row -> 202 repo_not_connected", async () => {
+    const db = freshMemDb();
+    const { app, service } = makeWebhookApp(db);
+    // Connected under a DIFFERENT installation id than the webhook's (42).
+    await service.upsertRepo({
+      userId: "user_1",
+      owner: "acme",
+      name: "web",
+      installationId: "777",
+    });
+    const res = await app.request("/webhook", {
+      method: "POST",
+      headers: {
+        "x-github-event": "pull_request",
+        "x-github-delivery": "d-noinst",
+        "x-hub-signature-256": sign(prPayload),
+      },
+      body: prPayload,
+    });
+    expect(res.status).toBe(202);
+    expect(((await res.json()) as { reason: string }).reason).toBe("repo_not_connected");
+  });
+
+  test("#7 dedup row + review + job commit atomically (no orphan dedup on a crash path)", async () => {
+    const db = freshMemDb();
+    const { app, service } = makeWebhookApp(db);
+    await service.upsertRepo({
+      userId: "user_1",
+      owner: "acme",
+      name: "web",
+      installationId: "42",
+    });
+    const headers = {
+      "x-github-event": "pull_request",
+      "x-github-delivery": "d-atomic",
+      "x-hub-signature-256": sign(prPayload),
+    };
+    const first = await app.request("/webhook", { method: "POST", headers, body: prPayload });
+    expect(first.status).toBe(202);
+    const { review_id, job_id } = (await first.json()) as {
+      review_id: string;
+      job_id: string;
+    };
+    // The dedup row, the review, AND the job all exist (committed together).
+    const dedupRow = db
+      .$client.query("SELECT * FROM webhook_dedup WHERE dedup_key = ?")
+      .get("d-atomic");
+    expect(dedupRow).not.toBeNull();
+    expect((await service.getReview(review_id))!.id).toBe(review_id);
+    const jobRow = db.select().from(jobsTable).where(eq(jobsTable.id, job_id)).get();
+    expect(jobRow!.type).toBe("pr_review");
+
+    // A genuine duplicate delivery rolls back and returns 200 duplicate — and
+    // does NOT create a second review/job.
+    const second = await app.request("/webhook", { method: "POST", headers, body: prPayload });
+    expect(second.status).toBe(200);
+    expect(((await second.json()) as { status: string }).status).toBe("duplicate");
+    const reviewCount = db
+      .$client.query("SELECT COUNT(*) AS n FROM reviews")
+      .get() as { n: number };
+    expect(reviewCount.n).toBe(1);
   });
 
   test("@tensol review issue_comment is explicitly acked as not-yet-supported (no job)", async () => {
