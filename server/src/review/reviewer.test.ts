@@ -13,8 +13,9 @@ import {
   FakeLlmClient,
   buildReviewPrompt,
   review,
+  selfChallenge,
 } from "./reviewer.ts";
-import type { ContextBundle, Candidate } from "./types.ts";
+import type { ContextBundle, Candidate, LlmVerdict } from "./types.ts";
 
 const ctx: ContextBundle = {
   diffSummary: "Added a SQL query built from user input in handlers/login.ts.",
@@ -195,5 +196,171 @@ describe("review", () => {
     });
     await review({ context: ctx, candidates, llm });
     expect(seen).toContain("handlers/login.ts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selfChallenge — T029 / T033
+// ---------------------------------------------------------------------------
+
+/** Build a minimal LlmVerdict for test use. */
+function makeVerdict(overrides: Partial<LlmVerdict> = {}): LlmVerdict {
+  return {
+    filePath: "handlers/login.ts",
+    isVulnerability: true,
+    category: "SQL Injection",
+    cwe: ["CWE-89"],
+    rationaleMd: "User input flows into query.",
+    reachable: true,
+    confidence: "high",
+    cvss: { AV: "N", AC: "L", PR: "N", UI: "N", S: "U", C: "H", I: "H", A: "N" },
+    title: "SQL injection in login",
+    ...overrides,
+  };
+}
+
+/** Canned challenge response: NOT refuted. */
+function challengeKept(): string {
+  return JSON.stringify({ refuted: false, reason: "Exploit path is valid." });
+}
+
+/** Canned challenge response: refuted. */
+function challengeRefuted(): string {
+  return JSON.stringify({ refuted: true, reason: "The sink is in dead code." });
+}
+
+describe("selfChallenge", () => {
+  test("keeps a high-confidence verdict that is not refuted", async () => {
+    const v = makeVerdict({ confidence: "high" });
+    const llm = new FakeLlmClient(() => challengeKept());
+    const result = await selfChallenge({ verdicts: [v], llm, confidenceFloor: "medium" });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.title).toBe("SQL injection in login");
+  });
+
+  test("drops a verdict whose confidence is below the floor", async () => {
+    const v = makeVerdict({ confidence: "low" });
+    const llm = new FakeLlmClient(() => challengeKept());
+    // floor=medium → low is below floor
+    const result = await selfChallenge({ verdicts: [v], llm, confidenceFloor: "medium" });
+    expect(result).toHaveLength(0);
+  });
+
+  test("drops a verdict that the LLM refutes (even if confidence is high)", async () => {
+    const v = makeVerdict({ confidence: "high" });
+    const llm = new FakeLlmClient(() => challengeRefuted());
+    const result = await selfChallenge({ verdicts: [v], llm, confidenceFloor: "medium" });
+    expect(result).toHaveLength(0);
+  });
+
+  test("drops a verdict that is both low-confidence AND refuted", async () => {
+    const v = makeVerdict({ confidence: "low" });
+    const llm = new FakeLlmClient(() => challengeRefuted());
+    const result = await selfChallenge({ verdicts: [v], llm, confidenceFloor: "high" });
+    expect(result).toHaveLength(0);
+  });
+
+  test("keeps verified-confidence verdict at the floor exactly", async () => {
+    const v = makeVerdict({ confidence: "verified" });
+    const llm = new FakeLlmClient(() => challengeKept());
+    // floor=verified → verified meets the floor
+    const result = await selfChallenge({ verdicts: [v], llm, confidenceFloor: "verified" });
+    expect(result).toHaveLength(1);
+  });
+
+  test("mixed batch: keeps passing verdicts, drops refuted and below-floor", async () => {
+    const high = makeVerdict({ confidence: "high", title: "kept-high" });
+    const low = makeVerdict({ confidence: "low", title: "dropped-low" });
+    const refuted = makeVerdict({ confidence: "high", title: "dropped-refuted" });
+
+    const callOrder: string[] = [];
+    const llm = new FakeLlmClient((user) => {
+      // Identify which verdict is being challenged by title substring in prompt
+      if (user.includes("dropped-refuted")) {
+        callOrder.push("refuted");
+        return challengeRefuted();
+      }
+      callOrder.push("kept");
+      return challengeKept();
+    });
+
+    const result = await selfChallenge({
+      verdicts: [high, low, refuted],
+      llm,
+      confidenceFloor: "medium",
+    });
+    // Only "kept-high" survives: "dropped-low" is below floor, "dropped-refuted" is refuted
+    expect(result).toHaveLength(1);
+    expect(result[0]!.title).toBe("kept-high");
+  });
+
+  test("challenge prompt includes the verdict title and rationale (model can reason about it)", async () => {
+    const v = makeVerdict({ title: "MySpecialVuln", rationaleMd: "unique-rationale-xyz" });
+    let capturedPrompt = "";
+    const llm = new FakeLlmClient((user) => {
+      capturedPrompt = user;
+      return challengeKept();
+    });
+    await selfChallenge({ verdicts: [v], llm, confidenceFloor: "low" });
+    expect(capturedPrompt).toContain("MySpecialVuln");
+    expect(capturedPrompt).toContain("unique-rationale-xyz");
+  });
+
+  test("challenge prompt system instruction explicitly says NEVER emit a numeric score", async () => {
+    const v = makeVerdict();
+    let capturedSystem = "";
+    // We need to intercept the system prompt; extend FakeLlmClient usage through
+    // a custom implementation of LlmClient interface
+    const llm = {
+      async complete(args: { system: string; user: string }): Promise<string> {
+        capturedSystem = args.system;
+        return challengeKept();
+      },
+    };
+    await selfChallenge({ verdicts: [v], llm, confidenceFloor: "low" });
+    expect(capturedSystem.toLowerCase()).toMatch(/never.*numeric|numeric.*score|never.*score/);
+  });
+
+  test("challenge response with score field is accepted but score field is not propagated to verdict", async () => {
+    // The model should NEVER emit a numeric score; if it does, we must NOT
+    // propagate it into the returned LlmVerdict (which has no score field).
+    const v = makeVerdict({ confidence: "high" });
+    // Model incorrectly includes a score — it should be silently ignored
+    const llm = new FakeLlmClient(() =>
+      JSON.stringify({ refuted: false, score: 3, reason: "valid" }),
+    );
+    const result = await selfChallenge({ verdicts: [v], llm, confidenceFloor: "low" });
+    expect(result).toHaveLength(1);
+    // The returned LlmVerdict must NOT have a score property
+    expect("score" in result[0]!).toBe(false);
+    expect("cvssScore" in result[0]!).toBe(false);
+  });
+
+  test("returns empty array when verdicts list is empty", async () => {
+    const llm = new FakeLlmClient(() => challengeKept());
+    const result = await selfChallenge({ verdicts: [], llm, confidenceFloor: "low" });
+    expect(result).toEqual([]);
+  });
+
+  test("handles garbage LLM challenge response gracefully (treats as not-refuted)", async () => {
+    // If the challenge response is unparseable, we keep the verdict (conservative: don't drop on parse error)
+    const v = makeVerdict({ confidence: "high" });
+    const llm = new FakeLlmClient(() => "totally not JSON garbage %%##");
+    const result = await selfChallenge({ verdicts: [v], llm, confidenceFloor: "low" });
+    expect(result).toHaveLength(1);
+  });
+
+  test("floor=low passes all confidence levels that are not refuted", async () => {
+    const low = makeVerdict({ confidence: "low" });
+    const med = makeVerdict({ confidence: "medium" });
+    const high = makeVerdict({ confidence: "high" });
+    const verified = makeVerdict({ confidence: "verified" });
+    const llm = new FakeLlmClient(() => challengeKept());
+    const result = await selfChallenge({
+      verdicts: [low, med, high, verified],
+      llm,
+      confidenceFloor: "low",
+    });
+    expect(result).toHaveLength(4);
   });
 });

@@ -184,6 +184,44 @@ describe("classifyWebhook — other events", () => {
 // Sthrip rebranded command trigger
 // ---------------------------------------------------------------------------
 
+describe("classifyWebhook — pull_request baseRef extraction (T023)", () => {
+  test("pull_request opened carries baseRef when base.ref is present in payload", () => {
+    const payload = GithubWebhookSchema.parse({
+      action: "opened",
+      installation: { id: 42 },
+      repository: { full_name: "acme/widgets" },
+      pull_request: {
+        number: 7,
+        draft: false,
+        head: { sha: "headsha123" },
+        base: { sha: "basesha456", ref: "main" },
+        user: { login: "alice", type: "User" },
+      },
+    });
+    const ev = classifyWebhook("pull_request", payload);
+    expect(ev.kind).toBe("pr_opened");
+    expect(ev.baseRef).toBe("main");
+  });
+
+  test("pull_request without base.ref has baseRef undefined", () => {
+    const payload = GithubWebhookSchema.parse({
+      action: "opened",
+      installation: { id: 42 },
+      repository: { full_name: "acme/widgets" },
+      pull_request: {
+        number: 7,
+        draft: false,
+        head: { sha: "headsha123" },
+        base: { sha: "basesha456" },
+        user: { login: "alice", type: "User" },
+      },
+    });
+    const ev = classifyWebhook("pull_request", payload);
+    expect(ev.kind).toBe("pr_opened");
+    expect(ev.baseRef).toBeUndefined();
+  });
+});
+
 describe("classifyWebhook — @sthrip / /sthrip review trigger (rebrand)", () => {
   test("@sthrip review by a human → review_requested", () => {
     const ev = classifyWebhook(

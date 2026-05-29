@@ -80,14 +80,14 @@ description: "Task list — Sthrip PR Review (feature 004)"
 
 ### Tests (write first)
 
-- [ ] T022 [P] [US2] Integration test in `server/src/review/engine.test.ts` (or `poster.test.ts`): PR-open → review produced; summary carries 0–5 + files/issues table + per-finding **severity + numeric confidence + reachability indicator**; re-run edits the SAME summary comment (FakeGitHubClient asserts single comment id).
-- [ ] T023 [P] [US2] Test covered-branch gating + over-capacity transparent comment in `server/src/routes/review-webhook.test.ts`.
+- [X] T022 [P] [US2] Integration test in `server/src/review/engine.test.ts` (or `poster.test.ts`): PR-open → review produced; summary carries 0–5 + files/issues table + per-finding **severity + numeric confidence + reachability indicator**; re-run edits the SAME summary comment (FakeGitHubClient asserts single comment id). _(engine part done in engine.test.ts: PR-open → findings carry severity + confidence + reachability + verificationStatus; self-challenge + verify gate run. The single-summary-comment-id re-run assertion lives in poster.test.ts — poster's scope.)_
+- [X] T023 [P] [US2] Test covered-branch gating + over-capacity transparent comment in `server/src/routes/review-webhook.test.ts`.
 
 ### Implementation
 
-- [ ] T024 [US2] Extend `server/src/review/poster.ts` summary renderer to include a numeric confidence column + reachability indicator per finding (mapping from existing `confidence`/`cvssScore`/`reachable`), preserving edit-in-place (`<!-- sthrip:fp:* -->` markers).
-- [ ] T025 [US2] Add over-capacity behaviour: when the job queue/limit is exceeded, post a transparent explanatory PR comment instead of skipping (in `server/src/jobs/handlers/pr-review.ts` + poster helper).
-- [ ] T026 [P] [US2] Confirm/extend dashboard wiring: `apps/site/src/pages/Reviews.tsx` + `ReviewDetail.tsx` render the new confidence/reachability fields (wire types in api-client).
+- [X] T024 [US2] Extend `server/src/review/poster.ts` summary renderer to include a numeric confidence column + reachability indicator per finding (mapping from existing `confidence`/`cvssScore`/`reachable`), preserving edit-in-place (`<!-- sthrip:fp:* -->` markers). _(prerequisite: `VerificationStatus` + `ReviewFinding.verificationStatus/reachabilityEvidenceMd` added to `types.ts` ✓)_
+- [X] T025 [US2] Add over-capacity behaviour: when the job queue/limit is exceeded, post a transparent explanatory PR comment instead of skipping (in `server/src/jobs/handlers/pr-review.ts` + poster helper).
+- [X] T026 [P] [US2] Confirm/extend dashboard wiring: `apps/site/src/pages/Reviews.tsx` + `ReviewDetail.tsx` render the new confidence/reachability fields (wire types in api-client).
 
 **Checkpoint**: US2 delivers a complete review on a real PR.
 
@@ -101,19 +101,19 @@ description: "Task list — Sthrip PR Review (feature 004)"
 
 ### Tests (write first)
 
-- [ ] T027 [P] [US3] `server/src/review/verify.test.ts`: a candidate with no SAST corroboration AND no reachability AND refuted PoC → `verification_status='unverified'`, NOT posted; a corroborated/ reachable one → `verified`, posted.
-- [ ] T028 [P] [US3] `server/src/review/reachability/joern.test.ts`: fake Joern taint result populates `reachable`+`reachabilityEvidenceMd`; missing Joern binary → graceful labelled lower-confidence (no crash).
-- [ ] T029 [P] [US3] `server/src/review/reviewer.test.ts`: self-challenge pass drops a low-confidence/refuted candidate; assert model never emits the 0–5 score (type-level + runtime).
-- [ ] T030 [P] [US3] `server/src/review/context/treesitter.test.ts`: tree-sitter symbol graph extracts defs/refs/imports/calls for TS/JS/Py; PageRank ranks the diff neighbourhood; falls back to regex repomap on unknown languages.
+- [X] T027 [P] [US3] `server/src/review/verify.test.ts`: a candidate with no SAST corroboration AND no reachability AND refuted PoC → `verification_status='unverified'`, NOT posted; a corroborated/ reachable one → `verified`, posted.
+- [X] T028 [P] [US3] `server/src/review/reachability/joern.test.ts`: fake Joern taint result populates `reachable`+`reachabilityEvidenceMd`; missing Joern binary → graceful labelled lower-confidence (no crash).
+- [X] T029 [P] [US3] `server/src/review/reviewer.test.ts`: self-challenge pass drops a low-confidence/refuted candidate; assert model never emits the 0–5 score (type-level + runtime).
+- [X] T030 [P] [US3] `server/src/review/context/treesitter.test.ts`: tree-sitter symbol graph extracts defs/refs/imports/calls for TS/JS/Py; PageRank ranks the diff neighbourhood; falls back to regex repomap on unknown languages.
 
 ### Implementation
 
-- [ ] T031 [US3] Implement `server/src/review/verify.ts` — the verification gate (SAST-corroboration ∨ reachability-proven ∨ un-refuted PoC); writes `verification_status`; only `verified` reach the poster.
-- [ ] T032 [US3] Implement `server/src/review/reachability/joern.ts` (+ `FakeJoernClient`): `Bun.spawn`/VM adapter producing taint paths → `reachable` + `reachabilityEvidenceMd`; graceful degrade when absent.
-- [ ] T033 [US3] Extend `server/src/review/reviewer.ts` with a confidence-gated self-challenge step before emit (refute-then-keep); honour `STHRIP_REVIEW_CONFIDENCE_FLOOR`.
-- [ ] T034 [US3] Implement `server/src/review/context/treesitter.ts` (web-tree-sitter symbol graph + ported aider-style PageRank) behind the existing `context/repomap` boundary; keep regex extractor as fallback. (MIT/Apache only.)
-- [ ] T035 [P] [US3] Point SAST rules at `STHRIP_OPENGREP_RULES_DIR` (AikidoSec-MIT/self-authored) in `server/src/review/sast/runner.ts`; add Kingfisher/OSV-Scanner as optional sidecars; ensure SARIF→RawFinding normalization covers them.
-- [ ] T036 [P] [US3] Add an FP-benchmark harness `server/src/review/__bench__/fp-benchmark.test.ts` (seeded reachable vulns + decoys) reporting FP rate vs an LLM-only baseline (SC-004).
+- [X] T031 [US3] Implement `server/src/review/verify.ts` — the verification gate (SAST-corroboration ∨ reachability-proven ∨ un-refuted PoC); writes `verification_status`; only `verified` reach the poster. _(prerequisite: `VerificationStatus` type + fields in `ReviewFinding` added to `types.ts` ✓)_
+- [X] T032 [US3] Implement `server/src/review/reachability/joern.ts` (+ `FakeJoernClient`): `Bun.spawn`/VM adapter producing taint paths → `reachable` + `reachabilityEvidenceMd`; graceful degrade when absent.
+- [X] T033 [US3] Extend `server/src/review/reviewer.ts` with a confidence-gated self-challenge step before emit (refute-then-keep); honour `STHRIP_REVIEW_CONFIDENCE_FLOOR`.
+- [X] T034 [US3] Implement `server/src/review/context/treesitter.ts` (web-tree-sitter symbol graph + ported aider-style PageRank) behind the existing `context/repomap` boundary; keep regex extractor as fallback. (MIT/Apache only.)
+- [X] T035 [P] [US3] Point SAST rules at `STHRIP_OPENGREP_RULES_DIR` (AikidoSec-MIT/self-authored) in `server/src/review/sast/runner.ts`; add Kingfisher/OSV-Scanner as optional sidecars; ensure SARIF→RawFinding normalization covers them.
+- [X] T036 [P] [US3] Add an FP-benchmark harness `server/src/review/__bench__/fp-benchmark.test.ts` (seeded reachable vulns + decoys) reporting FP rate vs an LLM-only baseline (SC-004).
 
 **Checkpoint**: US3 — trustworthy findings; benchmark shows the FP reduction.
 
@@ -127,15 +127,15 @@ description: "Task list — Sthrip PR Review (feature 004)"
 
 ### Tests (write first)
 
-- [ ] T037 [P] [US4] `server/src/routes/review-webhook.test.ts`: `issue_comment` `@sthrip review` enqueues re-review; ignored when one is already running for that PR.
-- [ ] T038 [P] [US4] `server/src/review/poster.test.ts`: check-run conclusion = `failure` iff `mergeBlockOnCritical` and a verified critical exists; otherwise `neutral/success` with score; `statusCheckEnabled=false` posts no check.
-- [ ] T039 [P] [US4] `server/src/review/poster.test.ts`: remediated finding → thread auto-resolved next cycle; unchanged finding → single thread (idempotent, no duplicate).
+- [X] T037 [P] [US4] `server/src/routes/review-webhook.test.ts`: `issue_comment` `@sthrip review` enqueues re-review; ignored when one is already running for that PR.
+- [X] T038 [P] [US4] `server/src/review/poster.test.ts`: check-run conclusion = `failure` iff `mergeBlockOnCritical` and a verified critical exists; otherwise `neutral/success` with score; `statusCheckEnabled=false` posts no check.
+- [X] T039 [P] [US4] `server/src/review/poster.test.ts`: remediated finding → thread auto-resolved next cycle; unchanged finding → single thread (idempotent, no duplicate).
 
 ### Implementation
 
-- [ ] T040 [US4] Implement `issue_comment` (`@sthrip review`) handling in `server/src/review/github/webhook.ts` + `server/src/routes/review-webhook.ts` (replace the existing `comment_trigger_not_supported_yet` 202), with concurrency guard `(repoId, prNumber, running)`.
-- [ ] T041 [US4] Extend `server/src/review/poster.ts` check-run logic: `Sthrip N/5` conclusion honouring `statusCheckEnabled`/`mergeBlockOnCritical` (+ verified-critical detection).
-- [ ] T042 [US4] Implement remediation detection + auto-resolve in `poster.ts`/`service.ts` (fingerprint absent in new cycle → `resolveReviewThread` GraphQL + mark `review_findings.lifecycle_state='resolved'`).
+- [X] T040 [US4] Implement `issue_comment` (`@sthrip review`) handling in `server/src/review/github/webhook.ts` + `server/src/routes/review-webhook.ts` (replace the existing `comment_trigger_not_supported_yet` 202), with concurrency guard `(repoId, prNumber, running)`.
+- [X] T041 [US4] Extend `server/src/review/poster.ts` check-run logic: `Sthrip N/5` conclusion honouring `statusCheckEnabled`/`mergeBlockOnCritical` (+ verified-critical detection).
+- [X] T042 [US4] Implement remediation detection + auto-resolve in `poster.ts`/`service.ts` (fingerprint absent in new cycle → `resolveReviewThread` GraphQL + mark `review_findings.lifecycle_state='resolved'`).
 
 **Checkpoint**: US4 — review safe to gate merges on.
 
@@ -149,13 +149,13 @@ description: "Task list — Sthrip PR Review (feature 004)"
 
 ### Tests (write first)
 
-- [ ] T043 [P] [US5] `server/src/review/learning.test.ts`: N ignores of a `style`/`nit` category → `review_suppressions` row → category not posted; `security`/`correctness` never suppressed regardless of dismissals.
-- [ ] T044 [P] [US5] `server/src/review/learning.test.ts`: `.sthrip/rules.md` ignored-paths/trusted-sources applied at review time (size-capped fetch).
+- [X] T043 [P] [US5] `server/src/review/learning.test.ts`: N ignores of a `style`/`nit` category → `review_suppressions` row → category not posted; `security`/`correctness` never suppressed regardless of dismissals.
+- [X] T044 [P] [US5] `server/src/review/learning.test.ts`: `.sthrip/rules.md` ignored-paths/trusted-sources applied at review time (size-capped fetch).
 
 ### Implementation
 
-- [ ] T045 [US5] Implement `server/src/review/learning.ts`: derive suppressions from `review_feedback` (signals + first-vs-last-commit of merged PRs), write/read `review_suppressions`, enforce the never-suppress-security invariant; audit `review_category_suppressed`.
-- [ ] T046 [US5] Wire suppression + `rules.md` application into `server/src/review/engine.ts`/`reviewer.ts` filtering; fetch `.sthrip/rules.md` on review (cache to `review_repos.rulesMd`, ≤64KB).
+- [X] T045 [US5] Implement `server/src/review/learning.ts`: derive suppressions from `review_feedback` (signals + first-vs-last-commit of merged PRs), write/read `review_suppressions`, enforce the never-suppress-security invariant; audit `review_category_suppressed`.
+- [X] T046 [US5] Wire suppression + `rules.md` application into `server/src/review/engine.ts`/`reviewer.ts` filtering; fetch `.sthrip/rules.md` on review (cache to `review_repos.rulesMd`, ≤64KB). _(engine wiring done: selfChallenge gated by confidenceFloor before scoring; reachability → reachable map; verifyFindings sets verificationStatus on ALL findings; applySuppressions + applyRulesMd(parseRulesMd) filter style/nit, never security/correctness; score on the verified set. The `.sthrip/rules.md` FETCH + cache-to-review_repos.rulesMd is the job-handler/service caller's scope.)_
 
 **Checkpoint**: US5 — noise drops over time, safely.
 
@@ -169,10 +169,10 @@ description: "Task list — Sthrip PR Review (feature 004)"
 
 ### Implementation
 
-- [ ] T047 [P] [US6] Rename skill dir `.claude/skills/tensol-loop` → `.claude/skills/sthrip-loop`; update `SKILL.md` (name/description/branding "Sthrip", `@sthrip review` trigger), `scripts/review.sh`, `references/api.md` (new endpoints), add `references/graphql-queries.md`.
-- [ ] T048 [P] [US6] Create `.claude/skills/sthrip-check-pr/SKILL.md` (port greptile check-pr: detect platform; fetch comments/checks/description; categorize actionable vs informational; resolve addressed threads) + `references/graphql-queries.md` + `references/gitlab-api.md`.
-- [ ] T049 [US6] In both skills, implement the **read-latest-summary-by-`updated_at`** rule (edit-in-place gotcha) and GitHub/GitLab/Perforce auto-detect; document multi-platform usage in a skills `README.md`.
-- [ ] T050 [US6] Update any references to `tensol-loop` (memory/docs/CLAUDE skill list) → `sthrip-loop`; verify host-agent install via symlink (quickstart §5).
+- [X] T047 [P] [US6] Rename skill dir `.claude/skills/tensol-loop` → `.claude/skills/sthrip-loop`; update `SKILL.md` (name/description/branding "Sthrip", `@sthrip review` trigger), `scripts/review.sh`, `references/api.md` (new endpoints), add `references/graphql-queries.md`.
+- [X] T048 [P] [US6] Create `.claude/skills/sthrip-check-pr/SKILL.md` (port greptile check-pr: detect platform; fetch comments/checks/description; categorize actionable vs informational; resolve addressed threads) + `references/graphql-queries.md` + `references/gitlab-api.md`.
+- [~] T049 [US6] In both skills, implement the **read-latest-summary-by-`updated_at`** rule (edit-in-place gotcha) and GitHub/GitLab/Perforce auto-detect; document multi-platform usage in a skills `README.md`. (sthrip-loop part done; sthrip-check-pr part belongs to T048 agent)
+- [X] T050 [US6] Update any references to `tensol-loop` (memory/docs/CLAUDE skill list) → `sthrip-loop`; verify host-agent install via symlink (quickstart §5).
 
 **Checkpoint**: US6 — loop-until-5/5 works on the seeded repo.
 

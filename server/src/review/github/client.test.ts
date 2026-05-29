@@ -457,6 +457,80 @@ describe("createHttpGitHubClient — listInstallationRepos", () => {
   });
 });
 
+// ───────────────────────────────────────────────────────────────────────────
+// FakeGitHubClient — getPullRequest (T040)
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("FakeGitHubClient — getPullRequest", () => {
+  test("returns default canned PR info when not seeded", async () => {
+    const c = new FakeGitHubClient();
+    const info = await c.getPullRequest({ owner: "o", name: "n", pr: 7 });
+    expect(info.headSha).toBe("fake-head-sha");
+    expect(info.baseSha).toBe("fake-base-sha");
+    expect(info.baseRef).toBe("main");
+    expect(c.getPullRequestCalls).toHaveLength(1);
+    expect(c.getPullRequestCalls[0]).toEqual({ owner: "o", name: "n", pr: 7 });
+  });
+
+  test("returns seeded PR info", async () => {
+    const c = new FakeGitHubClient({
+      pullRequestInfo: { headSha: "abc123", baseSha: "def456", baseRef: "develop" },
+    });
+    const info = await c.getPullRequest({ owner: "o", name: "n", pr: 3, installationId: "42" });
+    expect(info.headSha).toBe("abc123");
+    expect(info.baseRef).toBe("develop");
+    expect(c.getPullRequestCalls[0]).toEqual({ owner: "o", name: "n", pr: 3, installationId: "42" });
+  });
+});
+
+describe("createHttpGitHubClient — getPullRequest", () => {
+  test("GETs /pulls/{pr} and maps headSha/baseSha/baseRef", async () => {
+    const { impl, calls } = makeFetch((rec) => {
+      if (rec.url.includes("/pulls/5") && !rec.url.includes("/files") && !rec.url.includes("/reviews") && !rec.url.includes("/comments")) {
+        return {
+          json: {
+            head: { sha: "head-sha-xyz" },
+            base: { sha: "base-sha-abc", ref: "main" },
+          },
+        };
+      }
+      return { json: {} };
+    });
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+    });
+    const info = await c.getPullRequest({
+      owner: "acme",
+      name: "widgets",
+      pr: 5,
+      installationId: "42",
+    });
+    expect(info.headSha).toBe("head-sha-xyz");
+    expect(info.baseSha).toBe("base-sha-abc");
+    expect(info.baseRef).toBe("main");
+    const call = calls.find((c2) => c2.url.includes("/pulls/5") && !c2.url.includes("files"))!;
+    expect(call.method).toBe("GET");
+    expect(call.url).toBe("https://api.github.com/repos/acme/widgets/pulls/5");
+    expect(call.headers.authorization).toBe("Bearer ghs_installation_token_fake");
+  });
+
+  test("throws on non-OK response", async () => {
+    const { impl } = makeFetch(() => ({ status: 404, json: { message: "Not Found" } }));
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+    });
+    await expect(
+      c.getPullRequest({ owner: "o", name: "n", pr: 99, installationId: "42" }),
+    ).rejects.toThrow("GitHub: getPullRequest failed (404)");
+  });
+});
+
 describe("createHttpGitHubClient — token minting fallback", () => {
   test("without a tokenProvider, mints an installation token via /access_tokens", async () => {
     const { impl, calls } = makeFetch((rec) => {

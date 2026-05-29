@@ -12,6 +12,7 @@ import { FakeLlmClient } from "../../review/reviewer.ts";
 import { FakeSastRunner } from "../../review/sast/runner.ts";
 import { FakeRepoFetcher } from "../../review/repo-fetch.ts";
 import type { DiffFile, RawFinding } from "../../review/types.ts";
+import type { ReachabilityClient } from "../../review/reachability/joern.ts";
 import { createPrReviewHandler } from "./pr-review.ts";
 import { createWhiteboxScanHandler } from "./whitebox-scan.ts";
 
@@ -85,6 +86,16 @@ function sqliResponder(): string {
       },
     ],
   });
+}
+
+/**
+ * Responder that ALSO answers the adversarial self-challenge pass (which only
+ * runs when `confidenceFloor` is wired into runReview). The challenge prompt
+ * asks "Can you REFUTE this finding?" — we keep the verdict (refuted:false).
+ */
+function sqliResponderWithChallenge(user: string): string {
+  if (user.includes("REFUTE")) return JSON.stringify({ refuted: false });
+  return sqliResponder();
 }
 
 describe("createPrReviewHandler", () => {
@@ -298,6 +309,11 @@ describe("createPrReviewHandler", () => {
         accountType: "Organization",
         repositorySelection: "all",
       }),
+      getPullRequest: async () => ({
+        headSha: "fake-head",
+        baseSha: "fake-base",
+        baseRef: "main",
+      }),
     };
     const handler = createPrReviewHandler({
       service: svc,
@@ -326,6 +342,308 @@ describe("createPrReviewHandler", () => {
       llm: new FakeLlmClient(() => "{}"),
     });
     await expect(handler("job-1", { nope: true })).rejects.toThrow(/missing reviewId/);
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Wave-3 wiring (T025 + T042): settings → PostContext, reachability injection,
+  // confidence floor + suppressions → runReview, remediation auto-resolve, and
+  // the over-capacity transparent comment.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  test("repo settings (statusCheckEnabled/mergeBlockOnCritical) flow into PostContext", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({ userId: "user_1", owner: "acme", name: "web" });
+    // Disable the status check + arm merge-block-on-critical on the repo.
+    await svc.updateRepoSettings({
+      repoId: repo.id,
+      userId: "user_1",
+      statusCheckEnabled: false,
+      mergeBlockOnCritical: true,
+    });
+    const review = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "sha1",
+    });
+    const github = new FakeGitHubClient({ files: [sqliFile] });
+    const handler = createPrReviewHandler({
+      service: svc,
+      github,
+      llm: new FakeLlmClient(sqliResponder),
+    });
+    await handler("job-1", { reviewId: review.id });
+
+    // statusCheckEnabled=false → no check-run is posted.
+    expect(github.createCheckRunCalls.length).toBe(0);
+    // Inline review still posted (the finding is verified+critical).
+    expect(github.postReviewCalls.length).toBe(1);
+  });
+
+  test("mergeBlockOnCritical forces a failure check-run on a verified critical", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({ userId: "user_1", owner: "acme", name: "web" });
+    await svc.updateRepoSettings({
+      repoId: repo.id,
+      userId: "user_1",
+      statusCheckEnabled: true,
+      mergeBlockOnCritical: true,
+    });
+    const review = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "sha1",
+    });
+    const github = new FakeGitHubClient({ files: [sqliFile] });
+    const handler = createPrReviewHandler({
+      service: svc,
+      github,
+      llm: new FakeLlmClient(sqliResponder),
+    });
+    await handler("job-1", { reviewId: review.id });
+    expect(github.createCheckRunCalls.length).toBe(1);
+    expect(github.createCheckRunCalls[0]!.conclusion).toBe("failure");
+  });
+
+  test("injected reachability client is run + its evidence is persisted", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({ userId: "user_1", owner: "acme", name: "web" });
+    const review = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "sha1",
+    });
+
+    // Learn the deterministic fingerprint the engine produces first.
+    const probeGh = new FakeGitHubClient({ files: [sqliFile] });
+    const probeReview = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 99,
+      headSha: "probe",
+    });
+    await createPrReviewHandler({
+      service: svc,
+      github: probeGh,
+      llm: new FakeLlmClient(sqliResponder),
+    })("probe", { reviewId: probeReview.id });
+    const fp = (await svc.getReviewFindings(probeReview.id))[0]!.fingerprint;
+
+    let analyzeCalls = 0;
+    const reachability: ReachabilityClient = {
+      analyze: async () => {
+        analyzeCalls += 1;
+        return { [fp]: { reachable: true, evidenceMd: "source→sink trace" } };
+      },
+    };
+    const github = new FakeGitHubClient({ files: [sqliFile] });
+    const handler = createPrReviewHandler({
+      service: svc,
+      github,
+      llm: new FakeLlmClient(sqliResponder),
+      reachability,
+      repoDir: "/tmp/checkout",
+    });
+    await handler("job-1", { reviewId: review.id });
+
+    expect(analyzeCalls).toBe(1);
+    const findings = await svc.getReviewFindings(review.id);
+    expect(findings[0]!.reachabilityEvidenceMd).toBe("source→sink trace");
+  });
+
+  test("degrades gracefully when no reachability client is injected", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({ userId: "user_1", owner: "acme", name: "web" });
+    const review = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "sha1",
+    });
+    const github = new FakeGitHubClient({ files: [sqliFile] });
+    // No `reachability` dep at all — the handler must still complete normally.
+    const handler = createPrReviewHandler({
+      service: svc,
+      github,
+      llm: new FakeLlmClient(sqliResponder),
+    });
+    await handler("job-1", { reviewId: review.id });
+    const finalized = await svc.getReview(review.id);
+    expect(finalized!.status).toBe("completed");
+    expect(github.postReviewCalls.length).toBe(1);
+  });
+
+  test("confidence floor is wired: a self-challenge pass runs over the verdicts", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({ userId: "user_1", owner: "acme", name: "web" });
+    const review = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "sha1",
+    });
+
+    let challengeCalls = 0;
+    const llm = new FakeLlmClient((user) => {
+      if (user.includes("REFUTE")) {
+        challengeCalls += 1;
+        return JSON.stringify({ refuted: false });
+      }
+      return sqliResponder();
+    });
+    const handler = createPrReviewHandler({
+      service: svc,
+      github: new FakeGitHubClient({ files: [sqliFile] }),
+      llm,
+      confidenceFloor: "high",
+    });
+    await handler("job-1", { reviewId: review.id });
+
+    // The self-challenge pass executed (proof the floor reached the engine).
+    expect(challengeCalls).toBe(1);
+    const finalized = await svc.getReview(review.id);
+    expect(finalized!.status).toBe("completed");
+    expect(finalized!.findingsCount).toBe(1);
+  });
+
+  test("suppressed categories from the service are passed into the engine", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({ userId: "user_1", owner: "acme", name: "web" });
+    // Suppress a benign nit category — security is never suppressible, so the
+    // SQLi finding still posts. This proves listSuppressions is consulted.
+    await svc.writeSuppression({
+      repoId: repo.id,
+      category: "Style",
+      reason: "ignored_n_times",
+      ignoreCount: 3,
+    });
+    const review = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "sha1",
+    });
+    const github = new FakeGitHubClient({ files: [sqliFile] });
+    const handler = createPrReviewHandler({
+      service: svc,
+      github,
+      llm: new FakeLlmClient(sqliResponder),
+    });
+    await handler("job-1", { reviewId: review.id });
+    // Security finding survives suppression (NEVER_SUPPRESS invariant).
+    expect(github.postReviewCalls.length).toBe(1);
+    const finalized = await svc.getReview(review.id);
+    expect(finalized!.findingsCount).toBe(1);
+  });
+
+  test("a remediated finding resolves its prior thread on the next cycle", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({ userId: "user_1", owner: "acme", name: "web" });
+
+    // Cycle 1: the SQLi finding is posted + a thread is mapped.
+    const review1 = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "sha1",
+    });
+    const g1 = new FakeGitHubClient({ files: [sqliFile] });
+    await createPrReviewHandler({
+      service: svc,
+      github: g1,
+      llm: new FakeLlmClient(sqliResponder),
+    })("job-1", { reviewId: review1.id });
+    const fp = (await svc.getReviewFindings(review1.id))[0]!.fingerprint;
+    const thread = await svc.getOpenThread(repo.id, fp);
+    expect(thread).not.toBeNull();
+
+    // Cycle 2: the next commit REMEDIATES the finding — the LLM now finds
+    // nothing. The prior thread must be auto-resolved.
+    const review2 = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "sha2",
+    });
+    const cleanFile: DiffFile = {
+      path: "src/db.ts",
+      status: "modified",
+      patch: [
+        "@@ -10,3 +10,4 @@ function q(req) {",
+        " const id = req.query.id;",
+        "+const rows = db.query('SELECT * FROM users WHERE id = ?', [id]);",
+        "+return rows;",
+        " }",
+      ].join("\n"),
+    };
+    const g2 = new FakeGitHubClient({ files: [cleanFile] });
+    await createPrReviewHandler({
+      service: svc,
+      github: g2,
+      llm: new FakeLlmClient(() => JSON.stringify({ summary: "clean", verdicts: [] })),
+    })("job-2", { reviewId: review2.id });
+
+    // The GitHub thread was resolved AND the local thread is now resolved.
+    expect(g2.resolveThreadCalls.length).toBe(1);
+    expect(await svc.getOpenThread(repo.id, fp)).toBeNull();
+  });
+
+  test("over-capacity: a concurrent running review → transparent comment, no second engine run", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({ userId: "user_1", owner: "acme", name: "web" });
+
+    // A FIRST review is already running for this PR (simulating a concurrent job).
+    const running = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "sha1",
+    });
+    await svc.markReviewRunning(running.id);
+
+    // A SECOND review for the same PR is dispatched while the first runs.
+    const review2 = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "sha1",
+    });
+    const github = new FakeGitHubClient({ files: [sqliFile] });
+    const handler = createPrReviewHandler({
+      service: svc,
+      github,
+      llm: new FakeLlmClient(sqliResponder),
+    });
+    await handler("job-2", { reviewId: review2.id });
+
+    // No engine run (no file fetch, no inline review, no check-run).
+    expect(github.getFilesCalls.length).toBe(0);
+    expect(github.createCheckRunCalls.length).toBe(0);
+    // A single transparent over-capacity comment was posted (body-only review).
+    expect(github.postReviewCalls.length).toBe(1);
+    expect(github.postReviewCalls[0]!.comments.length).toBe(0);
+    expect(github.postReviewCalls[0]!.body).toContain("@sthrip review");
   });
 });
 

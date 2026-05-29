@@ -1400,6 +1400,61 @@ const en = {
   },
   // ── END:repos ─────────────────────────────────────────────────────────
 
+  // ── BEGIN:reviews (T026 — Reviews list + detail pages) ───────────────
+  reviews: {
+    pageTitle: 'Security Reviews — Sthrip',
+    title: 'Security Reviews',
+    subtitle: 'AI-assisted PR review and full-repository whitebox assessment coverage.',
+    // List page
+    sectionRepos: 'Connected repositories',
+    sectionRecent: 'Recent reviews',
+    colKind: 'Kind',
+    colRepo: 'Repository',
+    colScore: 'Score',
+    colStatus: 'Status',
+    colFindings: 'Findings',
+    colCreated: 'Created',
+    loadingRepos: 'Loading repositories…',
+    loadingReviews: 'Loading reviews…',
+    errorRepos: 'Failed to load repositories',
+    errorReviews: 'Failed to load reviews',
+    emptyRepos: 'No repositories connected yet. Install the GitHub App to start reviewing pull requests.',
+    emptyReviews: 'No reviews yet. Push a pull request or trigger a whitebox scan to see results here.',
+    detailLink: 'Detail →',
+    kindPr: 'PR',
+    kindWhitebox: 'Whitebox',
+    // Detail page
+    back: '← Reviews',
+    loadingDetail: 'Loading review…',
+    errorDetail: 'Failed to load review',
+    noId: 'No review ID provided.',
+    inProgress: 'Review in progress — results will appear automatically as they complete.',
+    sectionSummary: 'Summary',
+    sectionFindings: 'Findings',
+    findingsSuffix: '·',
+    noFindings: 'No findings for this review.',
+    rationale: 'Rationale',
+    pocLabel: 'Proof of concept',
+    fixLabel: 'Suggested fix',
+    // Finding chip labels
+    labelCategory: 'Category',
+    labelCvss: 'CVSS',
+    labelConfidence: 'Confidence',
+    labelReachable: 'Reachable',
+    labelSource: 'Source',
+    labelCwe: 'CWE',
+    labelVerification: 'Verified',
+    labelReachEvidence: 'Reachability evidence',
+    // Reachability values
+    reachableYes: 'yes',
+    reachableNo: 'not proven',
+    // Verification status values
+    verificationVerified: 'verified',
+    verificationUnverified: 'unverified',
+    verificationRefuted: 'refuted',
+  },
+  // ── END:reviews ───────────────────────────────────────────────────────
+
   // ── BEGIN:connect (owned by T018 — ConnectGitHub page) ───────────────
   connect: {
     pageTitle: 'Connect GitHub — Sthrip',
@@ -2793,6 +2848,61 @@ const ru: TensolDict = {
     connectHint: 'Подключите GitHub, чтобы выбрать репозитории для проверки PR.',
   },
   // ── END:repos ─────────────────────────────────────────────────────────
+
+  // ── BEGIN:reviews (T026 — страницы списка и детали проверок) ─────────
+  reviews: {
+    pageTitle: 'Проверки безопасности — Sthrip',
+    title: 'Проверки безопасности',
+    subtitle: 'AI-ассистированная проверка PR и полный whitebox-аудит репозиториев.',
+    // Список
+    sectionRepos: 'Подключённые репозитории',
+    sectionRecent: 'Последние проверки',
+    colKind: 'Тип',
+    colRepo: 'Репозиторий',
+    colScore: 'Оценка',
+    colStatus: 'Статус',
+    colFindings: 'Находки',
+    colCreated: 'Создано',
+    loadingRepos: 'Загружаем репозитории…',
+    loadingReviews: 'Загружаем проверки…',
+    errorRepos: 'Не удалось загрузить репозитории',
+    errorReviews: 'Не удалось загрузить проверки',
+    emptyRepos: 'Нет подключённых репозиториев. Установите GitHub App, чтобы начать проверку pull request.',
+    emptyReviews: 'Проверок нет. Создайте pull request или запустите whitebox-сканирование.',
+    detailLink: 'Подробнее →',
+    kindPr: 'PR',
+    kindWhitebox: 'Whitebox',
+    // Страница детали
+    back: '← Проверки',
+    loadingDetail: 'Загружаем проверку…',
+    errorDetail: 'Не удалось загрузить проверку',
+    noId: 'Идентификатор проверки не указан.',
+    inProgress: 'Проверка выполняется — результаты появятся автоматически.',
+    sectionSummary: 'Резюме',
+    sectionFindings: 'Находки',
+    findingsSuffix: '·',
+    noFindings: 'У этой проверки нет находок.',
+    rationale: 'Обоснование',
+    pocLabel: 'Proof of concept',
+    fixLabel: 'Предложение по исправлению',
+    // Метки чипов находки
+    labelCategory: 'Категория',
+    labelCvss: 'CVSS',
+    labelConfidence: 'Уверенность',
+    labelReachable: 'Достижимость',
+    labelSource: 'Источник',
+    labelCwe: 'CWE',
+    labelVerification: 'Подтверждение',
+    labelReachEvidence: 'Путь достижимости',
+    // Значения достижимости
+    reachableYes: 'да',
+    reachableNo: 'не доказано',
+    // Статусы верификации
+    verificationVerified: 'подтверждено',
+    verificationUnverified: 'не проверено',
+    verificationRefuted: 'опровергнуто',
+  },
+  // ── END:reviews ───────────────────────────────────────────────────────
 
   // ── BEGIN:connect (owned by T018 — страница подключения GitHub) ───────
   connect: {

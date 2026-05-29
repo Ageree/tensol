@@ -52,6 +52,8 @@ export type WebhookEvent = {
   prNumber?: number;
   headSha?: string;
   baseSha?: string;
+  /** The base branch name (e.g. "main"). Present on pull_request events only. */
+  baseRef?: string;
   /** Human-readable ignore reason (kind==="ignored"). */
   reason?: string;
 
@@ -126,6 +128,7 @@ function classifyPullRequest(payload: GithubWebhook): WebhookEvent {
   };
   const repoFullName = payload.repository?.full_name;
   const baseSha = pr.base?.sha;
+  const baseRef = pr.base?.ref;
   const installationId =
     payload.installation === undefined ? undefined : String(payload.installation.id);
 
@@ -133,6 +136,7 @@ function classifyPullRequest(payload: GithubWebhook): WebhookEvent {
     ...base,
     ...(repoFullName === undefined ? {} : { repoFullName }),
     ...(baseSha === undefined ? {} : { baseSha }),
+    ...(baseRef === undefined ? {} : { baseRef }),
     ...(installationId === undefined ? {} : { installationId }),
   };
 }

@@ -597,6 +597,8 @@ export function createApp(deps: CreateAppDeps): Hono {
         Promise.reject(new Error("GitHub App not configured")),
       getInstallationMetadata: () =>
         Promise.reject(new Error("GitHub App not configured")),
+      getPullRequest: () =>
+        Promise.reject(new Error("GitHub App not configured")),
     } satisfies GitHubClient);
   const requireAuthForConnect = createRequireAuth({ db, ...maybeNow(now) });
   app.route(

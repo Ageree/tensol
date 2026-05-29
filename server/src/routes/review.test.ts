@@ -512,7 +512,13 @@ describe("POST /v1/review/github/webhook", () => {
     expect(reviewCount.n).toBe(1);
   });
 
-  test("@tensol review issue_comment is explicitly acked as not-yet-supported (no job)", async () => {
+  test("@sthrip review on a repo NOT connected via its installation is ignored (no job, cross-tenant safe)", async () => {
+    // The @sthrip/@tensol review comment trigger IS supported now (T040). But
+    // tenant resolution is ONLY by the signed installation id: this repo was
+    // upserted without an installationId, so a comment carrying installation 42
+    // resolves to no connected repo → repo_not_connected, and NO review is
+    // enqueued. (The positive path — connected repo → re-review — is covered in
+    // review-webhook.test.ts.)
     const db = freshMemDb();
     const { app, service } = makeWebhookApp(db);
     await service.upsertRepo({ userId: "user_1", owner: "acme", name: "web" });
@@ -521,7 +527,7 @@ describe("POST /v1/review/github/webhook", () => {
       installation: { id: 42 },
       repository: { full_name: "acme/web" },
       issue: { number: 7, pull_request: {} },
-      comment: { body: "@tensol review please", user: { login: "dev" } },
+      comment: { body: "@sthrip review please", user: { login: "dev" } },
     });
     const res = await app.request("/webhook", {
       method: "POST",
@@ -534,9 +540,9 @@ describe("POST /v1/review/github/webhook", () => {
     });
     expect(res.status).toBe(202);
     expect(((await res.json()) as { reason: string }).reason).toBe(
-      "comment_trigger_not_supported_yet",
+      "repo_not_connected",
     );
-    // No pr_review job enqueued.
+    // No pr_review job enqueued for an unconnected repo.
     const jobs = db.select().from(jobsTable).where(eq(jobsTable.type, "pr_review")).all();
     expect(jobs.length).toBe(0);
   });

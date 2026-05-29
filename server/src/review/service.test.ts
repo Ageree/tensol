@@ -7,13 +7,14 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { createDb, type DB } from "../db/client.ts";
 import {
   reviews as reviewsTable,
   reviewFindings as reviewFindingsTable,
   reviewThreads as reviewThreadsTable,
   reviewRepos as reviewReposTable,
+  reviewSuppressions as reviewSuppressionsTable,
   installations as installationsTable,
   auditLog as auditLogTable,
 } from "../db/schema.ts";
@@ -997,5 +998,426 @@ describe("Wave-2 service methods (T013–T016)", () => {
     // user_3's repo must remain enabled
     const r = db.select().from(reviewReposTable).where(eq(reviewReposTable.id, repo2.id)).get();
     expect(r!.enabled).toBe(1);
+  });
+});
+
+// ===========================================================================
+// Wave-3 service additions (T042, T045 — feature 004: Sthrip PR Review)
+// finalizeReview persistence, resolveThreadByFingerprint, suppressions, hasRunningReview
+// ===========================================================================
+
+describe("Wave-3 service methods (T042/T045)", () => {
+  let db: DB;
+  beforeEach(async () => {
+    db = freshMemDb();
+    await seedUser(db, "user_1");
+    await seedUser(db, "user_2");
+  });
+
+  // ---------------------------------------------------------------------------
+  // finalizeReview — persists verificationStatus + reachabilityEvidenceMd
+  // ---------------------------------------------------------------------------
+  test("finalizeReview persists verificationStatus and reachabilityEvidenceMd on findings", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "veri-test",
+    });
+    const review = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 42,
+    });
+
+    const result: ReviewResult = {
+      kind: "pr",
+      score0to5: 3,
+      summaryMd: "Verified finding.",
+      findings: [
+        {
+          ...sampleResult().findings[0]!,
+          verificationStatus: "verified",
+          reachabilityEvidenceMd: "Taint path: userInput → sink at line 42.",
+        },
+      ],
+    };
+
+    await svc.finalizeReview(review.id, result);
+
+    const findings = db
+      .select()
+      .from(reviewFindingsTable)
+      .where(eq(reviewFindingsTable.reviewId, review.id))
+      .all();
+
+    expect(findings.length).toBe(1);
+    expect(findings[0]!.verificationStatus).toBe("verified");
+    expect(findings[0]!.reachabilityEvidenceMd).toBe("Taint path: userInput → sink at line 42.");
+  });
+
+  test("finalizeReview defaults verificationStatus to 'unverified' when not provided", async () => {
+    const svc = makeSvc(db);
+    const review = await svc.createReview({ kind: "pr", userId: "user_1" });
+
+    // sampleResult() findings have no verificationStatus
+    await svc.finalizeReview(review.id, sampleResult());
+
+    const findings = db
+      .select()
+      .from(reviewFindingsTable)
+      .where(eq(reviewFindingsTable.reviewId, review.id))
+      .all();
+
+    expect(findings.length).toBe(1);
+    expect(findings[0]!.verificationStatus).toBe("unverified");
+    expect(findings[0]!.reachabilityEvidenceMd).toBeNull();
+  });
+
+  test("finalizeReview persists 'refuted' verificationStatus", async () => {
+    const svc = makeSvc(db);
+    const review = await svc.createReview({ kind: "pr", userId: "user_1" });
+
+    const result: ReviewResult = {
+      kind: "pr",
+      score0to5: 4,
+      summaryMd: "Refuted.",
+      findings: [
+        {
+          ...sampleResult().findings[0]!,
+          verificationStatus: "refuted",
+        },
+      ],
+    };
+
+    await svc.finalizeReview(review.id, result);
+
+    const findings = db
+      .select()
+      .from(reviewFindingsTable)
+      .where(eq(reviewFindingsTable.reviewId, review.id))
+      .all();
+
+    expect(findings[0]!.verificationStatus).toBe("refuted");
+    expect(findings[0]!.reachabilityEvidenceMd).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // resolveThreadByFingerprint — mark thread + finding resolved
+  // ---------------------------------------------------------------------------
+  test("resolveThreadByFingerprint marks thread resolved and finding lifecycleState=resolved", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "resolve-test",
+    });
+    const review = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 7,
+    });
+    await svc.upsertThread({
+      reviewId: review.id,
+      repoId: repo.id,
+      fingerprint: "fp-resolve",
+      githubThreadId: "T_resolve",
+    });
+
+    const result: ReviewResult = {
+      kind: "pr",
+      score0to5: 2,
+      summaryMd: "Finding to resolve.",
+      findings: [
+        { ...sampleResult().findings[0]!, fingerprint: "fp-resolve" },
+      ],
+    };
+    await svc.finalizeReview(review.id, result);
+
+    await svc.resolveThreadByFingerprint({ repoId: repo.id, fingerprint: "fp-resolve" });
+
+    // Thread should be resolved
+    const thread = await svc.getOpenThread(repo.id, "fp-resolve");
+    expect(thread).toBeNull();
+
+    // Finding lifecycleState should be 'resolved'
+    const findings = db
+      .select()
+      .from(reviewFindingsTable)
+      .where(
+        and(
+          eq(reviewFindingsTable.reviewId, review.id),
+          eq(reviewFindingsTable.fingerprint, "fp-resolve"),
+        ),
+      )
+      .all();
+    expect(findings.length).toBeGreaterThan(0);
+    for (const f of findings) {
+      expect(f.lifecycleState).toBe("resolved");
+    }
+
+    // Emits review_thread_resolved audit
+    const audits = db
+      .select()
+      .from(auditLogTable)
+      .where(eq(auditLogTable.event, "review_thread_resolved"))
+      .all();
+    expect(audits.length).toBe(1);
+  });
+
+  test("resolveThreadByFingerprint is a no-op when thread does not exist", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "no-thread",
+    });
+
+    // Should not throw
+    await svc.resolveThreadByFingerprint({ repoId: repo.id, fingerprint: "nonexistent-fp" });
+
+    const audits = db
+      .select()
+      .from(auditLogTable)
+      .where(eq(auditLogTable.event, "review_thread_resolved"))
+      .all();
+    expect(audits.length).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // writeSuppression — upsert review_suppressions
+  // ---------------------------------------------------------------------------
+  test("writeSuppression creates a suppression row and emits review_category_suppressed", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "supp-test",
+    });
+
+    await svc.writeSuppression({
+      repoId: repo.id,
+      category: "style",
+      reason: "ignored_n_times",
+      ignoreCount: 3,
+    });
+
+    const rows = db
+      .select()
+      .from(reviewSuppressionsTable)
+      .where(eq(reviewSuppressionsTable.repoId, repo.id))
+      .all();
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.category).toBe("style");
+    expect(rows[0]!.reason).toBe("ignored_n_times");
+    expect(rows[0]!.ignoreCount).toBe(3);
+
+    const audits = db
+      .select()
+      .from(auditLogTable)
+      .where(eq(auditLogTable.event, "review_category_suppressed"))
+      .all();
+    expect(audits.length).toBe(1);
+  });
+
+  test("writeSuppression upserts (idempotent) by (repoId, category)", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "supp-upsert",
+    });
+
+    await svc.writeSuppression({
+      repoId: repo.id,
+      category: "nit",
+      reason: "ignored_n_times",
+      ignoreCount: 3,
+    });
+    await svc.writeSuppression({
+      repoId: repo.id,
+      category: "nit",
+      reason: "manual",
+      ignoreCount: 5,
+    });
+
+    const rows = db
+      .select()
+      .from(reviewSuppressionsTable)
+      .where(eq(reviewSuppressionsTable.repoId, repo.id))
+      .all();
+    expect(rows.length).toBe(1); // upserted, not duplicated
+    expect(rows[0]!.ignoreCount).toBe(5);
+    expect(rows[0]!.reason).toBe("manual");
+  });
+
+  test("writeSuppression REFUSES to write category='security' (invariant)", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "supp-guard",
+    });
+
+    await expect(
+      svc.writeSuppression({
+        repoId: repo.id,
+        category: "security",
+        reason: "manual",
+        ignoreCount: 10,
+      }),
+    ).rejects.toThrow();
+
+    const rows = db
+      .select()
+      .from(reviewSuppressionsTable)
+      .where(eq(reviewSuppressionsTable.repoId, repo.id))
+      .all();
+    expect(rows.length).toBe(0);
+  });
+
+  test("writeSuppression REFUSES to write category='correctness' (invariant)", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "supp-guard-correctness",
+    });
+
+    await expect(
+      svc.writeSuppression({
+        repoId: repo.id,
+        category: "correctness",
+        reason: "ignored_n_times",
+        ignoreCount: 5,
+      }),
+    ).rejects.toThrow();
+
+    const rows = db
+      .select()
+      .from(reviewSuppressionsTable)
+      .where(eq(reviewSuppressionsTable.repoId, repo.id))
+      .all();
+    expect(rows.length).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // listSuppressions
+  // ---------------------------------------------------------------------------
+  test("listSuppressions returns all suppressions for a repo", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "list-supp",
+    });
+
+    await svc.writeSuppression({ repoId: repo.id, category: "style", reason: "ignored_n_times", ignoreCount: 3 });
+    await svc.writeSuppression({ repoId: repo.id, category: "nit", reason: "manual", ignoreCount: 0 });
+
+    const suppressions = await svc.listSuppressions(repo.id);
+    expect(suppressions.length).toBe(2);
+    const categories = suppressions.map((s) => s.category).sort();
+    expect(categories).toEqual(["nit", "style"]);
+  });
+
+  test("listSuppressions returns empty for a repo with none", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "empty-supp",
+    });
+
+    const suppressions = await svc.listSuppressions(repo.id);
+    expect(suppressions.length).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // hasRunningReview — concurrency guard
+  // ---------------------------------------------------------------------------
+  test("hasRunningReview returns false when no reviews exist for (repoId, prNumber)", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "concurrency-test",
+    });
+
+    const running = await svc.hasRunningReview(repo.id, 42);
+    expect(running).toBe(false);
+  });
+
+  test("hasRunningReview returns false when review is queued (not running)", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "concurrency-q",
+    });
+    await svc.createReview({ repoId: repo.id, userId: "user_1", kind: "pr", prNumber: 5 });
+
+    const running = await svc.hasRunningReview(repo.id, 5);
+    expect(running).toBe(false);
+  });
+
+  test("hasRunningReview returns true when a review with status=running exists for that PR", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "concurrency-r",
+    });
+    const review = await svc.createReview({ repoId: repo.id, userId: "user_1", kind: "pr", prNumber: 99 });
+    await svc.markReviewRunning(review.id);
+
+    const running = await svc.hasRunningReview(repo.id, 99);
+    expect(running).toBe(true);
+  });
+
+  test("hasRunningReview returns false once review is completed", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "concurrency-c",
+    });
+    const review = await svc.createReview({ repoId: repo.id, userId: "user_1", kind: "pr", prNumber: 11 });
+    await svc.markReviewRunning(review.id);
+    await svc.finalizeReview(review.id, sampleResult());
+
+    const running = await svc.hasRunningReview(repo.id, 11);
+    expect(running).toBe(false);
+  });
+
+  test("hasRunningReview is scoped to (repoId, prNumber) — different PR not affected", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "concurrency-scope",
+    });
+    const review = await svc.createReview({ repoId: repo.id, userId: "user_1", kind: "pr", prNumber: 7 });
+    await svc.markReviewRunning(review.id);
+
+    // Different PR number — should be false
+    const running = await svc.hasRunningReview(repo.id, 8);
+    expect(running).toBe(false);
   });
 });

@@ -20,6 +20,8 @@ export type Severity =
   | "low"
   | "informational";
 
+export type VerificationStatus = "verified" | "unverified" | "refuted";
+
 export type Confidence = "verified" | "high" | "medium" | "low";
 
 export type ReviewKind = "pr" | "whitebox";
@@ -152,6 +154,8 @@ export interface ReviewFinding {
   pocMd?: string;
   fixPromptMd?: string;
   source: FindingSource;
+  verificationStatus?: VerificationStatus;
+  reachabilityEvidenceMd?: string;
 }
 
 /** The complete result of a review run, ready to persist + post. */

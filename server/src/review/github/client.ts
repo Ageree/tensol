@@ -112,6 +112,17 @@ export interface GitHubClient {
     accountType: "User" | "Organization";
     repositorySelection: "all" | "selected";
   }>;
+  /**
+   * Fetch head SHA, base SHA, and base ref (branch name) for a pull request.
+   * Used by the issue_comment trigger to obtain the PR head without requiring
+   * the webhook payload to carry these fields.
+   */
+  getPullRequest(a: {
+    owner: string;
+    name: string;
+    pr: number;
+    installationId?: string;
+  }): Promise<{ headSha: string; baseSha: string; baseRef: string }>;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -156,6 +167,10 @@ type ResolveThreadCall = { threadId: string; installationId?: string };
 type ListInstallationReposCall = { installationId: string };
 /** Recorded shape of a `getInstallationMetadata` call. */
 type GetInstallationMetadataCall = { installationId: string };
+/** Recorded shape of a `getPullRequest` call. */
+type GetPullRequestCall = { owner: string; name: string; pr: number; installationId?: string };
+/** Result returned by `getPullRequest`. */
+type PullRequestInfo = { headSha: string; baseSha: string; baseRef: string };
 /** A repo entry returned by `listInstallationRepos`. */
 type InstallationRepo = { owner: string; name: string; defaultBranch: string; repoId?: string };
 /** Installation metadata returned by `getInstallationMetadata`. */
@@ -178,6 +193,8 @@ export class FakeGitHubClient implements GitHubClient {
   readonly installationRepos: InstallationRepo[];
   /** Pre-seeded metadata returned by `getInstallationMetadata`. */
   readonly installationMetadata: InstallationMetadata;
+  /** Pre-seeded PR info returned by `getPullRequest`. */
+  readonly pullRequestInfo: PullRequestInfo;
 
   readonly getFilesCalls: GetFilesCall[] = [];
   readonly listCommentsCalls: ListCommentsCall[] = [];
@@ -187,6 +204,7 @@ export class FakeGitHubClient implements GitHubClient {
   readonly resolveThreadCalls: ResolveThreadCall[] = [];
   readonly listInstallationReposCalls: ListInstallationReposCall[] = [];
   readonly getInstallationMetadataCalls: GetInstallationMetadataCall[] = [];
+  readonly getPullRequestCalls: GetPullRequestCall[] = [];
 
   #reviewSeq = 0;
   #checkSeq = 0;
@@ -197,6 +215,7 @@ export class FakeGitHubClient implements GitHubClient {
     existingComments?: ExistingReviewComment[];
     installationRepos?: InstallationRepo[];
     installationMetadata?: InstallationMetadata;
+    pullRequestInfo?: PullRequestInfo;
   }) {
     this.files = opts?.files ? [...opts.files] : [];
     this.fileContents = opts?.fileContents ? { ...opts.fileContents } : {};
@@ -209,6 +228,9 @@ export class FakeGitHubClient implements GitHubClient {
     this.installationMetadata = opts?.installationMetadata
       ? { ...opts.installationMetadata }
       : { accountLogin: "fake-org", accountType: "Organization", repositorySelection: "all" };
+    this.pullRequestInfo = opts?.pullRequestInfo
+      ? { ...opts.pullRequestInfo }
+      : { headSha: "fake-head-sha", baseSha: "fake-base-sha", baseRef: "main" };
   }
 
   getPullRequestFiles(a: GetFilesCall): Promise<DiffFile[]> {
@@ -252,6 +274,11 @@ export class FakeGitHubClient implements GitHubClient {
   getInstallationMetadata(a: GetInstallationMetadataCall): Promise<InstallationMetadata> {
     this.getInstallationMetadataCalls.push({ ...a });
     return Promise.resolve({ ...this.installationMetadata });
+  }
+
+  getPullRequest(a: GetPullRequestCall): Promise<PullRequestInfo> {
+    this.getPullRequestCalls.push({ ...a });
+    return Promise.resolve({ ...this.pullRequestInfo });
   }
 }
 
@@ -530,6 +557,23 @@ export function createHttpGitHubClient(a: {
       const repositorySelection: "all" | "selected" =
         rawSelection === "all" ? "all" : "selected";
       return { accountLogin, accountType, repositorySelection };
+    },
+
+    async getPullRequest(args): Promise<{ headSha: string; baseSha: string; baseRef: string }> {
+      const url = `${GITHUB_API}/repos/${args.owner}/${args.name}/pulls/${args.pr}`;
+      const res = await authed(args.installationId, url, { method: "GET" });
+      if (!res.ok) {
+        throw new Error(`GitHub: getPullRequest failed (${res.status}) for PR ${args.pr}`);
+      }
+      const json = (await res.json()) as {
+        head?: { sha?: string };
+        base?: { sha?: string; ref?: string };
+      };
+      return {
+        headSha: json.head?.sha ?? "",
+        baseSha: json.base?.sha ?? "",
+        baseRef: json.base?.ref ?? "",
+      };
     },
   };
 }

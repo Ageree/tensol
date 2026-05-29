@@ -188,7 +188,7 @@ export const GithubWebhookSchema = z
       .object({
         number: z.number(),
         head: z.object({ sha: z.string() }).passthrough(),
-        base: z.object({ sha: z.string() }).passthrough().optional(),
+        base: z.object({ sha: z.string(), ref: z.string().optional() }).passthrough().optional(),
         draft: z.boolean().optional(),
         user: z.object({ login: z.string(), type: z.string().optional() }).passthrough().optional(),
       })

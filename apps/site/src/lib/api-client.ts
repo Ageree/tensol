@@ -609,6 +609,12 @@ export type ReviewRunStatus =
   | "failed"
   | "cancelled";
 
+/**
+ * Verification status attached to a finding after the verification gate
+ * (server/src/review/verify.ts, T031). Wire value mirrors the DB column.
+ */
+export type VerificationStatus = "verified" | "unverified" | "refuted";
+
 export interface ReviewFindingWire {
   fingerprint: string;
   file_path: string;
@@ -627,6 +633,11 @@ export interface ReviewFindingWire {
   poc_md?: string | null;
   fix_prompt_md?: string | null;
   source: "llm" | "sast" | "secrets" | "sca";
+  // ── T026 — new fields exposed by migration 0013 + verify gate (T031) ──
+  /** Verification classification: verified | unverified | refuted. */
+  verification_status?: VerificationStatus | null;
+  /** Markdown taint-path evidence from the Joern reachability adapter (T032). */
+  reachability_evidence_md?: string | null;
 }
 
 export interface ReviewResultWire {

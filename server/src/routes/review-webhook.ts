@@ -30,6 +30,7 @@ import { now as defaultNow } from "../lib/time.ts";
 import { classifyWebhook } from "../review/github/webhook.ts";
 import { verifyWebhookSignature } from "../review/github/sign.ts";
 import { GithubWebhookSchema } from "../review/schemas.ts";
+import type { GitHubClient } from "../review/github/client.ts";
 import type { ReviewService } from "../review/service.ts";
 
 export interface CreateReviewWebhookRouterDeps {
@@ -39,6 +40,30 @@ export interface CreateReviewWebhookRouterDeps {
   readonly webhookSecret: string;
   readonly now?: () => number;
   readonly newId?: () => string;
+  /**
+   * Optional GitHub client — required for the `@sthrip review` comment trigger
+   * (T040): used to fetch the PR head SHA + base ref when the issue_comment
+   * payload does not carry them. When absent the comment trigger path is still
+   * acknowledged (202) but no review is enqueued.
+   */
+  readonly github?: GitHubClient;
+}
+
+/**
+ * Parse a JSON-encoded covered_branches_json array from a repo row.
+ * Returns an empty array on parse failure (safe default = all branches covered).
+ */
+function parseCoveredBranches(json: string | null | undefined): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((b): b is string => typeof b === "string");
+    }
+    return [];
+  } catch {
+    return [];
+  }
 }
 
 function splitFullName(fullName: string): { owner: string; name: string } | null {
@@ -63,6 +88,7 @@ export function createReviewWebhookRouter(
   const { db, service, webhookSecret } = deps;
   const clock = deps.now ?? defaultNow;
   const newId = deps.newId ?? (() => ulid(clock()));
+  const github = deps.github;
 
   const app = new Hono();
 
@@ -213,16 +239,81 @@ export function createReviewWebhookRouter(
     }
 
     // -------------------------------------------------------------------------
-    // 4b. PR-review path (unchanged from original).
+    // 4b. PR-review path.
     // -------------------------------------------------------------------------
 
-    // `@sthrip review` / `@tensol review` issue-comment trigger: classifyWebhook
-    // recognises the intent (kind="review_requested") but the comment payload
-    // carries no head SHA, so we cannot start a diff-scoped review without an
-    // extra GitHub API fetch. Not supported in the MVP — ack honestly.
-    if (event.kind === "review_requested" && !event.headSha) {
+    // T040: `@sthrip review` / `@tensol review` issue-comment trigger.
+    // classifyWebhook marks kind="review_requested" but the comment payload
+    // carries no head SHA. We resolve the PR details via the GitHub API.
+    if (event.kind === "review_requested") {
+      if (!event.repoFullName || event.prNumber === undefined || !event.installationId) {
+        return c.json({ status: "ignored", reason: "repo_not_connected" }, 202);
+      }
+
+      const slug = splitFullName(event.repoFullName);
+      if (!slug) return c.json({ status: "ignored", reason: "bad_repo_name" }, 202);
+
+      const repo = await service.getRepoByInstallation(
+        "github",
+        event.installationId,
+        slug.owner,
+        slug.name,
+      );
+      if (!repo) {
+        return c.json({ status: "ignored", reason: "repo_not_connected" }, 202);
+      }
+
+      // Concurrency guard: do not enqueue if a review is already running for
+      // this (repoId, prNumber) pair.
+      const alreadyRunning = await service.hasRunningReview(repo.id, event.prNumber);
+      if (alreadyRunning) {
+        return c.json({ status: "ignored", reason: "already_running" }, 202);
+      }
+
+      // Fetch the PR head + base info from the GitHub API.
+      if (!github) {
+        return c.json({ status: "ignored", reason: "github_client_not_configured" }, 202);
+      }
+
+      let prInfo: { headSha: string; baseSha: string; baseRef: string };
+      try {
+        prInfo = await github.getPullRequest({
+          owner: slug.owner,
+          name: slug.name,
+          pr: event.prNumber,
+          installationId: event.installationId,
+        });
+      } catch {
+        return c.json({ status: "ignored", reason: "github_fetch_failed" }, 202);
+      }
+
+      const { review, jobId, duplicate } = await service.createQueuedReviewWithJob(
+        {
+          repoId: repo.id,
+          userId: repo.userId,
+          kind: "pr",
+          prNumber: event.prNumber,
+          headSha: prInfo.headSha,
+          baseSha: prInfo.baseSha,
+        },
+        "pr_review",
+        deliveryId
+          ? {
+              id: newId(),
+              webhookKind: "github_review",
+              dedupKey: deliveryId,
+              receivedAt: clock(),
+              metadataJson: JSON.stringify({ event: eventName }),
+            }
+          : undefined,
+      );
+
+      if (duplicate) {
+        return c.json({ status: "duplicate" }, 200);
+      }
+
       return c.json(
-        { status: "ignored", reason: "comment_trigger_not_supported_yet" },
+        { status: "queued", review_id: review.id, job_id: jobId, kind: event.kind },
         202,
       );
     }
@@ -253,6 +344,16 @@ export function createReviewWebhookRouter(
     );
     if (!repo) {
       return c.json({ status: "ignored", reason: "repo_not_connected" }, 202);
+    }
+
+    // T023: Covered-branch gating.
+    // When coveredBranches is non-empty, only enqueue if the PR base ref is in
+    // the list. An empty list means "all branches are covered".
+    const coveredBranches = parseCoveredBranches(repo.coveredBranchesJson);
+    if (coveredBranches.length > 0 && event.baseRef !== undefined) {
+      if (!coveredBranches.includes(event.baseRef)) {
+        return c.json({ status: "ignored", reason: "not_covered" }, 202);
+      }
     }
 
     // Atomic: dedup row + queued review + pending pr_review job in ONE tx.
