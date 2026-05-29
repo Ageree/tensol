@@ -116,8 +116,12 @@ const ConfigSchema = z
     GITHUB_APP_WEBHOOK_SECRET: z.string().default(""),
     GITHUB_APP_CLIENT_ID: z.string().default(""),
 
-    // 003-whitebox — Review LLM (OpenRouter/LiteLLM-compatible). Falls back to
-    // the shared OpenRouter key when the review-specific one is unset.
+    // 003-whitebox — Review LLM (OpenRouter/LiteLLM-compatible). When the
+    // review-specific key is unset it falls back to the shared OpenRouter key
+    // (`TENSOL_OPENROUTER_API_KEY`) — resolved in the `.transform()` below, so
+    // every consumer of `config.TENSOL_REVIEW_LLM_API_KEY` sees the effective
+    // key. The default base URL + model already target OpenRouter, so the
+    // shared `sk-or-v1-…` key works unchanged.
     TENSOL_REVIEW_LLM_API_KEY: z.string().default(""),
     TENSOL_REVIEW_LLM_BASE_URL: z
       .string()
@@ -142,7 +146,16 @@ const ConfigSchema = z
         message: "RESEND_API_KEY is required when EMAIL_PROVIDER=resend",
       });
     }
-  });
+  })
+  // 003-whitebox — resolve the review LLM key fallback at load time. When the
+  // review-specific key is unset, reuse the shared OpenRouter key so whitebox
+  // scans + PR review activate without a duplicate credential. Returns a new
+  // object (no mutation); the shape is unchanged, so `Config` is unaffected.
+  .transform((cfg) => ({
+    ...cfg,
+    TENSOL_REVIEW_LLM_API_KEY:
+      cfg.TENSOL_REVIEW_LLM_API_KEY || cfg.TENSOL_OPENROUTER_API_KEY,
+  }));
 
 export type Config = z.infer<typeof ConfigSchema>;
 
