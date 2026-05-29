@@ -516,6 +516,11 @@ export const jobs = sqliteTable(
         | "scan_timeout_watcher"
         | "retry_telegram_notification"
         | "cleanup_orphan_vms"
+        // 003-whitebox additions (specs/003-whitebox/plan.md)
+        | "pr_review"
+        | "whitebox_scan"
+        | "resolve_threads"
+        | "index_repo"
       >()
       .notNull(),
     payloadJson: text("payload_json").notNull(),
@@ -534,6 +539,186 @@ export const jobs = sqliteTable(
       t.scheduledAt,
     ),
     typeIdx: index("jobs_type_idx").on(t.type),
+  }),
+);
+
+// ===========================================================================
+// 003-whitebox — AI whitebox security testing (PR Review + Whitebox Pentest).
+// Migration: 0012_whitebox_review.sql. Both sub-products share one engine +
+// one schema; `reviews.kind` discriminates 'pr' from 'whitebox'.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// review_repos — connected source repos (GitHub App installations).
+// ---------------------------------------------------------------------------
+export const reviewRepos = sqliteTable(
+  "review_repos",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    scm: text("scm")
+      .$type<"github" | "gitlab" | "bitbucket">()
+      .notNull()
+      .default("github"),
+    installationId: text("installation_id"),
+    owner: text("owner").notNull(),
+    name: text("name").notNull(),
+    defaultBranch: text("default_branch").notNull().default("main"),
+    coveredBranchesJson: text("covered_branches_json").notNull().default("[]"),
+    rulesMd: text("rules_md"),
+    status: text("status")
+      .$type<"active" | "paused" | "revoked">()
+      .notNull()
+      .default("active"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => ({
+    scmOwnerNameUserUq: uniqueIndex("review_repos_scm_owner_name_user_uq").on(
+      t.scm,
+      t.owner,
+      t.name,
+      t.userId,
+    ),
+    userIdx: index("review_repos_user_idx").on(t.userId),
+    installationIdx: index("review_repos_installation_idx").on(
+      t.installationId,
+    ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// reviews — one row per review run (PR or whitebox).
+// ---------------------------------------------------------------------------
+export const reviews = sqliteTable(
+  "reviews",
+  {
+    id: text("id").primaryKey(),
+    repoId: text("repo_id").references(() => reviewRepos.id, {
+      onDelete: "set null",
+    }),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    kind: text("kind").$type<"pr" | "whitebox">().notNull(),
+    prNumber: integer("pr_number"),
+    headSha: text("head_sha"),
+    baseSha: text("base_sha"),
+    commitRef: text("commit_ref"),
+    status: text("status")
+      .$type<"queued" | "running" | "completed" | "failed" | "cancelled">()
+      .notNull()
+      .default("queued"),
+    score0to5: real("score_0_5"),
+    summaryMd: text("summary_md"),
+    githubReviewId: text("github_review_id"),
+    findingsCount: integer("findings_count").notNull().default(0),
+    startedAt: integer("started_at"),
+    completedAt: integer("completed_at"),
+    error: text("error"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => ({
+    repoIdx: index("reviews_repo_idx").on(t.repoId, t.createdAt),
+    userIdx: index("reviews_user_idx").on(t.userId, t.createdAt),
+    statusIdx: index("reviews_status_idx").on(t.status, t.updatedAt),
+    repoPrIdx: index("reviews_repo_pr_idx").on(t.repoId, t.prNumber),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// review_findings — per-finding output of the engine.
+// ---------------------------------------------------------------------------
+export const reviewFindings = sqliteTable(
+  "review_findings",
+  {
+    id: text("id").primaryKey(),
+    reviewId: text("review_id")
+      .notNull()
+      .references(() => reviews.id, { onDelete: "cascade" }),
+    fingerprint: text("fingerprint").notNull(),
+    filePath: text("file_path").notNull(),
+    startLine: integer("start_line"),
+    endLine: integer("end_line"),
+    side: text("side").$type<"LEFT" | "RIGHT">().notNull().default("RIGHT"),
+    severity: text("severity")
+      .$type<"critical" | "high" | "medium" | "low" | "informational">()
+      .notNull(),
+    cweJson: text("cwe_json").notNull().default("[]"),
+    cvssVector: text("cvss_vector"),
+    cvssScore: real("cvss_score"),
+    confidence: text("confidence").$type<
+      "verified" | "high" | "medium" | "low" | null
+    >(),
+    reachable: integer("reachable"),
+    category: text("category"),
+    title: text("title").notNull(),
+    rationaleMd: text("rationale_md").notNull(),
+    pocMd: text("poc_md"),
+    fixPromptMd: text("fix_prompt_md"),
+    source: text("source")
+      .$type<"llm" | "sast" | "secrets" | "sca">()
+      .notNull()
+      .default("llm"),
+    lifecycleState: text("lifecycle_state")
+      .$type<"open" | "resolved" | "suppressed">()
+      .notNull()
+      .default("open"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => ({
+    reviewIdx: index("review_findings_review_idx").on(t.reviewId, t.severity),
+    fingerprintIdx: index("review_findings_fingerprint_idx").on(t.fingerprint),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// review_threads — fingerprint → GitHub review-thread map (dedup + resolve).
+// ---------------------------------------------------------------------------
+export const reviewThreads = sqliteTable(
+  "review_threads",
+  {
+    id: text("id").primaryKey(),
+    reviewId: text("review_id")
+      .notNull()
+      .references(() => reviews.id, { onDelete: "cascade" }),
+    repoId: text("repo_id"),
+    fingerprint: text("fingerprint").notNull(),
+    githubThreadId: text("github_thread_id"),
+    githubCommentId: text("github_comment_id"),
+    isResolved: integer("is_resolved").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => ({
+    reviewIdx: index("review_threads_review_idx").on(t.reviewId),
+    fingerprintIdx: index("review_threads_fingerprint_idx").on(t.fingerprint),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// review_feedback — team-partitioned triage signal (powers the noise filter).
+// ---------------------------------------------------------------------------
+export const reviewFeedback = sqliteTable(
+  "review_feedback",
+  {
+    id: text("id").primaryKey(),
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => reviewRepos.id, { onDelete: "cascade" }),
+    fingerprint: text("fingerprint"),
+    signal: text("signal")
+      .$type<"up" | "down" | "addressed" | "ignored">()
+      .notNull(),
+    commentText: text("comment_text"),
+    embeddingJson: text("embedding_json"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => ({
+    repoIdx: index("review_feedback_repo_idx").on(t.repoId),
   }),
 );
 
@@ -568,6 +753,17 @@ export type VpsInstance = typeof vpsInstances.$inferSelect;
 export type NewVpsInstance = typeof vpsInstances.$inferInsert;
 export type Job = typeof jobs.$inferSelect;
 export type NewJob = typeof jobs.$inferInsert;
+// 003-whitebox inferred row types.
+export type ReviewRepo = typeof reviewRepos.$inferSelect;
+export type NewReviewRepo = typeof reviewRepos.$inferInsert;
+export type Review = typeof reviews.$inferSelect;
+export type NewReview = typeof reviews.$inferInsert;
+export type ReviewFinding = typeof reviewFindings.$inferSelect;
+export type NewReviewFinding = typeof reviewFindings.$inferInsert;
+export type ReviewThread = typeof reviewThreads.$inferSelect;
+export type NewReviewThread = typeof reviewThreads.$inferInsert;
+export type ReviewFeedback = typeof reviewFeedback.$inferSelect;
+export type NewReviewFeedback = typeof reviewFeedback.$inferInsert;
 
 // Keep `sql` import live for future `sql\`...\`` defaults (mirrors 001).
 void sql;

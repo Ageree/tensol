@@ -11,6 +11,7 @@ export type AppRoute =
   | 'live'
   | 'findings'
   | 'reports'
+  | 'reviews'
   | 'settings';
 
 export type AppRole =
@@ -35,6 +36,7 @@ const ROUTE_PATHS: Record<AppRoute, string> = {
   live: '/live',
   findings: '/findings',
   reports: '/reports',
+  reviews: '/reviews',
   settings: '/settings',
 };
 
@@ -170,6 +172,7 @@ export function AppShell({
             badge="11"
           />
           <NavItem icon="▸" label={t.navReports} active={route === 'reports'} onClick={() => go('reports')} />
+          <NavItem icon="▸" label="Reviews" active={route === 'reviews'} onClick={() => go('reviews')} />
         </div>
 
         <div style={{ padding: '24px 0 0' }}>
