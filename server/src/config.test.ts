@@ -109,4 +109,26 @@ describe("loadConfig", () => {
       loadConfig({ ...validEnv, PORT: "not-a-number" }),
     ).toThrow(/PORT/);
   });
+
+  test("review LLM API key falls back to the shared OpenRouter key when unset", () => {
+    const cfg = loadConfig({
+      ...validEnv,
+      TENSOL_OPENROUTER_API_KEY: "sk-or-v1-shared",
+    });
+    expect(cfg.TENSOL_REVIEW_LLM_API_KEY).toBe("sk-or-v1-shared");
+  });
+
+  test("review-specific LLM API key takes precedence over the shared key", () => {
+    const cfg = loadConfig({
+      ...validEnv,
+      TENSOL_OPENROUTER_API_KEY: "sk-or-v1-shared",
+      TENSOL_REVIEW_LLM_API_KEY: "sk-or-v1-review",
+    });
+    expect(cfg.TENSOL_REVIEW_LLM_API_KEY).toBe("sk-or-v1-review");
+  });
+
+  test("review LLM API key stays empty when neither key is set", () => {
+    const cfg = loadConfig(validEnv);
+    expect(cfg.TENSOL_REVIEW_LLM_API_KEY).toBe("");
+  });
 });
