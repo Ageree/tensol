@@ -44,12 +44,6 @@ export interface ReviewComment {
   body: string;
 }
 
-/** An existing inline review comment on a PR (only the body is needed: it
- *  carries the hidden `tensol:fp:<id>` marker we dedup on). */
-export interface ExistingReviewComment {
-  body: string;
-}
-
 /** The capabilities the review engine needs from GitHub. */
 export interface GitHubClient {
   getPullRequestFiles(a: {
@@ -58,18 +52,6 @@ export interface GitHubClient {
     pr: number;
     installationId?: string;
   }): Promise<DiffFile[]>;
-  /**
-   * List the existing inline review comments on a PR. GitHub is the source of
-   * truth for what we've already posted: a retry after a successful post (but
-   * before the local thread row committed) must NOT re-post, so the poster
-   * reconciles fingerprints found in these bodies into `alreadyPosted`.
-   */
-  listReviewComments(a: {
-    owner: string;
-    name: string;
-    pr: number;
-    installationId?: string;
-  }): Promise<ExistingReviewComment[]>;
   getFileContents(a: {
     owner: string;
     name: string;
@@ -104,8 +86,6 @@ export interface GitHubClient {
 
 /** Recorded shape of a `getPullRequestFiles` call. */
 type GetFilesCall = { owner: string; name: string; pr: number; installationId?: string };
-/** Recorded shape of a `listReviewComments` call. */
-type ListCommentsCall = { owner: string; name: string; pr: number; installationId?: string };
 /** Recorded shape of a `getFileContents` call. */
 type GetContentsCall = {
   owner: string;
@@ -144,11 +124,8 @@ type ResolveThreadCall = { threadId: string; installationId?: string };
 export class FakeGitHubClient implements GitHubClient {
   readonly files: DiffFile[];
   readonly fileContents: Record<string, string>;
-  /** Pre-seeded existing PR review comments (their bodies may carry markers). */
-  readonly existingComments: ExistingReviewComment[];
 
   readonly getFilesCalls: GetFilesCall[] = [];
-  readonly listCommentsCalls: ListCommentsCall[] = [];
   readonly getContentsCalls: GetContentsCall[] = [];
   readonly postReviewCalls: PostReviewCall[] = [];
   readonly createCheckRunCalls: CreateCheckRunCall[] = [];
@@ -157,26 +134,14 @@ export class FakeGitHubClient implements GitHubClient {
   #reviewSeq = 0;
   #checkSeq = 0;
 
-  constructor(opts?: {
-    files?: DiffFile[];
-    fileContents?: Record<string, string>;
-    existingComments?: ExistingReviewComment[];
-  }) {
+  constructor(opts?: { files?: DiffFile[]; fileContents?: Record<string, string> }) {
     this.files = opts?.files ? [...opts.files] : [];
     this.fileContents = opts?.fileContents ? { ...opts.fileContents } : {};
-    this.existingComments = opts?.existingComments
-      ? opts.existingComments.map((c) => ({ ...c }))
-      : [];
   }
 
   getPullRequestFiles(a: GetFilesCall): Promise<DiffFile[]> {
     this.getFilesCalls.push({ ...a });
     return Promise.resolve(this.files.map((f) => ({ ...f })));
-  }
-
-  listReviewComments(a: ListCommentsCall): Promise<ExistingReviewComment[]> {
-    this.listCommentsCalls.push({ ...a });
-    return Promise.resolve(this.existingComments.map((c) => ({ ...c })));
   }
 
   getFileContents(a: GetContentsCall): Promise<string | null> {
@@ -315,25 +280,6 @@ export function createHttpGitHubClient(a: {
         }>;
         if (!Array.isArray(batch) || batch.length === 0) break;
         for (const raw of batch) out.push(mapPullFile(raw));
-        if (batch.length < perPage) break;
-      }
-      return out;
-    },
-
-    async listReviewComments(args): Promise<ExistingReviewComment[]> {
-      const out: ExistingReviewComment[] = [];
-      const perPage = 100;
-      for (let page = 1; ; page += 1) {
-        const url = `${GITHUB_API}/repos/${args.owner}/${args.name}/pulls/${args.pr}/comments?per_page=${perPage}&page=${page}`;
-        const res = await authed(args.installationId, url, { method: "GET" });
-        if (!res.ok) {
-          throw new Error(`GitHub: listReviewComments failed (${res.status})`);
-        }
-        const batch = (await res.json()) as Array<{ body?: string }>;
-        if (!Array.isArray(batch) || batch.length === 0) break;
-        for (const raw of batch) {
-          if (typeof raw.body === "string") out.push({ body: raw.body });
-        }
         if (batch.length < perPage) break;
       }
       return out;

@@ -1,0 +1,726 @@
+openapi: 3.1.0
+info:
+  title: Tensol Blackbox MVP — Public HTTP API
+  version: 0.1.0
+  description: |
+    REST contract between the Tensol backend (`server/`), the apps/site
+    frontend, and (for the scan-complete webhook) the vps-agent running
+    inside ephemeral Yandex VMs.
+
+    All routes versioned under `/v1`. All bodies validated with Zod on
+    the server side per Constitution IX. All state-changing operations
+    emit signed audit events per Constitution X. The HMAC-signed
+    webhook contract is in `webhook.md`.
+
+servers:
+  - url: https://api.tensol.com
+    description: Production
+  - url: http://localhost:3001
+    description: Local dev
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: tensol_session
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: machine-readable code
+          example: "free_quota_exhausted"
+        message:
+          type: string
+          description: human-readable, safe to display
+        retry_after_seconds:
+          type: integer
+          nullable: true
+
+    ULID:
+      type: string
+      pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+
+    Hostname:
+      type: string
+      maxLength: 253
+      pattern: "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+      description: Lowercase RFC 1035 hostname, no trailing dot, no IP literal
+
+    AttackSurfaceEntry:
+      type: object
+      required: [domain, primary, headers]
+      properties:
+        domain:
+          $ref: "#/components/schemas/Hostname"
+        primary:
+          type: boolean
+        headers:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [k, v]
+            properties:
+              k: { type: string, maxLength: 64 }
+              v: { type: string, maxLength: 1024 }
+
+    ScanOrder:
+      type: object
+      required: [id, user_id, status, tier, primary_domain, attack_surface,
+                 safety_rps, payment_kind, created_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/ULID" }
+        user_id: { $ref: "#/components/schemas/ULID" }
+        status:
+          type: string
+          enum: [draft, dns_pending, dns_verified, vm_provisioning,
+                 running, completed, failed, cancelled]
+        tier:
+          type: string
+          enum: [quick, deep]
+        primary_domain: { $ref: "#/components/schemas/Hostname" }
+        attack_surface:
+          type: array
+          items: { $ref: "#/components/schemas/AttackSurfaceEntry" }
+        safety_rps:
+          type: integer
+          minimum: 1
+          maximum: 500
+        dns_verify_token: { type: string, nullable: true }
+        dns_verified_at: { type: integer, nullable: true }
+        scan_id:
+          allOf: [{ $ref: "#/components/schemas/ULID" }]
+          nullable: true
+        failure_reason: { type: string, nullable: true }
+        payment_kind:
+          type: string
+          enum: [free_quick, yookassa]
+        amount_kopecks: { type: integer, nullable: true }
+        created_at: { type: integer }
+        updated_at: { type: integer }
+
+    Scan:
+      type: object
+      required: [id, user_id, scan_order_id, profile, status, started_at]
+      properties:
+        id: { $ref: "#/components/schemas/ULID" }
+        user_id: { $ref: "#/components/schemas/ULID" }
+        scan_order_id: { $ref: "#/components/schemas/ULID" }
+        profile:
+          type: string
+          enum: [recon, standard, max]
+        status:
+          type: string
+          enum: [queued, running, completed, failed, cancelled]
+        started_at: { type: integer }
+        completed_at: { type: integer, nullable: true }
+        usage_tokens: { type: integer, nullable: true }
+        usage_usd_cents: { type: integer, nullable: true }
+
+    Finding:
+      type: object
+      required: [id, scan_id, external_id, severity, title, target,
+                 body_md, cwe, mitre, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/ULID" }
+        scan_id: { $ref: "#/components/schemas/ULID" }
+        external_id: { type: string }
+        severity:
+          type: string
+          enum: [critical, high, medium, low, informational]
+        title: { type: string }
+        target: { type: string }
+        cvss_score: { type: number, nullable: true }
+        cvss_vector: { type: string, nullable: true }
+        cvss_version: { type: string, nullable: true }
+        cwe: { type: array, items: { type: string } }
+        mitre: { type: array, items: { type: string } }
+        confidence:
+          type: string
+          enum: [verified, high, medium, low]
+          nullable: true
+        phase: { type: string, nullable: true }
+        agent: { type: string, nullable: true }
+        body_md: { type: string }
+        evidence_keys: { type: array, items: { type: string } }
+        discovered_at: { type: integer, nullable: true }
+        created_at: { type: integer }
+
+    ScanEvent:
+      type: object
+      required: [id, scan_id, event_type, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/ULID" }
+        scan_id: { $ref: "#/components/schemas/ULID" }
+        event_type:
+          type: string
+          enum: [vm_provisioning, vm_ready, vm_teardown, agent_started,
+                 agent_phase_changed, finding_detected, scan_completed,
+                 scan_failed]
+        payload: { type: object, additionalProperties: true, nullable: true }
+        created_at: { type: integer }
+
+    DeepInquiry:
+      type: object
+      required: [id, company, contact_name, email, phone, domains_text,
+                 scope_text, consent_accepted_at, status, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/ULID" }
+        user_id:
+          allOf: [{ $ref: "#/components/schemas/ULID" }]
+          nullable: true
+        company: { type: string, maxLength: 200 }
+        contact_name: { type: string, maxLength: 200 }
+        position: { type: string, maxLength: 100, nullable: true }
+        email: { type: string, format: email }
+        phone: { type: string, maxLength: 50 }
+        domains_text: { type: string, maxLength: 10000 }
+        desired_date: { type: integer, nullable: true }
+        budget_band:
+          type: string
+          enum: [under_500k, 500k_1m, 1m_3m, 3m_plus, open]
+          nullable: true
+        scope_text: { type: string, maxLength: 10000 }
+        consent_accepted_at: { type: integer }
+        status:
+          type: string
+          enum: [new, contacted, converted, declined, dropped]
+        created_at: { type: integer }
+
+    FeatureFlags:
+      type: object
+      required: [yookassa_live]
+      properties:
+        yookassa_live: { type: boolean }
+
+paths:
+  /v1/auth/magic-link:
+    post:
+      summary: Request a magic-link email (existing — unchanged)
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202':
+          description: Email queued
+        '429':
+          description: Rate-limited
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /v1/auth/verify:
+    get:
+      summary: Consume magic-link token and set session cookie (existing)
+      tags: [auth]
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '302':
+          description: Redirect to dashboard with session cookie set
+
+  /v1/auth/me:
+    get:
+      summary: Current user (existing — used by frontend pre-fill)
+      tags: [auth]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, email]
+                properties:
+                  id: { $ref: "#/components/schemas/ULID" }
+                  email: { type: string, format: email }
+                  free_quick_available: { type: boolean }
+                  free_quick_resets_at: { type: integer, nullable: true }
+        '401':
+          description: Not authenticated
+
+  /v1/config/feature-flags:
+    get:
+      summary: Runtime feature-flag values (e.g. yookassa_live)
+      tags: [config]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FeatureFlags" }
+
+  /v1/scan-orders:
+    get:
+      summary: List user's scan orders (dashboard)
+      tags: [scan-orders]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ScanOrder" }
+    post:
+      summary: Create a draft scan order
+      tags: [scan-orders]
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tier, primary_domain]
+              properties:
+                tier:
+                  type: string
+                  enum: [quick]   # Deep doesn't create scan-orders in MVP
+                primary_domain: { $ref: "#/components/schemas/Hostname" }
+      responses:
+        '201':
+          description: Draft created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanOrder" }
+        '429':
+          description: Rate-limited
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /v1/scan-orders/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+    get:
+      summary: Fetch one scan order
+      tags: [scan-orders]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanOrder" }
+        '404':
+          description: Not found (also hides foreign-user existence)
+    delete:
+      summary: Cancel a scan order or scan in flight
+      tags: [scan-orders]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanOrder" }
+        '409':
+          description: Cannot cancel in current state
+
+  /v1/scan-orders/{id}/attack-surface:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+    put:
+      summary: Replace attack-surface list (Step 1 commit)
+      tags: [scan-orders]
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [attack_surface]
+              properties:
+                attack_surface:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  items: { $ref: "#/components/schemas/AttackSurfaceEntry" }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanOrder" }
+        '409':
+          description: Order is past the editable stage
+
+  /v1/scan-orders/{id}/safety:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+    put:
+      summary: Set rate-limit (Step 2 commit)
+      tags: [scan-orders]
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [safety_rps]
+              properties:
+                safety_rps:
+                  type: integer
+                  minimum: 1
+                  maximum: 500
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanOrder" }
+
+  /v1/scan-orders/{id}/dns-verify/request:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+    post:
+      summary: Generate DNS verify token (Step 3 begin)
+      tags: [scan-orders]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Token returned
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, instructions]
+                properties:
+                  token: { type: string, example: "tensol-verify-01ARZ3..." }
+                  instructions:
+                    type: object
+                    required: [record_type, record_name, record_value]
+                    properties:
+                      record_type: { type: string, enum: [TXT] }
+                      record_name: { type: string, example: "@" }
+                      record_value: { type: string }
+                      ttl_hint: { type: integer, example: 300 }
+
+  /v1/scan-orders/{id}/dns-verify/check:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+    get:
+      summary: Poll DNS verification status
+      tags: [scan-orders]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [verified, attempts]
+                properties:
+                  verified: { type: boolean }
+                  attempts: { type: integer }
+                  remaining_window_seconds: { type: integer }
+                  last_error: { type: string, nullable: true }
+
+  /v1/scan-orders/{id}/launch:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+    post:
+      summary: Launch the scan (Step 4 commit)
+      tags: [scan-orders]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '202':
+          description: Launched; scan record created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scan_id]
+                properties:
+                  scan_id: { $ref: "#/components/schemas/ULID" }
+        '409':
+          description: DNS not verified, or quota exhausted, or wrong status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        '429':
+          description: Free quota exhausted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /v1/scans/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+    get:
+      summary: Fetch one scan (used by Live + Findings pages, polled)
+      tags: [scans]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Scan" }
+        '404':
+          description: Not found
+
+  /v1/scans/{id}/events:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+      - name: since
+        in: query
+        schema: { type: integer }
+        description: Unix-ms; return events created strictly after this time
+    get:
+      summary: Polled live events for a scan (replaces SSE per Constitution V)
+      tags: [scans]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ScanEvent" }
+
+  /v1/scans/{id}/findings:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+    get:
+      summary: List findings for a scan
+      tags: [scans]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Finding" }
+
+  /v1/scans/{id}/findings/{findingId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+      - name: findingId
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+    get:
+      summary: Single finding detail
+      tags: [scans]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Finding" }
+
+  /v1/scans/{id}/report:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+    get:
+      summary: Report status + signed download URL
+      tags: [reports]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [pending, rendering, ready, failed] }
+                  download_url: { type: string, nullable: true }
+                  download_expires_at: { type: integer, nullable: true }
+                  byte_size: { type: integer, nullable: true }
+        '404':
+          description: Scan not found
+
+  /v1/scans/{id}/report/regenerate:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+    post:
+      summary: Re-render a PDF (after failure or expiry)
+      tags: [reports]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '202':
+          description: Re-render queued
+
+  /v1/deep-inquiries:
+    post:
+      summary: Submit Deep inquiry (anonymous or authenticated)
+      tags: [deep-inquiries]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [company, contact_name, email, phone,
+                         domains_text, scope_text, consent_accepted]
+              properties:
+                company: { type: string, maxLength: 200 }
+                contact_name: { type: string, maxLength: 200 }
+                position: { type: string, maxLength: 100 }
+                email: { type: string, format: email }
+                phone: { type: string, maxLength: 50 }
+                domains_text: { type: string, maxLength: 10000 }
+                desired_date: { type: integer }
+                budget_band:
+                  type: string
+                  enum: [under_500k, 500k_1m, 1m_3m, 3m_plus, open]
+                scope_text: { type: string, maxLength: 10000 }
+                consent_accepted: { type: boolean }
+      responses:
+        '201':
+          description: Inquiry created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { $ref: "#/components/schemas/ULID" }
+        '422':
+          description: Validation failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /v1/webhooks/scan-complete:
+    post:
+      summary: HMAC-signed callback from vps-agent at scan end
+      tags: [webhooks]
+      description: |
+        See `contracts/webhook.md` for the full HMAC signing protocol.
+        Signature header `X-Tensol-Signature: t=<unix>, v1=<hex>`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scan_order_id, completed_at, findings, evidence_archive_url, duration_seconds]
+              properties:
+                scan_order_id: { $ref: "#/components/schemas/ULID" }
+                completed_at: { type: integer }
+                decepticon_events_count: { type: integer }
+                findings:
+                  type: array
+                  items:
+                    type: object
+                    required: [raw_yaml_frontmatter, body_md]
+                    properties:
+                      raw_yaml_frontmatter:
+                        type: object
+                        additionalProperties: true
+                      body_md: { type: string }
+                      evidence_keys:
+                        type: array
+                        items: { type: string }
+                evidence_archive_url: { type: string, format: uri }
+                duration_seconds: { type: integer }
+      responses:
+        '200':
+          description: Accepted + ingested
+        '401':
+          description: Invalid HMAC
+
+  /v1/admin/deep-inquiries:
+    get:
+      summary: (admin) List Deep inquiries (operator-only)
+      tags: [admin]
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DeepInquiry" }
+        '403':
+          description: Not authorized
+
+  /v1/admin/deep-inquiries/{id}/status:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ULID" }
+    put:
+      summary: (admin) Update Deep inquiry status
+      tags: [admin]
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [contacted, converted, declined, dropped]
+      responses:
+        '200':
+          description: Updated

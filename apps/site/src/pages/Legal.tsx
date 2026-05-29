@@ -1,4 +1,4 @@
-// Tensol legal pages — privacy, terms, dpa.
+// Sthrip legal pages — privacy, terms, dpa.
 // Single component handles all 3 kinds via :kind from useParams.
 // Inlines the marketing nav + footer for layout continuity.
 import { Fragment, useEffect, useState } from 'react';
@@ -7,7 +7,7 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useTensol } from '../context.tsx';
 import { LangSwitcher } from '../components/LangSwitcher.tsx';
 import { PixelWaveBg } from '../components/PixelWaveBg.tsx';
-import { Btn, Eyebrow, LogoLockup } from '../components/primitives.tsx';
+import { Btn, Eyebrow } from '../components/primitives.tsx';
 
 type LegalKind = 'privacy' | 'terms' | 'dpa';
 const VALID_KINDS: ReadonlyArray<LegalKind> = ['privacy', 'terms', 'dpa'];
@@ -36,7 +36,18 @@ function LegalNav() {
         zIndex: 2,
       }}
     >
-      <LogoLockup size={20} color="var(--ink)" onClick={() => navigate('/')} />
+      <button
+        type="button"
+        aria-label="STHRIP home"
+        onClick={() => navigate('/')}
+        style={{ border: 0, background: 'transparent', padding: 0, cursor: 'pointer' }}
+      >
+        <img
+          src="/assets/sthrip-speed-wordmark-user-cropped.png"
+          alt="STHRIP"
+          style={{ display: 'block', width: 118, height: 'auto', imageRendering: 'pixelated' }}
+        />
+      </button>
       <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
         {t.navItems.map((l, i) => (
           <Link
@@ -85,7 +96,11 @@ function LegalFooter() {
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <LogoLockup size={20} color="var(--ink)" />
+          <img
+            src="/assets/sthrip-speed-wordmark-user-cropped.png"
+            alt="STHRIP"
+            style={{ display: 'block', width: 118, height: 'auto', imageRendering: 'pixelated' }}
+          />
           <p
             style={{
               fontFamily: "'Inter', sans-serif",
@@ -339,9 +354,9 @@ function LegalBody({ kind }: { kind: LegalKind }) {
    Legal — top-level page
    ───────────────────────────────────────────────────────────────────── */
 const LEGAL_TITLES: Record<string, string> = {
-  privacy: 'Privacy Policy — Tensol',
-  terms: 'Terms of Service — Tensol',
-  dpa: 'Data Processing Agreement — Tensol',
+  privacy: 'Privacy Policy — Sthrip',
+  terms: 'Terms of Service — Sthrip',
+  dpa: 'Data Processing Agreement — Sthrip',
 };
 
 export default function Legal() {
@@ -352,9 +367,9 @@ export default function Legal() {
   return (
     <Fragment>
       <RouteHead
-        title={LEGAL_TITLES[kind] ?? 'Legal — Tensol'}
-        ogTitle={LEGAL_TITLES[kind] ?? 'Legal — Tensol'}
-        ogImage="/assets/tensol-horse-red.svg"
+        title={LEGAL_TITLES[kind] ?? 'Legal — Sthrip'}
+        ogTitle={LEGAL_TITLES[kind] ?? 'Legal — Sthrip'}
+        ogImage="/assets/sthrip-noise-field.jpg"
       />
       <div
         data-screen-label={`legal-${kind}`}

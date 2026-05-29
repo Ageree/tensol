@@ -3,7 +3,7 @@ import { renderMagicLinkEmail } from "./magic-link.ts";
 
 const baseArgs = {
   email: "user@example.com",
-  verifyUrl: "https://tensol.io/api/auth/verify?token=abc123",
+  verifyUrl: "https://sthrip.dev/api/auth/verify?token=abc123",
   expiresAtMs: Date.now() + 15 * 60 * 1000,
 };
 
@@ -18,9 +18,9 @@ describe("renderMagicLinkEmail — html body", () => {
     expect(html).toContain(baseArgs.email);
   });
 
-  it("contains the brand name (default = Tensol)", () => {
+  it("contains the brand name (default = Sthrip)", () => {
     const { html } = renderMagicLinkEmail(baseArgs);
-    expect(html).toContain("Tensol");
+    expect(html).toContain("Sthrip");
   });
 
   it("respects a custom brand name", () => {
@@ -66,8 +66,8 @@ describe("renderMagicLinkEmail — subject", () => {
     expect(subject.length).toBeGreaterThan(3);
   });
 
-  it("references Tensol by default", () => {
+  it("references Sthrip by default", () => {
     const { subject } = renderMagicLinkEmail(baseArgs);
-    expect(subject).toContain("Tensol");
+    expect(subject).toContain("Sthrip");
   });
 });

@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Tensol — Colors & Type tokens
+   Sthrip — Colors & Type tokens
    Autonomous AI Pentesting Platform
    ==========================================================================
    Brand DNA: abstract noise field · halftone dithering · terminal · mono+sans
@@ -7,8 +7,8 @@
    ========================================================================== */
 
 @font-face {
-  font-family: "TensolMono";
-  src: local("JetBrains Mono"), local("IBM Plex Mono"), local("Menlo"), local("Consolas");
+  font-family: "HacktronMono";
+  src: local("Geist Mono"), local("GeistMono"), local("SFMono-Regular"), local("Menlo"), local("Monaco"), local("Consolas");
   font-display: swap;
 }
 
@@ -50,9 +50,9 @@
   --ok:           #1F7A3A;
 
   /* ── Typography stacks ────────────────────────────────────────────────── */
-  --font-mono:    "TensolMono", "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
-  --font-sans:    "Inter", "Neue Haas Grotesk Display Pro", "Helvetica Neue", system-ui, -apple-system, sans-serif;
-  --font-display: "Space Grotesk", "Neue Haas Grotesk Display Pro", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono:    "Geist Mono", "HacktronMono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-sans:    "Geist Mono", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-display: "Geist Mono", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 
   /* ── Type scale ──────────────────────────────────────────────────────── */
   --fs-xs:   11px;
@@ -70,8 +70,8 @@
   --lh-base:  1.45;
   --lh-loose: 1.6;
 
-  --tr-tight:  -0.02em;
-  --tr-base:   -0.005em;
+  --tr-tight:   0;
+  --tr-base:    0;
   --tr-mono:    0;
   --tr-caps:    0.08em;
 
@@ -127,10 +127,16 @@ h4    { font: 600 var(--fs-lg)/var(--lh-snug)   var(--font-sans); margin: 0; }
 p     { font: 400 var(--fs-base)/var(--lh-base) var(--font-sans); margin: 0; }
 code, kbd, samp { font-family: var(--font-mono); font-size: 0.95em; }
 
+[style*="JetBrains Mono"],
+[style*="Inter"],
+[style*="Space Grotesk"] {
+  font-family: var(--font-mono) !important;
+}
+
 ::selection { background: var(--ink); color: var(--paper); }
 
 /* ──────────────────────────────────────────────────────────────────────
-   Tensol — motion layer.
+   Sthrip — motion layer.
    Pixel/terminal aesthetic: short durations, hard easing, no bouncing.
    Most animation is reveal-on-scroll + small ambient loops.
    ────────────────────────────────────────────────────────────────────── */
@@ -380,6 +386,22 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   height: auto;
 }
 
+.minimal-wordmark-with-mark {
+  width: auto;
+  gap: 10px;
+}
+
+.minimal-wordmark-with-mark .minimal-wordmark-mark {
+  width: 42px;
+  flex: 0 0 auto;
+  image-rendering: pixelated;
+}
+
+.minimal-wordmark-with-mark .minimal-wordmark-type {
+  width: 104px;
+  flex: 0 0 auto;
+}
+
 .minimal-nav-links {
   display: flex;
   align-items: center;
@@ -575,7 +597,7 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
 }
 
 .minimal-proof h2 {
-  max-width: 12ch;
+  max-width: 18ch;
   color: var(--minimal-fg);
   font-family: var(--font-display);
   font-size: 34px;
@@ -583,6 +605,8 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   letter-spacing: 0;
   line-height: 1.12;
   margin: 0;
+  overflow-wrap: break-word;
+  text-wrap: balance;
 }
 
 .minimal-proof p {
@@ -850,8 +874,13 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   border-right: 1px solid var(--minimal-soft-line);
 }
 
+.pricing-plan:nth-child(2n),
 .pricing-plan:last-child {
   border-right: 0;
+}
+
+.pricing-plan:nth-child(n + 3) {
+  border-top: 1px solid var(--minimal-soft-line);
 }
 
 .pricing-plan-head h2 {
@@ -1081,6 +1110,19 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   .minimal-wordmark {
     width: 82px;
     height: 21px;
+  }
+
+  .minimal-wordmark-with-mark {
+    width: auto;
+    gap: 8px;
+  }
+
+  .minimal-wordmark-with-mark .minimal-wordmark-mark {
+    width: 30px;
+  }
+
+  .minimal-wordmark-with-mark .minimal-wordmark-type {
+    width: 82px;
   }
 
   .minimal-hero {

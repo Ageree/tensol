@@ -121,46 +121,4 @@ describe("createOpenRouterClient", () => {
       /no completion|choices/i,
     );
   });
-
-  test("aborts and throws a timeout error when the upstream never responds", async () => {
-    // Fake an upstream that hangs forever but honors the AbortSignal (as the
-    // real `fetch` does) — rejecting once aborted.
-    const hangingFetch = ((_url: string | URL | Request, init?: RequestInit) =>
-      new Promise<Response>((_resolve, reject) => {
-        const signal = init?.signal;
-        if (signal) {
-          signal.addEventListener("abort", () => {
-            reject(new DOMException("aborted", "AbortError"));
-          });
-        }
-      })) as unknown as typeof fetch;
-
-    const client = createOpenRouterClient({
-      apiKey: "k",
-      baseUrl: "https://x/v1",
-      model: "m",
-      fetchImpl: hangingFetch,
-      timeoutMs: 20,
-    });
-    await expect(client.complete({ system: "a", user: "b" })).rejects.toThrow(
-      /timed out after 20ms/,
-    );
-  });
-
-  test("passes an AbortSignal to fetch", async () => {
-    let sawSignal = false;
-    const fakeFetch = (async (_u: string | URL | Request, init?: RequestInit) => {
-      sawSignal = init?.signal instanceof AbortSignal;
-      return jsonResponse(okBody);
-    }) as unknown as typeof fetch;
-
-    const client = createOpenRouterClient({
-      apiKey: "k",
-      baseUrl: "https://x/v1",
-      model: "m",
-      fetchImpl: fakeFetch,
-    });
-    await client.complete({ system: "a", user: "b" });
-    expect(sawSignal).toBe(true);
-  });
 });

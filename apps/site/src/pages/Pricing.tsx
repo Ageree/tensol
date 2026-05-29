@@ -48,7 +48,7 @@ function PricingNav() {
 }
 
 function PricingHero() {
-  const proof = ['Quick', 'Deep', 'scope first'];
+  const proof = ['blackbox', 'whitebox', 'PR review'];
 
   return (
     <section className="minimal-page-hero pricing-hero" aria-labelledby="pricing-title">
@@ -162,9 +162,9 @@ export default function Pricing() {
     <>
       <RouteHead
         title="Pricing - Sthrip"
-        description="No hourly billing. AI-powered penetration testing at a fixed engagement scope."
+        description="Pricing for Sthrip blackbox scans, whitebox assessments, PR security review, and enterprise offensive security coverage."
         ogTitle="Pricing - Sthrip"
-        ogDescription="No hourly billing. AI-powered penetration testing at a fixed engagement scope."
+        ogDescription="Pricing for Sthrip blackbox scans, whitebox assessments, PR security review, and enterprise offensive security coverage."
         ogImage="/assets/sthrip-noise-field.jpg"
       />
       <div className="minimal-marketing minimal-subpage" data-screen-label="11 Pricing - minimal">

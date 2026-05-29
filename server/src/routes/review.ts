@@ -22,7 +22,6 @@
  * never writes the audit log directly.
  */
 import { Hono, type MiddlewareHandler } from "hono";
-import { bodyLimit } from "hono/body-limit";
 
 import type { AuthVariables } from "../auth/middleware.ts";
 import type { DB } from "../db/client.ts";
@@ -32,7 +31,6 @@ import { fileToAddedDiff } from "../review/repo-fetch.ts";
 import { splitUnifiedDiff } from "../review/candidates.ts";
 import type { LlmClient } from "../review/reviewer.ts";
 import {
-  MAX_TOTAL_REVIEW_BYTES,
   ReviewApiBodySchema,
   WhiteboxLaunchBodySchema,
   type ReviewApiBody,
@@ -90,35 +88,7 @@ function bodyToFiles(body: ReviewApiBody): DiffFile[] {
   return [];
 }
 
-/**
- * Canonical domain `ReviewFinding` → wire (snake_case) mapper — the SINGLE
- * source of truth for the finding shape, so the sync POST / and GET /:id paths
- * cannot drift (e.g. one path dropping `side`). Row-only fields (`id`,
- * `lifecycle_state`) are appended by `findingRowToWire`.
- */
-function findingToWire(f: ReviewFinding) {
-  return {
-    fingerprint: f.fingerprint,
-    file_path: f.filePath,
-    start_line: f.startLine ?? null,
-    end_line: f.endLine ?? null,
-    side: f.side,
-    severity: f.severity,
-    cwe: f.cwe,
-    cvss_vector: f.cvssVector,
-    cvss_score: f.cvssScore,
-    confidence: f.confidence,
-    reachable: f.reachable,
-    category: f.category,
-    title: f.title,
-    rationale_md: f.rationaleMd,
-    poc_md: f.pocMd ?? null,
-    fix_prompt_md: f.fixPromptMd ?? null,
-    source: f.source,
-  };
-}
-
-/** Serialize a ReviewFinding DB row for the API (snake_case wire shape). */
+/** Serialize a ReviewFinding row for the API (snake_case wire shape). */
 function findingRowToWire(row: {
   id: string;
   fingerprint: string;
@@ -147,52 +117,54 @@ function findingRowToWire(row: {
   } catch {
     cwe = [];
   }
-  // Normalize the DB row into the domain shape (parse cweJson, 0/1→bool), run
-  // it through the canonical mapper, then append the row-only fields.
-  const domain: ReviewFinding = {
-    fingerprint: row.fingerprint,
-    filePath: row.filePath,
-    ...(row.startLine !== null ? { startLine: row.startLine } : {}),
-    ...(row.endLine !== null ? { endLine: row.endLine } : {}),
-    side: row.side as ReviewFinding["side"],
-    severity: row.severity as ReviewFinding["severity"],
-    cwe,
-    cvssVector: row.cvssVector ?? "",
-    cvssScore: row.cvssScore ?? 0,
-    confidence: (row.confidence ?? "low") as ReviewFinding["confidence"],
-    reachable: row.reachable === 1,
-    category: row.category ?? "",
-    title: row.title,
-    rationaleMd: row.rationaleMd,
-    ...(row.pocMd !== null ? { pocMd: row.pocMd } : {}),
-    ...(row.fixPromptMd !== null ? { fixPromptMd: row.fixPromptMd } : {}),
-    source: row.source as ReviewFinding["source"],
-  };
   return {
-    ...findingToWire(domain),
-    // Preserve the DB's exact persisted values for the nullable scoring/columns
-    // (the row is authoritative; don't coerce a stored null into a default).
+    id: row.id,
+    fingerprint: row.fingerprint,
+    file_path: row.filePath,
+    start_line: row.startLine,
+    end_line: row.endLine,
+    side: row.side,
+    severity: row.severity,
+    cwe,
     cvss_vector: row.cvssVector,
     cvss_score: row.cvssScore,
     confidence: row.confidence,
     reachable: row.reachable === null ? null : row.reachable === 1,
     category: row.category,
-    id: row.id,
+    title: row.title,
+    rationale_md: row.rationaleMd,
+    poc_md: row.pocMd,
+    fix_prompt_md: row.fixPromptMd,
+    source: row.source,
     lifecycle_state: row.lifecycleState,
   };
 }
 
-/** ReviewResult → wire shape (for the sync POST / response). */
+/** Inline ReviewResult → wire shape (for the sync POST / response). */
 function resultToWire(reviewId: string, result: ReviewResult) {
   return {
     review_id: reviewId,
     kind: result.kind,
-    // The sync path always finalizes the review to `completed` before
-    // responding; `status` is REQUIRED by ReviewResultWire + api.md.
-    status: "completed" as const,
     score_0_5: result.score0to5,
     summary_md: result.summaryMd,
-    findings: result.findings.map(findingToWire),
+    findings: result.findings.map((f: ReviewFinding) => ({
+      fingerprint: f.fingerprint,
+      file_path: f.filePath,
+      start_line: f.startLine ?? null,
+      end_line: f.endLine ?? null,
+      severity: f.severity,
+      cwe: f.cwe,
+      cvss_vector: f.cvssVector,
+      cvss_score: f.cvssScore,
+      confidence: f.confidence,
+      reachable: f.reachable,
+      category: f.category,
+      title: f.title,
+      rationale_md: f.rationaleMd,
+      poc_md: f.pocMd ?? null,
+      fix_prompt_md: f.fixPromptMd ?? null,
+      source: f.source,
+    })),
   };
 }
 
@@ -221,23 +193,8 @@ export function createReviewRouter(
 
   // -------------------------------------------------------------------------
   // POST / — synchronous review of a supplied diff/files.
-  //
-  // `bodyLimit` rejects an oversized body with 413 on Content-Length / streamed
-  // size BEFORE `c.req.json()` buffers + parses it (per-field Zod caps run only
-  // after the whole body is materialized, too late to prevent the allocation).
-  // Headroom over MAX_TOTAL_REVIEW_BYTES covers the JSON envelope + path/sha
-  // fields + base64/escape expansion.
   // -------------------------------------------------------------------------
-  const reviewBodyLimit = bodyLimit({
-    maxSize: MAX_TOTAL_REVIEW_BYTES + 256 * 1024,
-    onError: (c) =>
-      c.json(
-        { error: "payload_too_large", message: "request body exceeds the size limit" },
-        413,
-      ),
-  });
-
-  app.post("/", reviewBodyLimit, async (c) => {
+  app.post("/", async (c) => {
     if (!llm) return c.json(LLM_UNCONFIGURED, 503);
 
     let raw: unknown;
@@ -321,31 +278,22 @@ export function createReviewRouter(
 
   // -------------------------------------------------------------------------
   // GET / — list the caller's reviews.
-  //
-  // Emits a distinct list shape (`ReviewListItemWire`): `review_id` (NOT `id`)
-  // and a real `findings_count` (counted, not the full `findings` array) so the
-  // client's Reviews table can read `r.review_id` + `r.findings_count` without
-  // a crash. NEVER includes a `findings` array (that's the detail endpoint).
   // -------------------------------------------------------------------------
   app.get("/", async (c) => {
     const user = c.get("user");
     const reviews = await service.listReviewsByUser(user.id);
-    const counts = await service.countFindingsByReviewIds(
-      reviews.map((r) => r.id),
-    );
-    const repos = await service.listReposByUser(user.id);
-    const repoSlug = new Map(repos.map((r) => [r.id, `${r.owner}/${r.name}`]));
     return c.json(
       reviews.map((r) => ({
-        review_id: r.id,
+        id: r.id,
+        repo_id: r.repoId,
         kind: r.kind,
+        pr_number: r.prNumber,
+        head_sha: r.headSha,
         status: r.status,
         score_0_5: r.score0to5,
-        pr_number: r.prNumber,
-        repo: r.repoId ? repoSlug.get(r.repoId) ?? null : null,
+        findings_count: r.findingsCount,
         created_at: r.createdAt,
         completed_at: r.completedAt,
-        findings_count: counts[r.id] ?? 0,
       })),
       200,
     );

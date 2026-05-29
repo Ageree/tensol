@@ -1,4 +1,4 @@
-// T117 — Tensol Blackbox MVP Dashboard.
+// T117 — Sthrip Blackbox MVP Dashboard.
 //
 // "Your scans" table for the Quick-flow user. Replaces the legacy fixture
 // dashboard (active assessments / approvals / findings) which depended on
@@ -172,7 +172,7 @@ function EmptyState(): ReactElement {
       }}
     >
       {/* Glyph — purely decorative ASCII square-bracket motif from the
-          Tensol brand toolkit. SVG would be heavier for one shape. */}
+          Sthrip brand toolkit. SVG would be heavier for one shape. */}
       <Mono
         size={28}
         color="var(--fg-3)"

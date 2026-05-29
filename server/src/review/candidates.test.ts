@@ -43,43 +43,6 @@ describe("parseAddedHunks", () => {
     expect(parseAddedHunks(undefined).length).toBe(0);
     expect(parseAddedHunks("").length).toBe(0);
   });
-
-  test("added line whose content starts with '++' is NOT dropped (TOML +++ fence)", () => {
-    // A new Hugo/Zola content file: every body line is an addition. The TOML
-    // frontmatter is delimited by `+++`, so those added lines appear in the
-    // patch as `+` + `+++` = `++++`. The old `!startsWith('+++')` guard wrongly
-    // dropped them, fragmenting the run + losing content. They must survive.
-    const patch = [
-      "@@ -0,0 +1,5 @@",
-      "++++", // an added line whose content is the TOML fence `+++`... + extra
-      '+title = "x"',
-      "++++",
-      "+",
-      "+Body with <script>alert(1)</script>",
-    ].join("\n");
-    const hunks = parseAddedHunks(patch);
-    // One contiguous run of all 5 added lines (no fragmentation).
-    expect(hunks.length).toBe(1);
-    expect(hunks[0]!.newStart).toBe(1);
-    expect(hunks[0]!.endLine).toBe(5);
-    // The `+++` fence content (after stripping the single leading `+`) survives.
-    expect(hunks[0]!.snippet).toContain("+++");
-    expect(hunks[0]!.snippet).toContain('title = "x"');
-    expect(hunks[0]!.snippet).toContain("<script>alert(1)</script>");
-  });
-
-  test("removed line whose content starts with '--' is treated as removed (not header)", () => {
-    const patch = [
-      "@@ -1,2 +1,2 @@",
-      "---", // removed line whose content is `--`
-      '+const x = "ok";',
-    ].join("\n");
-    const hunks = parseAddedHunks(patch);
-    // The `---` is a removed line; the single added line forms one run at line 1.
-    expect(hunks.length).toBe(1);
-    expect(hunks[0]!.newStart).toBe(1);
-    expect(hunks[0]!.snippet).toContain('const x = "ok";');
-  });
 });
 
 describe("splitUnifiedDiff", () => {

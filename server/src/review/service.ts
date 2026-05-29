@@ -10,7 +10,7 @@
  * transaction, so it is always called OUTSIDE `withTx` blocks (bun:sqlite
  * forbids nested BEGINs — same rule as the webhook handlers).
  */
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { emitSignedAudit } from "../audit/emit.ts";
 import type { DB } from "../db/client.ts";
 import { withTx } from "../db/client.ts";
@@ -21,7 +21,6 @@ import {
   reviewRepos as reviewReposTable,
   reviews as reviewsTable,
   reviewThreads as reviewThreadsTable,
-  webhookDedup as webhookDedupTable,
   type Review,
   type ReviewFeedback,
   type ReviewFinding as ReviewFindingRow,
@@ -84,48 +83,17 @@ export interface ReviewService {
     owner: string,
     name: string,
   ): Promise<ReviewRepo | null>;
-  /**
-   * Resolve a connected repo by its SIGNED GitHub `installation_id` (the only
-   * trustworthy tenant identifier on a webhook), asserting the event's
-   * owner/name match the stored row. Returns null when no row matches the
-   * installation, or when the installation's stored slug differs from the
-   * event's — so an attacker who minted a row for `victim/secret` under their
-   * OWN user can never be resolved from a victim's webhook (which carries the
-   * victim's installation id, not the attacker's). The per-user
-   * `(scm,owner,name,user_id)` unique index means `(owner,name)` alone can match
-   * multiple tenants — `installation_id` disambiguates to exactly one.
-   */
-  getRepoByInstallation(
-    scm: string,
-    installationId: string,
-    owner: string,
-    name: string,
-  ): Promise<ReviewRepo | null>;
   getRepo(id: string): Promise<ReviewRepo | null>;
   listReposByUser(userId: string): Promise<ReviewRepo[]>;
   createReview(args: CreateReviewArgs): Promise<Review>;
   /**
    * Atomically insert a queued review + its `pending` job in ONE transaction,
    * so a crash can never leave a `queued` review with no job to run it.
-   *
-   * When `dedup` is supplied (webhook delivery), its `webhook_dedup` row is
-   * inserted FIRST inside the SAME transaction. A UNIQUE collision rolls the
-   * whole tx back (no orphan review/job) and resolves with `{duplicate:true}`.
-   * Committing the dedup row in the same tx as the work means a crash before
-   * commit also rolls the dedup row back, so GitHub's retry re-processes the
-   * delivery instead of being swallowed as a duplicate with no review.
    */
   createQueuedReviewWithJob(
     args: CreateReviewArgs,
     jobType: "pr_review" | "whitebox_scan",
-    dedup?: {
-      id: string;
-      webhookKind: string;
-      dedupKey: string;
-      receivedAt: number;
-      metadataJson: string;
-    },
-  ): Promise<{ review: Review; jobId: string; duplicate: boolean }>;
+  ): Promise<{ review: Review; jobId: string }>;
   markReviewRunning(id: string): Promise<Review>;
   finalizeReview(id: string, result: ReviewResult): Promise<Review>;
   failReview(id: string, error: string): Promise<Review>;
@@ -133,14 +101,6 @@ export interface ReviewService {
   listReviewsByRepo(repoId: string): Promise<Review[]>;
   listReviewsByUser(userId: string): Promise<Review[]>;
   getReviewFindings(reviewId: string): Promise<ReviewFindingRow[]>;
-  /**
-   * Count persisted `review_findings` rows per review id, WITHOUT loading the
-   * full findings. Returns a map keyed by review id; ids with no findings are
-   * absent (treat as 0). Used by the list endpoint's `findings_count`.
-   */
-  countFindingsByReviewIds(
-    reviewIds: string[],
-  ): Promise<Record<string, number>>;
   upsertThread(args: UpsertThreadArgs): Promise<ReviewThread>;
   getOpenThread(
     repoId: string,
@@ -285,25 +245,6 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
       return (row as ReviewRepo) ?? null;
     },
 
-    async getRepoByInstallation(scm, installationId, owner, name) {
-      // Filter on the SIGNED installation id; assert the slug matches so a
-      // webhook for installation X can only ever resolve installation X's
-      // genuinely-connected repo row.
-      const row = db
-        .select()
-        .from(reviewReposTable)
-        .where(
-          and(
-            eq(reviewReposTable.scm, scm as "github"),
-            eq(reviewReposTable.installationId, installationId),
-            eq(reviewReposTable.owner, owner),
-            eq(reviewReposTable.name, name),
-          ),
-        )
-        .get();
-      return (row as ReviewRepo) ?? null;
-    },
-
     async getRepo(id) {
       const row = db
         .select()
@@ -349,7 +290,7 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
       return row as Review;
     },
 
-    async createQueuedReviewWithJob(args, jobType, dedup) {
+    async createQueuedReviewWithJob(args, jobType) {
       const ts = clock();
       const reviewId = ulid(ts);
       const jobId = ulid(ts + 1); // distinct id even with a frozen clock
@@ -373,46 +314,23 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
         createdAt: ts,
         updatedAt: ts,
       };
-      try {
-        await withTx(db, (tx) => {
-          // Record the webhook delivery FIRST, in the same tx — its UNIQUE
-          // collision aborts the whole tx (no orphan review/job), and a crash
-          // before COMMIT rolls it back too so GitHub's retry re-processes.
-          if (dedup) {
-            tx.insert(webhookDedupTable)
-              .values({
-                id: dedup.id,
-                webhookKind: dedup.webhookKind,
-                dedupKey: dedup.dedupKey,
-                receivedAt: dedup.receivedAt,
-                metadataJson: dedup.metadataJson,
-              })
-              .run();
-          }
-          tx.insert(reviewsTable).values(reviewRow).run();
-          tx.insert(jobsTable)
-            .values({
-              id: jobId,
-              type: jobType,
-              payloadJson: JSON.stringify({ type: jobType, reviewId }),
-              status: "pending",
-              scheduledAt: ts,
-              attempts: 0,
-              lastError: null,
-              createdAt: ts,
-              updatedAt: ts,
-            })
-            .run();
-        });
-      } catch (err) {
-        // A duplicate webhook delivery (already-seen dedup key) is expected,
-        // not an error: the tx rolled back, so signal the route to 200.
-        if (dedup && isUniqueViolation(err)) {
-          return { review: reviewRow as Review, jobId, duplicate: true };
-        }
-        throw err;
-      }
-      return { review: reviewRow as Review, jobId, duplicate: false };
+      await withTx(db, (tx) => {
+        tx.insert(reviewsTable).values(reviewRow).run();
+        tx.insert(jobsTable)
+          .values({
+            id: jobId,
+            type: jobType,
+            payloadJson: JSON.stringify({ type: jobType, reviewId }),
+            status: "pending",
+            scheduledAt: ts,
+            attempts: 0,
+            lastError: null,
+            createdAt: ts,
+            updatedAt: ts,
+          })
+          .run();
+      });
+      return { review: reviewRow as Review, jobId };
     },
 
     async markReviewRunning(id) {
@@ -555,22 +473,6 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
         .from(reviewFindingsTable)
         .where(eq(reviewFindingsTable.reviewId, reviewId))
         .all() as ReviewFindingRow[];
-    },
-
-    async countFindingsByReviewIds(reviewIds) {
-      if (reviewIds.length === 0) return {};
-      const rows = db
-        .select({
-          reviewId: reviewFindingsTable.reviewId,
-          n: count(),
-        })
-        .from(reviewFindingsTable)
-        .where(inArray(reviewFindingsTable.reviewId, reviewIds))
-        .groupBy(reviewFindingsTable.reviewId)
-        .all() as Array<{ reviewId: string; n: number }>;
-      const out: Record<string, number> = {};
-      for (const r of rows) out[r.reviewId] = r.n;
-      return out;
     },
 
     async upsertThread(args) {

@@ -29,8 +29,8 @@ export interface RenderedEmail {
   readonly text: string;
 }
 
-const DEFAULT_BRAND_NAME = "Tensol";
-const DEFAULT_SUPPORT_EMAIL = "support@tensol.io";
+const DEFAULT_BRAND_NAME = "Sthrip";
+const DEFAULT_SUPPORT_EMAIL = "support@sthrip.dev";
 
 function escapeHtml(input: string): string {
   return input

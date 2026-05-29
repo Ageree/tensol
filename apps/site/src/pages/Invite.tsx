@@ -80,7 +80,7 @@ export default function Invite() {
         title={t.authMfaTitle}
         sub={t.authMfaSub}
       >
-        <RouteHead title="Accept Invite — Tensol" />
+        <RouteHead title="Accept Invite — Sthrip" />
         <div
           data-screen-label="03 Auth — invite/MFA"
           style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}

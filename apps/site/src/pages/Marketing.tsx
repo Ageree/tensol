@@ -8,20 +8,20 @@ type MarketingPageProps = {
 
 const capabilityItems = [
   {
-    title: 'Coverage',
-    text: 'APIs, web apps, mobile surfaces, cloud, containers, infrastructure, and supply-chain edges.',
+    title: 'Blackbox assessments',
+    text: 'Autonomous agents test your live application, APIs, and external attack surface from the outside, then keep only findings they can prove.',
   },
   {
-    title: 'Control',
-    text: 'Runs only inside signed scope. Full confidentiality. Every action is written into the audit trail.',
+    title: 'Whitebox testing',
+    text: 'Source code, API specs, and architecture notes give the agent context to reason about business logic, auth boundaries, and hidden attack paths.',
   },
   {
-    title: 'Evidence',
-    text: 'Every finding is reproducible. Reports are structured around proof, risk, and remediation.',
+    title: 'PR security review',
+    text: 'Continuous review for security-sensitive pull requests, with exploitable risk explained inline before vulnerable code reaches production.',
   },
 ] as const;
 
-const proofPoints = ['48 hours', 'signed scope', 'audit log'] as const;
+const proofPoints = ['blackbox + whitebox', 'proof-first findings', 'human-reviewed delivery'] as const;
 
 function ArrowIcon() {
   return (
@@ -60,8 +60,14 @@ function MarketingNav({ onSignIn }: { onSignIn?: () => void }) {
 
   return (
     <header className="minimal-nav">
-      <Link to="/" className="minimal-wordmark" aria-label="STHRIP">
-        <img src="/assets/sthrip-wordmark-white.png" alt="STHRIP" />
+      <Link to="/" className="minimal-wordmark minimal-wordmark-with-mark" aria-label="STHRIP">
+        <img
+          className="minimal-wordmark-mark"
+          src="/assets/tensol-logo-mark-white.png"
+          alt=""
+          aria-hidden="true"
+        />
+        <img className="minimal-wordmark-type" src="/assets/sthrip-wordmark-white.png" alt="STHRIP" />
       </Link>
       <nav className="minimal-nav-links" aria-label="Primary navigation">
         <Link to="/method">Method</Link>
@@ -82,16 +88,17 @@ function MarketingHero() {
     <section className="minimal-hero" aria-labelledby="minimal-hero-title">
       <div className="minimal-hero-copy">
         <h1 id="minimal-hero-title">
-          AI can break in
-          <span>within hours.</span>
+          AI offensive security
+          <span>for teams that ship fast.</span>
         </h1>
         <p>
-          Sthrip runs autonomous AI penetration tests inside signed scope.
-          Every action is recorded. Every finding is reproducible.
+          Sthrip finds exploitable vulnerabilities across running products and source code.
+          Autonomous agents investigate like attackers, validators prove impact, and your team
+          gets the evidence needed to fix what matters.
         </p>
         <div className="minimal-actions" aria-label="Primary actions">
           <button type="button" className="minimal-button minimal-button-primary" onClick={() => navigate('/scan/new')}>
-            Try Quick
+            Start blackbox scan
             <ArrowIcon />
           </button>
           <button
@@ -99,7 +106,7 @@ function MarketingHero() {
             className="minimal-button minimal-button-secondary"
             onClick={() => navigate('/deep-inquiry')}
           >
-            Request Deep audit
+            Book whitebox assessment
             <ArrowIcon />
           </button>
         </div>
@@ -130,11 +137,12 @@ function ProofSection() {
   return (
     <section id="proof" className="minimal-proof" aria-labelledby="minimal-proof-title">
       <div>
-        <h2 id="minimal-proof-title">Evidence instead of promises.</h2>
+        <h2 id="minimal-proof-title">Real vulnerabilities, not alert volume.</h2>
       </div>
       <p>
-        Each report is built around reproduction: request, response, context,
-        risk, remediation, and an immutable history of agent actions.
+        Sthrip reports are built around proof: exploit path, request and response,
+        affected code or endpoint, business impact, remediation guidance, and an audit
+        trail your security team can replay.
       </p>
     </section>
   );
@@ -145,9 +153,9 @@ function ClosingCta() {
 
   return (
     <section className="minimal-closing" aria-label="Start an assessment">
-      <p>Ready to test your perimeter?</p>
+      <p>Ready to see what an AI security teammate would find?</p>
       <button type="button" className="minimal-button minimal-button-secondary" onClick={() => navigate('/scan/new')}>
-        Try Quick
+        Run first assessment
         <ArrowIcon />
       </button>
     </section>
@@ -168,10 +176,10 @@ export function MarketingPage({ onSignIn }: MarketingPageProps) {
   return (
     <>
       <RouteHead
-        title="Sthrip — Authorized AI penetration testing"
-        description="Autonomous AI penetration testing inside signed scope: every action is recorded, every finding is reproducible."
-        ogTitle="Sthrip — Authorized AI penetration testing"
-        ogDescription="Autonomous AI penetration testing inside signed scope: every action is recorded, every finding is reproducible."
+        title="Sthrip — AI offensive security for blackbox and whitebox testing"
+        description="Find exploitable vulnerabilities across running applications, APIs, and source code with proof-first AI security assessments."
+        ogTitle="Sthrip — AI offensive security for blackbox and whitebox testing"
+        ogDescription="Find exploitable vulnerabilities across running applications, APIs, and source code with proof-first AI security assessments."
         ogImage="/assets/sthrip-noise-field.jpg"
       />
       <div className="minimal-marketing" data-screen-label="01 Marketing — minimal landing">

@@ -1,55 +1,55 @@
-// Tensol — i18n dictionary, ported 1:1 from the design prototype's i18n.js.
+// Sthrip — i18n dictionary, ported 1:1 from the design prototype's i18n.js.
 // Two locales: en, ru. Used everywhere via useTensol().t
 
 export type TensolLang = 'en' | 'ru';
 
 const en = {
   // Marketing
-  nav: ['THREAT', 'HOW WE BREAK IN', 'PROOF', 'SCOPE'],
+  nav: ['PRODUCT', 'METHOD', 'PROOF', 'SCOPE'],
   navItems: [
-    { label: 'BLOG', to: '/blog' },
-    { label: 'HOW WE BREAK IN', to: '/method' },
+    { label: 'RESEARCH', to: '/blog' },
+    { label: 'METHOD', to: '/method' },
   ],
   signin: 'Sign in',
-  requestDemo: 'Request demo',
+  requestDemo: 'Book a demo',
   navPricing: 'PRICING',
-  eyebrowLive: '// BOTS ARE ALREADY HERE · v0.4.1',
-  heroL1: 'AI will hack you',
-  heroL2: 'in a few hours.',
-  heroL3: "Don't let it happen",
+  eyebrowLive: '// AI OFFENSIVE SECURITY',
+  heroL1: 'AI security testing',
+  heroL2: 'for modern teams.',
+  heroL3: 'Blackbox and whitebox',
   heroBlurb:
-    'AI got monstrously good at breaking in. One agent walks a full attack chain overnight, writes exploits on the fly, finds zero-days. Tensol runs that same agent on your side — under signed scope, in your audit log. 48 hours later we show confirmed findings, with replay-hash.',
-  ctaPrimary: 'Request demo',
-  ctaGhost: 'How it works',
-  ctaQuickFree: 'Try Quick free',
-  ctaDeepAudit: 'Request Deep audit',
+    'Sthrip combines autonomous offensive agents with expert validation to find exploitable vulnerabilities across running applications, APIs, and source code. Every confirmed issue ships with proof, context, and a remediation path your team can act on.',
+  ctaPrimary: 'Book a demo',
+  ctaGhost: 'See the method',
+  ctaQuickFree: 'Start blackbox scan',
+  ctaDeepAudit: 'Book whitebox assessment',
   trustEyebrow: '// IN PROD AT',
   trust: ['Tier-1 Russian bank', 'Mid-cap broker', 'EU SaaS', 'Yandex Cloud native'],
-  coverageTitle: 'Coverage that scales',
+  coverageTitle: 'Coverage across runtime and code',
   coverageBlurb:
-    'An AI agent walks ten thousand attack chains in a night while a human team walks fifty in a week. Every subdomain, endpoint and dependency is probed in parallel — no sampling, no prioritising by gut. Each chain tries variations a human won’t write by hand: encoding tricks, race conditions, OAuth privilege escalations, SSRF through DNS rebinding, cross-service chains. That delta is what surfaces the SSRF in a file uploader, the forgotten admin endpoint, object-level access control bypass (IDOR) and the unsafe deserializer — including previously-unknown vulnerabilities (zero-days) no signature scanner is configured to detect',
-  pillarsEyebrow: '// THREE THINGS AN AI AGENT DOES BETTER THAN A HUMAN PENTESTER',
+    'Sthrip tests the public attack surface, authenticated application flows, APIs, and source-backed whitebox scope. The agent explores far more hypotheses than a manual checklist, while validators keep the output anchored to reproducible impact.',
+  pillarsEyebrow: '// WHY TEAMS USE STHRIP',
   pillars: [
     {
       n: '01',
-      t: 'No downtime.',
-      d: 'An AI agent walks a full kill chain in 8 hours. A human team — in 8 weeks. The attacker operates at the first cadence; the defender has to match it.',
+      t: 'Security review at shipping speed.',
+      d: 'Run blackbox checks for exposed surfaces, whitebox assessments for critical code paths, and PR reviews before risky changes land.',
     },
     {
       n: '02',
-      t: 'Coverage that scales.',
-      d: '10,000 attack chains in a night versus 50 in a week. That delta is what surfaces the SSRF in a file uploader, the forgotten admin endpoint, the unsafe deserializer.',
+      t: 'Find what is actually exploitable.',
+      d: 'Findings are validated against the running target or source-backed exploit path, not inferred from generic pattern matches.',
     },
     {
       n: '03',
-      t: 'Cost curve falls quarter over quarter.',
-      d: 'An AI hour is around $2 and dropping. A pentester hour is $200. The economics of attack have already shifted; defense has to follow.',
+      t: 'Give developers enough context to fix.',
+      d: 'Every report includes reproduction, affected endpoint or code path, impact, severity rationale, and remediation guidance.',
     },
   ],
-  notScannerEyebrow: '// MANIFESTO',
-  notScannerTitle: 'The same offensive capability — now under your signature',
+  notScannerEyebrow: '// POSITIONING',
+  notScannerTitle: 'Not another scanner. An AI security teammate with proof.',
   notScannerBlurb:
-    'Modern offensive AI does not match signatures. It forms hypotheses about your application architecture, chains vulnerabilities together, adapts to responses and bypasses defences the way a human researcher does. Attackers already operate this way — continuously, against your team of a few humans. Tensol delivers the same offensive capability under customer control: every target authorized before launch, every action recorded in a cryptographically signed immutable audit log, every high-risk action gated by sign-off on your side, kill-switch instant',
+    'Traditional tools create queues of alerts. Sthrip investigates attack paths, reasons over product behavior and source context, and keeps only issues that can be explained with evidence. High-impact actions stay inside signed scope with a complete audit trail.',
   pipelineEyebrow: '// HOW WE WORK',
   pipelineMeta: '5 phases · deterministic transitions',
   steps: [
@@ -80,9 +80,9 @@ const en = {
     },
   ],
   proofEyebrow: '// PROOF',
-  proofTitle: 'Everything is documented',
+  proofTitle: 'Proof before priority',
   proofBlurb:
-    'Every confirmed finding ships with the HTTP request and response, a screenshot, the OOB callback, the validator log and an artifact hash. Hallucinations are filtered at the validator — not left to be argued in email',
+    'Every confirmed finding includes reproduction steps, HTTP evidence or code context, exploitability rationale, remediation guidance, and the audit trail behind the agent’s decision.',
   russiaEyebrow: '// REGION · RU',
   russiaTitle: 'Attacker AI is already operating in your jurisdiction. Defense has to be here too.',
   russiaBlurb:
@@ -92,13 +92,13 @@ const en = {
   supplyBlurb:
     'Only tools from an approved registry, with pinned versions and dedicated mirrors. Every prompt, payload and network callback is recorded in a cryptographically signed, immutable audit log. High-risk actions are admitted only after per-target authorization. The protocol rules out unintended release of offensive capability outside the agreed perimeter',
   boundaryEyebrow: '// SCOPE',
-  boundaryTitle: 'What Tensol is, and is not.',
-  boundaryIs: 'authorized pentest',
+  boundaryTitle: 'What Sthrip is, and is not.',
+  boundaryIs: 'authorized offensive security',
   boundaryIsList: [
-    'scope-bound assessments',
-    'OPPLAN-driven kill chain',
-    'deterministic validators',
-    'ownership-verified targets',
+    'blackbox assessments',
+    'whitebox code review',
+    'scope-bound execution',
+    'validated findings',
     'evidence-first reporting',
   ],
   boundaryIsNot: 'not malware tooling',
@@ -110,86 +110,86 @@ const en = {
     'not for unauthorized targets',
   ],
   rolesEyebrow: '// FOR',
-  rolesTitle: 'Four roles on your team. One AI — on their side.',
+  rolesTitle: 'One security teammate for the whole delivery loop.',
   rolesList: [
     {
       t: 'Security Lead',
-      d: 'Approves the engagement and the scope. Sees every chain the agent attempted, every confirmed finding and every gate where it stopped.',
+      d: 'Approves blackbox and whitebox scope, reviews risk across applications, and sees validated findings instead of raw alert volume.',
     },
     {
       t: 'Pentest Operator',
-      d: 'Drives the agent. Triages findings in real time, uses the kill-switch when needed and signs off on HITL gates.',
+      d: 'Controls the agent, reviews reproduction evidence, tunes scope, and signs off on high-impact testing gates.',
     },
     {
       t: 'Compliance Reviewer',
-      d: 'Receives the delivered reports with GOST R / FSTEC / NIST CSF mappings. Read-only access scoped to their tenant.',
+      d: 'Receives reports with evidence, audit history, control mappings, and retention rules that fit procurement and regulator review.',
     },
     {
       t: 'Developer / Owner',
-      d: 'Owner of the application under test. Receives technical write-ups, ships fixes and requests a retest.',
+      d: 'Gets fix-ready write-ups with affected endpoints, code paths, reproduction steps, and retest status.',
     },
   ],
-  blogTitle: 'Blog',
+  blogTitle: 'Research notes',
   blogIntro:
-    'Field notes from live AI pentests — what the agent finds in real perimeters, and why it matters',
+    'Technical notes on AI-assisted vulnerability research, whitebox testing, exploit validation, and lessons from real assessments.',
   blogEmpty: 'First posts are landing here soon',
-  methodTitle: 'How we break in',
+  methodTitle: 'How Sthrip finds exploitable risk',
   methodIntro:
-    'Until recently, this offensive capability was the privilege of a few — XBOW, top-tier red teams, state services. With the latest generation of open models, the same class of attack is available to anyone. The question is only whose hand it is in. Tensol delivers the same offensive capability that is already being used against you — inside your authorized perimeter, under your signature, with a cryptographically signed audit log of every step',
-  methodPipelineTitle: 'Pipeline',
-  methodPipelineMeta: '5 phases · deterministic transitions',
+    'Sthrip combines blackbox runtime testing, whitebox source-code analysis, and human review into one assessment loop. The goal is not to produce more alerts. The goal is to prove which vulnerabilities can be exploited, explain why they matter, and give developers enough context to fix them quickly.',
+  methodPipelineTitle: 'Assessment pipeline',
+  methodPipelineMeta: '5 phases · runtime + code context',
   methodPhases: [
     {
       phase: '01',
-      name: 'Perimeter',
-      what: 'Every engagement starts with a verification of authorization: target ownership is confirmed via DNS, via the registrar, or via a signed letter from the owner. The agent does not boot until the verification is closed.',
-      hard: 'Most automated scanners launch with no ownership check, which turns them into attack tooling in the wrong hands. A platform without hard authorization is offensive capability waiting to leak.',
-      tensol: 'Two-layer containment. Organizational: MSA + DPA + rules-of-engagement signed before any provisioning. Technical: explicit target allowlist, per-request limits, instant kill switch, full audit log. Any request outside the agreed perimeter is blocked at the platform layer and recorded.',
-      claim: '4 ownership-proof channels · 0 launches without authorization',
+      name: 'Scope',
+      what: 'We define the assets, repositories, APIs, roles, test accounts, high-impact boundaries, and systems that are explicitly out of scope.',
+      hard: 'Autonomous testing is only useful when the agent understands exactly where it is allowed to operate and which actions require human approval.',
+      tensol: 'Sthrip binds every run to signed scope, target verification, allowlists, rate limits, and an auditable rules-of-engagement record.',
+      claim: 'signed scope · verified targets · explicit exclusions',
     },
     {
       phase: '02',
-      name: 'Recon',
-      what: 'Parallel sweep across every subdomain, endpoint, header, static asset, JavaScript bundle and OpenAPI schema. The full attack surface map is reconstructed — including forgotten admin endpoints, legacy APIs and orphaned services.',
-      hard: 'A large application’s attack surface grows faster than the defense team can map it. A human pentester samples it — dozens of endpoints out of thousands. A signature scanner sees only what its rule set was configured for.',
-      tensol: 'Reconnaissance runs in dozens of parallel threads. The agent builds a dependency graph and prioritizes entry points by inferred criticality — not by a known-pattern checklist.',
-      claim: '10 000+ surface objects mapped · minutes instead of weeks',
+      name: 'Context',
+      what: 'For blackbox, the agent maps exposed services, routes, auth flows, parameters, and API behavior. For whitebox, it adds source code, framework conventions, dependency metadata, and architecture notes.',
+      hard: 'Real vulnerabilities often live between code, configuration, and runtime behavior. Looking at only one layer misses exploit chains.',
+      tensol: 'Sthrip builds a target model that connects endpoints to code paths, authorization boundaries, data flows, and likely impact areas.',
+      claim: 'attack surface + source context · one target model',
     },
     {
       phase: '03',
-      name: 'Exploitation',
-      what: 'The agent forms hypotheses about your application architecture and tests them: SQL injection past prepared statements, object-level access control bypass (IDOR) on the API, SSRF chained to an internal service, unsafe deserialization, OAuth privilege escalation, race conditions in transactional logic.',
-      hard: 'A signature scanner looks for patterns. A real critical vulnerability is a chain of multiple steps, each one harmless in isolation. Only an agent that keeps context across requests and adapts to responses finds those chains.',
-      tensol: 'Public benchmarks of the latest model generation (XBOW, GPT-5.5): the miss rate dropped from 40% to 10%, and black-box attacks now outperform the previous generation even with source-code access. Tensol runs this offensive capability under authorization, against your scope only.',
-      claim: 'Dozens of attempts per minute · chains of 5–7 steps',
+      name: 'Investigation',
+      what: 'The agent forms hypotheses, tests authorization assumptions, traces data flows, reviews risky diffs, and attempts safe proof paths against the running target when allowed.',
+      hard: 'The vulnerabilities worth fixing are rarely single-line signatures. They are chains across roles, state, APIs, queues, callbacks, and business logic.',
+      tensol: 'Sthrip prioritizes paths that could become exploitable: broken object-level authorization, unsafe deserialization, SSRF, injection, auth bypass, secret exposure, and high-risk business logic flaws.',
+      claim: 'hypothesis-driven testing · runtime and code evidence',
     },
     {
       phase: '04',
       name: 'Validation',
-      what: 'Every chain the agent finds is replayed by a separate validator: step-by-step reproduction, artifact capture (request, response, screenshot, OOB callback), cryptographic hash of the entire sequence. If the chain cannot be reproduced, it does not enter the report.',
-      hard: 'The single biggest problem with AI pentesting is hallucination. Without an independent replay step, an agent can confabulate a vulnerability that does not exist and pad the report with false positives — which destroys trust in the tool in one delivery.',
-      tensol: 'The validator is a separate deterministic module that does not share the model that found the chain. Target false-positive rate is zero. If it does not replay, it is not a finding.',
-      claim: '0 false positives target · 100% reproducible findings',
+      what: 'Every candidate finding is checked for exploitability, affected scope, severity, and remediation confidence before it reaches the customer.',
+      hard: 'AI security without validation becomes another noisy queue. Teams need proof, not plausible-sounding write-ups.',
+      tensol: 'Sthrip validates with replay steps, request and response evidence, code references, screenshots or callbacks where relevant, and human review for high-impact findings.',
+      claim: 'PoC where safe · proof where required · noise removed',
     },
     {
       phase: '05',
-      name: 'Report',
-      what: 'For every confirmed finding: replay steps, original request and response, evidence hash, CVSS score, remediation guidance, link to the code or configuration. The report ships with the full audit log of agent actions and a platform signature.',
-      hard: 'A report without an audit log is "trust us". The customer’s internal security team cannot re-verify it, the external auditor cannot accept it, the regulator cannot file it.',
-      tensol: 'Findings are mapped against MITRE ATT&CK, NIST CSF, MITRE ATLAS, D3FEND. Dual format — human-readable PDF and machine-readable JSON. Accepted by internal security teams, external auditors and 152-FZ regulators.',
-      claim: '4 frameworks · 2 formats · 1 signature',
+      name: 'Delivery',
+      what: 'The final report explains impact, likelihood, affected assets, reproduction, evidence, code references, remediation, and retest guidance.',
+      hard: 'Developers cannot fix vague security statements. Leaders cannot prioritize without business impact. Auditors need a clear chain of evidence.',
+      tensol: 'Sthrip delivers executive summary, technical findings, machine-readable exports, audit history, and optional PR comments for code-review workflows.',
+      claim: 'developer-ready findings · executive-ready report',
     },
   ],
-  methodCtaTitle: 'Want to see this on your perimeter?',
+  methodCtaTitle: 'Want this against your product?',
   methodCtaBody:
-    'Sign the rules of engagement and within 48 hours you receive your first confirmed findings in an immutable audit log',
-  methodCtaBtn: 'Submit a request →',
+    'Start with an external blackbox scan or book a whitebox assessment for source-backed coverage across your most important flows.',
+  methodCtaBtn: 'Book assessment →',
   ctaEyebrow: '// READY',
   ctaTitle: 'Want to see what AI would find in your stack?',
   ctaBody:
     'Sign the scope and start the engagement. Within 48 hours you receive a list of confirmed findings — replay-hashed, audit-logged, in your jurisdiction',
   ctaSignin: 'I have a tenant',
-  footerBlurb: 'Authorized attacker AI. In your scope, on your signature, under your audit log',
+  footerBlurb: 'AI offensive security for authorized blackbox, whitebox, and code-review workflows.',
   footerCols: [
     {
       h: 'PRODUCT',
@@ -217,20 +217,20 @@ const en = {
     {
       h: 'CONTACT',
       l: [
-        { label: 'hello@tensol.dev', href: 'mailto:hello@tensol.dev', external: true },
-        { label: 'security@tensol.dev', href: 'mailto:security@tensol.dev', external: true },
+        { label: 'hello@sthrip.dev', href: 'mailto:hello@sthrip.dev', external: true },
+        { label: 'security@sthrip.dev', href: 'mailto:security@sthrip.dev', external: true },
       ],
     },
   ],
-  footerCopy: '© Tensol 2026',
+  footerCopy: '© Sthrip 2026',
   footerVersion: '',
   footerTagline: '',
 
   // Auth
-  authPanelLeft: '// authorized pentest engine · region eu',
+  authPanelLeft: '// AI offensive security platform · region eu',
   authLoginEyebrow: '// SIGN IN',
-  authLoginTitle: 'Sign in to Tensol.',
-  authLoginSub: 'Use your tenant credentials. MFA is required for security_lead and tenant_admin.',
+  authLoginTitle: 'Log in to Sthrip.',
+  authLoginSub: 'Access assessments, findings, reports, and code-review coverage for your organization.',
   authContinue: 'Continue',
   authSignIn: 'Sign in',
   authForgot: 'forgot password',
@@ -277,8 +277,8 @@ const en = {
   engineHealth: '// ENGINE',
 
   // Dashboard
-  dashTitle: 'Operations.',
-  dashSub: 'Authorized engagements, validated findings, pending approvals.',
+  dashTitle: 'Security operations.',
+  dashSub: 'Blackbox scans, whitebox reviews, validated findings, and delivery status.',
   dashKpiActive: 'active assessments',
   dashKpiConfirmed: 'confirmed findings · 7d',
   dashKpiPending: 'pending approvals',
@@ -293,20 +293,20 @@ const en = {
   // T110 — Deep audit banner on Dashboard (US2 lead-gen).
   // T117 — Your-scans table, status badges, quota display.
   dashboard: {
-    title: 'Your scans',
+    title: 'Assessments',
     tableTitle: '// YOUR SCANS',
-    tableEmpty: 'No scans yet. Hit "+ New Scan" to launch your first Quick.',
-    loading: 'Loading scans…',
-    loadError: 'Failed to load scans',
+    tableEmpty: 'No assessments yet. Start with blackbox, then add whitebox scope when you are ready.',
+    loading: 'Loading assessments…',
+    loadError: 'Failed to load assessments',
     refresh: 'Refresh',
     refreshing: 'Refreshing',
-    newScan: 'New scan',
+    newScan: 'New assessment',
     quotaLabel: '// FREE QUOTA',
-    quotaAvailable: 'Free Quick available',
+    quotaAvailable: 'Blackbox trial available',
     // {days} placeholder replaced at runtime with the integer days-to-reset.
-    quotaUsed: 'Free Quick used · resets in {days}d',
-    tierQuick: 'Quick',
-    tierDeep: 'Deep',
+    quotaUsed: 'Blackbox trial used · resets in {days}d',
+    tierQuick: 'Blackbox',
+    tierDeep: 'Whitebox',
     columns: {
       status: 'Status',
       domain: 'Domain',
@@ -329,15 +329,15 @@ const en = {
       regenerate: 'Regenerate',
     },
     deepBanner: {
-      title: 'Need a deep audit?',
-      body: 'Quick is a baseline external check. For business-critical systems, request a Deep engagement with expert validation, NDA, and a tailored report.',
-      cta: 'Request Deep audit',
+      title: 'Need source-backed coverage?',
+      body: 'Blackbox shows what is exposed. Whitebox connects runtime behavior to source code, data flows, and business logic so critical paths get deeper review.',
+      cta: 'Book whitebox assessment',
     },
     // T119 — empty state when the user has zero scans.
     empty: {
-      title: 'No scans yet',
-      body: 'Launch a Quick assessment to see live progress here and download a signed PDF report.',
-      cta: 'Start your first scan',
+      title: 'No assessments yet',
+      body: 'Launch a blackbox assessment to see live progress, validated findings, and a report your team can act on.',
+      cta: 'Start first assessment',
     },
   },
 
@@ -350,13 +350,13 @@ const en = {
     accountUserId: 'user id',
     notSignedIn: 'not signed in',
     quotaTitle: 'FREE QUOTA',
-    quotaAvailable: 'Free Quick available',
-    quotaUsed: 'Free Quick used · resets in {days}d',
+    quotaAvailable: 'Blackbox trial available',
+    quotaUsed: 'Blackbox trial used · resets in {days}d',
     quotaHelp:
-      'One free Quick assessment per 30 days. Resets automatically when the previous Quick is older than 30 days.',
+      'One blackbox trial assessment per 30 days. Whitebox and continuous code review are enabled after scope approval.',
     mvpTitle: 'OTHER SETTINGS',
     mvpBody:
-      'No other settings in this MVP. Tenants, roles, notification channels, API tokens, and retention controls land with the team plan. If you need any of these today, reach out.',
+      'Tenant roles, repository integrations, notification channels, API tokens, and retention controls are enabled during onboarding. If you need them today, reach out.',
     contactCta: 'Contact us',
   },
 
@@ -440,7 +440,7 @@ const en = {
 
   // Findings
   fTitle: 'Findings.',
-  fSub: 'Confirmed by deterministic validator. Replay-ready.',
+  fSub: 'Confirmed findings with proof, impact, and remediation context.',
   fColTitle: 'title',
   fColSev: 'severity',
   fColConf: 'confidence',
@@ -471,7 +471,7 @@ const en = {
 
   // Reports
   rTitle: 'Reports.',
-  rSub: 'Immutable snapshots. PDF · HTML · JSON.',
+  rSub: 'Executive summary, technical evidence, remediation guidance, and machine-readable exports.',
   rGenerate: 'Generate report',
   rColProject: 'project',
   rColAss: 'assessment',
@@ -550,18 +550,18 @@ const en = {
 
   // ── BEGIN:contact (owned by Agent C) ─────────────────────────────────
   contact: {
-    title: 'Leave a request',
+    title: 'Talk to Sthrip',
     fName: 'Name',
     fTelegram: 'Telegram',
-    fTelegramHint: 'Your Telegram handle — I will message you there.',
+    fTelegramHint: 'Your Telegram handle — we will use it for fast coordination.',
     fPhone: 'Phone',
     fConsent: 'I agree my data is processed under 152-FZ — see',
     fConsentLink: 'privacy policy',
-    submit: 'Send to founder',
+    submit: 'Send assessment request',
     submitting: 'Sending…',
     successTitle: 'Request received',
     successSub:
-      'The Tensol team will get in touch within 24 hours to align on scope and sign an NDA before any testing begins.',
+      'The Sthrip team will get in touch within 24 hours to understand your blackbox or whitebox scope, align rules of engagement, and prepare the next step.',
     successBack: 'Back to home',
     errorTitle: 'Could not send.',
     errorTelegramFallback: 'I opened Telegram with your message — press Send there.',
@@ -575,8 +575,8 @@ const en = {
 
   // ── BEGIN:deepInquiry (T106+T107 — US2 Deep audit funnel) ───────────
   deepInquiry: {
-    title: 'Request a Deep audit',
-    lead: 'Tell us about your stack and scope. The Tensol team will reach out within 24 hours to align scope and sign an NDA before any testing begins.',
+    title: 'Book a whitebox assessment',
+    lead: 'Tell us what you are building, which repositories and runtime surfaces matter, and what risk you want reduced. We will align scope, access model, and rules of engagement before testing begins.',
     fCompany: 'Company',
     fContactName: 'Contact name',
     fPosition: 'Position',
@@ -585,10 +585,10 @@ const en = {
     fEmailHint: 'Optional — we use Telegram as the primary channel.',
     fPhone: 'Phone / Telegram',
     fPhoneHint: 'E.164 number (+7…) or Telegram @handle.',
-    fDomainsText: 'Domains in scope',
-    fDomainsTextHint: 'One per line. The first one is treated as primary.',
-    fScopeText: 'Scope and constraints',
-    fScopeTextHint: 'What to test, what is out-of-scope, any sensitive systems we must avoid.',
+    fDomainsText: 'Runtime targets / repositories',
+    fDomainsTextHint: 'Domains, API base URLs, repository names, or package paths. One per line.',
+    fScopeText: 'Assessment goals and constraints',
+    fScopeTextHint: 'Critical flows, roles, code areas, sensitive systems, out-of-scope actions, and what evidence your team needs.',
     fBudgetBand: 'Budget band',
     fBudgetBandHint: 'Indicative only — we quote after the call.',
     fDesiredDate: 'Desired start date',
@@ -599,10 +599,10 @@ const en = {
     submitting: 'Sending…',
     budgetOptions: {
       open: 'Open / want to discuss',
-      under_500k: 'Under 500 000 ₽',
-      band_500k_1m: '500 000 – 1 000 000 ₽',
-      band_1m_3m: '1 000 000 – 3 000 000 ₽',
-      band_3m_plus: 'Over 3 000 000 ₽',
+      under_500k: 'Pilot assessment',
+      band_500k_1m: 'Team assessment',
+      band_1m_3m: 'Business-critical system',
+      band_3m_plus: 'Enterprise / continuous coverage',
     },
     errors: {
       required: 'Required.',
@@ -615,7 +615,7 @@ const en = {
     },
     thankYou: {
       title: 'Request received',
-      body: 'We will reach out within 24 hours via Telegram or the contact you provided to align scope and sign an NDA before any testing begins.',
+      body: 'We will reach out within 24 hours to align blackbox and whitebox scope, confirm access requirements, and define the rules of engagement before any testing begins.',
       returnLink: 'Back to home',
     },
   },
@@ -624,58 +624,82 @@ const en = {
   // ── BEGIN:pricing (owned by Agent P) ────────────────────────────────
   pricing: {
     navLabel: 'Pricing',
-    eyebrow: '// PRICING · TWO TRACKS',
-    title: 'Two tracks. One agent.',
-    sub: 'Quick is the same autonomous attacker on a tight surface — free while we calibrate the market. Deep is the full kill chain at Mythos depth: hypothesis-driven, multi-step, with human validation on top. We talk first, then we quote.',
+    eyebrow: '// PRICING · ASSESSMENT TRACKS',
+    title: 'Start narrow. Expand into continuous coverage.',
+    sub: 'Use blackbox to test what the internet can reach, whitebox to understand what the code can become, and continuous review to catch exploitable risk before it ships.',
     mythosPositioning:
-      'A pre-LLM scanner walks signatures. A modern AI agent walks hypotheses — chaining IDOR through OAuth into SSRF the way a human researcher would, at machine cadence. Quick gives you the surface read for free. Deep turns that same agent loose under signed scope, with a human validator behind it.',
-    contactCta: 'Contact for pricing →',
+      'Sthrip is priced around scope and evidence quality, not alert volume. We quote based on runtime targets, repositories, sensitive flows, authorization model, and whether you need one-time assessment or continuous code-review coverage.',
+    contactCta: 'Talk to security →',
     bestForLabel: 'Best for',
     depthLabel: 'Depth of test',
     plans: [
       {
-        name: 'Quick',
+        name: 'Blackbox',
         price: 'Free',
-        priceAlt: 'during MVP',
+        priceAlt: 'trial run',
         unit: '/per scan',
-        claim: 'Autonomous blackbox audit on a single domain',
+        claim: 'External AI assessment for a public application or API',
         bestFor:
-          'Teams that want to feel what an AI attacker sees on their public surface before committing to a full engagement. One free Quick per week per account',
-        depth: '30–60 minute autonomous run · PDF report · cryptographically signed audit log',
-        ctaLabel: 'Start free →',
+          'Teams that want a fast read on exposed routes, auth behavior, API surfaces, and obvious exploit paths before committing deeper scope.',
+        depth: 'Autonomous runtime testing · validated findings · PDF report · audit log',
+        ctaLabel: 'Start blackbox →',
         ctaHref: '/scan/new',
       },
       {
-        name: 'Deep',
-        price: 'From $3,500',
-        priceAlt: 'custom scope',
+        name: 'Whitebox',
+        price: 'Scoped',
+        priceAlt: 'source-backed',
         unit: '/per engagement',
-        claim: 'Mythos-depth AI hacking with human validation on top',
+        claim: 'AI-assisted code and runtime assessment with expert validation',
         bestFor:
-          'Applications and platforms with multiple modules, integrations and multi-step workflows. Hybrid: the agent runs the full kill chain, a human pentester validates every confirmed finding before delivery',
-        depth: '~5–10 day engagement · NDA + custom SOW · live operator contact',
-        ctaLabel: 'Request audit →',
+          'Business-critical applications where source code, architecture, roles, and data flows need to be reviewed together.',
+        depth: 'Repository review · attack-path modeling · safe PoC validation · technical report',
+        ctaLabel: 'Book whitebox →',
         ctaHref: '/deep-inquiry',
+      },
+      {
+        name: 'PR Review',
+        price: 'Team',
+        priceAlt: 'continuous',
+        unit: '/per repository',
+        claim: 'Security review for pull requests before vulnerable code ships',
+        bestFor:
+          'Engineering teams that want exploitable security issues surfaced inline during code review, without blocking normal developer workflow.',
+        depth: 'GitHub integration · risky diff analysis · inline findings · dashboard coverage',
+        ctaLabel: 'Discuss rollout →',
+        ctaHref: '/contact',
+      },
+      {
+        name: 'Enterprise',
+        price: 'Custom',
+        priceAlt: 'managed scope',
+        unit: '/program',
+        claim: 'Ongoing offensive security coverage across products and teams',
+        bestFor:
+          'Security organizations that need multiple applications, repositories, data boundaries, SSO, retention rules, and procurement-grade reporting.',
+        depth: 'Blackbox + whitebox + PR review · SSO · retention controls · dedicated onboarding',
+        ctaLabel: 'Book enterprise demo →',
+        ctaHref: '/contact',
       },
     ],
     faqEyebrow: '// FAQ',
     faqTitle: 'Common questions before contact.',
     faq: [
       {
-        q: 'Why no published prices?',
-        a: 'Because price is a function of scope. The same six targets cost different money depending on data residency, compliance regime, and retest cadence. We will not pretend otherwise with a per-seat sticker.',
+        q: 'Why no fixed whitebox price?',
+        a: 'Whitebox pricing depends on repository size, framework complexity, critical flows, auth model, and whether validation can run against a staging target. We quote after reviewing scope.',
       },
       {
-        q: 'Is Tensol self-serve?',
-        a: 'No. Every engagement begins with an authorization conversation. We verify ownership, agree on rules of engagement, and only then provision your tenant.',
+        q: 'Is Sthrip self-serve?',
+        a: 'Blackbox trial scans can be started from verified scope. Whitebox, PR review, and high-impact testing begin with an authorization conversation and rules of engagement.',
       },
       {
         q: 'How is scope verified?',
         a: 'Through DNS proof, registrar proof, or signed letter from the target owner — whichever model your security org prefers. No verification, no engagement.',
       },
       {
-        q: 'What about data residency?',
-        a: 'By default we host in your Yandex Cloud folder for RU customers and in EU regions otherwise. Enterprise customers can run fully on-prem.',
+        q: 'How do you handle source code?',
+        a: 'Whitebox scope defines repository access, retention, redaction rules, and whether source leaves your environment. Enterprise customers can use customer-controlled cloud or private deployment patterns.',
       },
       {
         q: 'Do you sign DPA / NDA?',
@@ -687,93 +711,93 @@ const en = {
       },
       {
         q: 'How long from first contact to first finding?',
-        a: 'Median is 9 business days for Starter, 14 for Growth — including authorization, scope verification, and tenant setup. Enterprise on-prem is longer.',
+        a: 'Blackbox can surface results the same day after verification. Whitebox depends on access and scope, but most focused assessments can begin within a few business days after authorization.',
       },
     ],
-    ctaTitle: "Let's talk scope.",
+    ctaTitle: "Let's map your scope.",
     ctaBody:
-      'Tell us what you protect, who owns it, and what compliance regime you live under. We will come back with a proposal — usually within one business day.',
-    ctaBtn: 'Submit a request →',
+      'Tell us what you protect, where the code lives, and which flows matter most. We will recommend a blackbox, whitebox, PR-review, or enterprise rollout path.',
+    ctaBtn: 'Book a scope call →',
   },
   // ── END:pricing ─────────────────────────────────────────────────────
 
   // ── BEGIN:trustPage (owned by Agent T) ──────────────────────────────────
   trustPage: {
     navLabel: 'Trust',
-    eyebrow: '// TRUST · COMPLIANCE',
-    title: 'How we earn the right to attack your systems.',
-    sub: 'Authorization, ownership verification, audit logs, data residency, retention. The boring details CISOs actually care about.',
+    eyebrow: '// TRUST · GOVERNANCE',
+    title: 'Serious testing requires serious boundaries.',
+    sub: 'Authorization, source-code handling, audit logs, evidence retention, and data residency for blackbox and whitebox assessments.',
 
-    complianceEyebrow: '// COMPLIANCE · STATUS',
-    complianceTitle: 'Frameworks we map to, and where we stand today.',
+    complianceEyebrow: '// CONTROLS · STATUS',
+    complianceTitle: 'Controls your security, legal, and engineering teams can reason about.',
     compliance: [
       {
         name: '152-ФЗ',
         statusLabel: 'aligned',
         statusTone: 'ok',
-        body: 'Tensol is hosted in Yandex Cloud inside the customer-designated folder. Local processing of personal data. DPA available on request.',
+        body: 'Sthrip can operate with customer-designated regional storage and contractual data-handling boundaries. DPA available on request.',
         caption: '',
       },
       {
         name: 'GOST R · ФСТЭК',
         statusLabel: 'aligned',
         statusTone: 'ok',
-        body: 'Report templates ship with mapping across all 8 ФСТЭК categories. RU-localized appendices for compliance audits.',
+        body: 'Reports can include localized appendices and control mappings for regulated security review.',
         caption: '',
       },
       {
         name: 'SOC 2 Type II',
-        statusLabel: 'in progress',
+        statusLabel: 'roadmap',
         statusTone: 'warn',
-        body: 'Audit log retention, access controls, change management — implemented. External audit engagement underway.',
-        caption: 'Target: Q4 2026 · auditor: TBD',
+        body: 'Audit logging, access controls, change management, and evidence handling are designed around SOC 2-style expectations.',
+        caption: 'Formal audit timing depends on customer demand.',
       },
       {
         name: 'ISO 27001',
         statusLabel: 'planned',
         statusTone: 'neutral',
-        body: 'ISMS framework already follows ISO 27001 mapping. Formal certification is the next step after SOC 2 Type II.',
+        body: 'The operating model follows ISO 27001-style controls for access, change, evidence, supplier, and incident management.',
         caption: 'Roadmap 2027',
       },
       {
         name: 'NIST CSF',
         statusLabel: 'mapped',
         statusTone: 'ok',
-        body: 'Every finding ships with NIST CSF subcategory mapping — a default appendix in every report, no extra config.',
+        body: 'Findings can be mapped into NIST CSF categories for security leadership and audit workflows.',
         caption: '',
       },
       {
         name: 'MITRE ATT&CK · ATLAS',
         statusLabel: 'native',
         statusTone: 'ok',
-        body: 'Tactics + techniques tagging on every finding. ATLAS extension covers AI-targeting heuristics for ML / LLM systems.',
+        body: 'Finding taxonomy supports ATT&CK and ATLAS references where they help explain exploit technique and AI-system risk.',
         caption: '',
       },
     ],
 
     authzEyebrow: '// AUTHORIZATION',
-    authzTitle: 'How we earn the right to attack your systems.',
+    authzTitle: 'Authorization before capability.',
     authz: [
       {
         t: 'Ownership verification',
-        d: 'Every target passes DNS-TXT or HTTP file-token ownership verification. No verification — no assessment runs.',
+        d: 'Runtime targets are verified through DNS, HTTP token, registrar, or signed authorization. No verification means no blackbox testing.',
       },
       {
         t: 'Rules of Engagement',
-        d: 'OPPLAN, scope-bound, allow / deny rules, exclusions, testing window. Signed before the agent fires a single packet.',
+        d: 'Scope, allowed actions, denied actions, test windows, repository access, and sensitive systems are recorded before the agent begins.',
       },
       {
-        t: 'Two-track model',
-        d: 'Quick is a fully autonomous blackbox AI scan over the public surface — no human in the loop, no high-impact actions. The paid Deep audit adds expert validation and explicit per-target consent for high-impact categories.',
+        t: 'Blackbox and whitebox gates',
+        d: 'Blackbox testing is constrained by verified runtime scope. Whitebox testing adds repository access rules, code retention policy, and human validation for high-impact findings.',
       },
     ],
 
     dataEyebrow: '// DATA',
-    dataTitle: 'Where your data lives.',
+    dataTitle: 'How we handle sensitive evidence and source code.',
     data: [
       {
         t: 'Data residency',
-        d: 'Yandex Cloud, ru-central region. By contract we deploy into your own cloud (on-prem option) for enterprise customers.',
+        d: 'Default hosting is regional cloud. Enterprise engagements can use customer-controlled cloud, private network boundaries, or on-prem deployment patterns.',
       },
       {
         t: 'Encryption',
@@ -781,34 +805,34 @@ const en = {
       },
       {
         t: 'Audit logs',
-        d: 'Every engine action — prompt, payload, callback, artifact — written to an immutable audit log with cryptographic chaining.',
+        d: 'Every agent action, code-access event, payload, callback, and artifact is written to an audit trail that can be delivered with the report.',
       },
       {
         t: 'Retention',
-        d: 'Default 90 days for evidence, 7 years for audit logs (compliance defaults). Customizable via the DPA.',
+        d: 'Evidence and source-derived artifacts follow the retention schedule in the SOW or DPA. Short retention and customer-managed deletion are available.',
       },
       {
         t: 'Access control',
-        d: 'RBAC with 7 roles, MFA mandatory for security_lead and tenant_admin, SSO via SAML / OIDC on enterprise.',
+        d: 'RBAC, MFA, tenant boundaries, and enterprise SSO patterns keep assessment access separate from general developer access.',
       },
       {
         t: 'Data minimization',
-        d: 'Engine never stores cleartext credentials, never writes PII outside the evidence bundle, auto-redacts sensitive fields.',
+        d: 'Credentials, secrets, and personal data are redacted where possible; raw evidence is preserved only when required to prove exploitability.',
       },
     ],
 
     boundaryEyebrow: '// BOUNDARY',
-    boundaryTitle: 'What Tensol is — and what it is not.',
-    boundaryIs: 'Tensol IS',
+    boundaryTitle: 'What Sthrip is — and what it is not.',
+    boundaryIs: 'Sthrip IS',
     boundaryIsList: [
-      'authorized pentest',
+      'authorized blackbox testing',
+      'whitebox source review',
+      'PR security review',
       'scope-bound execution',
-      'OPPLAN-driven',
-      'validator-confirmed',
-      'ownership-verified',
+      'validated findings',
       'evidence-first reporting',
     ],
-    boundaryIsNot: 'Tensol IS NOT',
+    boundaryIsNot: 'Sthrip IS NOT',
     boundaryIsNotList: [
       'malware',
       'phishing platform',
@@ -829,10 +853,10 @@ const en = {
     ],
 
     ctaEyebrow: '// READY',
-    ctaTitle: 'Ready to sign? Let’s talk.',
+    ctaTitle: 'Ready to define scope? Let’s talk.',
     ctaBody:
-      'Procurement, security review, contract — we move at your pace, not ours. The fastest deals close in two weeks.',
-    ctaBtn: 'Contact us →',
+      'Bring a domain, repository, or critical workflow. We will help choose the right blackbox, whitebox, or continuous review path.',
+    ctaBtn: 'Book a scope call →',
 
     contactCta: 'Request DPA / NDA →',
   },
@@ -846,14 +870,14 @@ const en = {
       updated: 'Updated · 2026-05-08',
       eyebrow: '// LEGAL · PRIVACY',
       intro:
-        'Tensol provides authorized autonomous pentest tooling. We collect a minimum set of personal data to respond to lead inquiries, negotiate engagement contracts, and operate the website. This document describes what we collect, why, and your rights as a data subject under Russian Federal Law 152-ФЗ "On Personal Data" and applicable equivalents.',
+        'Sthrip provides authorized AI offensive security services, including blackbox assessments, whitebox testing, and code-review workflows. We collect a minimum set of personal data to respond to inquiries, negotiate engagement contracts, and operate the website. This document describes what we collect, why, and your rights as a data subject under Russian Federal Law 152-ФЗ "On Personal Data" and applicable equivalents.',
       sections: [
         {
           eyebrow: '// 01 · WHO WE ARE',
           h: 'Who we are',
           anchor: '',
           p: [
-            'Tensol is operated as an individual entrepreneur (ИП) registered in the Russian Federation, transitioning to a limited-liability company (ООО) form. Contact: nikto256@gmail.com.',
+            'Sthrip is operated as an individual entrepreneur (ИП) registered in the Russian Federation, transitioning to a limited-liability company (ООО) form. Contact: nikto256@gmail.com.',
             'For all data-protection inquiries, write to that email with the subject line "Privacy". We respond within five business days.',
           ],
         },
@@ -862,7 +886,7 @@ const en = {
           h: 'Data we collect',
           anchor: '',
           p: [
-            'From the contact form on tensol.dev: full name, work email, company name, optional phone number, and any free-form text you submit. You provide this voluntarily; the form will not function without these fields because we cannot contact you back.',
+            'From the contact form on sthrip.dev: full name, work email, company name, optional phone number, and any free-form text you submit. You provide this voluntarily; the form will not function without these fields because we cannot contact you back.',
             'From server logs: IP address, user-agent string, request path, request timestamp, HTTP status. Operational telemetry kept for 90 days.',
             'From product accounts (when you become a customer): tenant identifier, role assignment, MFA enrollment status, audit-log entries describing actions you took inside the platform. The product privacy notice is part of the engagement contract.',
           ],
@@ -927,7 +951,7 @@ const en = {
           ],
         },
       ],
-      tail: 'This is the 2026-05-08 revision. Tensol may update this document — changes take effect 14 days after publication. Questions: nikto256@gmail.com.',
+      tail: 'This is the 2026-05-08 revision. Sthrip may update this document — changes take effect 14 days after publication. Questions: nikto256@gmail.com.',
     },
     terms: {
       navLabel: 'Terms',
@@ -935,14 +959,14 @@ const en = {
       updated: 'Updated · 2026-05-08',
       eyebrow: '// LEGAL · TERMS',
       intro:
-        'These terms govern your use of the Tensol website at tensol.dev and any preview environments we operate. They do not govern the Tensol product itself — that is covered by a separate Master Services Agreement (MSA) and Statement of Work (SOW) signed before any pentest engagement begins.',
+        'These terms govern your use of the Sthrip website at sthrip.dev and any preview environments we operate. They do not govern a signed Sthrip assessment itself — that is covered by a separate Master Services Agreement (MSA) and Statement of Work (SOW) before blackbox, whitebox, or code-review work begins.',
       sections: [
         {
           eyebrow: '// 01 · SCOPE',
           h: 'Scope of these terms',
           anchor: '',
           p: [
-            'Tensol provides authorized autonomous pentest engagements through a platform delivered to customers under contract. This document covers the public marketing website and any read-only documentation we publish.',
+            'Sthrip provides authorized AI offensive security engagements through a platform delivered to customers under contract. This document covers the public marketing website and any read-only documentation we publish.',
             'Engagement-level terms — authorization scope, rules of engagement, liability for findings, deliverables, fees — live in the MSA + SOW you sign before testing starts. Nothing on this website constitutes an authorization to test anyone.',
             'If a clause here conflicts with your signed MSA, the MSA controls.',
           ],
@@ -952,7 +976,7 @@ const en = {
           h: 'Acceptable use of the website',
           anchor: 'acceptable-use',
           p: [
-            'Use this website to read about Tensol, request a demo, view documentation, and contact us. That is the entire intended use.',
+            'Use this website to read about Sthrip, request a demo, view documentation, and contact us. That is the entire intended use.',
             'You may not: scrape the site at high volume, run vulnerability scanners against it, attempt to bypass authentication on any preview environment, attempt to enumerate customer data, or use any output from the site as training data for a competing product without written permission.',
             'You may not test, probe, or attempt to exploit this website unless you are participating in our coordinated disclosure program — see security.txt.',
             'Violations may result in IP-level blocks, civil action, or referral to law enforcement under Russian Federal Law 274-ФЗ (computer-crime statutes).',
@@ -963,7 +987,7 @@ const en = {
           h: 'Account creation',
           anchor: '',
           p: [
-            'You cannot create a Tensol account from this website. Accounts are provisioned by an existing tenant administrator after contract signature, or via a one-time bootstrap flow during initial platform installation.',
+            'You cannot create a Sthrip account from this website. Accounts are provisioned by an existing tenant administrator after contract signature, or via a one-time bootstrap flow during initial platform installation.',
             'If you receive an invitation email, treat the embedded token as a credential. We will never ask for it over chat or phone.',
             'MFA is required for security_lead and tenant_admin roles. We strongly recommend it for all roles.',
           ],
@@ -973,7 +997,7 @@ const en = {
           h: 'Intellectual property',
           anchor: '',
           p: [
-            'Tensol, the pixel-horse mark, and the wordmark are trademarks of the operating entity. All copy, illustrations, code samples, and screenshots on this site are © Tensol unless otherwise marked.',
+            'Sthrip and the Sthrip wordmark are trademarks of the operating entity. All copy, illustrations, code samples, and screenshots on this site are © Sthrip unless otherwise marked.',
             'Open-source components we redistribute keep their original licenses and attributions; you can find them in the product repository or on request.',
             'You may quote short passages of marketing copy with attribution. You may not reproduce the visual identity (mark, halftone, color tokens) for derivative or competing branding.',
           ],
@@ -1007,7 +1031,7 @@ const en = {
           ],
         },
       ],
-      tail: 'This is the 2026-05-08 revision. Tensol may update this document — changes take effect 14 days after publication. Questions: nikto256@gmail.com.',
+      tail: 'This is the 2026-05-08 revision. Sthrip may update this document — changes take effect 14 days after publication. Questions: nikto256@gmail.com.',
     },
     dpa: {
       navLabel: 'DPA',
@@ -1015,18 +1039,18 @@ const en = {
       updated: 'Updated · 2026-05-08',
       eyebrow: '// LEGAL · DPA',
       intro:
-        "This Data Processing Addendum (DPA) supplements the MSA between Tensol and a customer. It governs Tensol's processing of personal data on behalf of the customer during a pentest engagement, including evidence captured by the platform.",
+        "This Data Processing Addendum (DPA) supplements the MSA between Sthrip and a customer. It governs Sthrip's processing of personal data on behalf of the customer during an authorized assessment, including evidence captured by the platform.",
       sections: [
         {
           eyebrow: '// 01 · DEFINITIONS',
           h: 'Definitions',
           anchor: '',
           p: [
-            '"Controller" — the customer who instructs Tensol to perform an authorized pentest and decides the purpose of processing.',
-            '"Processor" — Tensol, processing personal data only on the Controller\'s documented instructions (the SOW + the platform\'s scope objects).',
-            '"Subprocessor" — a third party engaged by Tensol to assist with processing (compute, storage, LLM inference, transactional email).',
+            '"Controller" — the customer who instructs Sthrip to perform an authorized assessment and decides the purpose of processing.',
+            '"Processor" — Sthrip, processing personal data only on the Controller\'s documented instructions (the SOW + the platform\'s scope objects).',
+            '"Subprocessor" — a third party engaged by Sthrip to assist with processing (compute, storage, LLM inference, transactional email).',
             '"Personal Data" — any data relating to an identified or identifiable natural person, as defined by 152-ФЗ Article 3.',
-            '"Sub-processing" — any processing carried out by a Subprocessor on Tensol\'s behalf.',
+            '"Sub-processing" — any processing carried out by a Subprocessor on Sthrip\'s behalf.',
           ],
         },
         {
@@ -1034,7 +1058,7 @@ const en = {
           h: 'Subject matter and duration',
           anchor: '',
           p: [
-            'During an engagement, Tensol processes personal data that may appear in customer-supplied evidence: HTTP request and response pairs, screenshots, OOB callback payloads, validator logs, and API specifications uploaded to define scope.',
+            'During an engagement, Sthrip processes personal data that may appear in customer-supplied evidence: HTTP request and response pairs, screenshots, OOB callback payloads, validator logs, source-code snippets, and API specifications uploaded to define scope.',
             'Processing duration is the engagement window plus the retention period defined in the SOW (typically 90 days for evidence, seven years for the final report).',
             'The nature of processing is collection, structured storage, replay (deterministic re-execution), and delivery to the Controller. We do not process for any purpose outside the SOW.',
           ],
@@ -1066,8 +1090,8 @@ const en = {
           h: 'Data subject requests',
           anchor: '',
           p: [
-            "If a data subject contacts Tensol directly with a request, we forward it to the Controller within five business days and do not respond on the Controller's behalf unless instructed to.",
-            "On the Controller's instruction, Tensol assists with access, correction, deletion, restriction, and portability requests within the technical capabilities of the platform.",
+            "If a data subject contacts Sthrip directly with a request, we forward it to the Controller within five business days and do not respond on the Controller's behalf unless instructed to.",
+            "On the Controller's instruction, Sthrip assists with access, correction, deletion, restriction, and portability requests within the technical capabilities of the platform.",
           ],
         },
         {
@@ -1075,13 +1099,13 @@ const en = {
           h: 'Sub-processor changes and termination',
           anchor: '',
           p: [
-            "Tensol provides 30 calendar days' notice before adding or replacing a subprocessor. During the notice window, the Controller may object in writing; if no commercial alternative is available, the Controller may terminate the affected SOW with a pro-rated refund of unused fees.",
-            'On termination of the engagement, Tensol securely deletes customer personal data within 30 days, except for the final report and audit log retained per the SOW retention schedule. Deletion is confirmed in writing on request.',
+            "Sthrip provides 30 calendar days' notice before adding or replacing a subprocessor. During the notice window, the Controller may object in writing; if no commercial alternative is available, the Controller may terminate the affected SOW with a pro-rated refund of unused fees.",
+            'On termination of the engagement, Sthrip securely deletes customer personal data within 30 days, except for the final report and audit log retained per the SOW retention schedule. Deletion is confirmed in writing on request.',
             'Sub-processor list is published at /legal/dpa and version-controlled with this document.',
           ],
         },
       ],
-      tail: 'This is the 2026-05-08 revision. Tensol may update this document — changes take effect 14 days after publication. Questions: nikto256@gmail.com.',
+      tail: 'This is the 2026-05-08 revision. Sthrip may update this document — changes take effect 14 days after publication. Questions: nikto256@gmail.com.',
     },
   },
   // ── END:legal ───────────────────────────────────────────────────────
@@ -1093,7 +1117,7 @@ const en = {
     legalCol: 'Legal',
     contactCta: 'Contact founder',
     contactQuestion: 'Questions about this document:',
-    copyright: '© 2026 Tensol. All rights reserved.',
+    copyright: '© 2026 Sthrip. All rights reserved.',
   },
   // ── END:footerLinks ─────────────────────────────────────────────────
 
@@ -1102,7 +1126,7 @@ const en = {
     pageTitle: 'Authorize Target',
     whyTitle: 'Why is this required?',
     whyBody:
-      'Tensol requires proof that you control or have permission to test this target. Choose one of the methods below to complete authorization.',
+      'Sthrip requires proof that you control or have permission to test this target. Choose one of the methods below to complete authorization.',
     step1Title: 'Step 1: Choose verification method',
     step1Hint: 'Select how you want to prove ownership or authorization.',
     step2Title: 'Step 2: Follow the instructions',
@@ -1145,15 +1169,15 @@ const en = {
   // T078 — Scan-order wizard (4 steps). Step content (T079..T083) extends
   // this namespace with per-step labels.
   wizard: {
-    step1Title: 'Attack surface',
+    step1Title: 'Target scope',
     step2Title: 'Safety',
     step3Title: 'Verify domain',
     step4Title: 'Review & launch',
     next: 'Next',
     back: 'Back',
     cancel: 'Cancel',
-    creating: 'Creating scan order…',
-    errCreate: 'Could not create scan order',
+    creating: 'Creating assessment…',
+    errCreate: 'Could not create assessment',
     errGeneric: 'Error',
     step1: {
       domainLabel: 'Primary domain',
@@ -1227,14 +1251,14 @@ const en = {
       dnsVerifiedLabel: 'DNS verified',
       dnsVerifiedTrue: 'Yes',
       dnsVerifiedFalse: 'No',
-      quotaLabel: 'Free quota',
-      quotaAvailable: 'Free quota: available — this Quick scan is on us.',
+      quotaLabel: 'Trial quota',
+      quotaAvailable: 'Trial quota: available — this blackbox assessment is on us.',
       quotaExhausted:
-        'Free quota: exhausted. Next free Quick scan available later.',
+        'Trial quota: exhausted. Next blackbox trial becomes available later.',
       flagsError: 'Could not load feature flags',
       dnsNotVerifiedHint:
         'DNS verification is required before launch. Return to step 3.',
-      launchFree: 'Launch free Quick scan',
+      launchFree: 'Launch blackbox assessment',
       launchPaid: 'Pay & launch',
       launching: 'Launching…',
       paidNotYet:
@@ -1246,8 +1270,8 @@ const en = {
   // ── BEGIN:live ───────────────────────────────────────────────────────
   // T084 — Live scan progress page (polling per Constitution V).
   live: {
-    title: 'Live scan',
-    loading: 'Loading scan…',
+    title: 'Live assessment',
+    loading: 'Loading assessment…',
     polling: 'live · polling every 3s',
     pollingStopped: 'polling stopped',
     eventsLabel: 'event timeline',
@@ -1268,7 +1292,7 @@ const en = {
     title: 'Findings',
     loading: 'Loading findings…',
     loadError: 'Could not load findings',
-    empty: 'No findings recorded for this scan.',
+    empty: 'No findings recorded for this assessment.',
     noMatch: 'No findings match these filters.',
     noScanId: 'No scan selected. Open a scan from the dashboard.',
     distribution: 'Severity distribution',
@@ -1353,7 +1377,7 @@ const ru: TensolDict = {
   heroL2: 'за несколько часов.',
   heroL3: 'Не дай этому случиться',
   heroBlurb:
-    'ИИ научились взламывать чудовищно хорошо. Один агент за ночь проводит последовательную цепочку атак, на ходу пишет эксплоиты и находит уязвимости нулевого дня. Tensol запускает такого же агента у тебя — по подписанному периметру, в твоём журнале аудита. Через 48 часов покажем подтверждённые уязвимости с хэшем для воспроизведения.',
+    'ИИ научились взламывать чудовищно хорошо. Один агент за ночь проводит последовательную цепочку атак, на ходу пишет эксплоиты и находит уязвимости нулевого дня. Sthrip запускает такого же агента у тебя — по подписанному периметру, в твоём журнале аудита. Через 48 часов покажем подтверждённые уязвимости с хэшем для воспроизведения.',
   ctaPrimary: 'Запросить демо',
   ctaGhost: 'Как это работает',
   ctaQuickFree: 'Попробовать Quick бесплатно',
@@ -1384,7 +1408,7 @@ const ru: TensolDict = {
   notScannerEyebrow: '// МАНИФЕСТ',
   notScannerTitle: 'Та же атакующая способность — теперь под вашей подписью',
   notScannerBlurb:
-    'Современный атакующий ИИ не ищет сигнатуры. Он формирует гипотезы об архитектуре приложения, объединяет уязвимости в цепочку, реагирует на ответы и обходит защиту так, как это делает исследователь-человек. Этим уже пользуются нападающие — круглосуточно, против вашей команды из нескольких человек. Tensol даёт ту же атакующую способность, но под контролем заказчика: цели подтверждаются до запуска, каждое действие фиксируется в неизменяемом журнале аудита с криптографической подписью, действия высокого риска требуют санкции на вашей стороне, стоп-кран — мгновенный',
+    'Современный атакующий ИИ не ищет сигнатуры. Он формирует гипотезы об архитектуре приложения, объединяет уязвимости в цепочку, реагирует на ответы и обходит защиту так, как это делает исследователь-человек. Этим уже пользуются нападающие — круглосуточно, против вашей команды из нескольких человек. Sthrip даёт ту же атакующую способность, но под контролем заказчика: цели подтверждаются до запуска, каждое действие фиксируется в неизменяемом журнале аудита с криптографической подписью, действия высокого риска требуют санкции на вашей стороне, стоп-кран — мгновенный',
   pipelineEyebrow: '// КАК МЫ РАБОТАЕМ',
   pipelineMeta: '5 фаз · детерминированные переходы',
   steps: [
@@ -1427,7 +1451,7 @@ const ru: TensolDict = {
   supplyBlurb:
     'Используются только инструменты из утверждённого реестра — с зафиксированными версиями и собственными зеркалами загрузки. Каждый промпт, payload и сетевой callback фиксируется в неизменяемом журнале аудита с криптографической подписью. Действия высокого уровня риска допускаются только после отдельного подтверждения по каждой цели. Регламент исключает непреднамеренную публикацию наступательных средств за пределами согласованного периметра',
   boundaryEyebrow: '// ПЕРИМЕТР',
-  boundaryTitle: 'Что Tensol есть и чем не является.',
+  boundaryTitle: 'Что Sthrip есть и чем не является.',
   boundaryIs: 'авторизованный пентест',
   boundaryIsList: [
     'оценки в рамках периметра',
@@ -1470,7 +1494,7 @@ const ru: TensolDict = {
   blogEmpty: 'Первые публикации появятся здесь в ближайшее время',
   methodTitle: 'Как мы ломаем',
   methodIntro:
-    'Раньше эта атакующая способность была привилегией нескольких команд — XBOW, топ-уровневые красные команды, спецслужбы. С появлением открытых моделей нового поколения тот же класс атак стал доступен любому. Вопрос только в одном — в чьих руках. Tensol даёт ту же атакующую способность, которую уже сегодня используют против вас, — но в согласованном периметре, под вашей подписью, с криптографически подписанным журналом аудита каждого действия',
+    'Раньше эта атакующая способность была привилегией нескольких команд — XBOW, топ-уровневые красные команды, спецслужбы. С появлением открытых моделей нового поколения тот же класс атак стал доступен любому. Вопрос только в одном — в чьих руках. Sthrip даёт ту же атакующую способность, которую уже сегодня используют против вас, — но в согласованном периметре, под вашей подписью, с криптографически подписанным журналом аудита каждого действия',
   methodPipelineTitle: 'Пайплайн',
   methodPipelineMeta: '5 фаз · детерминированные переходы',
   methodPhases: [
@@ -1495,7 +1519,7 @@ const ru: TensolDict = {
       name: 'Эксплуатация',
       what: 'Агент формирует гипотезы об архитектуре приложения и проверяет их атаками: внедрения SQL в обход подготовленных выражений, обход контроля доступа на уровне объектов (IDOR) в API, цепочки SSRF к внутренним сервисам, небезопасная десериализация, эскалации прав в OAuth, состояния гонки в транзакционной логике.',
       hard: 'Сигнатурный сканер ищет шаблоны. Реальная критическая уязвимость — это цепочка из нескольких шагов, каждый из которых сам по себе выглядит безобидно. Найти такие цепочки умеет только агент, который держит контекст между запросами и адаптируется к ответам приложения.',
-      tensol: 'По открытым тестам нового поколения моделей (XBOW, GPT-5.5): доля упущенных уязвимостей упала с 40% до 10%, а атаки в режиме «чёрный ящик» теперь превосходят предыдущее поколение даже с доступом к исходному коду. Tensol использует эту мощность под авторизацией, против вашего периметра — и только против него.',
+      tensol: 'По открытым тестам нового поколения моделей (XBOW, GPT-5.5): доля упущенных уязвимостей упала с 40% до 10%, а атаки в режиме «чёрный ящик» теперь превосходят предыдущее поколение даже с доступом к исходному коду. Sthrip использует эту мощность под авторизацией, против вашего периметра — и только против него.',
       claim: 'Десятки попыток в минуту · цепочки из 5–7 шагов',
     },
     {
@@ -1553,19 +1577,19 @@ const ru: TensolDict = {
     {
       h: 'КОНТАКТЫ',
       l: [
-        { label: 'hello@tensol.dev', href: 'mailto:hello@tensol.dev', external: true },
-        { label: 'security@tensol.dev', href: 'mailto:security@tensol.dev', external: true },
+        { label: 'hello@sthrip.dev', href: 'mailto:hello@sthrip.dev', external: true },
+        { label: 'security@sthrip.dev', href: 'mailto:security@sthrip.dev', external: true },
       ],
     },
   ],
-  footerCopy: '© Tensol 2026',
+  footerCopy: '© Sthrip 2026',
   footerVersion: '',
   footerTagline: '',
 
   // Auth
   authPanelLeft: '// движок авторизованного пентеста · регион eu',
   authLoginEyebrow: '// ВХОД',
-  authLoginTitle: 'Войти в Tensol.',
+  authLoginTitle: 'Войти в Sthrip.',
   authLoginSub:
     'Используйте учётные данные тенанта. MFA обязательна для security_lead и tenant_admin.',
   authContinue: 'Продолжить',
@@ -1887,7 +1911,7 @@ const ru: TensolDict = {
     submitting: 'Отправляю…',
     successTitle: 'Заявка принята',
     successSub:
-      'Команда Tensol свяжется с вами в течение 24 часов: согласуем скоуп и подпишем NDA до начала тестирования.',
+      'Команда Sthrip свяжется с вами в течение 24 часов: согласуем скоуп и подпишем NDA до начала тестирования.',
     successBack: 'На главную',
     errorTitle: 'Не получилось отправить.',
     errorTelegramFallback: 'Открыл Telegram с твоим сообщением — нажми Send там.',
@@ -1902,7 +1926,7 @@ const ru: TensolDict = {
   // ── BEGIN:deepInquiry (T106+T107 — US2 Deep audit funnel) ───────────
   deepInquiry: {
     title: 'Запрос на Deep аудит',
-    lead: 'Расскажите о стеке и периметре. Команда Tensol свяжется с вами в течение 24 часов: согласуем периметр и подпишем NDA до начала тестирования.',
+    lead: 'Расскажите о стеке и периметре. Команда Sthrip свяжется с вами в течение 24 часов: согласуем периметр и подпишем NDA до начала тестирования.',
     fCompany: 'Компания',
     fContactName: 'Контактное лицо',
     fPosition: 'Должность',
@@ -2041,7 +2065,7 @@ const ru: TensolDict = {
         name: '152-ФЗ',
         statusLabel: 'соответствие',
         statusTone: 'ok',
-        body: 'Tensol хостится в Yandex Cloud в указанной заказчиком папке. Локальная обработка ПДн. Соглашение об обработке (DPA) предоставляется по запросу.',
+        body: 'Sthrip хостится в Yandex Cloud в указанной заказчиком папке. Локальная обработка ПДн. Соглашение об обработке (DPA) предоставляется по запросу.',
         caption: '',
       },
       {
@@ -2128,8 +2152,8 @@ const ru: TensolDict = {
     ],
 
     boundaryEyebrow: '// BOUNDARY',
-    boundaryTitle: 'Что такое Tensol — и чем он не является.',
-    boundaryIs: 'Tensol — это',
+    boundaryTitle: 'Что такое Sthrip — и чем он не является.',
+    boundaryIs: 'Sthrip — это',
     boundaryIsList: [
       'авторизованный пентест',
       'scope-bound execution',
@@ -2138,7 +2162,7 @@ const ru: TensolDict = {
       'ownership-verified',
       'evidence-first reporting',
     ],
-    boundaryIsNot: 'Tensol — это НЕ',
+    boundaryIsNot: 'Sthrip — это НЕ',
     boundaryIsNotList: [
       'malware',
       'phishing platform',
@@ -2176,14 +2200,14 @@ const ru: TensolDict = {
       updated: 'Обновлено · 2026-05-08',
       eyebrow: '// LEGAL · PRIVACY',
       intro:
-        'Tensol предоставляет инструменты авторизованного автономного пентеста. Мы собираем минимальный набор персональных данных, чтобы отвечать на запросы лидов, согласовывать договоры engagement и эксплуатировать сайт. Этот документ описывает, что мы собираем, зачем, и какие у вас права как у субъекта персональных данных по 152-ФЗ «О персональных данных» и применимым аналогам.',
+        'Sthrip предоставляет инструменты авторизованного автономного пентеста. Мы собираем минимальный набор персональных данных, чтобы отвечать на запросы лидов, согласовывать договоры engagement и эксплуатировать сайт. Этот документ описывает, что мы собираем, зачем, и какие у вас права как у субъекта персональных данных по 152-ФЗ «О персональных данных» и применимым аналогам.',
       sections: [
         {
           eyebrow: '// 01 · КТО МЫ',
           h: 'Кто мы',
           anchor: '',
           p: [
-            'Tensol работает как индивидуальный предприниматель (ИП), зарегистрированный в Российской Федерации, с переходом в форму общества с ограниченной ответственностью (ООО). Контакт: nikto256@gmail.com.',
+            'Sthrip работает как индивидуальный предприниматель (ИП), зарегистрированный в Российской Федерации, с переходом в форму общества с ограниченной ответственностью (ООО). Контакт: nikto256@gmail.com.',
             'По вопросам защиты персональных данных пишите на этот email с темой «Privacy». Отвечаем в течение пяти рабочих дней.',
           ],
         },
@@ -2192,7 +2216,7 @@ const ru: TensolDict = {
           h: 'Какие данные мы собираем',
           anchor: '',
           p: [
-            'С контактной формы tensol.dev: ФИО, рабочий email, название компании, опционально — телефон и любой свободный текст. Вы предоставляете эти данные добровольно; форма не работает без них, потому что иначе мы не сможем вам ответить.',
+            'С контактной формы sthrip.dev: ФИО, рабочий email, название компании, опционально — телефон и любой свободный текст. Вы предоставляете эти данные добровольно; форма не работает без них, потому что иначе мы не сможем вам ответить.',
             'Из server-логов: IP-адрес, user-agent, request path, временная метка, HTTP-статус. Операционная телеметрия с retention 90 дней.',
             'Из продуктовых аккаунтов (когда вы становитесь клиентом): tenant id, назначение роли, статус MFA, audit-log записи о ваших действиях внутри платформы. Уведомление о приватности продукта — часть договора engagement.',
           ],
@@ -2257,7 +2281,7 @@ const ru: TensolDict = {
           ],
         },
       ],
-      tail: 'Это редакция от 2026-05-08. Tensol может обновлять этот документ — изменения вступают в силу через 14 дней с публикации. Контакт по вопросам: nikto256@gmail.com.',
+      tail: 'Это редакция от 2026-05-08. Sthrip может обновлять этот документ — изменения вступают в силу через 14 дней с публикации. Контакт по вопросам: nikto256@gmail.com.',
     },
     terms: {
       navLabel: 'Условия',
@@ -2265,14 +2289,14 @@ const ru: TensolDict = {
       updated: 'Обновлено · 2026-05-08',
       eyebrow: '// LEGAL · TERMS',
       intro:
-        'Этот документ регулирует использование сайта Tensol на tensol.dev и любых preview-окружений, которые мы держим. Он не регулирует сам продукт Tensol — это покрыто отдельным MSA и SOW, которые подписываются до начала любой работы по pentest engagement.',
+        'Этот документ регулирует использование сайта Sthrip на sthrip.dev и любых preview-окружений, которые мы держим. Он не регулирует сам продукт Sthrip — это покрыто отдельным MSA и SOW, которые подписываются до начала любой работы по pentest engagement.',
       sections: [
         {
           eyebrow: '// 01 · ПРИМЕНЕНИЕ',
           h: 'Сфера действия',
           anchor: '',
           p: [
-            'Tensol предоставляет авторизованный автономный пентест через платформу, поставляемую клиентам по договору. Этот документ покрывает публичный маркетинговый сайт и read-only документацию, которую мы публикуем.',
+            'Sthrip предоставляет авторизованный автономный пентест через платформу, поставляемую клиентам по договору. Этот документ покрывает публичный маркетинговый сайт и read-only документацию, которую мы публикуем.',
             'Условия engagement — scope авторизации, RoE, ответственность за findings, дeliverables, тарифы — живут в MSA + SOW, которые вы подписываете до начала тестирования. Ничто на этом сайте не является авторизацией на тестирование чего-либо.',
             'Если пункт здесь конфликтует с подписанным MSA — приоритет у MSA.',
           ],
@@ -2282,7 +2306,7 @@ const ru: TensolDict = {
           h: 'Допустимое использование сайта',
           anchor: 'acceptable-use',
           p: [
-            'Используйте этот сайт чтобы читать про Tensol, запросить демо, посмотреть документацию, связаться с нами. Это всё.',
+            'Используйте этот сайт чтобы читать про Sthrip, запросить демо, посмотреть документацию, связаться с нами. Это всё.',
             'Запрещено: высокообъёмный скрейпинг, запуск сканеров уязвимостей, попытки обхода аутентификации в preview-окружениях, попытки перебора клиентских данных и использование любого выхода с сайта как обучающих данных для конкурирующего продукта без письменного разрешения.',
             'Не тестируйте, не зондируйте и не пытайтесь эксплуатировать этот сайт, если вы не участник нашей программы coordinated disclosure — см. security.txt.',
             'Нарушения могут приводить к IP-блокам, гражданскому иску или передаче в правоохранительные органы по 274-ФЗ (статьи о компьютерных преступлениях).',
@@ -2293,7 +2317,7 @@ const ru: TensolDict = {
           h: 'Создание аккаунта',
           anchor: '',
           p: [
-            'Создать аккаунт Tensol с этого сайта нельзя. Аккаунты создаются tenant-администратором после подписания договора, либо в одноразовом bootstrap-флоу при первой установке платформы.',
+            'Создать аккаунт Sthrip с этого сайта нельзя. Аккаунты создаются tenant-администратором после подписания договора, либо в одноразовом bootstrap-флоу при первой установке платформы.',
             'Если вы получили invite-письмо — относитесь к встроенному токену как к учётным данным. Мы никогда не запрашиваем его в чате или по телефону.',
             'MFA обязательна для security_lead и tenant_admin. Настоятельно рекомендуем для всех ролей.',
           ],
@@ -2303,7 +2327,7 @@ const ru: TensolDict = {
           h: 'Интеллектуальная собственность',
           anchor: '',
           p: [
-            'Tensol, pixel-horse mark и wordmark — товарные знаки оперирующего юрлица. Весь текст, иллюстрации, фрагменты кода и скриншоты на сайте — © Tensol, если не отмечено иное.',
+            'Sthrip, pixel-horse mark и wordmark — товарные знаки оперирующего юрлица. Весь текст, иллюстрации, фрагменты кода и скриншоты на сайте — © Sthrip, если не отмечено иное.',
             'Open-source компоненты, которые мы перераспределяем, сохраняют исходные лицензии и атрибуции; их можно найти в продуктовом репозитории или запросить.',
             'Можно цитировать короткие фрагменты маркетинговой копии с указанием источника. Нельзя копировать визуальную идентичность (mark, halftone, color tokens) для производного или конкурирующего бренда.',
           ],
@@ -2337,7 +2361,7 @@ const ru: TensolDict = {
           ],
         },
       ],
-      tail: 'Это редакция от 2026-05-08. Tensol может обновлять этот документ — изменения вступают в силу через 14 дней с публикации. Контакт по вопросам: nikto256@gmail.com.',
+      tail: 'Это редакция от 2026-05-08. Sthrip может обновлять этот документ — изменения вступают в силу через 14 дней с публикации. Контакт по вопросам: nikto256@gmail.com.',
     },
     dpa: {
       navLabel: 'DPA',
@@ -2345,18 +2369,18 @@ const ru: TensolDict = {
       updated: 'Обновлено · 2026-05-08',
       eyebrow: '// LEGAL · DPA',
       intro:
-        'Это Соглашение об обработке данных (DPA) дополняет MSA между Tensol и клиентом. Оно регулирует обработку Tensol персональных данных от имени клиента в ходе pentest engagement, включая evidence, захваченное платформой.',
+        'Это Соглашение об обработке данных (DPA) дополняет MSA между Sthrip и клиентом. Оно регулирует обработку Sthrip персональных данных от имени клиента в ходе pentest engagement, включая evidence, захваченное платформой.',
       sections: [
         {
           eyebrow: '// 01 · ОПРЕДЕЛЕНИЯ',
           h: 'Определения',
           anchor: '',
           p: [
-            '«Контроллер» — клиент, поручающий Tensol проведение авторизованного пентеста и определяющий цель обработки.',
-            '«Процессор» — Tensol, обрабатывающий персональные данные исключительно по документированным инструкциям Контроллера (SOW + scope-объекты платформы).',
-            '«Субпроцессор» — третье лицо, привлечённое Tensol для содействия обработке (compute, storage, LLM-инференс, транзакционная почта).',
+            '«Контроллер» — клиент, поручающий Sthrip проведение авторизованного пентеста и определяющий цель обработки.',
+            '«Процессор» — Sthrip, обрабатывающий персональные данные исключительно по документированным инструкциям Контроллера (SOW + scope-объекты платформы).',
+            '«Субпроцессор» — третье лицо, привлечённое Sthrip для содействия обработке (compute, storage, LLM-инференс, транзакционная почта).',
             '«Персональные данные» — любая информация, относящаяся к прямо или косвенно определённому физическому лицу, по статье 3 152-ФЗ.',
-            '«Субобработка» — любая обработка, выполняемая Субпроцессором по поручению Tensol.',
+            '«Субобработка» — любая обработка, выполняемая Субпроцессором по поручению Sthrip.',
           ],
         },
         {
@@ -2364,7 +2388,7 @@ const ru: TensolDict = {
           h: 'Предмет и срок',
           anchor: '',
           p: [
-            'В ходе engagement Tensol обрабатывает персональные данные, которые могут попадать в evidence, поставляемое клиентом: пары HTTP-запрос/ответ, скриншоты, OOB-callback пейлоады, логи валидатора, спецификации API, загруженные для определения scope.',
+            'В ходе engagement Sthrip обрабатывает персональные данные, которые могут попадать в evidence, поставляемое клиентом: пары HTTP-запрос/ответ, скриншоты, OOB-callback пейлоады, логи валидатора, спецификации API, загруженные для определения scope.',
             'Срок обработки — окно engagement плюс retention, определённый в SOW (обычно 90 дней для evidence, 7 лет для финального отчёта).',
             'Природа обработки — сбор, структурированное хранение, replay (детерминированное переисполнение) и доставка Контроллеру. Мы не обрабатываем для целей вне SOW.',
           ],
@@ -2396,8 +2420,8 @@ const ru: TensolDict = {
           h: 'Запросы субъектов данных',
           anchor: '',
           p: [
-            'Если субъект данных обращается напрямую в Tensol с запросом, мы перенаправляем его Контроллеру в течение пяти рабочих дней и не отвечаем от имени Контроллера без его инструкции.',
-            'По инструкции Контроллера Tensol помогает выполнять запросы на доступ, исправление, удаление, ограничение обработки и portability в пределах технических возможностей платформы.',
+            'Если субъект данных обращается напрямую в Sthrip с запросом, мы перенаправляем его Контроллеру в течение пяти рабочих дней и не отвечаем от имени Контроллера без его инструкции.',
+            'По инструкции Контроллера Sthrip помогает выполнять запросы на доступ, исправление, удаление, ограничение обработки и portability в пределах технических возможностей платформы.',
           ],
         },
         {
@@ -2405,13 +2429,13 @@ const ru: TensolDict = {
           h: 'Изменения субпроцессоров и прекращение',
           anchor: '',
           p: [
-            'Tensol предоставляет 30 календарных дней уведомления до добавления или замены субпроцессора. В окне уведомления Контроллер может возразить письменно; если коммерческой альтернативы нет, Контроллер может прекратить затронутый SOW с пропорциональным возвратом неиспользованных платежей.',
-            'При прекращении engagement Tensol безопасно удаляет персональные данные клиента в течение 30 дней, кроме финального отчёта и audit-логов, удерживаемых по retention-расписанию SOW. Удаление подтверждается письменно по запросу.',
+            'Sthrip предоставляет 30 календарных дней уведомления до добавления или замены субпроцессора. В окне уведомления Контроллер может возразить письменно; если коммерческой альтернативы нет, Контроллер может прекратить затронутый SOW с пропорциональным возвратом неиспользованных платежей.',
+            'При прекращении engagement Sthrip безопасно удаляет персональные данные клиента в течение 30 дней, кроме финального отчёта и audit-логов, удерживаемых по retention-расписанию SOW. Удаление подтверждается письменно по запросу.',
             'Список субпроцессоров публикуется на /legal/dpa и версионируется вместе с этим документом.',
           ],
         },
       ],
-      tail: 'Это редакция от 2026-05-08. Tensol может обновлять этот документ — изменения вступают в силу через 14 дней с публикации. Контакт по вопросам: nikto256@gmail.com.',
+      tail: 'Это редакция от 2026-05-08. Sthrip может обновлять этот документ — изменения вступают в силу через 14 дней с публикации. Контакт по вопросам: nikto256@gmail.com.',
     },
   },
   // ── END:legal ───────────────────────────────────────────────────────
@@ -2423,7 +2447,7 @@ const ru: TensolDict = {
     legalCol: 'Юридическое',
     contactCta: 'Связаться с основателем',
     contactQuestion: 'Вопросы по этому документу:',
-    copyright: '© 2026 Tensol. Все права защищены.',
+    copyright: '© 2026 Sthrip. Все права защищены.',
   },
   // ── END:footerLinks ─────────────────────────────────────────────────
 
@@ -2432,7 +2456,7 @@ const ru: TensolDict = {
     pageTitle: 'Авторизация цели',
     whyTitle: 'Зачем это нужно?',
     whyBody:
-      'Tensol требует подтверждения, что вы контролируете или имеете разрешение на тестирование этой цели. Выберите один из методов ниже.',
+      'Sthrip требует подтверждения, что вы контролируете или имеете разрешение на тестирование этой цели. Выберите один из методов ниже.',
     step1Title: 'Шаг 1: Выберите метод проверки',
     step1Hint: 'Выберите способ подтверждения владения или авторизации.',
     step2Title: 'Шаг 2: Следуйте инструкциям',

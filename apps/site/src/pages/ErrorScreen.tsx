@@ -1,4 +1,4 @@
-// Tensol — E states (errors). Ported 1:1 from
+// Sthrip — E states (errors). Ported 1:1 from
 // tensol-platform-design-v2/source/blocks/10_ReportsScreen.jsx ErrorState.
 import { type ReactElement } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -72,7 +72,7 @@ export default function ErrorScreen(): ReactElement {
 
   return (
     <AppShell breadcrumb={['Error']} role="security_lead" density="comfortable">
-      <RouteHead title={`Error ${resolved} — Tensol`} />
+      <RouteHead title={`Error ${resolved} — Sthrip`} />
       <div
         data-screen-label={`13 App — error ${resolved}`}
         style={{

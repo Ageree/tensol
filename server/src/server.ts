@@ -783,16 +783,11 @@ export async function main(): Promise<{
   // 003-whitebox — review engine deps. All optional/graceful: when a cred is
   // missing the corresponding handler throws at invoke time (runner captures it
   // as a permanent failure + audit row) rather than failing boot.
-  // Effective review key: the review-specific key, else the shared OpenRouter
-  // key (the documented fallback in config.ts — both speak the OpenRouter API).
-  const reviewLlmApiKey =
-    config.TENSOL_REVIEW_LLM_API_KEY || config.TENSOL_OPENROUTER_API_KEY;
-  const reviewLlm: LlmClient | null = reviewLlmApiKey
+  const reviewLlm: LlmClient | null = config.TENSOL_REVIEW_LLM_API_KEY
     ? createOpenRouterClient({
-        apiKey: reviewLlmApiKey,
+        apiKey: config.TENSOL_REVIEW_LLM_API_KEY,
         baseUrl: config.TENSOL_REVIEW_LLM_BASE_URL,
         model: config.TENSOL_REVIEW_LLM_MODEL,
-        timeoutMs: config.TENSOL_REVIEW_LLM_TIMEOUT_MS,
       })
     : null;
   if (!reviewLlm) {
@@ -800,7 +795,7 @@ export async function main(): Promise<{
     console.warn(
       "[tensol] 003-whitebox: review LLM not configured — POST /v1/review " +
         "returns 503 and pr_review/whitebox_scan jobs fail at invoke time. " +
-        "Set TENSOL_REVIEW_LLM_API_KEY (or the shared TENSOL_OPENROUTER_API_KEY).",
+        "Set TENSOL_REVIEW_LLM_API_KEY.",
     );
   }
   const reviewServiceForJobs: ReviewService = createReviewService({

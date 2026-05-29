@@ -64,7 +64,7 @@ export interface CreateEmailClientOpts {
   readonly sdkFactory?: (apiKey: string) => ResendSdkLike;
 }
 
-const DEFAULT_FROM = "Tensol <no-reply@tensol.io>";
+const DEFAULT_FROM = "Sthrip <no-reply@sthrip.dev>";
 
 function createStdoutClient(
   logger: (line: string) => void,
@@ -74,7 +74,7 @@ function createStdoutClient(
       const id = `stdout-${ulid()}`;
       logger(
         [
-          "─── tensol email (stdout mode) ───",
+          "─── sthrip email (stdout mode) ───",
           `to:      ${args.to}`,
           `subject: ${args.subject}`,
           `id:      ${id}`,

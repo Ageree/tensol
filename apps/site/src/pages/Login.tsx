@@ -56,7 +56,7 @@ export default function Login() {
         title="Check your inbox."
         sub={`We just sent a sign-in link to ${email}. The link expires in 15 minutes.`}
       >
-        <RouteHead title="Check your inbox — Tensol" />
+        <RouteHead title="Check your inbox — Sthrip" />
         <div
           data-screen-label="03 Auth — magic link sent"
           style={{ display: 'flex', flexDirection: 'column', gap: 16 }}

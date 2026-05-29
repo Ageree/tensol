@@ -1,4 +1,4 @@
-// Tensol — IntersectionObserver wiring for [data-tns-reveal] / [data-tns-stagger]
+// Sthrip — IntersectionObserver wiring for [data-tns-reveal] / [data-tns-stagger]
 // Flips data-in="1" on elements when they enter the viewport. CSS in
 // styles.css does the rest. Mounted globally from main.tsx.
 

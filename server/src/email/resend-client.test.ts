@@ -74,7 +74,7 @@ describe("createEmailClient — resend mode", () => {
     expect(payload.subject).toBe("Sign in");
     expect(payload.html).toBe("<a href='https://x'>x</a>");
     expect(payload.text).toBe("https://x");
-    expect(payload.from).toBe("Tensol <no-reply@tensol.io>");
+    expect(payload.from).toBe("Sthrip <no-reply@sthrip.dev>");
   });
 
   it("forwards a custom `from` to the SDK call", async () => {

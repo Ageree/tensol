@@ -1,5 +1,8 @@
 import { useEffect } from 'react';
 
+const FAVICON_ICO = '/favicon.ico?v=tensol-logo-2';
+const FAVICON_PNG = '/assets/tensol-logo-mark-favicon.png?v=tensol-logo-2';
+
 interface RouteHeadProps {
   title: string;
   description?: string;
@@ -17,6 +20,7 @@ export function RouteHead({ title, description, ogTitle, ogDescription, ogImage 
     setOg('og:title', ogTitle ?? title);
     setOg('og:description', ogDescription ?? description ?? '');
     setOg('og:image', ogImage ?? '');
+    setFavicons();
 
     return () => {
       document.title = 'Tensol';
@@ -28,6 +32,27 @@ export function RouteHead({ title, description, ogTitle, ogDescription, ogImage 
   }, [title, description, ogTitle, ogDescription, ogImage]);
 
   return null;
+}
+
+function setFavicons() {
+  document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"], link[rel="shortcut icon"]').forEach((el) => {
+    el.remove();
+  });
+
+  appendIcon('icon', 'image/x-icon', FAVICON_ICO);
+  appendIcon('shortcut icon', 'image/x-icon', FAVICON_ICO);
+  appendIcon('icon', 'image/png', FAVICON_PNG, '64x64');
+}
+
+function appendIcon(rel: string, type: string, href: string, sizes?: string) {
+  const el = document.createElement('link');
+  el.rel = rel;
+  el.type = type;
+  el.href = href;
+  if (sizes) {
+    el.sizes.value = sizes;
+  }
+  document.head.appendChild(el);
 }
 
 function setMeta(attr: string, attrVal: string, content: string) {

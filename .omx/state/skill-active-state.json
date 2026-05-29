@@ -1,15 +1,15 @@
 {
   "version": 1,
   "active": true,
-  "skill": "ultrawork",
-  "keyword": "parallel",
+  "skill": "security-review",
+  "keyword": "security review",
   "phase": "planning",
-  "activated_at": "2026-05-01T08:01:00.660Z",
-  "updated_at": "2026-05-01T08:01:00.660Z",
+  "activated_at": "2026-05-28T17:46:02.858Z",
+  "updated_at": "2026-05-28T17:50:18.333Z",
   "source": "keyword-detector",
   "session_id": "",
-  "thread_id": "019de28a-b59a-7a83-9b2b-bade9979ee2c",
-  "turn_id": "019de28a-b6e7-7d41-9670-20d30885e174",
-  "iteration": 1,
-  "last_turn_at": "2026-05-01T08:06:48.270Z"
+  "thread_id": "019e6fb5-3da6-7381-bc4e-668f589b8593",
+  "turn_id": "019e6fb5-3f15-7253-bb42-998d5c0178c3",
+  "iteration": 62,
+  "last_turn_at": "2026-05-29T11:42:13.694Z"
 }

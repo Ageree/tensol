@@ -1,4 +1,4 @@
-// Tensol — pixel-horse asset data URIs.
+// Sthrip — pixel-horse asset data URIs.
 // Ported 1:1 from tensol-platform-design-v2/source/horseAssets.js.
 // Three large data URIs are kept as runtime constants here so primitives can
 // import them statically and so we can also expose them on window for any

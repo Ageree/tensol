@@ -393,7 +393,7 @@ export const ScanWizardContainer = ({
     if (state.error) {
       return (
         <AppShell breadcrumb={['wizard', 'new']}>
-          <RouteHead title="Tensol · New scan" />
+          <RouteHead title="Sthrip · New assessment" />
           <div style={{ padding: 24 }}>
             <Mono size={12} color="var(--red)">
               {`${t.wizard.errCreate}: ${state.error}`}
@@ -409,7 +409,7 @@ export const ScanWizardContainer = ({
     }
     return (
       <AppShell breadcrumb={['wizard', 'new']}>
-        <RouteHead title="Tensol · New scan" />
+        <RouteHead title="Sthrip · New assessment" />
         <div style={{ padding: 24 }}>
           <Mono size={12} color="var(--fg-2)">
             {t.wizard.creating}
@@ -460,7 +460,7 @@ export const ScanWizardContainer = ({
         </Btn>
       }
     >
-      <RouteHead title={`Tensol · ${labels[state.step - 1]}`} />
+      <RouteHead title={`Sthrip · ${labels[state.step - 1]}`} />
       <Stepper active={state.step} labels={labels} />
 
       {state.error ? (

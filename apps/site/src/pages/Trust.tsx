@@ -9,7 +9,6 @@ import {
   Eyebrow,
   HalftoneBg,
   HorseMark,
-  LogoLockup,
   Mono,
   StatusChip,
 } from '../components/primitives.tsx';
@@ -39,7 +38,18 @@ function TrustNav() {
         zIndex: 2,
       }}
     >
-      <LogoLockup size={20} color="var(--ink)" onClick={() => navigate('/')} />
+      <button
+        type="button"
+        aria-label="STHRIP home"
+        onClick={() => navigate('/')}
+        style={{ border: 0, background: 'transparent', padding: 0, cursor: 'pointer' }}
+      >
+        <img
+          src="/assets/sthrip-speed-wordmark-user-cropped.png"
+          alt="STHRIP"
+          style={{ display: 'block', width: 118, height: 'auto', imageRendering: 'pixelated' }}
+        />
+      </button>
       <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
         {links.map((l, i) => (
           <a
@@ -659,7 +669,11 @@ function TrustFooter() {
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <LogoLockup size={20} color="var(--ink)" />
+          <img
+            src="/assets/sthrip-speed-wordmark-user-cropped.png"
+            alt="STHRIP"
+            style={{ display: 'block', width: 118, height: 'auto', imageRendering: 'pixelated' }}
+          />
           <p
             style={{
               fontFamily: "'Inter', sans-serif",
@@ -728,11 +742,11 @@ export default function Trust(): ReactNode {
   return (
     <>
       <RouteHead
-        title="Trust & Compliance — Tensol"
-        description="SOC 2-aligned controls, GDPR-ready data handling, and a full authorization chain for every engagement."
-        ogTitle="Trust & Compliance — Tensol"
-        ogDescription="SOC 2-aligned controls, GDPR-ready data handling, and a full authorization chain for every engagement."
-        ogImage="/assets/tensol-horse-red.svg"
+        title="Trust & Governance — Sthrip"
+        description="Authorization, evidence handling, source-code boundaries, audit logs, and governance for Sthrip assessments."
+        ogTitle="Trust & Governance — Sthrip"
+        ogDescription="Authorization, evidence handling, source-code boundaries, audit logs, and governance for Sthrip assessments."
+        ogImage="/assets/sthrip-noise-field.jpg"
       />
     <div
       data-screen-label="Trust — compliance"

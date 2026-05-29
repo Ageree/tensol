@@ -1,4 +1,4 @@
-// T118 — Tensol Blackbox MVP Settings.
+// T118 — Sthrip Blackbox MVP Settings.
 //
 // MVP scope (US3): show only what the user has actual control over today.
 //   1. Account info — email from GET /v1/auth/me (cookie session).
@@ -213,7 +213,7 @@ export default function Settings(): ReactElement {
               </Mono>
               <div style={{ marginTop: 14 }}>
                 <a
-                  href="mailto:hi@tensol.ai"
+                  href="mailto:hello@sthrip.dev"
                   style={{ textDecoration: 'none' }}
                 >
                   <Btn kind="dim" size="sm">

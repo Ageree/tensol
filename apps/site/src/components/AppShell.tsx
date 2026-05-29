@@ -360,7 +360,6 @@ export function AppShell({
             onClick={() => go('reviews')}
             collapsed={sidebarCollapsed}
           />
-          <NavItem icon="▸" label="Reviews" active={route === 'reviews'} onClick={() => go('reviews')} />
         </div>
 
         <div style={{ padding: '24px 0 0' }}>

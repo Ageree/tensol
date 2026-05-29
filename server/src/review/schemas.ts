@@ -53,55 +53,20 @@ export type LlmReviewOutput = z.infer<typeof LlmReviewOutputSchema>;
 // `/v1/review` API body (used by the tensol-loop client skill)
 // ---------------------------------------------------------------------------
 
-/** Per-field BYTE ceilings — bound request size to protect the indexer + LLM
- *  budget (defense-in-depth against the ReDoS / oversized-input DoS surface).
- *  Enforced as UTF-8 byte length, NOT String.prototype.length (UTF-16 units):
- *  a `.max(N)` char cap would let CJK/emoji payloads reach ~3x the byte budget. */
-export const MAX_PATCH_BYTES = 512 * 1024;
-export const MAX_CONTENTS_BYTES = 512 * 1024;
-export const MAX_DIFF_BYTES = 2 * 1024 * 1024;
+/** Per-field byte ceilings — bound request size to protect the indexer + LLM
+ *  budget (defense-in-depth against the ReDoS / oversized-input DoS surface). */
+const MAX_PATCH_BYTES = 512 * 1024;
+const MAX_CONTENTS_BYTES = 512 * 1024;
+const MAX_DIFF_BYTES = 2 * 1024 * 1024;
 const MAX_FILES_PER_REVIEW = 600;
-/** Aggregate UTF-8 byte ceiling across all files' patch+contents (and a raw
- *  diff). Bounds the SUM so per-field caps × 600 files cannot reach hundreds of
- *  MiB. Sized to the raw-diff ceiling so either input mode caps to the same
- *  total. The Hono `bodyLimit` (mounted in server.ts) rejects oversized bodies
- *  with 413 before buffering; this `.refine` caps the parsed-object path too. */
-export const MAX_TOTAL_REVIEW_BYTES = MAX_DIFF_BYTES;
-
-/** Byte-length (UTF-8) refinement: true when `s` is within `n` bytes. */
-const withinBytes = (n: number) => (s: string) =>
-  Buffer.byteLength(s, "utf8") <= n;
 
 export const ReviewFileSchema = z.object({
   path: z.string().min(1).max(2048),
   status: z.enum(["added", "modified", "removed", "renamed"]).default("modified"),
-  patch: z
-    .string()
-    .refine(withinBytes(MAX_PATCH_BYTES), {
-      message: `patch exceeds ${MAX_PATCH_BYTES} bytes`,
-    })
-    .optional(),
-  contents: z
-    .string()
-    .refine(withinBytes(MAX_CONTENTS_BYTES), {
-      message: `contents exceeds ${MAX_CONTENTS_BYTES} bytes`,
-    })
-    .optional(),
+  patch: z.string().max(MAX_PATCH_BYTES).optional(),
+  contents: z.string().max(MAX_CONTENTS_BYTES).optional(),
   previous_path: z.string().max(2048).optional(),
 });
-
-/** Sum of every file's patch+contents UTF-8 bytes plus a raw diff. */
-function totalReviewBytes(b: {
-  diff?: string | undefined;
-  files?: Array<{ patch?: string | undefined; contents?: string | undefined }> | undefined;
-}): number {
-  let total = b.diff ? Buffer.byteLength(b.diff, "utf8") : 0;
-  for (const f of b.files ?? []) {
-    if (f.patch) total += Buffer.byteLength(f.patch, "utf8");
-    if (f.contents) total += Buffer.byteLength(f.contents, "utf8");
-  }
-  return total;
-}
 
 export const ReviewApiBodySchema = z
   .object({
@@ -111,34 +76,24 @@ export const ReviewApiBodySchema = z
     head_sha: z.string().min(1).optional(),
     base_sha: z.string().min(1).optional(),
     /** Raw unified diff (alternative to structured `files`). */
-    diff: z
-      .string()
-      .refine(withinBytes(MAX_DIFF_BYTES), {
-        message: `diff exceeds ${MAX_DIFF_BYTES} bytes`,
-      })
-      .optional(),
+    diff: z.string().max(MAX_DIFF_BYTES).optional(),
     files: z.array(ReviewFileSchema).max(MAX_FILES_PER_REVIEW).optional(),
   })
   .refine((b) => Boolean(b.diff) || (b.files && b.files.length > 0), {
     message: "either `diff` or non-empty `files` is required",
-  })
-  .refine((b) => totalReviewBytes(b) <= MAX_TOTAL_REVIEW_BYTES, {
-    message: `total request payload exceeds ${MAX_TOTAL_REVIEW_BYTES} bytes`,
   });
 
 export type ReviewApiBody = z.infer<typeof ReviewApiBodySchema>;
 
 export const WhiteboxLaunchBodySchema = z.object({
-  /** Either an existing connected repo id, or a repo slug ("owner/name").
-   *  The clone URL is derived server-side from the slug; a caller-supplied
-   *  clone URL (self-hosted / private mirror) is a known follow-up and is NOT
-   *  accepted here, so we never validate-then-ignore it. */
+  /** Either an existing connected repo id, or a repo slug + clone url. */
   repo_id: z.string().optional(),
   repo: z
     .string()
     .regex(/^[^/\s]+\/[^/\s]+$/, "repo must be owner/name")
     .optional(),
   ref: z.string().optional(),
+  clone_url: z.string().url().optional(),
 });
 
 export type WhiteboxLaunchBody = z.infer<typeof WhiteboxLaunchBodySchema>;

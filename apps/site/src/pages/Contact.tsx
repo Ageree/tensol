@@ -11,7 +11,6 @@ import {
   Field,
   HalftoneBg,
   Input,
-  LogoLockup,
   Mono,
 } from '../components/primitives.tsx';
 import { useTensol } from '../context.tsx';
@@ -56,7 +55,7 @@ const isValidPhone = (raw: string): boolean => {
 const formatPayloadMessage = (f: FormShape): string => {
   const tg = normalizeTelegram(f.telegram);
   return [
-    '🐎 Tensol — new lead',
+    'STHRIP — new assessment request',
     '',
     f.name,
     `✈ @${tg}`,
@@ -170,7 +169,7 @@ export default function Contact() {
 
   const mailto = useMemo(() => {
     const to = import.meta.env.VITE_CONTACT_MAILTO ?? 'nikto256@gmail.com';
-    const subject = encodeURIComponent('Tensol lead');
+    const subject = encodeURIComponent('Sthrip assessment request');
     const body = encodeURIComponent(formatPayloadMessage(form));
     return `mailto:${to}?subject=${subject}&body=${body}`;
   }, [form]);
@@ -179,11 +178,11 @@ export default function Contact() {
   return (
     <>
       <RouteHead
-        title="Contact — Tensol"
-        description="Request a scoped penetration testing engagement. Tell us about your stack."
-        ogTitle="Contact — Tensol"
-        ogDescription="Request a scoped penetration testing engagement. Tell us about your stack."
-        ogImage="/assets/tensol-horse-red.svg"
+        title="Contact — Sthrip"
+        description="Book a blackbox, whitebox, or continuous code-review security assessment with Sthrip."
+        ogTitle="Contact — Sthrip"
+        ogDescription="Book a blackbox, whitebox, or continuous code-review security assessment with Sthrip."
+        ogImage="/assets/sthrip-noise-field.jpg"
       />
       <div
         style={{
@@ -224,7 +223,11 @@ export default function Contact() {
                 gap: 10,
               }}
             >
-              <LogoLockup size={20} color="var(--paper)" onClick={() => navigate('/')} />
+              <img
+                src="/assets/sthrip-wordmark-white.png"
+                alt="STHRIP"
+                style={{ display: 'block', width: 126, height: 'auto', imageRendering: 'pixelated' }}
+              />
             </button>
           </div>
         </aside>

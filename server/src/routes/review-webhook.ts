@@ -20,6 +20,7 @@
 import { Hono } from "hono";
 
 import type { DB } from "../db/client.ts";
+import { webhookDedup as webhookDedupTable } from "../db/schema.ts";
 import { ulid } from "../lib/ids.ts";
 import { now as defaultNow } from "../lib/time.ts";
 import { classifyWebhook } from "../review/github/webhook.ts";
@@ -36,6 +37,15 @@ export interface CreateReviewWebhookRouterDeps {
   readonly newId?: () => string;
 }
 
+function isUniqueViolation(err: unknown): boolean {
+  if (err === null || typeof err !== "object") return false;
+  const e = err as { code?: unknown; message?: unknown };
+  if (e.code === "SQLITE_CONSTRAINT_UNIQUE") return true;
+  return (
+    typeof e.message === "string" && e.message.includes("UNIQUE constraint failed")
+  );
+}
+
 function splitFullName(fullName: string): { owner: string; name: string } | null {
   const idx = fullName.indexOf("/");
   if (idx <= 0 || idx >= fullName.length - 1) return null;
@@ -45,7 +55,7 @@ function splitFullName(fullName: string): { owner: string; name: string } | null
 export function createReviewWebhookRouter(
   deps: CreateReviewWebhookRouterDeps,
 ): Hono {
-  const { service, webhookSecret } = deps;
+  const { db, service, webhookSecret } = deps;
   const clock = deps.now ?? defaultNow;
   const newId = deps.newId ?? (() => ulid(clock()));
 
@@ -64,9 +74,27 @@ export function createReviewWebhookRouter(
     const eventName = c.req.header("x-github-event") ?? "";
     const deliveryId = c.req.header("x-github-delivery") ?? "";
 
-    // 3. Parse + classify. (Idempotency is recorded ATOMICALLY with the
-    //    review+job insert at step 5 — committing the dedup row before the work
-    //    would strand the delivery forever if a crash hit in between.)
+    // 3. Idempotency (when a delivery id is present).
+    if (deliveryId) {
+      try {
+        db.insert(webhookDedupTable)
+          .values({
+            id: newId(),
+            webhookKind: "github_review",
+            dedupKey: deliveryId,
+            receivedAt: clock(),
+            metadataJson: JSON.stringify({ event: eventName }),
+          })
+          .run();
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          return c.json({ status: "duplicate" }, 200);
+        }
+        throw err;
+      }
+    }
+
+    // 4. Parse + classify.
     let json: unknown;
     try {
       json = JSON.parse(rawBody);
@@ -107,32 +135,25 @@ export function createReviewWebhookRouter(
     const slug = splitFullName(event.repoFullName);
     if (!slug) return c.json({ status: "ignored", reason: "bad_repo_name" }, 202);
 
-    // 4. Resolve the owning repo by the SIGNED installation id — never by
-    //    (owner,name) alone. The per-user `(scm,owner,name,user_id)` unique
-    //    index means a slug like `victim/secret` can have rows for MULTIPLE
-    //    tenants; matching on the attacker-uncontrollable installation id (and
-    //    asserting the slug) is the only safe tenant resolution. A webhook with
-    //    no installation id, or whose installation has no connected row for
-    //    this slug, is `repo_not_connected` (202) — we NEVER fall back to
-    //    resolving a private repo's owner from (owner,name).
-    if (!event.installationId) {
-      return c.json({ status: "ignored", reason: "repo_not_connected" }, 202);
-    }
-    const repo = await service.getRepoByInstallation(
-      "github",
-      event.installationId,
-      slug.owner,
-      slug.name,
-    );
+    // 5. Only act on already-connected repos (repo carries the owning user).
+    const repo = await service.getRepoByFullName("github", slug.owner, slug.name);
     if (!repo) {
       return c.json({ status: "ignored", reason: "repo_not_connected" }, 202);
     }
 
-    // 5. Atomic: the dedup row + queued review + pending pr_review job commit
-    //    together. A crash before COMMIT rolls them all back so GitHub's retry
-    //    re-processes; a genuine duplicate delivery collides on the dedup
-    //    UNIQUE index, rolls back, and returns 200.
-    const { review, jobId, duplicate } = await service.createQueuedReviewWithJob(
+    // Refresh the installation id if the webhook carries a newer one.
+    if (event.installationId && event.installationId !== repo.installationId) {
+      await service.upsertRepo({
+        userId: repo.userId,
+        owner: slug.owner,
+        name: slug.name,
+        installationId: event.installationId,
+      });
+    }
+
+    // Atomic: the queued review + its pending pr_review job commit together, so
+    // a crash can never strand a `queued` review with no job to run it.
+    const { review, jobId } = await service.createQueuedReviewWithJob(
       {
         repoId: repo.id,
         userId: repo.userId,
@@ -142,20 +163,7 @@ export function createReviewWebhookRouter(
         ...(event.baseSha !== undefined ? { baseSha: event.baseSha } : {}),
       },
       "pr_review",
-      deliveryId
-        ? {
-            id: newId(),
-            webhookKind: "github_review",
-            dedupKey: deliveryId,
-            receivedAt: clock(),
-            metadataJson: JSON.stringify({ event: eventName }),
-          }
-        : undefined,
     );
-
-    if (duplicate) {
-      return c.json({ status: "duplicate" }, 200);
-    }
 
     return c.json(
       { status: "queued", review_id: review.id, job_id: jobId, kind: event.kind },
