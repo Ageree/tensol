@@ -398,10 +398,6 @@ export default function ReviewDetail(): ReactElement {
       breadcrumb={['Reviews', id ?? '—']}
       role="security_lead"
       density="comfortable"
-      brand="sthrip"
-      language="en"
-      showLanguageSwitcher={false}
-      surface="white-mono"
     >
       <RouteHead title={`Sthrip · Review ${id ?? ''}`} />
       <div data-screen-label="Review detail">
