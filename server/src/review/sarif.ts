@@ -167,10 +167,21 @@ interface LocationParts {
   snippet?: string;
 }
 
-/** Strip a leading `file://` scheme and a single `./` prefix from a URI. */
+/**
+ * Strip a leading `file://` scheme and a single `./` prefix from a URI, then
+ * percent-decode the path. SARIF 2.1.0 §3.4.1 specifies `artifactLocation.uri`
+ * as a URI reference, so conforming producers percent-encode reserved chars
+ * (space, `#`, non-ASCII). We decode AFTER removing the scheme so the on-disk
+ * path matches the real repo path (fingerprint dedup + GitHub comment anchor).
+ */
 function cleanUri(uri: string): string {
   let out = uri;
   if (out.startsWith("file://")) out = out.slice("file://".length);
+  try {
+    out = decodeURIComponent(out);
+  } catch {
+    // Malformed escape (e.g. a literal `%` in the path) — leave as-is.
+  }
   if (out.startsWith("./")) out = out.slice(2);
   return out;
 }

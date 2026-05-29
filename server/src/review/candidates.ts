@@ -54,14 +54,21 @@ export function parseAddedHunks(patch: string | undefined): DiffHunk[] {
       newLine = Number(header[1]);
       continue;
     }
-    if (line.startsWith("+") && !line.startsWith("+++")) {
+    // `parseAddedHunks` only ever receives the patch body from the first `@@`
+    // hunk header onward (splitUnifiedDiff strips the `+++`/`---` file headers),
+    // so EVERY `+`-line here is a genuine added line — including added content
+    // whose own text begins with `++` (e.g. a TOML `+++` frontmatter fence, a
+    // committed `.diff` fixture, or C `++counter;`). Guarding on `startsWith
+    // ("+++")` would silently drop those lines and fragment the run.
+    if (line.startsWith("+")) {
       if (!run) run = { start: newLine, texts: [] };
       run.texts.push(line.slice(1));
       newLine += 1;
       continue;
     }
     // Removed line ("-"): does not advance the new-file cursor; ends a run.
-    if (line.startsWith("-") && !line.startsWith("---")) {
+    // (Same reasoning — a removed line whose content starts with `-` is real.)
+    if (line.startsWith("-")) {
       flush();
       continue;
     }

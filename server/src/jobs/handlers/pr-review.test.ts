@@ -171,6 +171,59 @@ describe("createPrReviewHandler", () => {
     expect(github.createCheckRunCalls.length).toBe(2);
   });
 
+  test("#8 does NOT re-post a finding whose fingerprint already exists in a GitHub comment", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({ userId: "u", owner: "acme", name: "web" });
+
+    // First run to learn the deterministic fingerprint the engine produces.
+    const review1 = await svc.createReview({
+      repoId: repo.id,
+      userId: "u",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "sha1",
+    });
+    const g1 = new FakeGitHubClient({ files: [sqliFile] });
+    const handler1 = createPrReviewHandler({
+      service: svc,
+      github: g1,
+      llm: new FakeLlmClient(sqliResponder),
+    });
+    await handler1("job-1", { reviewId: review1.id });
+    const fp = (await svc.getReviewFindings(review1.id))[0]!.fingerprint;
+
+    // Simulate the at-least-once hazard: the prior post SUCCEEDED on GitHub (the
+    // comment carries the hidden tensol:fp marker) but NO local thread row was
+    // committed. A fresh review for the same PR must NOT re-post.
+    await svc.markThreadResolved(
+      (await svc.getOpenThread(repo.id, fp))!.id,
+    ); // drop the local fast-path so only GitHub state can dedup
+    const review2 = await svc.createReview({
+      repoId: repo.id,
+      userId: "u",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "sha2",
+    });
+    const g2 = new FakeGitHubClient({
+      files: [sqliFile],
+      existingComments: [{ body: `prior review\n<!-- tensol:fp:${fp} -->` }],
+    });
+    const handler2 = createPrReviewHandler({
+      service: svc,
+      github: g2,
+      llm: new FakeLlmClient(sqliResponder),
+    });
+    await handler2("job-2", { reviewId: review2.id });
+
+    expect(g2.listCommentsCalls.length).toBe(1);
+    // No inline comments posted — GitHub already has this fingerprint.
+    expect(g2.postReviewCalls.length).toBe(0);
+    // The merge-gating check-run is still posted (the gate is always set).
+    expect(g2.createCheckRunCalls.length).toBe(1);
+  });
+
   test("marks the review failed and rethrows when the repo is missing", async () => {
     const db = freshMemDb();
     const svc = makeSvc(db);
@@ -234,6 +287,7 @@ describe("createPrReviewHandler", () => {
         if (fetchCalls === 1) throw new Error("502 Bad Gateway (transient)");
         return [sqliFile];
       },
+      listReviewComments: async () => [],
       getFileContents: async () => null,
       postReview: async () => ({ reviewId: "r1" }),
       createCheckRun: async () => ({ checkRunId: "c1" }),

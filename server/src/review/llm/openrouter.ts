@@ -19,6 +19,15 @@ import type { LlmClient } from "../reviewer.ts";
 /** Default sampling temperature — low for stable security verdicts. */
 const DEFAULT_TEMPERATURE = 0.1;
 
+/**
+ * Default per-request timeout (ms). Bun's global `fetch` has no response
+ * timeout, so a stalled/half-open upstream would hang the synchronous
+ * `POST /v1/review` handler forever and pin async jobs in `running`. Aborting
+ * turns the stall into a thrown error so the runner-retry + sync-500 paths
+ * engage.
+ */
+const DEFAULT_TIMEOUT_MS = 90_000;
+
 interface ChatCompletionResponse {
   choices?: Array<{ message?: { content?: string } }>;
 }
@@ -55,11 +64,14 @@ export function createOpenRouterClient(args: {
   model: string;
   fetchImpl?: typeof fetch;
   temperature?: number;
+  /** Per-request response timeout in ms (default 90s). */
+  timeoutMs?: number;
 }): LlmClient {
   const { apiKey, model } = args;
   const baseUrl = normalizeBaseUrl(args.baseUrl);
   const doFetch = args.fetchImpl ?? fetch;
   const temperature = args.temperature ?? DEFAULT_TEMPERATURE;
+  const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   if (!apiKey) throw new Error("openrouter: apiKey is required");
   if (!baseUrl) throw new Error("openrouter: baseUrl is required");
@@ -68,22 +80,43 @@ export function createOpenRouterClient(args: {
   return {
     async complete({ system, user }) {
       const url = `${baseUrl}/chat/completions`;
-      const res = await doFetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-          temperature,
-          response_format: { type: "json_object" },
-        }),
-      });
+      // Own AbortController (not bare `AbortSignal.timeout`) so we can tell a
+      // timeout abort apart from any other abort and throw a clear message.
+      const controller = new AbortController();
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+      let res: Response;
+      try {
+        res = await doFetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: user },
+            ],
+            temperature,
+            response_format: { type: "json_object" },
+          }),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        if (timedOut) {
+          throw new Error(
+            `openrouter: chat completion timed out after ${timeoutMs}ms`,
+          );
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
 
       if (!res.ok) {
         const detail = await safeBodyText(res);
