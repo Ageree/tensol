@@ -5,6 +5,8 @@ import {
   Code2,
   FileText,
   Gauge,
+  GitBranch,
+  Link2,
   PanelLeftClose,
   PanelLeftOpen,
   Settings as SettingsIcon,
@@ -23,6 +25,8 @@ export type AppRoute =
   | 'findings'
   | 'reports'
   | 'reviews'
+  | 'connect'
+  | 'repositories'
   | 'settings';
 
 export type AppRole =
@@ -52,6 +56,8 @@ const ROUTE_PATHS: Record<AppRoute, string> = {
   findings: '/findings',
   reports: '/reports',
   reviews: '/reviews',
+  connect: '/connect',
+  repositories: '/repositories',
   settings: '/settings',
 };
 
@@ -367,9 +373,23 @@ export function AppShell({
           />
           <NavItem
             icon={<Code2 {...navIconProps} />}
-            label="Reviews"
+            label={t.navReviews}
             active={route === 'reviews'}
             onClick={() => go('reviews')}
+            collapsed={sidebarCollapsed}
+          />
+          <NavItem
+            icon={<Link2 {...navIconProps} />}
+            label={t.navConnect}
+            active={route === 'connect'}
+            onClick={() => go('connect')}
+            collapsed={sidebarCollapsed}
+          />
+          <NavItem
+            icon={<GitBranch {...navIconProps} />}
+            label={t.navRepositories}
+            active={route === 'repositories'}
+            onClick={() => go('repositories')}
             collapsed={sidebarCollapsed}
           />
         </div>

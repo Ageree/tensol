@@ -266,7 +266,7 @@ export interface UpdateSafetyBody {
 
 // ─── Core fetch wrapper ────────────────────────────────────────────────────
 
-type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 interface RequestOptions {
   method?: HttpMethod;
@@ -482,6 +482,122 @@ export const deepInquiries = {
     }),
 };
 
+// ─── GitHub / Installations (004-sthrip-pr-review) ────────────────────────
+// Mirrors specs/004-sthrip-pr-review/contracts/openapi.yaml.
+// All field names are snake_case to match the wire contract exactly (same
+// convention as the rest of this file).
+
+/**
+ * GET /v1/github/connect response.
+ * `install_url` is the GitHub App installation URL the frontend redirects to.
+ * `state` is the CSRF nonce echoed back on the callback.
+ */
+export interface ConnectUrl {
+  install_url: string;
+  state?: string;
+}
+
+/** Shape of a single installation row returned by GET /v1/github/installations. */
+export interface Installation {
+  id: string;
+  account_login: string;
+  account_type: "User" | "Organization";
+  repository_selection: "all" | "selected";
+  status: "active" | "suspended" | "deleted";
+}
+
+/** GET /v1/github/installations response envelope. */
+export interface InstallationsResponse {
+  connected: boolean;
+  installations: Installation[];
+}
+
+/**
+ * A repository accessible through a GitHub App installation,
+ * with Sthrip coverage + settings state overlaid.
+ * Mirrors openapi.yaml `InstallationRepo`.
+ */
+export interface InstallationRepo {
+  /** Sthrip `review_repos.id` if this repo is already tracked; null otherwise. */
+  repo_id?: string | null;
+  owner: string;
+  name: string;
+  default_branch?: string;
+  enabled: boolean;
+  covered_branches?: string[];
+  status_check_enabled?: boolean;
+  merge_block_on_critical?: boolean;
+  last_review?: {
+    review_id: string;
+    status: "queued" | "running" | "completed" | "failed" | "cancelled";
+    score_0_5?: number | null;
+    updated_at: number;
+  } | null;
+}
+
+/**
+ * Request body for PATCH /v1/review/repos/{id}/settings.
+ * Mirrors openapi.yaml `RepoSettingsUpdate`.
+ */
+export interface RepoSettingsUpdate {
+  enabled?: boolean;
+  covered_branches?: string[];
+  status_check_enabled?: boolean;
+  merge_block_on_critical?: boolean;
+}
+
+export const github = {
+  /**
+   * GET /v1/github/connect — begin GitHub App connection.
+   * Returns the install URL (redirect the browser there) and a CSRF state.
+   */
+  connect: (): Promise<ConnectUrl> =>
+    request<ConnectUrl>("/v1/github/connect"),
+
+  /**
+   * GET /v1/github/installations — connection status + list of installations.
+   * Returns `{ connected: false, installations: [] }` when the user has not
+   * connected yet.
+   */
+  installations: (): Promise<InstallationsResponse> =>
+    request<InstallationsResponse>("/v1/github/installations"),
+
+  /**
+   * GET /v1/github/installations/{installation_id}/repos
+   * Lists repositories the installation can access with Sthrip coverage state.
+   * 404 if the installation is not owned by the current user.
+   */
+  installationRepos: (installationId: string): Promise<InstallationRepo[]> =>
+    request<InstallationRepo[]>(
+      `/v1/github/installations/${encodeURIComponent(installationId)}/repos`,
+    ),
+
+  /**
+   * PATCH /v1/review/repos/{repo_id}/settings
+   * Update per-repo review coverage settings (enable/disable, branches, gates).
+   * 403 if the repo is not owned by the current user.
+   */
+  updateRepoSettings: (
+    repoId: string,
+    body: RepoSettingsUpdate,
+  ): Promise<InstallationRepo> =>
+    request<InstallationRepo>(
+      `/v1/review/repos/${encodeURIComponent(repoId)}/settings`,
+      { method: "PATCH", body },
+    ),
+
+  /**
+   * POST /v1/github/disconnect
+   * Marks the installation as deleted locally; the user must also uninstall
+   * the app on GitHub. 403 if the installation is not owned by the current user.
+   */
+  disconnect: (installationId: string): Promise<void> =>
+    request<void>("/v1/github/disconnect", {
+      method: "POST",
+      body: { installation_id: installationId },
+    }),
+};
+
 // ─── Review (003-whitebox: PR Review + Whitebox Pentest) ───────────────────
 // Mirrors `server/src/review/*` + `.claude/skills/tensol-loop/references/api.md`.
 
@@ -610,4 +726,5 @@ export const apiClient = {
   auth,
   deepInquiries,
   review,
+  github,
 };

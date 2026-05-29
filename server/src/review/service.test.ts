@@ -594,3 +594,408 @@ describe("installations service (T005/T006)", () => {
     }
   });
 });
+
+// ===========================================================================
+// Wave-2 service methods — connect flow + routes (T013–T016)
+// ===========================================================================
+
+describe("Wave-2 service methods (T013–T016)", () => {
+  let db: DB;
+  beforeEach(async () => {
+    db = freshMemDb();
+    await seedUser(db, "user_1");
+    await seedUser(db, "user_2");
+  });
+
+  // ---------------------------------------------------------------------------
+  // getInstallationByRowId
+  // ---------------------------------------------------------------------------
+  test("getInstallationByRowId returns installation by PK or null", async () => {
+    const svc = makeSvc(db);
+    const inst = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_r1",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+
+    const found = await svc.getInstallationByRowId(inst.id);
+    expect(found).not.toBeNull();
+    expect(found!.id).toBe(inst.id);
+    expect(found!.installationId).toBe("inst_r1");
+
+    const missing = await svc.getInstallationByRowId("non_existent_row_id");
+    expect(missing).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // reconcileInstallationRepos
+  // ---------------------------------------------------------------------------
+  test("reconcileInstallationRepos upserts repos linked to the installation row", async () => {
+    const svc = makeSvc(db);
+    const inst = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_r2",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+
+    await svc.reconcileInstallationRepos({
+      installationRowId: inst.id,
+      installationId: "inst_r2",
+      userId: "user_1",
+      selection: "all",
+      repos: [
+        { owner: "acme-org", name: "repo-a", defaultBranch: "main" },
+        { owner: "acme-org", name: "repo-b", defaultBranch: "develop" },
+      ],
+    });
+
+    const repos = db.select().from(reviewReposTable).all();
+    expect(repos.length).toBe(2);
+    // When selection=all, repos should have enabled=1
+    for (const r of repos) {
+      expect(r.enabled).toBe(1);
+      expect(r.installationRowId).toBe(inst.id);
+      expect(r.userId).toBe("user_1");
+    }
+  });
+
+  test("reconcileInstallationRepos with selection=all auto-enables repos", async () => {
+    const svc = makeSvc(db);
+    const inst = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_r3",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+
+    await svc.reconcileInstallationRepos({
+      installationRowId: inst.id,
+      installationId: "inst_r3",
+      userId: "user_1",
+      selection: "all",
+      repos: [{ owner: "acme-org", name: "auto-repo", defaultBranch: "main" }],
+    });
+
+    const repos = db.select().from(reviewReposTable).all();
+    expect(repos.length).toBe(1);
+    expect(repos[0]!.enabled).toBe(1);
+  });
+
+  test("reconcileInstallationRepos is idempotent — calling twice produces one row", async () => {
+    const svc = makeSvc(db);
+    const inst = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_r4",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "selected",
+    });
+
+    const repoList = [{ owner: "acme-org", name: "dedup-repo", defaultBranch: "main" }];
+    await svc.reconcileInstallationRepos({
+      installationRowId: inst.id,
+      installationId: "inst_r4",
+      userId: "user_1",
+      selection: "selected",
+      repos: repoList,
+    });
+    await svc.reconcileInstallationRepos({
+      installationRowId: inst.id,
+      installationId: "inst_r4",
+      userId: "user_1",
+      selection: "selected",
+      repos: repoList,
+    });
+
+    const repos = db.select().from(reviewReposTable).all();
+    expect(repos.length).toBe(1);
+  });
+
+  test("reconcileInstallationRepos with selection=selected enables new repos (enabled=1)", async () => {
+    const svc = makeSvc(db);
+    const inst = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_r5",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "selected",
+    });
+
+    await svc.reconcileInstallationRepos({
+      installationRowId: inst.id,
+      installationId: "inst_r5",
+      userId: "user_1",
+      selection: "selected",
+      repos: [{ owner: "acme-org", name: "sel-repo" }],
+    });
+
+    const repos = db.select().from(reviewReposTable).all();
+    expect(repos.length).toBe(1);
+    // New repos with selection=selected are enabled=1 (GitHub filtered them already)
+    expect(repos[0]!.enabled).toBe(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // updateRepoSettings — owner-scoped
+  // ---------------------------------------------------------------------------
+  test("updateRepoSettings returns null for non-owner (owner-scoped 403 guard)", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "guarded",
+    });
+
+    // user_2 tries to update user_1's repo
+    const result = await svc.updateRepoSettings({
+      repoId: repo.id,
+      userId: "user_2",
+      enabled: false,
+    });
+    expect(result).toBeNull();
+
+    // repo remains unchanged
+    const row = db.select().from(reviewReposTable).where(eq(reviewReposTable.id, repo.id)).get();
+    expect(row!.enabled).toBe(1);
+  });
+
+  test("updateRepoSettings updates enabled field and emits review_repo_enabled audit", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "toggle-repo",
+    });
+
+    // Disable first
+    const disabled = await svc.updateRepoSettings({
+      repoId: repo.id,
+      userId: "user_1",
+      enabled: false,
+    });
+    expect(disabled).not.toBeNull();
+    expect(disabled!.enabled).toBe(0);
+
+    const disabledAudits = db
+      .select()
+      .from(auditLogTable)
+      .where(eq(auditLogTable.event, "review_repo_disabled"))
+      .all();
+    expect(disabledAudits.length).toBe(1);
+
+    // Re-enable
+    const enabled = await svc.updateRepoSettings({
+      repoId: repo.id,
+      userId: "user_1",
+      enabled: true,
+    });
+    expect(enabled).not.toBeNull();
+    expect(enabled!.enabled).toBe(1);
+
+    const enabledAudits = db
+      .select()
+      .from(auditLogTable)
+      .where(eq(auditLogTable.event, "review_repo_enabled"))
+      .all();
+    expect(enabledAudits.length).toBe(1);
+  });
+
+  test("updateRepoSettings updates coveredBranches and emits review_settings_changed", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "branch-repo",
+    });
+
+    const updated = await svc.updateRepoSettings({
+      repoId: repo.id,
+      userId: "user_1",
+      coveredBranches: ["main", "develop"],
+    });
+
+    expect(updated).not.toBeNull();
+    expect(JSON.parse(updated!.coveredBranchesJson)).toEqual(["main", "develop"]);
+
+    const audits = db
+      .select()
+      .from(auditLogTable)
+      .where(eq(auditLogTable.event, "review_settings_changed"))
+      .all();
+    expect(audits.length).toBe(1);
+  });
+
+  test("updateRepoSettings updates statusCheckEnabled and mergeBlockOnCritical", async () => {
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme",
+      name: "flags-repo",
+    });
+
+    const updated = await svc.updateRepoSettings({
+      repoId: repo.id,
+      userId: "user_1",
+      statusCheckEnabled: false,
+      mergeBlockOnCritical: true,
+    });
+
+    expect(updated).not.toBeNull();
+    expect(updated!.statusCheckEnabled).toBe(0);
+    expect(updated!.mergeBlockOnCritical).toBe(1);
+
+    const audits = db
+      .select()
+      .from(auditLogTable)
+      .where(eq(auditLogTable.event, "review_settings_changed"))
+      .all();
+    expect(audits.length).toBe(1);
+  });
+
+  test("updateRepoSettings returns null for missing repo id", async () => {
+    const svc = makeSvc(db);
+    const result = await svc.updateRepoSettings({
+      repoId: "nonexistent_repo_id",
+      userId: "user_1",
+      enabled: true,
+    });
+    expect(result).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // setReposEnabledBySlugs
+  // ---------------------------------------------------------------------------
+  test("setReposEnabledBySlugs enables repos by owner/name slug", async () => {
+    const svc = makeSvc(db);
+    const inst = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_s1",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "selected",
+    });
+
+    // Create repos linked to this installation
+    const repo1 = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme-org",
+      name: "repo-x",
+      installationId: "inst_s1",
+    });
+    db.update(reviewReposTable)
+      .set({ installationRowId: inst.id, enabled: 0 })
+      .where(eq(reviewReposTable.id, repo1.id))
+      .run();
+
+    const repo2 = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme-org",
+      name: "repo-y",
+      installationId: "inst_s1",
+    });
+    db.update(reviewReposTable)
+      .set({ installationRowId: inst.id, enabled: 0 })
+      .where(eq(reviewReposTable.id, repo2.id))
+      .run();
+
+    await svc.setReposEnabledBySlugs({
+      installationId: "inst_s1",
+      userId: "user_1",
+      slugs: ["acme-org/repo-x"],
+      enabled: true,
+    });
+
+    const r1 = db.select().from(reviewReposTable).where(eq(reviewReposTable.id, repo1.id)).get();
+    const r2 = db.select().from(reviewReposTable).where(eq(reviewReposTable.id, repo2.id)).get();
+    expect(r1!.enabled).toBe(1);
+    // repo2 was not in the slugs list — unchanged
+    expect(r2!.enabled).toBe(0);
+  });
+
+  test("setReposEnabledBySlugs disables repos by owner/name slug", async () => {
+    const svc = makeSvc(db);
+    const inst = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_s2",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "selected",
+    });
+
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "acme-org",
+      name: "to-disable",
+      installationId: "inst_s2",
+    });
+    db.update(reviewReposTable)
+      .set({ installationRowId: inst.id })
+      .where(eq(reviewReposTable.id, repo.id))
+      .run();
+
+    await svc.setReposEnabledBySlugs({
+      installationId: "inst_s2",
+      userId: "user_1",
+      slugs: ["acme-org/to-disable"],
+      enabled: false,
+    });
+
+    const r = db.select().from(reviewReposTable).where(eq(reviewReposTable.id, repo.id)).get();
+    expect(r!.enabled).toBe(0);
+  });
+
+  test("setReposEnabledBySlugs is owner-scoped — cross-tenant slug match ignored", async () => {
+    const svc = makeSvc(db);
+    // user_1's installation
+    const inst1 = await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: "inst_s3",
+      accountLogin: "acme-org",
+      accountType: "Organization",
+      repositorySelection: "selected",
+    });
+
+    // user_2's repo (different installation)
+    await seedUser(db, "user_3");
+    const repo2 = await svc.upsertRepo({
+      userId: "user_3",
+      scm: "github",
+      owner: "acme-org",
+      name: "victim-repo",
+      installationId: "inst_s3_other",
+    });
+
+    // user_1 tries to disable a repo it doesn't own via setReposEnabledBySlugs
+    // The method should only match repos belonging to user_1 under inst_s3
+    await svc.setReposEnabledBySlugs({
+      installationId: inst1.installationId,
+      userId: "user_1",
+      slugs: ["acme-org/victim-repo"],
+      enabled: false,
+    });
+
+    // user_3's repo must remain enabled
+    const r = db.select().from(reviewReposTable).where(eq(reviewReposTable.id, repo2.id)).get();
+    expect(r!.enabled).toBe(1);
+  });
+});

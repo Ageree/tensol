@@ -293,6 +293,11 @@ describe("createPrReviewHandler", () => {
       createCheckRun: async () => ({ checkRunId: "c1" }),
       resolveReviewThread: async () => {},
       listInstallationRepos: async () => [],
+      getInstallationMetadata: async () => ({
+        accountLogin: "",
+        accountType: "Organization",
+        repositorySelection: "all",
+      }),
     };
     const handler = createPrReviewHandler({
       service: svc,

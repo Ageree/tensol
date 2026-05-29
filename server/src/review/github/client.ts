@@ -99,6 +99,19 @@ export interface GitHubClient {
   listInstallationRepos(a: {
     installationId: string;
   }): Promise<Array<{ owner: string; name: string; defaultBranch: string; repoId?: string }>>;
+  /**
+   * Fetch metadata for a GitHub App installation using the App JWT
+   * (GET /app/installations/{id}). Returns the account login, account type,
+   * and repository selection so the connect flow can persist the installation
+   * row without a separate DB look-up.
+   */
+  getInstallationMetadata(a: {
+    installationId: string;
+  }): Promise<{
+    accountLogin: string;
+    accountType: "User" | "Organization";
+    repositorySelection: "all" | "selected";
+  }>;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -141,8 +154,16 @@ type CreateCheckRunCall = {
 type ResolveThreadCall = { threadId: string; installationId?: string };
 /** Recorded shape of a `listInstallationRepos` call. */
 type ListInstallationReposCall = { installationId: string };
+/** Recorded shape of a `getInstallationMetadata` call. */
+type GetInstallationMetadataCall = { installationId: string };
 /** A repo entry returned by `listInstallationRepos`. */
 type InstallationRepo = { owner: string; name: string; defaultBranch: string; repoId?: string };
+/** Installation metadata returned by `getInstallationMetadata`. */
+type InstallationMetadata = {
+  accountLogin: string;
+  accountType: "User" | "Organization";
+  repositorySelection: "all" | "selected";
+};
 
 /**
  * In-memory `GitHubClient`. All calls are appended to public arrays for
@@ -155,6 +176,8 @@ export class FakeGitHubClient implements GitHubClient {
   readonly existingComments: ExistingReviewComment[];
   /** Pre-seeded repos returned by `listInstallationRepos`. */
   readonly installationRepos: InstallationRepo[];
+  /** Pre-seeded metadata returned by `getInstallationMetadata`. */
+  readonly installationMetadata: InstallationMetadata;
 
   readonly getFilesCalls: GetFilesCall[] = [];
   readonly listCommentsCalls: ListCommentsCall[] = [];
@@ -163,6 +186,7 @@ export class FakeGitHubClient implements GitHubClient {
   readonly createCheckRunCalls: CreateCheckRunCall[] = [];
   readonly resolveThreadCalls: ResolveThreadCall[] = [];
   readonly listInstallationReposCalls: ListInstallationReposCall[] = [];
+  readonly getInstallationMetadataCalls: GetInstallationMetadataCall[] = [];
 
   #reviewSeq = 0;
   #checkSeq = 0;
@@ -172,6 +196,7 @@ export class FakeGitHubClient implements GitHubClient {
     fileContents?: Record<string, string>;
     existingComments?: ExistingReviewComment[];
     installationRepos?: InstallationRepo[];
+    installationMetadata?: InstallationMetadata;
   }) {
     this.files = opts?.files ? [...opts.files] : [];
     this.fileContents = opts?.fileContents ? { ...opts.fileContents } : {};
@@ -181,6 +206,9 @@ export class FakeGitHubClient implements GitHubClient {
     this.installationRepos = opts?.installationRepos
       ? opts.installationRepos.map((r) => ({ ...r }))
       : [];
+    this.installationMetadata = opts?.installationMetadata
+      ? { ...opts.installationMetadata }
+      : { accountLogin: "fake-org", accountType: "Organization", repositorySelection: "all" };
   }
 
   getPullRequestFiles(a: GetFilesCall): Promise<DiffFile[]> {
@@ -219,6 +247,11 @@ export class FakeGitHubClient implements GitHubClient {
   listInstallationRepos(a: ListInstallationReposCall): Promise<InstallationRepo[]> {
     this.listInstallationReposCalls.push({ ...a });
     return Promise.resolve(this.installationRepos.map((r) => ({ ...r })));
+  }
+
+  getInstallationMetadata(a: GetInstallationMetadataCall): Promise<InstallationMetadata> {
+    this.getInstallationMetadataCalls.push({ ...a });
+    return Promise.resolve({ ...this.installationMetadata });
   }
 }
 
@@ -461,6 +494,42 @@ export function createHttpGitHubClient(a: {
         if (batch.length < perPage) break;
       }
       return out;
+    },
+
+    async getInstallationMetadata(args): Promise<{
+      accountLogin: string;
+      accountType: "User" | "Organization";
+      repositorySelection: "all" | "selected";
+    }> {
+      // Use the App JWT (not an installation token) to call GET /app/installations/{id}.
+      const jwt = buildAppJwt({ appId: a.appId, privateKeyPem: a.privateKeyPem });
+      const res = await fetchImpl(
+        `${GITHUB_API}/app/installations/${args.installationId}`,
+        {
+          method: "GET",
+          headers: {
+            ...BASE_HEADERS,
+            authorization: `Bearer ${jwt}`,
+          },
+        },
+      );
+      if (!res.ok) {
+        throw new Error(
+          `GitHub: getInstallationMetadata failed (${res.status}) for installation ${args.installationId}`,
+        );
+      }
+      const json = (await res.json()) as {
+        account?: { login?: string; type?: string };
+        repository_selection?: string;
+      };
+      const accountLogin = json.account?.login ?? "";
+      const rawType = json.account?.type ?? "";
+      const accountType: "User" | "Organization" =
+        rawType === "Organization" ? "Organization" : "User";
+      const rawSelection = json.repository_selection ?? "";
+      const repositorySelection: "all" | "selected" =
+        rawSelection === "all" ? "all" : "selected";
+      return { accountLogin, accountType, repositorySelection };
     },
   };
 }

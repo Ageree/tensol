@@ -19,6 +19,8 @@ import { FakeLlmClient } from "../review/reviewer.ts";
 import { WhiteboxLaunchBodySchema } from "../review/schemas.ts";
 import { createReviewRouter } from "./review.ts";
 import { createReviewWebhookRouter } from "./review-webhook.ts";
+import { createGithubConnectRouter } from "./github-connect.ts";
+import { FakeGitHubClient } from "../review/github/client.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "migrations");
 const KEY = "test-key-review-routes-0123456789abcdef0123456789abcdef";
@@ -540,6 +542,155 @@ describe("POST /v1/review/github/webhook", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// T012 — PATCH /repos/:id/settings
+// ---------------------------------------------------------------------------
+describe("PATCH /v1/review/repos/:id/settings", () => {
+  async function seedRepo(service: ReturnType<typeof createReviewService>, userId: string) {
+    return service.upsertRepo({ userId, owner: "acme", name: "api" });
+  }
+
+  test("updates enabled, covered_branches, status_check, merge_block and returns InstallationRepo wire shape", async () => {
+    const db = freshMemDb();
+    const { app, service } = makeReviewApp(db);
+    const repo = await seedRepo(service, "user_1");
+
+    const res = await app.request(`/repos/${repo.id}/settings`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: false,
+        covered_branches: ["main", "dev"],
+        status_check_enabled: false,
+        merge_block_on_critical: true,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      owner: string;
+      name: string;
+      enabled: boolean;
+      covered_branches: string[];
+      status_check_enabled: boolean;
+      merge_block_on_critical: boolean;
+      last_review: null;
+    };
+    expect(json.owner).toBe("acme");
+    expect(json.name).toBe("api");
+    expect(json.enabled).toBe(false);
+    expect(json.covered_branches).toEqual(["main", "dev"]);
+    expect(json.status_check_enabled).toBe(false);
+    expect(json.merge_block_on_critical).toBe(true);
+    expect(json.last_review).toBeNull();
+  });
+
+  test("non-owner (different userId) gets 403", async () => {
+    const db = freshMemDb();
+    // Insert a second user
+    (db.$client as Database)
+      .query("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)")
+      .run("user_2", "user_2@x.io", clockNow);
+
+    const service = createReviewService({ db, auditKey: KEY, now: clock });
+    // user_2 owns the repo
+    const repo = await service.upsertRepo({ userId: "user_2", owner: "acme", name: "api" });
+
+    // app uses fakeAuth → user_1
+    const { app } = makeReviewApp(db);
+    const res = await app.request(`/repos/${repo.id}/settings`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(res.status).toBe(403);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe("forbidden");
+  });
+
+  test("unknown repo_id gets 403 (hides existence)", async () => {
+    const db = freshMemDb();
+    const { app } = makeReviewApp(db);
+    const res = await app.request("/repos/01JZZZUNKNOWN0000000000000/settings", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    });
+    // service.updateRepoSettings returns null for missing/non-owned → 403
+    expect(res.status).toBe(403);
+  });
+
+  test("covered_branches > 50 items is rejected with 400", async () => {
+    const db = freshMemDb();
+    const { app, service } = makeReviewApp(db);
+    const repo = await seedRepo(service, "user_1");
+    const tooMany = Array.from({ length: 51 }, (_, i) => `branch-${i}`);
+    const res = await app.request(`/repos/${repo.id}/settings`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ covered_branches: tooMany }),
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe("validation_failed");
+  });
+
+  test("covered_branches item > 255 chars is rejected with 400", async () => {
+    const db = freshMemDb();
+    const { app, service } = makeReviewApp(db);
+    const repo = await seedRepo(service, "user_1");
+    const longBranch = "x".repeat(256);
+    const res = await app.request(`/repos/${repo.id}/settings`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ covered_branches: [longBranch] }),
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe("validation_failed");
+  });
+
+  test("partial update (only enabled) leaves other settings unchanged", async () => {
+    const db = freshMemDb();
+    const { app, service } = makeReviewApp(db);
+    const repo = await seedRepo(service, "user_1");
+
+    // First: set covered_branches
+    await app.request(`/repos/${repo.id}/settings`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ covered_branches: ["main"] }),
+    });
+
+    // Second: only toggle enabled
+    const res = await app.request(`/repos/${repo.id}/settings`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: false }),
+    });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { enabled: boolean; covered_branches: string[] };
+    expect(json.enabled).toBe(false);
+    // covered_branches from the first call is preserved
+    expect(json.covered_branches).toEqual(["main"]);
+  });
+
+  test("response includes repo_id field pointing to the repo", async () => {
+    const db = freshMemDb();
+    const { app, service } = makeReviewApp(db);
+    const repo = await seedRepo(service, "user_1");
+
+    const res = await app.request(`/repos/${repo.id}/settings`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { repo_id: string };
+    expect(json.repo_id).toBe(repo.id);
+  });
+});
+
 describe("mount isolation (webhook un-gated under the authed /v1/review prefix)", () => {
   test("webhook path reaches its handler; the authed detail path is gated", async () => {
     const db = freshMemDb();
@@ -575,5 +726,76 @@ describe("mount isolation (webhook un-gated under the authed /v1/review prefix)"
     const detail = await parent.request("/v1/review/some-id");
     expect(detail.status).toBe(401);
     expect(((await detail.json()) as { error: string }).error).toBe("unauthenticated");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T017 — /v1/github connect router mount regression
+// ---------------------------------------------------------------------------
+describe("mount regression: /v1/github connect router", () => {
+  test("GET /v1/github/connect is auth-gated (401 when no session)", async () => {
+    const db = freshMemDb();
+    const service = createReviewService({ db, auditKey: KEY, now: clock });
+    const parent = new Hono();
+    parent.route(
+      "/v1/github",
+      createGithubConnectRouter({
+        db,
+        service,
+        github: new FakeGitHubClient(),
+        requireAuth: createRequireAuth({ db, now: clock }),
+        slug: "sthrip-app",
+        stateSecret: "state-secret-0123456789abcdef",
+        now: clock,
+      }),
+    );
+
+    const res = await parent.request("/v1/github/connect");
+    expect(res.status).toBe(401);
+    expect(((await res.json()) as { error: string }).error).toBe("unauthenticated");
+  });
+
+  test("GET /v1/github/connect with session + empty slug → 503 (graceful-null)", async () => {
+    const db = freshMemDb();
+    const service = createReviewService({ db, auditKey: KEY, now: clock });
+    const parent = new Hono();
+    parent.route(
+      "/v1/github",
+      createGithubConnectRouter({
+        db,
+        service,
+        github: new FakeGitHubClient(),
+        requireAuth: fakeAuth,
+        slug: "", // absent → /connect returns 503
+        stateSecret: "state-secret-0123456789abcdef",
+        now: clock,
+      }),
+    );
+
+    const res = await parent.request("/v1/github/connect");
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe("github_app_unconfigured");
+  });
+
+  test("GET /v1/github/installations is auth-gated (401 when no session)", async () => {
+    const db = freshMemDb();
+    const service = createReviewService({ db, auditKey: KEY, now: clock });
+    const parent = new Hono();
+    parent.route(
+      "/v1/github",
+      createGithubConnectRouter({
+        db,
+        service,
+        github: new FakeGitHubClient(),
+        requireAuth: createRequireAuth({ db, now: clock }),
+        slug: "",
+        stateSecret: "state-secret-0123456789abcdef",
+        now: clock,
+      }),
+    );
+
+    const res = await parent.request("/v1/github/installations");
+    expect(res.status).toBe(401);
+    expect(((await res.json()) as { error: string }).error).toBe("unauthenticated");
   });
 });

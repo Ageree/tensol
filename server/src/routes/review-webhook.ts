@@ -1,5 +1,5 @@
 /**
- * 003-whitebox — GitHub App webhook receiver.
+ * 003-whitebox + 004-sthrip-pr-review — GitHub App webhook receiver.
  *
  * Mounted at `/v1/review/github` → full path `POST /v1/review/github/webhook`.
  *
@@ -7,19 +7,24 @@
  *   1. Read the RAW body (signature is computed over raw bytes).
  *   2. Verify `x-hub-signature-256` HMAC against GITHUB_APP_WEBHOOK_SECRET.
  *      No secret configured OR bad signature → 401 (drop).
- *   3. Idempotency: INSERT the `x-github-delivery` id into `webhook_dedup`;
- *      a UNIQUE collision → 200 duplicate (GitHub retries deliveries).
- *   4. Parse + validate the payload; classify the event.
- *   5. For a reviewable PR event on an ALREADY-CONNECTED repo: create a queued
- *      `reviews` row and enqueue a `pr_review` job. Unknown repo → 202 ignored
- *      (the repo is connected out-of-band via the authenticated API / install).
+ *   3. Parse + validate the payload; classify the event.
+ *   4a. Installation lifecycle events (installation_created/deleted/suspend/
+ *       unsuspend, installation_repos_added/removed): persist + dedup in ONE
+ *       transaction; 200 duplicate on replay; 202/204 on success. No review
+ *       is enqueued — these events update the installations + review_repos tables.
+ *       Tenant is resolved via getInstallationByGithubId (SIGNED installationId
+ *       → userId). Unknown installation → 202 ignored (graceful, not 4xx).
+ *   4b. Reviewable PR event on an ALREADY-CONNECTED repo: create a queued
+ *       `reviews` row and enqueue a `pr_review` job. Unknown repo → 202 ignored.
  *
  * The handler NEVER blocks on the actual review — that runs in the job runner.
- * GitHub requires a fast 2xx ack; we return as soon as the job is enqueued.
+ * GitHub requires a fast 2xx ack; we return as soon as the work is persisted.
  */
 import { Hono } from "hono";
 
 import type { DB } from "../db/client.ts";
+import { withTx } from "../db/client.ts";
+import { webhookDedup as webhookDedupTable } from "../db/schema.ts";
 import { ulid } from "../lib/ids.ts";
 import { now as defaultNow } from "../lib/time.ts";
 import { classifyWebhook } from "../review/github/webhook.ts";
@@ -42,10 +47,20 @@ function splitFullName(fullName: string): { owner: string; name: string } | null
   return { owner: fullName.slice(0, idx), name: fullName.slice(idx + 1) };
 }
 
+/** True when a SQLite error is a UNIQUE-constraint violation. */
+function isUniqueViolation(err: unknown): boolean {
+  if (err === null || typeof err !== "object") return false;
+  const e = err as { code?: unknown; message?: unknown };
+  if (e.code === "SQLITE_CONSTRAINT_UNIQUE") return true;
+  return (
+    typeof e.message === "string" && e.message.includes("UNIQUE constraint failed")
+  );
+}
+
 export function createReviewWebhookRouter(
   deps: CreateReviewWebhookRouterDeps,
 ): Hono {
-  const { service, webhookSecret } = deps;
+  const { db, service, webhookSecret } = deps;
   const clock = deps.now ?? defaultNow;
   const newId = deps.newId ?? (() => ulid(clock()));
 
@@ -64,9 +79,7 @@ export function createReviewWebhookRouter(
     const eventName = c.req.header("x-github-event") ?? "";
     const deliveryId = c.req.header("x-github-delivery") ?? "";
 
-    // 3. Parse + classify. (Idempotency is recorded ATOMICALLY with the
-    //    review+job insert at step 5 — committing the dedup row before the work
-    //    would strand the delivery forever if a crash hit in between.)
+    // 3. Parse + classify.
     let json: unknown;
     try {
       json = JSON.parse(rawBody);
@@ -80,14 +93,133 @@ export function createReviewWebhookRouter(
     }
     const event = classifyWebhook(eventName, parsed.data);
 
-    // `@tensol review` issue-comment trigger: classifyWebhook recognizes the
-    // intent (kind="review_requested") but the comment payload carries no head
-    // SHA, so we cannot start a diff-scoped review without an extra GitHub API
-    // fetch (getPullRequest -> head.sha). That fetch needs an installation
-    // token + the GitHub client, which is NOT injected into this route. So the
-    // on-demand comment trigger is explicitly NOT supported in the MVP — we ack
-    // honestly rather than silently dropping it. (Follow-up: inject GitHubClient
-    // here and resolve head.sha for review_requested.)
+    // -------------------------------------------------------------------------
+    // 4a. Installation lifecycle events — persist then ack. No review enqueued.
+    // -------------------------------------------------------------------------
+    if (
+      event.kind === "installation_created" ||
+      event.kind === "installation_deleted" ||
+      event.kind === "installation_suspend" ||
+      event.kind === "installation_unsuspend" ||
+      event.kind === "installation_repos_added" ||
+      event.kind === "installation_repos_removed"
+    ) {
+      // All installation events carry an installationId.
+      const installationId = event.installationId;
+      if (!installationId) {
+        return c.json({ status: "ignored", reason: "missing_installation_id" }, 202);
+      }
+
+      // Resolve owner via the SIGNED installationId — slug alone never authorizes.
+      const instRow = await service.getInstallationByGithubId("github", installationId);
+
+      // For installation_created the row might not exist yet (the connect OAuth
+      // flow should have pre-created it, but the webhook can race it). If the
+      // row is absent, we acknowledge gracefully — the connect route is the
+      // authoritative creator, not the webhook.
+      if (!instRow && event.kind !== "installation_created") {
+        return c.json({ status: "ignored", reason: "installation_not_found" }, 202);
+      }
+      if (!instRow) {
+        // installation_created for an unknown installation — gracefully ignored
+        // (the OAuth connect flow creates the row; the webhook is a secondary signal).
+        return c.json({ status: "ignored", reason: "installation_not_registered" }, 202);
+      }
+
+      const userId = instRow.userId;
+
+      // Dedup: insert the delivery row atomically. On UNIQUE collision return 200.
+      if (deliveryId) {
+        const dedupRow = {
+          id: newId(),
+          webhookKind: "github_installation",
+          dedupKey: deliveryId,
+          receivedAt: clock(),
+          metadataJson: JSON.stringify({ event: eventName, kind: event.kind }),
+        };
+        try {
+          await withTx(db, (tx) => {
+            tx.insert(webhookDedupTable).values(dedupRow).run();
+          });
+        } catch (err) {
+          if (isUniqueViolation(err)) {
+            return c.json({ status: "duplicate" }, 200);
+          }
+          throw err;
+        }
+      }
+
+      // Dispatch to the appropriate service method.
+      if (event.kind === "installation_deleted") {
+        await service.markInstallationDeleted(installationId);
+        return c.json({ status: "ok", kind: event.kind }, 202);
+      }
+
+      if (event.kind === "installation_suspend") {
+        await service.setInstallationStatus(installationId, "suspended");
+        return c.json({ status: "ok", kind: event.kind }, 202);
+      }
+
+      if (event.kind === "installation_unsuspend") {
+        await service.setInstallationStatus(installationId, "active");
+        return c.json({ status: "ok", kind: event.kind }, 202);
+      }
+
+      if (event.kind === "installation_created") {
+        // Reconcile repos from the payload if provided. The installation row
+        // already exists (created by the OAuth connect flow). Update its fields
+        // and reconcile the initial repo list.
+        const repos = (event.repositories ?? [])
+          .map((slug) => splitFullName(slug))
+          .filter((s): s is { owner: string; name: string } => s !== null)
+          .map((s) => ({ owner: s.owner, name: s.name }));
+
+        if (repos.length > 0) {
+          await service.reconcileInstallationRepos({
+            installationRowId: instRow.id,
+            installationId,
+            userId,
+            selection: (event.repositorySelection ?? "all") as "all" | "selected",
+            repos,
+          });
+        }
+        return c.json({ status: "ok", kind: event.kind }, 202);
+      }
+
+      if (event.kind === "installation_repos_added") {
+        const slugs = event.repositories ?? [];
+        await service.setReposEnabledBySlugs({
+          installationId,
+          userId,
+          slugs,
+          enabled: true,
+        });
+        return c.json({ status: "ok", kind: event.kind }, 202);
+      }
+
+      if (event.kind === "installation_repos_removed") {
+        const slugs = event.repositories ?? [];
+        await service.setReposEnabledBySlugs({
+          installationId,
+          userId,
+          slugs,
+          enabled: false,
+        });
+        return c.json({ status: "ok", kind: event.kind }, 202);
+      }
+
+      // Unreachable: all installation_* kinds handled above.
+      return c.json({ status: "ignored", reason: "unhandled_installation_kind" }, 202);
+    }
+
+    // -------------------------------------------------------------------------
+    // 4b. PR-review path (unchanged from original).
+    // -------------------------------------------------------------------------
+
+    // `@sthrip review` / `@tensol review` issue-comment trigger: classifyWebhook
+    // recognises the intent (kind="review_requested") but the comment payload
+    // carries no head SHA, so we cannot start a diff-scoped review without an
+    // extra GitHub API fetch. Not supported in the MVP — ack honestly.
     if (event.kind === "review_requested" && !event.headSha) {
       return c.json(
         { status: "ignored", reason: "comment_trigger_not_supported_yet" },
@@ -107,14 +239,9 @@ export function createReviewWebhookRouter(
     const slug = splitFullName(event.repoFullName);
     if (!slug) return c.json({ status: "ignored", reason: "bad_repo_name" }, 202);
 
-    // 4. Resolve the owning repo by the SIGNED installation id — never by
-    //    (owner,name) alone. The per-user `(scm,owner,name,user_id)` unique
-    //    index means a slug like `victim/secret` can have rows for MULTIPLE
-    //    tenants; matching on the attacker-uncontrollable installation id (and
-    //    asserting the slug) is the only safe tenant resolution. A webhook with
-    //    no installation id, or whose installation has no connected row for
-    //    this slug, is `repo_not_connected` (202) — we NEVER fall back to
-    //    resolving a private repo's owner from (owner,name).
+    // Resolve the owning repo by the SIGNED installation id — never by
+    // (owner,name) alone (cross-tenant takeover class). Unknown installation or
+    // unconnected slug → 202 ignored.
     if (!event.installationId) {
       return c.json({ status: "ignored", reason: "repo_not_connected" }, 202);
     }
@@ -128,10 +255,9 @@ export function createReviewWebhookRouter(
       return c.json({ status: "ignored", reason: "repo_not_connected" }, 202);
     }
 
-    // 5. Atomic: the dedup row + queued review + pending pr_review job commit
-    //    together. A crash before COMMIT rolls them all back so GitHub's retry
-    //    re-processes; a genuine duplicate delivery collides on the dedup
-    //    UNIQUE index, rolls back, and returns 200.
+    // Atomic: dedup row + queued review + pending pr_review job in ONE tx.
+    // UNIQUE collision on dedup → 200 duplicate; crash before COMMIT → retry
+    // re-processes.
     const { review, jobId, duplicate } = await service.createQueuedReviewWithJob(
       {
         repoId: repo.id,

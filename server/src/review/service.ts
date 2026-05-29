@@ -90,6 +90,34 @@ export interface UpsertInstallationArgs {
   readonly setupAction?: string | null;
 }
 
+export interface UpdateRepoSettingsArgs {
+  readonly repoId: string;
+  readonly userId: string;
+  readonly enabled?: boolean;
+  readonly coveredBranches?: string[];
+  readonly statusCheckEnabled?: boolean;
+  readonly mergeBlockOnCritical?: boolean;
+}
+
+export interface ReconcileInstallationReposArgs {
+  readonly installationRowId: string;
+  readonly installationId: string;
+  readonly userId: string;
+  readonly selection: "all" | "selected";
+  readonly repos: ReadonlyArray<{
+    readonly owner: string;
+    readonly name: string;
+    readonly defaultBranch?: string;
+  }>;
+}
+
+export interface SetReposEnabledBySlugsArgs {
+  readonly installationId: string;
+  readonly userId: string;
+  readonly slugs: string[];
+  readonly enabled: boolean;
+}
+
 export interface ReviewService {
   upsertRepo(args: UpsertRepoArgs): Promise<ReviewRepo>;
   getRepoByFullName(
@@ -201,6 +229,43 @@ export interface ReviewService {
     installationId: string,
     status: "active" | "suspended",
   ): Promise<Installation>;
+
+  // -------------------------------------------------------------------------
+  // Wave-2 service methods (T013–T016 — feature 004: Sthrip PR Review connect/select)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Update repo settings (enable/disable, covered branches, status-check,
+   * merge-block). OWNER-SCOPED: returns null if the repo's userId !== args.userId
+   * (caller handles 403/404). Updates only provided fields.
+   * Emits `review_repo_enabled` when enabled flips true,
+   * `review_repo_disabled` when false, and `review_settings_changed` for
+   * other field changes.
+   */
+  updateRepoSettings(args: UpdateRepoSettingsArgs): Promise<ReviewRepo | null>;
+
+  /**
+   * For each repo in args.repos, upsert a review_repos row linked to the
+   * installation row. When selection==='all', set enabled=1; when 'selected',
+   * enable=1 for new repos (GitHub already filtered to selected repos).
+   * Idempotent — safe to call multiple times.
+   */
+  reconcileInstallationRepos(
+    args: ReconcileInstallationReposArgs,
+  ): Promise<void>;
+
+  /**
+   * Enable or disable specific repos by "owner/name" slug for an installation.
+   * Used by `installation_repositories` added/removed webhook events.
+   * Owner-scoped — only mutates repos whose userId matches args.userId.
+   */
+  setReposEnabledBySlugs(args: SetReposEnabledBySlugsArgs): Promise<void>;
+
+  /**
+   * Look up an installation row by its internal ULID primary key.
+   * Returns null when absent.
+   */
+  getInstallationByRowId(id: string): Promise<Installation | null>;
 }
 
 /** True when a SQLite error is a UNIQUE-constraint violation. */
@@ -902,6 +967,185 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
       }
 
       return updated;
+    },
+
+    // -------------------------------------------------------------------------
+    // Wave-2 service methods (T013–T016 — feature 004: Sthrip PR Review)
+    // -------------------------------------------------------------------------
+
+    async getInstallationByRowId(id) {
+      const row = db
+        .select()
+        .from(installationsTable)
+        .where(eq(installationsTable.id, id))
+        .get();
+      return (row as Installation) ?? null;
+    },
+
+    async updateRepoSettings(args) {
+      const ts = clock();
+
+      // Owner-scoped read: fetch the repo and verify ownership.
+      const existing = db
+        .select()
+        .from(reviewReposTable)
+        .where(eq(reviewReposTable.id, args.repoId))
+        .get();
+
+      if (!existing) return null;
+      if (existing.userId !== args.userId) return null;
+
+      // Build the patch object — only include provided fields.
+      const patch: Record<string, unknown> = { updatedAt: ts };
+
+      let enabledFlipped: boolean | undefined;
+      if (args.enabled !== undefined) {
+        const newEnabled = args.enabled ? 1 : 0;
+        if (newEnabled !== existing.enabled) {
+          enabledFlipped = args.enabled;
+        }
+        patch.enabled = newEnabled;
+      }
+
+      if (args.coveredBranches !== undefined) {
+        patch.coveredBranchesJson = JSON.stringify(args.coveredBranches);
+      }
+
+      if (args.statusCheckEnabled !== undefined) {
+        patch.statusCheckEnabled = args.statusCheckEnabled ? 1 : 0;
+      }
+
+      if (args.mergeBlockOnCritical !== undefined) {
+        patch.mergeBlockOnCritical = args.mergeBlockOnCritical ? 1 : 0;
+      }
+
+      db.update(reviewReposTable)
+        .set(patch)
+        .where(eq(reviewReposTable.id, args.repoId))
+        .run();
+
+      const updated = db
+        .select()
+        .from(reviewReposTable)
+        .where(eq(reviewReposTable.id, args.repoId))
+        .get() as ReviewRepo;
+
+      // Emit the appropriate audit event(s).
+      if (enabledFlipped === true) {
+        await emit(
+          "review_repo_enabled",
+          "success",
+          { repo_id: args.repoId, owner: existing.owner, name: existing.name },
+          args.userId,
+        );
+      } else if (enabledFlipped === false) {
+        await emit(
+          "review_repo_disabled",
+          "success",
+          { repo_id: args.repoId, owner: existing.owner, name: existing.name },
+          args.userId,
+        );
+      }
+
+      // Emit settings_changed when any non-enabled field changed.
+      const hasOtherChanges =
+        args.coveredBranches !== undefined ||
+        args.statusCheckEnabled !== undefined ||
+        args.mergeBlockOnCritical !== undefined;
+
+      if (hasOtherChanges) {
+        await emit(
+          "review_settings_changed",
+          "success",
+          {
+            repo_id: args.repoId,
+            owner: existing.owner,
+            name: existing.name,
+            ...(args.coveredBranches !== undefined
+              ? { covered_branches: args.coveredBranches }
+              : {}),
+            ...(args.statusCheckEnabled !== undefined
+              ? { status_check_enabled: args.statusCheckEnabled }
+              : {}),
+            ...(args.mergeBlockOnCritical !== undefined
+              ? { merge_block_on_critical: args.mergeBlockOnCritical }
+              : {}),
+          },
+          args.userId,
+        );
+      }
+
+      return updated;
+    },
+
+    async reconcileInstallationRepos(args) {
+      for (const repo of args.repos) {
+        // upsertRepo is idempotent by (scm, owner, name, userId).
+        const upserted = await this.upsertRepo({
+          userId: args.userId,
+          scm: "github",
+          owner: repo.owner,
+          name: repo.name,
+          installationId: args.installationId,
+          ...(repo.defaultBranch !== undefined
+            ? { defaultBranch: repo.defaultBranch }
+            : {}),
+        });
+
+        // Link the repo to the installation row and set enabled.
+        // When selection==='all', always enable. When 'selected', enable=1 for
+        // new repos (GitHub already filters to the selected set).
+        const ts = clock();
+        db.update(reviewReposTable)
+          .set({
+            installationRowId: args.installationRowId,
+            enabled: 1,
+            updatedAt: ts,
+          })
+          .where(eq(reviewReposTable.id, upserted.id))
+          .run();
+      }
+    },
+
+    async setReposEnabledBySlugs(args) {
+      if (args.slugs.length === 0) return;
+
+      const ts = clock();
+      const enabledVal = args.enabled ? 1 : 0;
+
+      // Resolve the installation row to validate ownership + get the PK.
+      const instRow = db
+        .select()
+        .from(installationsTable)
+        .where(
+          and(
+            eq(installationsTable.installationId, args.installationId),
+            eq(installationsTable.userId, args.userId),
+          ),
+        )
+        .get();
+
+      if (!instRow) return; // Unknown or cross-tenant installation — no-op.
+
+      for (const slug of args.slugs) {
+        const slashIdx = slug.indexOf("/");
+        if (slashIdx === -1) continue;
+        const owner = slug.slice(0, slashIdx);
+        const name = slug.slice(slashIdx + 1);
+
+        // Owner-scoped: match on (installationRowId, owner, name, userId).
+        db.update(reviewReposTable)
+          .set({ enabled: enabledVal, updatedAt: ts })
+          .where(
+            and(
+              eq(reviewReposTable.installationRowId, instRow.id),
+              eq(reviewReposTable.owner, owner),
+              eq(reviewReposTable.name, name),
+              eq(reviewReposTable.userId, args.userId),
+            ),
+          )
+          .run();
+      }
     },
   };
 }

@@ -52,21 +52,21 @@ description: "Task list — Sthrip PR Review (feature 004)"
 
 ### Tests (write first, must fail)
 
-- [ ] T010 [P] [US1] Contract tests for connect routes in `server/src/routes/github-connect.test.ts`: `GET /v1/github/connect` returns install_url+state; `GET /v1/github/callback` validates state + persists installation + 302; `GET /v1/github/installations`; `GET /v1/github/installations/{id}/repos`; `POST /v1/github/disconnect` (per contracts/openapi.yaml).
-- [ ] T011 [P] [US1] Webhook integration tests in `server/src/routes/review-webhook.test.ts`: `installation` created→upsert; deleted→disable repos; `installation_repositories` added (auto-enable when selection=all) / removed (disable). Cross-tenant: a delivery for another user's installation never mutates this user's repos.
-- [ ] T012 [P] [US1] Repo-settings test in `server/src/routes/review.test.ts`: `PATCH /v1/review/repos/{id}/settings` updates enabled/covered_branches/status_check/merge_block; rejects non-owner (403); Zod-bounds covered_branches.
+- [X] T010 [P] [US1] Contract tests for connect routes in `server/src/routes/github-connect.test.ts`: `GET /v1/github/connect` returns install_url+state; `GET /v1/github/callback` validates state + persists installation + 302; `GET /v1/github/installations`; `GET /v1/github/installations/{id}/repos`; `POST /v1/github/disconnect` (per contracts/openapi.yaml).
+- [X] T011 [P] [US1] Webhook integration tests in `server/src/routes/review-webhook.test.ts`: `installation` created→upsert; deleted→disable repos; `installation_repositories` added (auto-enable when selection=all) / removed (disable). Cross-tenant: a delivery for another user's installation never mutates this user's repos.
+- [X] T012 [P] [US1] Repo-settings test in `server/src/routes/review.test.ts`: `PATCH /v1/review/repos/{id}/settings` updates enabled/covered_branches/status_check/merge_block; rejects non-owner (403); Zod-bounds covered_branches.
 
 ### Implementation
 
-- [ ] T013 [US1] Implement `server/src/review/github/connect.ts`: build App install URL (slug + state nonce), validate callback `state`/`installation_id`/`setup_action`, mint installation token, fetch installation metadata, persist via service (T006), reconcile repos.
-- [ ] T014 [US1] Implement `server/src/routes/github-connect.ts` (Hono router factory `createGithubConnectRouter({db, auditKey, requireAuth, now})`): the 5 endpoints from openapi.yaml; Zod-validate all inputs; emit audits.
-- [ ] T015 [US1] Extend `server/src/routes/review.ts` with `PATCH /repos/:id/settings` (enable/disable + covered branches + status-check/merge-block), owner-scoped, audited (`review_repo_enabled/_disabled/_settings_changed`).
-- [ ] T016 [US1] Extend `server/src/routes/review-webhook.ts`: handle `installation` + `installation_repositories` events (dedup row in same tx; HMAC verified) calling service (T006); explicit `204` for ignored.
-- [ ] T017 [US1] Mount `createGithubConnectRouter` in `server/src/server.ts` under `/v1/github` (graceful-null when GitHub App creds absent, mirroring existing review mount); add dispatcher/audit wiring.
-- [ ] T018 [P] [US1] Frontend `apps/site/src/pages/ConnectGitHub.tsx`: "Connect GitHub" button → `GET /v1/github/connect` → redirect; callback landing reads status; shows connected/not-connected.
-- [ ] T019 [P] [US1] Frontend `apps/site/src/pages/Repositories.tsx`: list installation repos, toggle enabled (all/subset), edit covered branches, toggle status-check/merge-block, show per-repo last-review status.
-- [ ] T020 [US1] Extend `apps/site/src/lib/api-client.ts` with a `github`/`repos` namespace (connect, installations, repos, settings, disconnect) using snake_case wire types from openapi.yaml.
-- [ ] T021 [US1] Wire routes + nav in `apps/site/src/App.tsx` (+ AppShell nav entry) for Connect/Repositories; add RU+EN strings to `apps/site/src/i18n.ts` (no English terms in the RU dict; keep "Sthrip").
+- [X] T013 [US1] Implement `server/src/review/github/connect.ts`: build App install URL (slug + state nonce), validate callback `state`/`installation_id`/`setup_action`, mint installation token, fetch installation metadata, persist via service (T006), reconcile repos.
+- [X] T014 [US1] Implement `server/src/routes/github-connect.ts` (Hono router factory `createGithubConnectRouter({db, auditKey, requireAuth, now})`): the 5 endpoints from openapi.yaml; Zod-validate all inputs; emit audits.
+- [X] T015 [US1] Extend `server/src/routes/review.ts` with `PATCH /repos/:id/settings` (enable/disable + covered branches + status-check/merge-block), owner-scoped, audited (`review_repo_enabled/_disabled/_settings_changed`).
+- [X] T016 [US1] Extend `server/src/routes/review-webhook.ts`: handle `installation` + `installation_repositories` events (dedup row in same tx; HMAC verified) calling service (T006); explicit `204` for ignored.
+- [X] T017 [US1] Mount `createGithubConnectRouter` in `server/src/server.ts` under `/v1/github` (graceful-null when GitHub App creds absent, mirroring existing review mount); add dispatcher/audit wiring.
+- [X] T018 [P] [US1] Frontend `apps/site/src/pages/ConnectGitHub.tsx`: "Connect GitHub" button → `GET /v1/github/connect` → redirect; callback landing reads status; shows connected/not-connected.
+- [X] T019 [P] [US1] Frontend `apps/site/src/pages/Repositories.tsx`: list installation repos, toggle enabled (all/subset), edit covered branches, toggle status-check/merge-block, show per-repo last-review status.
+- [X] T020 [US1] Extend `apps/site/src/lib/api-client.ts` with a `github`/`repos` namespace (connect, installations, repos, settings, disconnect) using snake_case wire types from openapi.yaml.
+- [X] T021 [US1] Wire routes + nav in `apps/site/src/App.tsx` (+ AppShell nav entry) for Connect/Repositories; add RU+EN strings to `apps/site/src/i18n.ts` (no English terms in the RU dict; keep "Sthrip").
 
 **Checkpoint**: US1 independently testable — connect → select persists → uninstall reconciles. **This is the MVP.**
 

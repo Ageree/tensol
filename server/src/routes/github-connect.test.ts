@@ -1,0 +1,568 @@
+/**
+ * T010 — Contract tests for the GitHub connect router.
+ *
+ * Tests are TDD-first (failing before the router is implemented):
+ *   GET /v1/github/connect       → 200 { install_url, state }; 401 unauth
+ *   GET /v1/github/callback      → 302 /repositories on valid state; 400 bad state
+ *   GET /v1/github/installations → { connected, installations[] }
+ *   GET /v1/github/installations/{id}/repos → InstallationRepo[]; 404 not-owned
+ *   POST /v1/github/disconnect   → 200; 403 not-owned
+ *
+ * Uses a real in-memory SQLite with all migrations applied, the real
+ * createReviewService, FakeGitHubClient, and a fakeAuth middleware.
+ * The state secret is injected; verifyConnectState is tested via the
+ * GET /callback round-trip (build → verify).
+ */
+
+import { test, expect, describe, beforeEach } from "bun:test";
+import { Database } from "bun:sqlite";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import type { MiddlewareHandler } from "hono";
+
+import { createDb, type DB } from "../db/client.ts";
+import type { AuthVariables } from "../auth/middleware.ts";
+import { createReviewService } from "../review/service.ts";
+import { FakeGitHubClient } from "../review/github/client.ts";
+import { buildConnectState } from "../review/github/connect.ts";
+import { createGithubConnectRouter } from "./github-connect.ts";
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "migrations");
+const AUDIT_KEY = "test-key-github-connect-0123456789abcdef0123456789abcdef";
+const STATE_SECRET = "state-secret-0123456789abcdef0123456789abcdef";
+const GITHUB_SLUG = "sthrip-app";
+
+// ── DB helpers ───────────────────────────────────────────────────────────────
+
+function migrationSql(): string {
+  return readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith(".sql"))
+    .sort()
+    .map((f) =>
+      readFileSync(join(MIGRATIONS_DIR, f), "utf8").replace(
+        /-->\s*statement-breakpoint/g,
+        "",
+      ),
+    )
+    .join("\n");
+}
+
+let clockNow = 1_700_000_000_000;
+const clock = () => clockNow++;
+
+function freshMemDb(userId = "user_1"): DB {
+  const db = createDb(":memory:");
+  (db.$client as Database).exec(migrationSql());
+  (db.$client as Database)
+    .query("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)")
+    .run(userId, `${userId}@x.io`, clockNow);
+  return db;
+}
+
+// ── Fake auth middleware ─────────────────────────────────────────────────────
+
+function makeFakeAuth(userId: string): MiddlewareHandler<{ Variables: AuthVariables }> {
+  return async (c, next) => {
+    c.set("user", { id: userId, email: `${userId}@x.io` });
+    c.set("session", {
+      id: "session_1",
+      user_id: userId,
+      expires_at: 9_999_999_999_999,
+    });
+    await next();
+  };
+}
+
+/** Auth middleware that always returns 401 (unauthenticated). */
+const unauthMiddleware: MiddlewareHandler<{ Variables: AuthVariables }> = async (c) => {
+  return c.json({ error: "unauthenticated" }, 401);
+};
+
+// ── Router factory ───────────────────────────────────────────────────────────
+
+function makeConnectApp(
+  db: DB,
+  opts: {
+    userId?: string;
+    github?: FakeGitHubClient;
+    authed?: boolean;
+    slug?: string;
+  } = {},
+) {
+  const userId = opts.userId ?? "user_1";
+  const github =
+    opts.github ??
+    new FakeGitHubClient({
+      installationRepos: [
+        { owner: "acme", name: "web", defaultBranch: "main" },
+        { owner: "acme", name: "api", defaultBranch: "main" },
+      ],
+      installationMetadata: {
+        accountLogin: "acme",
+        accountType: "Organization",
+        repositorySelection: "all",
+      },
+    });
+  const service = createReviewService({ db, auditKey: AUDIT_KEY, now: clock });
+  const requireAuth =
+    opts.authed === false ? unauthMiddleware : makeFakeAuth(userId);
+  const router = createGithubConnectRouter({
+    db,
+    service,
+    github,
+    requireAuth,
+    slug: opts.slug ?? GITHUB_SLUG,
+    stateSecret: STATE_SECRET,
+    now: clock,
+  });
+  return { router, service, github };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("GET /connect — begin GitHub connection", () => {
+  test("returns 200 with install_url and state for authenticated user", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db);
+
+    const res = await router.request("/connect");
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as { install_url: string; state: string };
+    expect(typeof body.install_url).toBe("string");
+    expect(body.install_url).toContain("github.com/apps/sthrip-app/installations/new");
+    expect(body.install_url).toContain("state=");
+    expect(typeof body.state).toBe("string");
+    expect(body.state.length).toBeGreaterThan(10);
+  });
+
+  test("returns 401 when not authenticated", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db, { authed: false });
+
+    const res = await router.request("/connect");
+    expect(res.status).toBe(401);
+  });
+
+  test("state verifies for the authenticated user", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db);
+
+    const res = await router.request("/connect");
+    const body = (await res.json()) as { state: string };
+
+    const { verifyConnectState } = await import("../review/github/connect.ts");
+    const verified = verifyConnectState({ state: body.state, secret: STATE_SECRET, now: clockNow });
+    expect(verified).not.toBeNull();
+    expect(verified?.userId).toBe("user_1");
+  });
+
+  test("state is URL-safe (included in install_url query param)", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db);
+
+    const res = await router.request("/connect");
+    const body = (await res.json()) as { install_url: string; state: string };
+
+    // The state appears in the URL without needing extra encoding.
+    const url = new URL(body.install_url);
+    expect(url.searchParams.get("state")).toBe(body.state);
+  });
+});
+
+describe("GET /callback — installation callback", () => {
+  test("validates state, persists installation, reconciles repos, 302 to /repositories", async () => {
+    const db = freshMemDb();
+    const { router, service } = makeConnectApp(db);
+
+    const state = buildConnectState({
+      userId: "user_1",
+      now: clockNow,
+      secret: STATE_SECRET,
+    });
+
+    const res = await router.request(
+      `/callback?installation_id=inst_42&setup_action=install&state=${encodeURIComponent(state)}`,
+    );
+    expect(res.status).toBe(302);
+
+    const location = res.headers.get("location");
+    expect(location).toBe("/repositories");
+
+    // Installation row should be persisted.
+    const installation = await service.getInstallationByGithubId("github", "inst_42");
+    expect(installation).not.toBeNull();
+    expect(installation?.accountLogin).toBe("acme");
+    expect(installation?.userId).toBe("user_1");
+    expect(installation?.setupAction).toBe("install");
+  });
+
+  test("returns 400 when state is missing", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db);
+
+    const res = await router.request("/callback?installation_id=inst_42&setup_action=install");
+    expect(res.status).toBe(400);
+
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBeTruthy();
+  });
+
+  test("returns 400 on forged/invalid state", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db);
+
+    const res = await router.request(
+      "/callback?installation_id=inst_42&setup_action=install&state=totally-invalid-state",
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("returns 400 when state is from a different user (cross-user forgery)", async () => {
+    const db = freshMemDb("user_1");
+    (db.$client as Database)
+      .query("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)")
+      .run("user_2", "user_2@x.io", clockNow);
+
+    // State built for user_2 but used by the router that's authed as user_1.
+    const forgedState = buildConnectState({
+      userId: "user_2",
+      now: clockNow,
+      secret: STATE_SECRET,
+    });
+
+    const { router } = makeConnectApp(db, { userId: "user_1" });
+    const res = await router.request(
+      `/callback?installation_id=inst_42&setup_action=install&state=${encodeURIComponent(forgedState)}`,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("returns 400 when installation_id is missing", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db);
+
+    const state = buildConnectState({ userId: "user_1", now: clockNow, secret: STATE_SECRET });
+    const res = await router.request(
+      `/callback?setup_action=install&state=${encodeURIComponent(state)}`,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("callback is idempotent — second call updates, does not duplicate", async () => {
+    const db = freshMemDb();
+    const { router, service } = makeConnectApp(db);
+
+    const state = buildConnectState({ userId: "user_1", now: clockNow, secret: STATE_SECRET });
+    const qs = `?installation_id=inst_99&setup_action=install&state=${encodeURIComponent(state)}`;
+
+    await router.request(`/callback${qs}`);
+
+    const state2 = buildConnectState({ userId: "user_1", now: clockNow, secret: STATE_SECRET });
+    const qs2 = `?installation_id=inst_99&setup_action=update&state=${encodeURIComponent(state2)}`;
+    const res2 = await router.request(`/callback${qs2}`);
+    expect(res2.status).toBe(302);
+
+    const installations = await service.getInstallationsForUser("user_1");
+    expect(installations.filter((i) => i.installationId === "inst_99").length).toBe(1);
+  });
+});
+
+describe("GET /installations — connection status", () => {
+  test("returns connected:false and empty list when no installations", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db);
+
+    const res = await router.request("/installations");
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as { connected: boolean; installations: unknown[] };
+    expect(body.connected).toBe(false);
+    expect(body.installations).toEqual([]);
+  });
+
+  test("returns connected:true with active installations for the user", async () => {
+    const db = freshMemDb();
+    const { router, service } = makeConnectApp(db);
+
+    await service.upsertInstallation({
+      userId: "user_1",
+      installationId: "inst_77",
+      accountLogin: "myorg",
+      accountType: "Organization",
+      repositorySelection: "all",
+      status: "active",
+    });
+
+    const res = await router.request("/installations");
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as {
+      connected: boolean;
+      installations: Array<{
+        id: string;
+        account_login: string;
+        account_type: string;
+        repository_selection: string;
+        status: string;
+      }>;
+    };
+    expect(body.connected).toBe(true);
+    expect(body.installations.length).toBe(1);
+    expect(body.installations[0]?.account_login).toBe("myorg");
+    expect(body.installations[0]?.status).toBe("active");
+  });
+
+  test("does NOT return deleted installations", async () => {
+    const db = freshMemDb();
+    const { router, service } = makeConnectApp(db);
+
+    await service.upsertInstallation({
+      userId: "user_1",
+      installationId: "inst_del",
+      accountLogin: "gone",
+      accountType: "User",
+      repositorySelection: "all",
+      status: "deleted",
+    });
+
+    const res = await router.request("/installations");
+    const body = (await res.json()) as { connected: boolean; installations: unknown[] };
+    // Deleted installations should not count as connected.
+    expect(body.connected).toBe(false);
+    expect(body.installations.filter((i: unknown) => {
+      return (i as { status: string }).status !== "deleted";
+    }).length).toBe(0);
+  });
+
+  test("returns 401 when not authenticated", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db, { authed: false });
+    const res = await router.request("/installations");
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("GET /installations/:id/repos — repos for an installation", () => {
+  test("returns InstallationRepo[] for owned installation", async () => {
+    const db = freshMemDb();
+    const { router, service } = makeConnectApp(db);
+
+    const installation = await service.upsertInstallation({
+      userId: "user_1",
+      installationId: "inst_abc",
+      accountLogin: "acme",
+      accountType: "Organization",
+      repositorySelection: "all",
+      status: "active",
+    });
+    await service.reconcileInstallationRepos({
+      installationRowId: installation.id,
+      installationId: "inst_abc",
+      userId: "user_1",
+      selection: "all",
+      repos: [
+        { owner: "acme", name: "web", defaultBranch: "main" },
+      ],
+    });
+
+    const res = await router.request(`/installations/${installation.id}/repos`);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as Array<{
+      owner: string;
+      name: string;
+      enabled: boolean;
+      default_branch: string;
+    }>;
+    expect(Array.isArray(body)).toBe(true);
+    // Should contain repos from GitHub (via FakeGitHubClient) merged with local state.
+    expect(body.length).toBeGreaterThan(0);
+  });
+
+  test("returns 404 for installation not owned by user", async () => {
+    const db = freshMemDb("user_1");
+    (db.$client as Database)
+      .query("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)")
+      .run("user_2", "user_2@x.io", clockNow);
+
+    const service = createReviewService({ db, auditKey: AUDIT_KEY, now: clock });
+    // Create installation owned by user_2
+    const installation = await service.upsertInstallation({
+      userId: "user_2",
+      installationId: "inst_other",
+      accountLogin: "other-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+      status: "active",
+    });
+
+    // Router authed as user_1
+    const github = new FakeGitHubClient({ installationRepos: [] });
+    const requireAuth = makeFakeAuth("user_1");
+    const router = createGithubConnectRouter({
+      db,
+      service,
+      github,
+      requireAuth,
+      slug: GITHUB_SLUG,
+      stateSecret: STATE_SECRET,
+      now: clock,
+    });
+
+    const res = await router.request(`/installations/${installation.id}/repos`);
+    expect(res.status).toBe(404);
+  });
+
+  test("returns 401 when not authenticated", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db, { authed: false });
+    const res = await router.request("/installations/some-id/repos");
+    expect(res.status).toBe(401);
+  });
+
+  test("each repo entry has required fields from openapi schema", async () => {
+    const db = freshMemDb();
+    const { router, service } = makeConnectApp(db);
+
+    const installation = await service.upsertInstallation({
+      userId: "user_1",
+      installationId: "inst_fields",
+      accountLogin: "acme",
+      accountType: "Organization",
+      repositorySelection: "all",
+      status: "active",
+    });
+    await service.reconcileInstallationRepos({
+      installationRowId: installation.id,
+      installationId: "inst_fields",
+      userId: "user_1",
+      selection: "all",
+      repos: [{ owner: "acme", name: "web", defaultBranch: "main" }],
+    });
+
+    const res = await router.request(`/installations/${installation.id}/repos`);
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+
+    expect(body.length).toBeGreaterThan(0);
+    for (const r of body) {
+      expect(typeof r["owner"]).toBe("string");
+      expect(typeof r["name"]).toBe("string");
+      expect(typeof r["enabled"]).toBe("boolean");
+    }
+  });
+});
+
+describe("POST /disconnect — disconnect an installation", () => {
+  test("marks installation as deleted and returns 200 for owner", async () => {
+    const db = freshMemDb();
+    const { router, service } = makeConnectApp(db);
+
+    await service.upsertInstallation({
+      userId: "user_1",
+      installationId: "inst_disc",
+      accountLogin: "bye-org",
+      accountType: "Organization",
+      repositorySelection: "all",
+      status: "active",
+    });
+
+    const res = await router.request("/disconnect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ installation_id: "inst_disc" }),
+    });
+    expect(res.status).toBe(200);
+
+    const updated = await service.getInstallationByGithubId("github", "inst_disc");
+    expect(updated?.status).toBe("deleted");
+  });
+
+  test("returns 403 when installation_id does not belong to user", async () => {
+    const db = freshMemDb("user_1");
+    (db.$client as Database)
+      .query("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)")
+      .run("user_2", "user_2@x.io", clockNow);
+
+    const service = createReviewService({ db, auditKey: AUDIT_KEY, now: clock });
+    // Create installation owned by user_2
+    await service.upsertInstallation({
+      userId: "user_2",
+      installationId: "inst_own2",
+      accountLogin: "org2",
+      accountType: "Organization",
+      repositorySelection: "all",
+      status: "active",
+    });
+
+    // Router authed as user_1
+    const github = new FakeGitHubClient();
+    const requireAuth = makeFakeAuth("user_1");
+    const router = createGithubConnectRouter({
+      db,
+      service,
+      github,
+      requireAuth,
+      slug: GITHUB_SLUG,
+      stateSecret: STATE_SECRET,
+      now: clock,
+    });
+
+    const res = await router.request("/disconnect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ installation_id: "inst_own2" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  test("returns 400 when body is missing installation_id", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db);
+
+    const res = await router.request("/disconnect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test("returns 400 when body is invalid JSON", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db);
+
+    const res = await router.request("/disconnect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "not-json",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test("returns 401 when not authenticated", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db, { authed: false });
+
+    const res = await router.request("/disconnect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ installation_id: "inst_any" }),
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("Graceful behavior — slug/secret absent", () => {
+  test("GET /connect returns 503 when GitHub slug is not configured", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db, { slug: "" });
+
+    const res = await router.request("/connect");
+    expect(res.status).toBe(503);
+  });
+});
