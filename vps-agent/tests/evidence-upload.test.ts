@@ -22,6 +22,48 @@ import {
 } from "../src/evidence-upload.ts";
 
 /**
+ * Drain (read to EOF) and close a stream-shaped `Body` the way the real AWS S3
+ * client does. The uploader hands `PutObjectCommand` / `Upload` a lazily-opened
+ * `fs.createReadStream` as the `Body`; a real S3 client consumes that stream,
+ * so our hermetic fakes must too. If they don't, the stream's *deferred*
+ * `open()` syscall fires AFTER the test's `afterEach` deletes the temp dir,
+ * surfacing as an ENOENT `'error'` event with no listener → Bun reports
+ * "Unhandled error between tests" (a CI-timing-sensitive flake that fails
+ * whichever upload happened to lose the open-vs-rm race). Consuming the body
+ * here closes the fd before teardown and handles any error in-band.
+ */
+interface StreamLikeBody {
+  on(event: string, cb: () => void): unknown;
+  resume(): unknown;
+}
+
+function isStreamLike(body: unknown): body is StreamLikeBody {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    typeof (body as { on?: unknown }).on === "function"
+  );
+}
+
+function drainBody(body: unknown): Promise<void> {
+  if (!isStreamLike(body)) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = (): void => {
+      if (!settled) {
+        settled = true;
+        resolve();
+      }
+    };
+    body.on("error", finish); // ENOENT etc. handled in-band, never "unhandled"
+    body.on("close", finish);
+    body.on("end", finish);
+    if (typeof body.resume === "function") body.resume();
+    // flowing mode → triggers open(), reads to EOF, then close
+  });
+}
+
+/**
  * Minimal recorder for `S3Client.send` invocations. We don't need a full S3
  * stub — only the captured command + the fake ETag the implementation returns
  * to its caller.
@@ -35,6 +77,9 @@ function makeFakeS3(etag = '"fake-etag-abc123"') {
         commandName: cmd.constructor.name,
         input: cmd.input as Record<string, unknown>,
       });
+      // Mirror the real S3 client: consume the Body stream so its lazily-opened
+      // fd is read + closed before the test's afterEach removes the temp dir.
+      await drainBody((cmd.input as { Body?: unknown }).Body);
       return { ETag: etag };
     },
   };
@@ -55,6 +100,9 @@ function makeFakeUpload(etag = '"fake-multipart-etag"') {
       calls.push({ params: args.params });
     }
     async done() {
+      // Mirror the real multipart Upload: consume the Body stream before
+      // resolving so its lazily-opened fd is closed ahead of test teardown.
+      await drainBody(this.params.Body);
       return { ETag: etag };
     }
   }
