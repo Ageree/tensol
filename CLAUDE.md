@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **пентест ИИ** (2257 symbols, 4370 relationships, 171 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **пентест ИИ** (4197 symbols, 8566 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -100,16 +100,63 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 
 <!-- gitnexus:end -->
 
+<!-- gitbutler:start -->
+# GitButler — Virtual Branch Workflow (ACTIVE in this checkout)
+
+This repo is GitButler-managed. The working branch is `gitbutler/workspace` and `but status` exits 0 — virtual branches are LIVE. Use the **`but`** CLI for **all git writes**. Plain `git` writes bypass GitButler's virtual-branch routing and can corrupt the workspace.
+
+> **Ground-truth check, every time.** Before relying on these rules, run `but status` — exit 0 means GitButler is active. If it ever fails (fresh clone, `but` not installed, `but setup` never run), fall back to normal `git` and do NOT invoke `but`. This section and any committed `.claude/skills/gitbutler/` folder signal INTENT, not active state — the runtime probe is the only proof.
+
+## Always Do (writes → `but`, never `git`)
+
+- **Commit:** `but commit -m "<type>: <desc>"`. With one branch applied it commits there; with several applied, name the branch: `but commit <branch> -m "…"`. Use `--only` to commit just what is staged to that branch.
+- **New branch:** `but branch new <name>` — creates a virtual branch in the workspace (not `git checkout -b`).
+- **Stage a specific hunk/file:** `but stage <id>`, where `<id>` is the short 2–3 char ID from `but status --json`.
+- **Push / open review:** `but push`, then `but pr create` for a forge PR. Never `git push`.
+- **Edit existing commits:** `but amend`, `but absorb`, `but squash`, `but reword`, `but uncommit` — interactive rebase (`git rebase -i`) is unsupported in this harness and bypasses GitButler regardless.
+- **Read workspace state + the short IDs** via `but status --json`; pass those IDs to `but` commands.
+
+## Reads stay on plain `git` (GitButler is git-compatible)
+
+`git log`, `git diff`, `git blame`, `git show` are all safe — they don't mutate the workspace. Prefer them for inspection.
+
+## Never Do
+
+- NEVER use `git add`, `git commit`, `git push`, `git checkout -b`, `git branch <name>`, `git merge`, or `git rebase` for writes here — they bypass virtual branches. Use the `but` equivalents (`but stage`, `but commit`, `but push`, `but branch new`, `but merge`).
+- NEVER create a git worktree / `EnterWorktree` mid-task on this repo — it forks the branch off the workspace and drops GitButler-routed commits. If hard isolation is genuinely needed (conflicting migrations/dev-servers), raise it with the user first.
+- NEVER classify GitButler as inactive from file presence alone — probe with `but status`.
+
+## Gotcha — hunk locked to a parallel branch
+
+A hunk in a file already rewritten by branch A **cannot** be committed to a parallel branch B. GitButler locks the hunk to A; `but commit B --only` silently prints "Some selected changes could not be committed" and creates an empty "(no changes)" commit, leaving the file staged-but-uncommitted. Fix: amend it into A's commit — `but amend <cliId> <commitOfA>` (take `<cliId>` from `but status --json`, NOT the file path — `but amend <path>` errors "Source not found" for already-assigned files) — or stack B on top of A.
+
+## Pre-commit checklist (combine with the GitNexus checklist above)
+
+1. `gitnexus_detect_changes()` — confirm changes match the expected scope.
+2. `but status --json` — review unassigned vs branch-routed changes and grab the short IDs.
+3. `but commit -m "<type>: <desc>"` — conventional-commit format (feat, fix, refactor, docs, test, chore, perf, ci).
+4. `but push` (+ `but pr create`) only when the user asks to push or open a PR.
+
+## Reference
+
+- Official agent-workflow skill: `~/.claude/skills/gitbutler-claude/SKILL.md` (its `setup-project.sh` (re)installs the `but` hooks + the canonical `but` agent skill).
+- Full CLI surface: `but --help` and `but <command> --help`. Docs: https://docs.gitbutler.com/cli-overview
+<!-- gitbutler:end -->
+
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
 
-- Plan: `specs/001-backend-v2/plan.md`
-- Spec: `specs/001-backend-v2/spec.md`
+- Plan: `specs/002-blackbox-mvp/plan.md`
+- Spec: `specs/002-blackbox-mvp/spec.md`
+- Research: `specs/002-blackbox-mvp/research.md`
+- Data model: `specs/002-blackbox-mvp/data-model.md`
+- API contract: `specs/002-blackbox-mvp/contracts/openapi.yaml`
+- Webhook contract: `specs/002-blackbox-mvp/contracts/webhook.md`
+- Quickstart: `specs/002-blackbox-mvp/quickstart.md`
+- Design doc: `docs/superpowers/specs/2026-05-19-blackbox-mvp-design.md`
 - Constitution: `.specify/memory/constitution.md` (v1.0.0)
-- Data model: `specs/001-backend-v2/data-model.md`
-- API contract: `specs/001-backend-v2/contracts/openapi.yaml`
-- Webhook contract: `specs/001-backend-v2/contracts/webhook.md`
-- Quickstart: `specs/001-backend-v2/quickstart.md`
-- Original design doc: `docs/superpowers/specs/2026-05-18-backend-v2-design.md`
+
+Prior feature (still on disk, NOT active scope):
+- 001-backend-v2 plan: `specs/001-backend-v2/plan.md`
 <!-- SPECKIT END -->

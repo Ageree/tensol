@@ -193,7 +193,7 @@ export function renderReportHtml(input: ReportTemplateInput): string {
     "<!DOCTYPE html>",
     '<html lang="en"><head>',
     '<meta charset="utf-8">',
-    `<title>Tensol Scan Report ${escapeHtml(input.reportId)}</title>`,
+    `<title>Sthrip Scan Report ${escapeHtml(input.reportId)}</title>`,
     `<style>${CSS}</style>`,
     "</head><body>",
     renderCover(input),
@@ -211,7 +211,7 @@ function renderCover(input: ReportTemplateInput): string {
   const s = input.scan;
   return [
     '<section class="cover">',
-    '<div class="brand">Tensol — AI Pentest Platform</div>',
+    '<div class="brand">Sthrip — AI Offensive Security Platform</div>',
     `<div class="title">Black-box scan report<br/>${escapeHtml(s.primaryDomain)}</div>`,
     `<div class="domain">${escapeHtml(s.primaryDomain)}</div>`,
     "<dl class=\"meta\">",
@@ -323,7 +323,7 @@ function renderFinding(f: ReportFinding): string {
 }
 
 function renderFooter(input: ReportTemplateInput): string {
-  return `<div class="footer-meta">Tensol report ${escapeHtml(input.reportId)} · scan ${escapeHtml(input.scan.id)} · generated ${formatTs(input.generatedAt)}</div>`;
+  return `<div class="footer-meta">Sthrip report ${escapeHtml(input.reportId)} · scan ${escapeHtml(input.scan.id)} · generated ${formatTs(input.generatedAt)}</div>`;
 }
 
 // ---------------------------------------------------------------------------

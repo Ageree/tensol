@@ -211,6 +211,14 @@ export function Btn({
 /* ─────────────────────────────────────────────────────────────────────
    Eyebrow / Mono
    ───────────────────────────────────────────────────────────────────── */
+function removeDecorativePrefix(children: ReactNode): ReactNode {
+  if (typeof children === 'string') {
+    return children.replace(/^\/\/\s*/, '');
+  }
+
+  return children;
+}
+
 export function Eyebrow({
   children,
   color,
@@ -231,7 +239,7 @@ export function Eyebrow({
         ...style,
       }}
     >
-      {children}
+      {removeDecorativePrefix(children)}
     </div>
   );
 }
@@ -1138,4 +1146,3 @@ export function Scroll({
     </div>
   );
 }
-

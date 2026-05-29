@@ -31,7 +31,6 @@ import {
   Field,
   HalftoneBg,
   Input,
-  LogoLockup,
   Mono,
   Select,
   Textarea,
@@ -294,11 +293,11 @@ export default function DeepInquiry(): ReactElement {
   return (
     <>
       <RouteHead
-        title="Deep audit — Tensol"
-        description="Request a Deep penetration testing engagement. Tell us about your stack."
-        ogTitle="Deep audit — Tensol"
-        ogDescription="Request a Deep penetration testing engagement. Tell us about your stack."
-        ogImage="/assets/tensol-horse-red.svg"
+        title="Whitebox assessment — Sthrip"
+        description="Book a source-backed AI security assessment for applications, APIs, repositories, and critical business flows."
+        ogTitle="Whitebox assessment — Sthrip"
+        ogDescription="Book a source-backed AI security assessment for applications, APIs, repositories, and critical business flows."
+        ogImage="/assets/sthrip-noise-field.jpg"
       />
       <div
         style={{
@@ -340,17 +339,17 @@ export default function DeepInquiry(): ReactElement {
                 gap: 10,
               }}
             >
-              <LogoLockup
-                size={20}
-                color="var(--paper)"
-                onClick={() => navigate('/')}
+              <img
+                src="/assets/sthrip-wordmark-white.png"
+                alt="STHRIP"
+                style={{ display: 'block', width: 126, height: 'auto', imageRendering: 'pixelated' }}
               />
             </button>
           </div>
 
           <div style={{ position: 'relative', maxWidth: 420 }}>
             <Mono size={11} color="rgba(255,255,255,.6)">
-              // DEEP AUDIT
+              WHITEBOX ASSESSMENT
             </Mono>
             <p
               style={{

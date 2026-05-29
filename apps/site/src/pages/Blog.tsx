@@ -4,7 +4,7 @@ import { useTensol } from '../context.tsx';
 import { LangSwitcher } from '../components/LangSwitcher.tsx';
 import { PixelWaveBg } from '../components/PixelWaveBg.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
-import { Btn, HalftoneBg, LogoLockup } from '../components/primitives.tsx';
+import { Btn, HalftoneBg } from '../components/primitives.tsx';
 
 function PublicNav() {
   const { t } = useTensol();
@@ -24,7 +24,18 @@ function PublicNav() {
         zIndex: 2,
       }}
     >
-      <LogoLockup size={20} color="var(--ink)" onClick={() => navigate('/')} />
+      <button
+        type="button"
+        aria-label="STHRIP home"
+        onClick={() => navigate('/')}
+        style={{ border: 0, background: 'transparent', padding: 0, cursor: 'pointer' }}
+      >
+        <img
+          src="/assets/sthrip-speed-wordmark-user-cropped.png"
+          alt="STHRIP"
+          style={{ display: 'block', width: 118, height: 'auto', imageRendering: 'pixelated' }}
+        />
+      </button>
       <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
         {t.navItems.map((l, i) => (
           <Link
@@ -78,8 +89,8 @@ export default function Blog() {
   return (
     <>
       <RouteHead
-        title="Tensol — Blog"
-        description="Field notes from live AI pentests — what the agent finds in real perimeters."
+        title="Sthrip — Research Notes"
+        description="Research notes on AI-assisted offensive security, whitebox testing, exploit validation, and secure delivery."
       />
       <main
         style={{

@@ -26,6 +26,7 @@ vps-agent/dist/
 .env
 .env.local
 .env.*.local
+.env.*
 !.env.example
 
 *.tsbuildinfo
@@ -48,3 +49,5 @@ external/
 # Playwright build artifacts
 playwright-report/
 test-results/
+.gcp/
+server/.gcp/

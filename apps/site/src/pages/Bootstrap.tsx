@@ -60,7 +60,7 @@ export default function Bootstrap() {
       title={t.authBootTitle}
       sub={t.authBootSub}
     >
-      <RouteHead title="Account Setup — Tensol" />
+      <RouteHead title="Account Setup — Sthrip" />
       <form
         data-screen-label="03 Auth — bootstrap"
         onSubmit={submit}

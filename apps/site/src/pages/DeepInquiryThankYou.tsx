@@ -13,7 +13,6 @@ import { RouteHead } from '../components/RouteHead.tsx';
 import {
   Btn,
   HalftoneBg,
-  LogoLockup,
   Mono,
 } from '../components/primitives.tsx';
 import { useTensol } from '../context.tsx';
@@ -25,11 +24,11 @@ export default function DeepInquiryThankYou(): ReactElement {
   return (
     <>
       <RouteHead
-        title="Request received — Tensol"
-        description="Deep audit request received."
-        ogTitle="Request received — Tensol"
-        ogDescription="Deep audit request received."
-        ogImage="/assets/tensol-horse-red.svg"
+        title="Request received — Sthrip"
+        description="Your Sthrip assessment request was received."
+        ogTitle="Request received — Sthrip"
+        ogDescription="Your Sthrip assessment request was received."
+        ogImage="/assets/sthrip-noise-field.jpg"
       />
       <div
         style={{
@@ -68,10 +67,10 @@ export default function DeepInquiryThankYou(): ReactElement {
                 gap: 10,
               }}
             >
-              <LogoLockup
-                size={20}
-                color="var(--paper)"
-                onClick={() => navigate('/')}
+              <img
+                src="/assets/sthrip-wordmark-white.png"
+                alt="STHRIP"
+                style={{ display: 'block', width: 126, height: 'auto', imageRendering: 'pixelated' }}
               />
             </button>
           </div>
@@ -91,7 +90,7 @@ export default function DeepInquiryThankYou(): ReactElement {
           </div>
           <div style={{ width: '100%', maxWidth: 520, marginTop: 64 }}>
             <Mono size={11} color="var(--fg-2)">
-              // STATUS · RECEIVED
+              STATUS · RECEIVED
             </Mono>
             <h1
               style={{

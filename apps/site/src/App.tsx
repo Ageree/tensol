@@ -69,7 +69,7 @@ const MarketingRoute = () => {
 };
 
 export const App = () => (
-  <TensolProvider defaultLang="ru">
+  <TensolProvider defaultLang="en">
     <Suspense
       fallback={
         <Placeholder

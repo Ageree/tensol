@@ -326,6 +326,14 @@ async function request<T>(
         message: "Response was not valid JSON",
       });
     }
+  } else if (res.ok) {
+    const text = await res.text().catch(() => "");
+    if (text.trim().length > 0) {
+      throw new ApiError(res.status, {
+        error: "parse_error",
+        message: "Expected a JSON response from Tensol API",
+      });
+    }
   }
 
   if (!res.ok) {

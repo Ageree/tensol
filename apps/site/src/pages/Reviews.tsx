@@ -360,6 +360,10 @@ export default function Reviews(): ReactElement {
       breadcrumb={['Reviews']}
       role="security_lead"
       density="comfortable"
+      brand="sthrip"
+      language="en"
+      showLanguageSwitcher={false}
+      surface="white-mono"
     >
       <RouteHead title="Sthrip · Security Reviews" />
       <div data-screen-label="Reviews">

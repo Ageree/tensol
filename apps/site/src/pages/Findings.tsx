@@ -22,7 +22,7 @@ import { Link, useParams } from 'react-router-dom';
 import { AppShell } from '../components/AppShell.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Btn, Mono, SeverityChip } from '../components/primitives.tsx';
-import { useTensol } from '../context.tsx';
+import { TENSOL_I18N } from '../i18n.ts';
 import {
   ApiError,
   scans,
@@ -212,7 +212,7 @@ function sortFindings(
 }
 
 export default function Findings(): ReactElement {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   const { id: scanId } = useParams<{ id: string }>();
 
   const [rows, setRows] = useState<readonly Finding[] | null>(null);
@@ -305,8 +305,12 @@ export default function Findings(): ReactElement {
       breadcrumb={[t.navFindings, scanId ?? '—']}
       role="security_lead"
       density="comfortable"
+      brand="sthrip"
+      language="en"
+      showLanguageSwitcher={false}
+      surface="white-mono"
     >
-      <RouteHead title={`Tensol · ${t.findings.title}`} />
+      <RouteHead title={`Sthrip · ${t.findings.title}`} />
       <div data-screen-label="Findings (T085)">
         <div
           style={{
