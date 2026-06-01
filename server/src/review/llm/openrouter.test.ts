@@ -147,6 +147,41 @@ describe("createOpenRouterClient", () => {
     );
   });
 
+  test("jsonMode defaults to true -> response_format present", async () => {
+    let body: any;
+    const fakeFetch = (async (_url: any, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return jsonResponse(okBody);
+    }) as unknown as typeof fetch;
+
+    const client = createOpenRouterClient({
+      apiKey: "k",
+      baseUrl: "https://x/api/v1",
+      model: "m",
+      fetchImpl: fakeFetch,
+    });
+    await client.complete({ system: "s", user: "u" });
+    expect(body.response_format).toEqual({ type: "json_object" });
+  });
+
+  test("jsonMode:false -> response_format omitted", async () => {
+    let body: any;
+    const fakeFetch = (async (_url: any, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return jsonResponse(okBody);
+    }) as unknown as typeof fetch;
+
+    const client = createOpenRouterClient({
+      apiKey: "k",
+      baseUrl: "https://x/api/v1",
+      model: "m",
+      jsonMode: false,
+      fetchImpl: fakeFetch,
+    });
+    await client.complete({ system: "s", user: "u" });
+    expect(body.response_format).toBeUndefined();
+  });
+
   test("passes an AbortSignal to fetch", async () => {
     let sawSignal = false;
     const fakeFetch = (async (_u: string | URL | Request, init?: RequestInit) => {

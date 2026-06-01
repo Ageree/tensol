@@ -66,12 +66,19 @@ export function createOpenRouterClient(args: {
   temperature?: number;
   /** Per-request response timeout in ms (default 90s). */
   timeoutMs?: number;
+  /**
+   * Request a strict JSON object from the model (default `true`). Set `false`
+   * for free-form completions (e.g. PoC code generation) where the
+   * `response_format: json_object` constraint would corrupt non-JSON output.
+   */
+  jsonMode?: boolean;
 }): LlmClient {
   const { apiKey, model } = args;
   const baseUrl = normalizeBaseUrl(args.baseUrl);
   const doFetch = args.fetchImpl ?? fetch;
   const temperature = args.temperature ?? DEFAULT_TEMPERATURE;
   const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const jsonMode = args.jsonMode ?? true;
 
   if (!apiKey) throw new Error("openrouter: apiKey is required");
   if (!baseUrl) throw new Error("openrouter: baseUrl is required");
@@ -103,7 +110,11 @@ export function createOpenRouterClient(args: {
               { role: "user", content: user },
             ],
             temperature,
-            response_format: { type: "json_object" },
+            // Omit `response_format` entirely in free-form mode; JSON.stringify
+            // drops keys with `undefined` values so the field never appears.
+            ...(jsonMode
+              ? { response_format: { type: "json_object" } }
+              : {}),
           }),
           signal: controller.signal,
         });
