@@ -1,6 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  ArrowIcon,
   FrameCorners,
   MarketingFooter,
   MarketingNav,
@@ -59,7 +58,6 @@ export default function Resources() {
                 <span>{String(index + 1).padStart(2, '0')} · {item.label}</span>
                 <h2>{item.title}</h2>
                 <p>{item.body}</p>
-                <ArrowIcon />
               </Link>
             ))}
           </section>

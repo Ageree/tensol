@@ -60,7 +60,6 @@ function MarketingHero() {
   return (
     <section className="minimal-hero" aria-labelledby="minimal-hero-title">
       <div className="minimal-hero-copy">
-        <span className="minimal-section-label">ABOUT</span>
         <div className="minimal-hero-panel">
           <FrameCorners />
           <h1 id="minimal-hero-title">
@@ -104,8 +103,9 @@ function ProofSection() {
   return (
     <section id="testimonials" className="minimal-proof" aria-labelledby="minimal-proof-title">
       <div className="minimal-proof-heading">
-        <span className="minimal-section-label">TESTIMONIALS</span>
-        <h2 id="minimal-proof-title">We protect teams building tomorrow</h2>
+        <h2 id="minimal-proof-title">
+          We protect teams who want to ship fast as @£!%
+        </h2>
         <p>
           When you ship the future, you do not get second chances. Sthrip keeps
           the workflow focused on verified risk and developer-ready fixes.

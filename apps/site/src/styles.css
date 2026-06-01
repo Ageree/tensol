@@ -771,7 +771,6 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
 .method-timeline-item p,
 .method-phase-index p,
 .method-phase-body p,
-.pricing-positioning,
 .pricing-plan p,
 .pricing-faq-item p,
 .minimal-page-closing span {
@@ -856,12 +855,6 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   color: rgba(242, 240, 234, 0.64);
   font-size: 15px;
   line-height: 1.58;
-}
-
-.pricing-positioning {
-  max-width: 78ch;
-  margin: 0;
-  padding: 38px 42px 42px;
 }
 
 .pricing-plan-grid {
@@ -1187,7 +1180,6 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   .method-timeline,
   .method-phase-row,
   .method-evidence article,
-  .pricing-positioning,
   .pricing-plan,
   .pricing-faq-grid {
     padding-right: 0;
@@ -1998,7 +1990,7 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
 }
 
 .minimal-proof h2 {
-  max-width: 12ch;
+  max-width: min(100%, 20ch);
   margin-bottom: 22px;
 }
 
@@ -2113,7 +2105,6 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   text-transform: none;
 }
 
-.pricing-positioning,
 .pricing-plan p,
 .pricing-faq-item p,
 .minimal-page-closing span,
@@ -2705,11 +2696,6 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   font-weight: 500;
   letter-spacing: 0;
   line-height: 1.08;
-}
-
-.resources-card .minimal-arrow {
-  align-self: end;
-  margin-top: 36px;
 }
 
 .legal-layout {

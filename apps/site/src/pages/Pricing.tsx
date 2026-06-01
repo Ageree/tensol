@@ -27,7 +27,6 @@ function PricingPlans() {
 
   return (
     <section className="minimal-section pricing-plans" aria-label="Pricing plans">
-      <p className="pricing-positioning">{brandText(t.pricing.mythosPositioning)}</p>
       <div className="pricing-plan-grid">
         {t.pricing.plans.map((plan) => (
           <article key={plan.name} className="pricing-plan">
