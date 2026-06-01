@@ -128,6 +128,19 @@ const ConfigSchema = z
       .default("https://openrouter.ai/api/v1"),
     TENSOL_REVIEW_LLM_MODEL: z.string().default("qwen/qwen3.7-max"),
 
+    // Exploit Lab + Deep Research feature gates (migration 0013). Both default
+    // OFF so the feature is dark until an operator opts in; the rest tune the
+    // Lab's bounded autonomous loop (model, iteration cap, USD budget, sandbox
+    // isolation, output-token price for budget accounting). z.coerce parses env
+    // strings ("true"/"4"/"2.0") into the right primitive.
+    TENSOL_EXPLOIT_ENABLED: z.coerce.boolean().default(false),
+    TENSOL_RESEARCH_ENABLED: z.coerce.boolean().default(false),
+    TENSOL_EXPLOIT_LLM_MODEL: z.string().default("qwen/qwen3.7-max"),
+    TENSOL_EXPLOIT_MAX_ITERS: z.coerce.number().int().positive().default(4),
+    TENSOL_EXPLOIT_BUDGET_USD: z.coerce.number().positive().default(2.0),
+    TENSOL_EXPLOIT_SANDBOX: z.enum(["vm", "local"]).default("local"),
+    TENSOL_EXPLOIT_USD_PER_MTOK_OUT: z.coerce.number().positive().default(2.0),
+
     PORT: z.coerce
       .number({ invalid_type_error: "PORT must be a number" })
       .int()

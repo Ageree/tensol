@@ -131,4 +131,13 @@ describe("loadConfig", () => {
     const cfg = loadConfig(validEnv);
     expect(cfg.TENSOL_REVIEW_LLM_API_KEY).toBe("");
   });
+
+  test("exploit lab knobs default off with sane values", () => {
+    const cfg = loadConfig(validEnv);
+    expect(cfg.TENSOL_EXPLOIT_ENABLED).toBe(false);
+    expect(cfg.TENSOL_RESEARCH_ENABLED).toBe(false);
+    expect(cfg.TENSOL_EXPLOIT_BUDGET_USD).toBe(2);
+    expect(cfg.TENSOL_EXPLOIT_SANDBOX).toBe("local");
+    expect(cfg.TENSOL_EXPLOIT_MAX_ITERS).toBe(4);
+  });
 });
