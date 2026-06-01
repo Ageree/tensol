@@ -35,6 +35,23 @@ test("detects a SQL sink and an SSRF sink with correct lines", () => {
   expect(units.every(u => /^U\d{3,}$/.test(u.id))).toBe(true);
 });
 
+test("detects Node sync command sinks (execSync / spawnSync / execFileSync)", () => {
+  const file: DiffFile = {
+    path: "src/ops.ts",
+    status: "modified",
+    contents: [
+      'import { execSync, spawnSync, execFileSync } from "node:child_process";',
+      'export const a = (h) => execSync("ping " + h);',
+      'export const b = (h) => spawnSync("ping", [h]);',
+      'export const c = (h) => execFileSync("ping", [h]);',
+    ].join("\n"),
+  };
+  const cmd = buildRoutingUnits([file]).filter((u) => u.kind === "command");
+  // execSync, spawnSync, execFileSync lines are all detected as command sinks.
+  expect(cmd.length).toBeGreaterThanOrEqual(3);
+  expect(cmd.every((u) => u.category === "sinks")).toBe(true);
+});
+
 test("skips node_modules paths", () => {
   const units = buildRoutingUnits([{ path: "node_modules/x/index.js", status: "added", contents: 'db.query("SELECT 1")' }]);
   expect(units).toEqual([]);

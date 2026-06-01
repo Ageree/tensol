@@ -42,7 +42,7 @@ const SKIP: Set<string> = new Set([
 const PATTERNS: Record<RoutingUnitKind, string[]> = {
   route: ["route(", "@app.", "router.", "get(", "post(", "controller", "location "],
   sql: ["select ", "insert ", "update ", "delete ", "raw(", "execute(", "query("],
-  command: ["subprocess", "exec(", "system(", "spawn(", "shell_exec", "shell=true"],
+  command: ["subprocess", "exec(", "execsync(", "execfile", "system(", "spawn(", "spawnsync(", "shell_exec", "shell=true"],
   file: ["open(", "readfile", "writefile", "send_file", "download", "file_get_contents"],
   upload: ["upload", "multipart", "filename", "content-type", "attachment"],
   ssrf: ["requests.", "fetch(", "http.get", "httpclient", "curl", "proxy_pass"],
