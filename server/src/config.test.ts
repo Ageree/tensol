@@ -131,4 +131,39 @@ describe("loadConfig", () => {
     const cfg = loadConfig(validEnv);
     expect(cfg.TENSOL_REVIEW_LLM_API_KEY).toBe("");
   });
+
+  test("exploit lab knobs default off with sane values", () => {
+    const cfg = loadConfig(validEnv);
+    expect(cfg.TENSOL_EXPLOIT_ENABLED).toBe(false);
+    expect(cfg.TENSOL_RESEARCH_ENABLED).toBe(false);
+    expect(cfg.TENSOL_EXPLOIT_ALLOW_UNSANDBOXED_LOCAL).toBe(false);
+    expect(cfg.TENSOL_EXPLOIT_BUDGET_USD).toBe(2);
+    expect(cfg.TENSOL_EXPLOIT_SANDBOX).toBe("local");
+    expect(cfg.TENSOL_EXPLOIT_MAX_ITERS).toBe(4);
+  });
+
+  test("feature gates FAIL SAFE: falsey strings stay OFF (not z.coerce.boolean)", () => {
+    // z.coerce.boolean() would make every non-empty string truthy — so "false"
+    // would turn the dark Exploit Lab ON. The strict envBool must keep it off.
+    for (const falsey of ["false", "0", "no", "off", "FALSE", "  off  ", ""]) {
+      const cfg = loadConfig({
+        ...validEnv,
+        TENSOL_EXPLOIT_ENABLED: falsey,
+        TENSOL_RESEARCH_ENABLED: falsey,
+        TENSOL_EXPLOIT_ALLOW_UNSANDBOXED_LOCAL: falsey,
+      });
+      expect(cfg.TENSOL_EXPLOIT_ENABLED).toBe(false);
+      expect(cfg.TENSOL_RESEARCH_ENABLED).toBe(false);
+      expect(cfg.TENSOL_EXPLOIT_ALLOW_UNSANDBOXED_LOCAL).toBe(false);
+    }
+  });
+
+  test("feature gates turn ON only for explicit truthy tokens", () => {
+    for (const truthy of ["true", "1", "yes", "on", "TRUE", " on "]) {
+      const cfg = loadConfig({ ...validEnv, TENSOL_EXPLOIT_ENABLED: truthy });
+      expect(cfg.TENSOL_EXPLOIT_ENABLED).toBe(true);
+    }
+    // An unrecognized value is treated as OFF (fail-safe), not an error.
+    expect(loadConfig({ ...validEnv, TENSOL_EXPLOIT_ENABLED: "maybe" }).TENSOL_EXPLOIT_ENABLED).toBe(false);
+  });
 });
