@@ -13,6 +13,24 @@ import { z } from "zod";
 
 const HEX_KEY_MIN_LEN = 64;
 
+/**
+ * Strict env-boolean. ONLY `1`/`true`/`yes`/`on` (case-insensitive, trimmed)
+ * are `true`; everything else — including `0`/`false`/`no`/`off`/`""` and any
+ * unrecognized value — is `false`. An absent var falls back to `def`.
+ *
+ * Why NOT `z.coerce.boolean()`: that is `Boolean(string)`, so EVERY non-empty
+ * string (including `"false"`, `"0"`, `"off"`) becomes `true`. For a dark
+ * feature gate that is fail-UNSAFE — an operator writing
+ * `TENSOL_EXPLOIT_ENABLED=false` to keep the autonomous Exploit Lab OFF would
+ * instead turn it ON. This parser fails safe: anything that is not an explicit
+ * truthy token is `false`.
+ */
+const envBool = (def: boolean) =>
+  z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined ? def : /^(1|true|yes|on)$/i.test(v.trim())));
+
 const ConfigSchema = z
   .object({
     // Audit chain HMAC key (T013/T014). Hex-encoded, ≥64 chars.
@@ -131,15 +149,23 @@ const ConfigSchema = z
     // Exploit Lab + Deep Research feature gates (migration 0013). Both default
     // OFF so the feature is dark until an operator opts in; the rest tune the
     // Lab's bounded autonomous loop (model, iteration cap, USD budget, sandbox
-    // isolation, output-token price for budget accounting). z.coerce parses env
-    // strings ("true"/"4"/"2.0") into the right primitive.
-    TENSOL_EXPLOIT_ENABLED: z.coerce.boolean().default(false),
-    TENSOL_RESEARCH_ENABLED: z.coerce.boolean().default(false),
+    // isolation, output-token price for budget accounting). The two gates use
+    // the STRICT `envBool` (NOT z.coerce.boolean, which makes "false"/"0"/"off"
+    // truthy — fail-unsafe for a dark gate); the numeric tunables use z.coerce.
+    TENSOL_EXPLOIT_ENABLED: envBool(false),
+    TENSOL_RESEARCH_ENABLED: envBool(false),
     TENSOL_EXPLOIT_LLM_MODEL: z.string().default("qwen/qwen3.7-max"),
     TENSOL_EXPLOIT_MAX_ITERS: z.coerce.number().int().positive().default(4),
     TENSOL_EXPLOIT_BUDGET_USD: z.coerce.number().positive().default(2.0),
     TENSOL_EXPLOIT_SANDBOX: z.enum(["vm", "local"]).default("local"),
     TENSOL_EXPLOIT_USD_PER_MTOK_OUT: z.coerce.number().positive().default(2.0),
+    // SAFETY ACK for running the Exploit Lab on the LOCAL (un-isolated
+    // subprocess) sandbox. The local sandbox has no network/FS namespace, so it
+    // is NOT a production isolation boundary. When TENSOL_EXPLOIT_ENABLED is on,
+    // the server REFUSES to wire the Lab on the local sandbox unless this is
+    // explicitly set true (an operator's eyes-open acknowledgement). The VM
+    // sandbox is the real isolation path (deferred wiring). Default false.
+    TENSOL_EXPLOIT_ALLOW_UNSANDBOXED_LOCAL: envBool(false),
 
     PORT: z.coerce
       .number({ invalid_type_error: "PORT must be a number" })

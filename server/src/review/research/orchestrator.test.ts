@@ -193,6 +193,22 @@ test("fileSourceText drops hunk headers + removed lines, strips +/space markers"
   expect(fileSourceText(f)).toBe("ctx line\nadded line");
 });
 
+test("fileSourceText drops git headers + the '\\ No newline' marker (real PR diff)", () => {
+  const patch = [
+    "diff --git a/a.ts b/a.ts",
+    "index e69de29..0cfbf08 100644",
+    "--- a/a.ts",
+    "+++ b/a.ts",
+    "@@ -0,0 +1,2 @@",
+    "+const x = 1;",
+    "+const y = 2;",
+    "\\ No newline at end of file",
+  ].join("\n");
+  const f: DiffFile = { path: "a.ts", status: "modified", patch };
+  // Only the real added source survives — no metadata, no marker, no "++"/"--".
+  expect(fileSourceText(f)).toBe("const x = 1;\nconst y = 2;");
+});
+
 test("fileSourceText returns '' when neither contents nor patch is present", () => {
   expect(fileSourceText({ path: "a.ts", status: "added" })).toBe("");
 });

@@ -72,7 +72,16 @@ export function fileSourceText(f: DiffFile): string {
   if (typeof f.patch === "string" && f.patch.length > 0) {
     return f.patch
       .split("\n")
-      .filter((l) => !l.startsWith("@@") && !l.startsWith("-"))
+      .filter((l) => {
+        // Drop unified-diff metadata + removed lines; keep added/context lines.
+        if (l.startsWith("@@") || l.startsWith("diff ") || l.startsWith("index ")) {
+          return false;
+        }
+        if (l.startsWith("--- ") || l.startsWith("+++ ")) return false; // file headers
+        if (l.startsWith("\\")) return false; // "\ No newline at end of file"
+        if (l.startsWith("-")) return false; // a removed line
+        return true;
+      })
       .map((l) => (l.startsWith("+") || l.startsWith(" ") ? l.slice(1) : l))
       .join("\n");
   }
