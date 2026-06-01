@@ -96,6 +96,13 @@ import { createPrReviewHandler } from "./jobs/handlers/pr-review.ts";
 import { createWhiteboxScanHandler } from "./jobs/handlers/whitebox-scan.ts";
 import { createOpenRouterClient } from "./review/llm/openrouter.ts";
 import type { LlmClient } from "./review/reviewer.ts";
+// 2026-06-01 — Exploit Lab (F2) wiring.
+import { createExploitHook } from "./exploit/hook.ts";
+import { createReviewRepoScopeDeps } from "./exploit/scope-deps.ts";
+import { enrichFindingWithVerdict } from "./exploit/service.ts";
+import { chooseSandbox } from "./exploit/sandbox.ts";
+import { createBudget } from "./exploit/budget.ts";
+import { ulid } from "./lib/ids.ts";
 import {
   createHttpGitHubClient,
   type GitHubClient,
@@ -834,6 +841,48 @@ export async function main(): Promise<{
             "pr_review: GitHub App or review LLM not configured (set GITHUB_APP_* + TENSOL_REVIEW_LLM_API_KEY)",
           );
         };
+  // 2026-06-01 — Exploit Lab (F2) auto-trigger hook. Off unless
+  // TENSOL_EXPLOIT_ENABLED. Reuses the effective review LLM key (which itself
+  // falls back to the shared OpenRouter key), in FREE-FORM mode (jsonMode:false)
+  // so the PoC generator can emit code blocks. The VM sandbox is intentionally
+  // NOT wired here yet (needs a vetted exec into the spawned VM — the "careful
+  // with Decepticon" path); requesting it falls back to the local sandbox.
+  if (config.TENSOL_EXPLOIT_ENABLED && config.TENSOL_EXPLOIT_SANDBOX === "vm") {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[tensol] exploit: vm sandbox is not yet wired in the server — using the " +
+        "local sandbox. (Set TENSOL_EXPLOIT_SANDBOX=local to silence.)",
+    );
+  }
+  const exploitHook =
+    config.TENSOL_EXPLOIT_ENABLED && reviewLlm
+      ? createExploitHook({
+          llm: createOpenRouterClient({
+            apiKey: config.TENSOL_REVIEW_LLM_API_KEY,
+            baseUrl: config.TENSOL_REVIEW_LLM_BASE_URL,
+            model: config.TENSOL_EXPLOIT_LLM_MODEL,
+            jsonMode: false,
+          }),
+          sandbox: chooseSandbox({ kind: "local" }),
+          scopeDeps: createReviewRepoScopeDeps(db),
+          makeMarker: () => `CANARY_${ulid()}`,
+          maxIters: config.TENSOL_EXPLOIT_MAX_ITERS,
+          makeBudget: () =>
+            createBudget({
+              ceilingUsd: config.TENSOL_EXPLOIT_BUDGET_USD,
+              usdPerMTokOut: config.TENSOL_EXPLOIT_USD_PER_MTOK_OUT,
+            }),
+          getFindings: (reviewId) =>
+            reviewServiceForJobs.getReviewFindings(reviewId),
+          enrich: (findingId, verdict) =>
+            enrichFindingWithVerdict(
+              { db, auditKey: config.TENSOL_AUDIT_SIGNING_KEY },
+              findingId,
+              verdict,
+            ),
+        })
+      : undefined;
+
   const whiteboxScanHandler: (payload: unknown, ctx: { jobId: string; attempts: number }) => Promise<void> =
     reviewLlm
       ? adaptNewStyle(
@@ -843,6 +892,8 @@ export async function main(): Promise<{
             llm: reviewLlm,
             sastRunner: reviewSastRunner,
             cloneUrlFor,
+            deepResearch: config.TENSOL_RESEARCH_ENABLED,
+            ...(exploitHook ? { exploit: exploitHook } : {}),
           }),
         )
       : async () => {
