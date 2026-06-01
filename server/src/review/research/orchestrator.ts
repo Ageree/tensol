@@ -52,6 +52,33 @@ export interface RunResearchOptions {
 const ACCEPTING_DECISIONS: ReadonlySet<TriageDecision["decision"]> =
   new Set<TriageDecision["decision"]>(["accepted", "downgraded"]);
 
+/**
+ * Readable source for an expert to analyze, derived from a `DiffFile`:
+ *   1. the full `contents` when present (richest);
+ *   2. otherwise reconstruct from `patch` — drop hunk headers (`@@`) and removed
+ *      (`-`) lines, then strip the leading `+`/` ` diff marker. For a whole-file
+ *      added-diff (how `repo-fetch`/`fileToDiffFile` encode whitebox files, and
+ *      what the engine's deep path receives) this recovers the ENTIRE file; for
+ *      a PR hunk it yields the post-change added + context lines.
+ *   3. otherwise "".
+ *
+ * Without this, patch-only files (the production whitebox case — `repo-fetch`
+ * sets `patch`, never `contents`) reach every expert as an EMPTY file, so deep
+ * research finds nothing. Recon already tolerates either field; this aligns the
+ * expert context with it.
+ */
+export function fileSourceText(f: DiffFile): string {
+  if (typeof f.contents === "string" && f.contents.length > 0) return f.contents;
+  if (typeof f.patch === "string" && f.patch.length > 0) {
+    return f.patch
+      .split("\n")
+      .filter((l) => !l.startsWith("@@") && !l.startsWith("-"))
+      .map((l) => (l.startsWith("+") || l.startsWith(" ") ? l.slice(1) : l))
+      .join("\n");
+  }
+  return "";
+}
+
 /** Zero-pad a 1-based sequence number to a minimum 3-digit "F###" suffix. */
 function findingSeq(seq: number): string {
   return "F" + String(seq).padStart(3, "0");
@@ -182,7 +209,7 @@ export async function runResearch(
 
   // 3. Expert fan-out. Build a read-only file context once (path + contents).
   const ctx: ExpertContext = {
-    files: files.map((f) => ({ path: f.path, content: f.contents ?? "" })),
+    files: files.map((f) => ({ path: f.path, content: fileSourceText(f) })),
   };
 
   const results = await Promise.all(

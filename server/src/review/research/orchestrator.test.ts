@@ -10,8 +10,9 @@
  * No network/process — the whole pipeline runs over the injected fake LLM.
  */
 import { expect, test } from "bun:test";
-import { runResearch } from "./orchestrator.ts";
+import { runResearch, fileSourceText } from "./orchestrator.ts";
 import { FakeLlmClient } from "../reviewer.ts";
+import { fileToDiffFile } from "../repo-fetch.ts";
 import type { DiffFile } from "../types.ts";
 
 const files: DiffFile[] = [
@@ -170,6 +171,30 @@ test("a throwing expert never aborts the whole run", async () => {
   // The throwing expert is treated as a rejected result -> no candidate ->
   // no verdict, but the run resolves cleanly.
   expect(verdicts).toEqual([]);
+});
+
+test("fileSourceText prefers contents when present", () => {
+  const f: DiffFile = { path: "a.ts", status: "modified", contents: "const x = 1;" };
+  expect(fileSourceText(f)).toBe("const x = 1;");
+});
+
+test("fileSourceText reconstructs the whole file from a whole-file added-diff", () => {
+  // This is EXACTLY how repo-fetch/fileToDiffFile encodes a whitebox file:
+  // patch-only, no `contents`. Before the fix, experts got "" here.
+  const src = 'function f(req){\n  return db.query("SELECT * FROM t WHERE id="+req.id);\n}';
+  const f = fileToDiffFile("a.ts", src); // sets patch, NOT contents
+  expect(f.contents).toBeUndefined();
+  expect(fileSourceText(f)).toBe(src);
+});
+
+test("fileSourceText drops hunk headers + removed lines, strips +/space markers", () => {
+  const patch = ["@@ -1,2 +1,2 @@", " ctx line", "-removed line", "+added line"].join("\n");
+  const f: DiffFile = { path: "a.ts", status: "modified", patch };
+  expect(fileSourceText(f)).toBe("ctx line\nadded line");
+});
+
+test("fileSourceText returns '' when neither contents nor patch is present", () => {
+  expect(fileSourceText({ path: "a.ts", status: "added" })).toBe("");
 });
 
 test("budget assertWithin is invoked per scenario", async () => {
