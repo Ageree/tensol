@@ -20,9 +20,8 @@ it as historical context until this notice is removed.
 ---
 
 This repository is the implementation of the spec at
-`PROJECT-SPECS-cyberstrike-hybrid.md` (read-only) and the plan at
-`.omx/plans/implementation-cyberstrike-hybrid.md` (read-only). The current
-sprint state and per-sprint contracts live under `.harness/cyberstrike-hybrid/`.
+`PROJECT-SPECS-cyberstrike-hybrid.md` (read-only). The current sprint state and
+per-sprint contracts live under `.harness/cyberstrike-hybrid/`.
 
 ## Prerequisites
 
@@ -232,8 +231,6 @@ docs/
   runbooks/                  operational runbooks
 .harness/
   cyberstrike-hybrid/        sprint contracts + product spec (Lead-managed)
-.omx/
-  plans/                     read-only source plans
 ```
 
 ## Auth
