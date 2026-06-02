@@ -1,15 +1,12 @@
 // /contact — lead intake screen. Single paper panel, telegram + phone only.
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
-import { LangSwitcher } from '../components/LangSwitcher.tsx';
-import { AuthWave } from '../components/PixelWaveBg.tsx';
 import {
   Btn,
   Checkbox,
   Field,
-  HalftoneBg,
   Input,
   Mono,
 } from '../components/primitives.tsx';
@@ -28,6 +25,80 @@ type FormShape = {
 };
 
 type FieldErrors = Partial<Record<keyof FormShape, string>>;
+
+function ContactAsciiWave() {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const preRef = useRef<HTMLPreElement | null>(null);
+
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    const el = preRef.current;
+    if (!wrap || !el) return;
+
+    let cols = 86;
+    let rows = 24;
+    const chars = ' .:-=+*#%@';
+    let raf = 0;
+    let lastDraw = 0;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const resize = () => {
+      const rect = wrap.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      const fontSize = Number.parseFloat(style.fontSize) || 9;
+      const lineHeight = Number.parseFloat(style.lineHeight) || fontSize * 1.05;
+      const charWidth = fontSize * 0.62;
+      cols = Math.max(64, Math.min(150, Math.ceil(rect.width / charWidth)));
+      rows = Math.max(34, Math.min(110, Math.ceil(rect.height / lineHeight)));
+    };
+
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(wrap);
+
+    const render = (now: number) => {
+      if (!lastDraw || now - lastDraw > 66) {
+        const t = now / 1000;
+        const lines: string[] = [];
+        for (let y = 0; y < rows; y++) {
+          let line = '';
+          for (let x = 0; x < cols; x++) {
+            const v =
+              Math.sin(x * 0.22 + t * 0.9) +
+              Math.sin(y * 0.3 - t * 0.7) +
+              Math.sin(x * 0.1 + y * 0.14 + t * 0.4);
+            const n = v / 3;
+            if (n > 0.2) {
+              const strength = Math.min(1, (n - 0.2) * 2.35);
+              line += chars[Math.max(1, Math.floor(strength * (chars.length - 1)))];
+            } else {
+              line += ' ';
+            }
+          }
+          lines.push(line.replace(/\s+$/g, ''));
+        }
+        el.textContent = lines.join('\n');
+        lastDraw = now;
+      }
+
+      if (!reducedMotion) {
+        raf = requestAnimationFrame(render);
+      }
+    };
+
+    raf = requestAnimationFrame(render);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, []);
+
+  return (
+    <div ref={wrapRef} className="contact-ascii-wave" aria-hidden="true">
+      <pre ref={preRef} />
+    </div>
+  );
+}
 
 /* ─────────────────────────────────────────────────────────────────────
    Telegram-handle normalizer (accept @handle, t.me/handle, bare handle).
@@ -185,6 +256,7 @@ export default function Contact() {
         ogImage="/assets/sthrip-noise-field.jpg"
       />
       <div
+        className="contact-shell"
         style={{
           minHeight: '100vh',
           background: 'var(--paper)',
@@ -193,20 +265,19 @@ export default function Contact() {
           gridTemplateColumns: '1.1fr 1fr',
         }}
       >
-        {/* Left: ink-aside with halftone + wave (no quote) */}
+        {/* Left: brand signal panel */}
         <aside
+          className="contact-theme-aside"
           style={{
             position: 'relative',
             overflow: 'hidden',
-            background: 'var(--ink)',
-            color: 'var(--paper)',
             padding: '40px 48px',
             display: 'flex',
             flexDirection: 'column',
           }}
         >
-          <HalftoneBg color="var(--paper)" opacity={0.08} />
-          <AuthWave />
+          <div className="contact-aurora-grid" aria-hidden="true" />
+          <ContactAsciiWave />
 
           <div style={{ position: 'relative' }}>
             <button
@@ -215,7 +286,7 @@ export default function Contact() {
               style={{
                 background: 'transparent',
                 border: 'none',
-                color: 'var(--paper)',
+                color: 'var(--ink)',
                 cursor: 'pointer',
                 padding: 0,
                 display: 'inline-flex',
@@ -224,11 +295,35 @@ export default function Contact() {
               }}
             >
               <img
+                src="/assets/tensol-logo-mark-white.png"
+                alt=""
+                aria-hidden="true"
+                style={{
+                  display: 'block',
+                  width: 34,
+                  height: 34,
+                  filter: 'invert(1) brightness(0.12)',
+                }}
+              />
+              <img
                 src="/assets/sthrip-wordmark-white.png"
                 alt="STHRIP"
-                style={{ display: 'block', width: 126, height: 'auto', imageRendering: 'pixelated' }}
+                style={{
+                  display: 'block',
+                  width: 126,
+                  height: 'auto',
+                  filter: 'invert(1) brightness(0.12)',
+                }}
               />
             </button>
+          </div>
+          <div className="contact-left-copy">
+            <span>SECURE INTAKE</span>
+            <strong>Scope first. Evidence next.</strong>
+            <p>
+              Share a reachable contact. We will align the right blackbox,
+              whitebox, or PR review path before any testing begins.
+            </p>
           </div>
         </aside>
 
@@ -243,10 +338,6 @@ export default function Contact() {
             overflowY: 'auto',
           }}
         >
-          <div style={{ position: 'absolute', top: 32, right: 40 }}>
-            <LangSwitcher />
-          </div>
-
           <div style={{ width: '100%', maxWidth: 520, marginTop: 24 }}>
             {submitState === 'success' ? (
               <SuccessPanel onBack={() => navigate('/')} />
@@ -254,11 +345,11 @@ export default function Contact() {
               <>
                 <h1
                   style={{
-                    fontFamily: "'Space Grotesk', sans-serif",
+                    fontFamily: 'var(--font-display)',
                     fontWeight: 500,
                     fontSize: 44,
                     lineHeight: 1.05,
-                    letterSpacing: '-0.02em',
+                    letterSpacing: 0,
                     margin: '0 0 28px',
                   }}
                 >
@@ -418,11 +509,11 @@ function SuccessPanel({ onBack }: { onBack: () => void }) {
       `}</style>
       <h1
         style={{
-          fontFamily: "'Space Grotesk', sans-serif",
+          fontFamily: 'var(--font-display)',
           fontWeight: 500,
           fontSize: 44,
           lineHeight: 1.05,
-          letterSpacing: '-0.02em',
+          letterSpacing: 0,
           margin: 0,
         }}
       >

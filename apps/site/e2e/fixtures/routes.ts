@@ -1,4 +1,14 @@
-export const MARKETING_ROUTES = ['/', '/pricing', '/trust', '/contact'] as const;
+export const MARKETING_ROUTES = [
+  '/',
+  '/pricing',
+  '/solutions',
+  '/solutions/blackbox',
+  '/solutions/whitebox',
+  '/solutions/pr-review',
+  '/trust',
+  '/resources',
+  '/contact',
+] as const;
 
 export const LEGAL_ROUTES = [
   '/legal/privacy',

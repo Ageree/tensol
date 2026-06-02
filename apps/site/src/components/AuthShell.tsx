@@ -3,8 +3,7 @@ import type { ReactNode } from 'react';
 import { useTensol } from '../context.tsx';
 import { TENSOL_I18N, type TensolLang } from '../i18n.ts';
 import { LangSwitcher } from './LangSwitcher.tsx';
-import { AuthWave } from './PixelWaveBg.tsx';
-import { Eyebrow, HalftoneBg, LogoLockup } from './primitives.tsx';
+import { Eyebrow, LogoLockup } from './primitives.tsx';
 
 type AuthShellProps = {
   children: ReactNode;
@@ -32,6 +31,7 @@ export function AuthShell({
 
   return (
     <div
+      className="auth-shell"
       style={{
         minHeight: '100vh',
         background: 'var(--paper)',
@@ -44,16 +44,16 @@ export function AuthShell({
         style={{
           position: 'relative',
           overflow: 'hidden',
-          background: 'var(--ink)',
-          color: 'var(--paper)',
+          background: 'var(--paper)',
+          color: 'var(--ink)',
           padding: '40px 48px',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',
+          borderRight: '1px solid rgba(18, 12, 13, 0.42)',
         }}
       >
-        <HalftoneBg color="var(--paper)" opacity={0.08} />
-        <AuthWave />
+        <div className="auth-minimal-bg" aria-hidden="true" />
         <div style={{ position: 'relative' }}>
           <button
             type="button"
@@ -61,7 +61,7 @@ export function AuthShell({
             style={{
               background: 'transparent',
               border: 'none',
-              color: 'var(--paper)',
+              color: 'var(--ink)',
               cursor: 'pointer',
               padding: 0,
               display: 'inline-flex',
@@ -70,27 +70,40 @@ export function AuthShell({
             }}
           >
             {isSthrip ? (
-              <img
-                src="/assets/sthrip-wordmark-white.png"
-                alt="STHRIP"
-                style={{
-                  display: 'block',
-                  width: 126,
-                  height: 'auto',
-                  imageRendering: 'pixelated',
-                }}
-              />
+              <>
+                <img
+                  src="/assets/tensol-logo-mark-white.png"
+                  alt=""
+                  aria-hidden="true"
+                  style={{
+                    display: 'block',
+                    width: 34,
+                    height: 34,
+                    filter: 'invert(1) brightness(0.12)',
+                  }}
+                />
+                <img
+                  src="/assets/sthrip-wordmark-white.png"
+                  alt="STHRIP"
+                  style={{
+                    display: 'block',
+                    width: 126,
+                    height: 'auto',
+                    filter: 'invert(1) brightness(0.12)',
+                  }}
+                />
+              </>
             ) : (
-              <LogoLockup size={20} color="var(--paper)" onClick={onBack} />
+              <LogoLockup size={20} color="var(--ink)" onClick={onBack} />
             )}
           </button>
         </div>
         <div
           style={{
             position: 'relative',
-            fontFamily: "'JetBrains Mono', monospace",
+            fontFamily: 'var(--font-mono)',
             fontSize: 11,
-            color: 'rgba(250,249,246,.6)',
+            color: 'var(--fg-2)',
             letterSpacing: '0.04em',
             display: 'flex',
             justifyContent: 'space-between',
@@ -106,6 +119,7 @@ export function AuthShell({
           alignItems: 'center',
           justifyContent: 'center',
           padding: '40px',
+          background: 'var(--paper)',
         }}
       >
         <div style={{ position: 'absolute', top: 32, right: 40 }}>
@@ -115,11 +129,11 @@ export function AuthShell({
           {eyebrow && <Eyebrow style={{ marginBottom: 12 }}>{eyebrow}</Eyebrow>}
           <h1
             style={{
-              fontFamily: "'Space Grotesk', sans-serif",
+              fontFamily: 'var(--font-display)',
               fontWeight: 500,
               fontSize: 40,
               lineHeight: 1.05,
-              letterSpacing: '-0.02em',
+              letterSpacing: 0,
               margin: '0 0 12px',
             }}
           >
@@ -128,7 +142,7 @@ export function AuthShell({
           {sub && (
             <p
               style={{
-                fontFamily: "'Inter', sans-serif",
+                fontFamily: 'var(--font-mono)',
                 fontSize: 14.5,
                 lineHeight: 1.5,
                 color: 'var(--fg-2)',

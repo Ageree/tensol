@@ -24,7 +24,8 @@ const Pricing = lazy(() => safeImport(() => import('./pages/Pricing.tsx'), 'pric
 const Trust = lazy(() => safeImport(() => import('./pages/Trust.tsx'), 'trust'));
 const Legal = lazy(() => safeImport(() => import('./pages/Legal.tsx'), 'legal'));
 const Blog = lazy(() => safeImport(() => import('./pages/Blog.tsx'), 'blog'));
-const Method = lazy(() => safeImport(() => import('./pages/Method.tsx'), 'method'));
+const Solutions = lazy(() => safeImport(() => import('./pages/Solutions.tsx'), 'solutions'));
+const Resources = lazy(() => safeImport(() => import('./pages/Resources.tsx'), 'resources'));
 const DeepInquiry = lazy(() =>
   safeImport(() => import('./pages/DeepInquiry.tsx'), 'deep-inquiry'),
 );
@@ -95,7 +96,9 @@ export const App = () => (
         <Route path="/trust" element={<Trust />} />
         <Route path="/legal/:kind" element={<Legal />} />
         <Route path="/blog" element={<Blog />} />
-        <Route path="/method" element={<Method />} />
+        <Route path="/resources" element={<Resources />} />
+        <Route path="/solutions" element={<Solutions />} />
+        <Route path="/solutions/:productId" element={<Solutions />} />
         {/* T108 — US2 Deep audit lead-gen funnel. */}
         <Route path="/deep-inquiry" element={<DeepInquiry />} />
         <Route
