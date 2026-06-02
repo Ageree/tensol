@@ -154,6 +154,12 @@ const ConfigSchema = z
     // truthy — fail-unsafe for a dark gate); the numeric tunables use z.coerce.
     TENSOL_EXPLOIT_ENABLED: envBool(false),
     TENSOL_RESEARCH_ENABLED: envBool(false),
+    // Deep Research (F1) cost bound. The multi-agent pipeline makes routing + N
+    // expert + triage LLM calls; without a ceiling a deep scan of a large repo
+    // is unbounded spend. The handler meters the research LLM against a budget
+    // built from these and aborts the scan once the ceiling is hit.
+    TENSOL_RESEARCH_BUDGET_USD: z.coerce.number().positive().default(0.5),
+    TENSOL_RESEARCH_USD_PER_MTOK_OUT: z.coerce.number().positive().default(2.0),
     TENSOL_EXPLOIT_LLM_MODEL: z.string().default("qwen/qwen3.7-max"),
     TENSOL_EXPLOIT_MAX_ITERS: z.coerce.number().int().positive().default(4),
     TENSOL_EXPLOIT_BUDGET_USD: z.coerce.number().positive().default(2.0),

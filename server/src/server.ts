@@ -927,6 +927,13 @@ export async function main(): Promise<{
             sastRunner: reviewSastRunner,
             cloneUrlFor,
             deepResearch: config.TENSOL_RESEARCH_ENABLED,
+            // Per-scan cost bound for deep research (only consulted when
+            // deepResearch is on). Meters the research LLM + aborts at the ceiling.
+            makeResearchBudget: () =>
+              createBudget({
+                ceilingUsd: config.TENSOL_RESEARCH_BUDGET_USD,
+                usdPerMTokOut: config.TENSOL_RESEARCH_USD_PER_MTOK_OUT,
+              }),
             ...(exploitHook ? { exploit: exploitHook } : {}),
           }),
         )

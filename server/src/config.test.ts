@@ -140,6 +140,9 @@ describe("loadConfig", () => {
     expect(cfg.TENSOL_EXPLOIT_BUDGET_USD).toBe(2);
     expect(cfg.TENSOL_EXPLOIT_SANDBOX).toBe("local");
     expect(cfg.TENSOL_EXPLOIT_MAX_ITERS).toBe(4);
+    // Deep Research cost bound defaults.
+    expect(cfg.TENSOL_RESEARCH_BUDGET_USD).toBe(0.5);
+    expect(cfg.TENSOL_RESEARCH_USD_PER_MTOK_OUT).toBe(2);
   });
 
   test("feature gates FAIL SAFE: falsey strings stay OFF (not z.coerce.boolean)", () => {
