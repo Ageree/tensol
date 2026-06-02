@@ -17,6 +17,7 @@ import { AppShell } from '../components/AppShell.tsx';
 import { MarkdownRenderer } from '../components/MarkdownRenderer.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Eyebrow, Mono, SeverityChip, StatusChip } from '../components/primitives.tsx';
+import { useTensol } from '../context.tsx';
 import {
   ApiError,
   type FindingConfidence,
@@ -25,6 +26,7 @@ import {
   type ReviewResultWire,
   type ReviewRunStatus,
   type Severity,
+  type VerificationStatus,
 } from '../lib/api-client.ts';
 import { apiClient } from '../lib/api-client.ts';
 import { usePolling } from '../lib/poll.ts';
@@ -208,9 +210,67 @@ function Collapsible({ label, children }: CollapsibleProps): ReactElement {
   );
 }
 
+// ─── Verification status badge ────────────────────────────────────────────────
+
+interface VerificationBadgeProps {
+  /** Chip label prefix (e.g. "Verified" / "Подтверждение") from i18n. */
+  prefix: string;
+  /** Human-readable status value in the current locale. */
+  value: string;
+  status: VerificationStatus;
+}
+
+function verificationBadgeStyle(status: VerificationStatus): {
+  bg: string;
+  color: string;
+  border: string;
+} {
+  if (status === 'verified') {
+    return { bg: '#E5F4EB', color: '#0E5E2A', border: '#1F7A3A' };
+  }
+  if (status === 'refuted') {
+    return { bg: '#FEE2E2', color: 'var(--red)', border: 'var(--red)' };
+  }
+  // unverified
+  return { bg: 'var(--bg-2)', color: 'var(--fg-3)', border: 'var(--line-soft)' };
+}
+
+function VerificationBadge({ prefix, value, status }: VerificationBadgeProps): ReactElement {
+  const { bg, color, border } = verificationBadgeStyle(status);
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'baseline',
+        gap: 5,
+        padding: '3px 9px',
+        border: `1px solid ${border}`,
+        background: bg,
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 11,
+      }}
+    >
+      <span
+        style={{
+          color: 'var(--fg-3)',
+          fontSize: 9.5,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+        }}
+      >
+        {prefix}
+      </span>
+      <span style={{ color }}>{value}</span>
+    </span>
+  );
+}
+
 // ─── Finding card ─────────────────────────────────────────────────────────────
 
 function FindingCard({ f }: { f: ReviewFindingWire }): ReactElement {
+  const { t } = useTensol();
+  const tr = t.reviews;
+
   const location =
     f.start_line != null ? `${f.file_path}:${f.start_line}` : f.file_path;
 
@@ -251,42 +311,65 @@ function FindingCard({ f }: { f: ReviewFindingWire }): ReactElement {
 
       {/* Chip bar */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {f.category && <InlineBadge label="Category" value={f.category} />}
+        {f.category && <InlineBadge label={tr.labelCategory} value={f.category} />}
         {f.cvss_score != null && (
-          <InlineBadge label="CVSS" value={f.cvss_score.toFixed(1)} />
+          <InlineBadge label={tr.labelCvss} value={f.cvss_score.toFixed(1)} />
         )}
         {f.confidence && (
-          <InlineBadge label="Confidence" value={f.confidence as FindingConfidence} />
+          <InlineBadge label={tr.labelConfidence} value={f.confidence as FindingConfidence} />
         )}
         {f.reachable != null && (
-          <InlineBadge label="Reachable" value={f.reachable ? 'yes' : 'no'} />
+          <InlineBadge
+            label={tr.labelReachable}
+            value={f.reachable ? tr.reachableYes : tr.reachableNo}
+          />
+        )}
+        {f.verification_status != null && (
+          <VerificationBadge
+            prefix={tr.labelVerification}
+            status={f.verification_status}
+            value={
+              f.verification_status === 'verified'
+                ? tr.verificationVerified
+                : f.verification_status === 'refuted'
+                  ? tr.verificationRefuted
+                  : tr.verificationUnverified
+            }
+          />
         )}
         {f.source && (
-          <InlineBadge label="Source" value={f.source} />
+          <InlineBadge label={tr.labelSource} value={f.source} />
         )}
         {f.cwe.map((c) => (
-          <InlineBadge key={`cwe-${c}`} label="CWE" value={c} />
+          <InlineBadge key={`cwe-${c}`} label={tr.labelCwe} value={c} />
         ))}
       </div>
 
       {/* Rationale */}
       {f.rationale_md.trim().length > 0 && (
         <div>
-          <Eyebrow style={{ marginBottom: 8 }}>Rationale</Eyebrow>
+          <Eyebrow style={{ marginBottom: 8 }}>{tr.rationale}</Eyebrow>
           <MarkdownRenderer source={f.rationale_md} />
         </div>
       )}
 
+      {/* Reachability evidence (collapsible) */}
+      {f.reachability_evidence_md != null && f.reachability_evidence_md.trim().length > 0 && (
+        <Collapsible label={tr.labelReachEvidence}>
+          <MarkdownRenderer source={f.reachability_evidence_md} />
+        </Collapsible>
+      )}
+
       {/* Proof of concept (collapsible) */}
       {f.poc_md != null && f.poc_md.trim().length > 0 && (
-        <Collapsible label="Proof of concept">
+        <Collapsible label={tr.pocLabel}>
           <MarkdownRenderer source={f.poc_md} />
         </Collapsible>
       )}
 
       {/* Suggested fix (collapsible) */}
       {f.fix_prompt_md != null && f.fix_prompt_md.trim().length > 0 && (
-        <Collapsible label="Suggested fix">
+        <Collapsible label={tr.fixLabel}>
           <MarkdownRenderer source={f.fix_prompt_md} />
         </Collapsible>
       )}
@@ -297,12 +380,15 @@ function FindingCard({ f }: { f: ReviewFindingWire }): ReactElement {
 // ─── Findings grouped by severity ────────────────────────────────────────────
 
 function FindingsSection({ findings }: { findings: ReviewFindingWire[] }): ReactElement {
+  const { t } = useTensol();
+  const tr = t.reviews;
+
   if (findings.length === 0) {
     return (
       <section>
-        <Eyebrow style={{ marginBottom: 14 }}>Findings · 0</Eyebrow>
+        <Eyebrow style={{ marginBottom: 14 }}>{tr.sectionFindings} {tr.findingsSuffix} 0</Eyebrow>
         <Mono size={12} color="var(--fg-3)">
-          No findings for this review.
+          {tr.noFindings}
         </Mono>
       </section>
     );
@@ -322,7 +408,7 @@ function FindingsSection({ findings }: { findings: ReviewFindingWire[] }): React
 
   return (
     <section>
-      <Eyebrow style={{ marginBottom: 14 }}>Findings · {findings.length}</Eyebrow>
+      <Eyebrow style={{ marginBottom: 14 }}>{tr.sectionFindings} {tr.findingsSuffix} {findings.length}</Eyebrow>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
         {SEV_ORDER.map((sev) => {
           const bucket = grouped.get(sev) ?? [];

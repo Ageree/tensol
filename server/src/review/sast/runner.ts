@@ -81,23 +81,55 @@ export type SpawnFn = (
 ) => Promise<SpawnResult>;
 
 /** The CLI tools this module knows how to drive. */
-export type SastTool = "opengrep" | "trivy" | "gitleaks";
+export type SastTool = "opengrep" | "trivy" | "gitleaks" | "osv-scanner" | "kingfisher";
 
 /** Default {@link FindingSource} attributed to each tool's output. */
 const TOOL_SOURCE: Record<SastTool, FindingSource> = {
   opengrep: "sast",
   trivy: "sca",
   gitleaks: "secrets",
+  "osv-scanner": "sca",
+  kingfisher: "secrets",
 };
 
 /**
- * Build the argv that emits SARIF to stdout for a given tool + repo dir.
- * Kept pure + table-driven so it is trivially unit-testable.
+ * Output format: SARIF tools emit JSON SARIF to stdout; Kingfisher emits a
+ * custom JSON array. This distinguishes how we parse the output.
  */
-function sarifArgv(tool: SastTool, bin: string, repoDir: string): string[] {
+type OutputFormat = "sarif" | "kingfisher-json";
+
+const TOOL_OUTPUT_FORMAT: Record<SastTool, OutputFormat> = {
+  opengrep: "sarif",
+  trivy: "sarif",
+  gitleaks: "sarif",
+  "osv-scanner": "sarif",
+  kingfisher: "kingfisher-json",
+};
+
+/**
+ * Build the argv that emits SARIF (or JSON for Kingfisher) to stdout for a
+ * given tool + repo dir. Kept pure + table-driven so it is trivially
+ * unit-testable.
+ *
+ * @param rulesDir  Optional path to an AikidoSec-MIT/self-authored rules dir
+ *                  for opengrep (STHRIP_OPENGREP_RULES_DIR). Ignored by other
+ *                  tools.
+ */
+function buildArgv(
+  tool: SastTool,
+  bin: string,
+  repoDir: string,
+  rulesDir?: string,
+): string[] {
   switch (tool) {
-    case "opengrep":
-      return [bin, "scan", "--sarif", "-q", repoDir];
+    case "opengrep": {
+      const base = [bin, "scan", "--sarif", "-q"];
+      if (rulesDir !== undefined && rulesDir.length > 0) {
+        base.push("--config", rulesDir);
+      }
+      base.push(repoDir);
+      return base;
+    }
     case "trivy":
       return [bin, "fs", "--format", "sarif", repoDir];
     case "gitleaks":
@@ -112,6 +144,10 @@ function sarifArgv(tool: SastTool, bin: string, repoDir: string): string[] {
         "-s",
         repoDir,
       ];
+    case "osv-scanner":
+      return [bin, "--format", "sarif", "-r", repoDir];
+    case "kingfisher":
+      return [bin, "scan", repoDir, "--format", "json"];
   }
 }
 
@@ -162,14 +198,85 @@ function parseSarif(stdout: string, source: FindingSource): RawFinding[] {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Kingfisher JSON normalizer.
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize Kingfisher's JSON output (array of secret findings) into neutral
+ * {@link RawFinding}s. Kingfisher does NOT emit SARIF natively; it outputs a
+ * JSON array where each element describes one secret detection.
+ *
+ * Expected shape (all fields except `rule_id`, `description`, `file` are
+ * optional — missing fields are omitted rather than filled with defaults):
+ * ```json
+ * [{ "rule_id": "...", "description": "...", "file": "...",
+ *    "start_line": 5, "end_line": 5, "matched_text": "..." }]
+ * ```
+ *
+ * A non-array, non-JSON, or empty payload returns `[]` without throwing.
+ */
+function parseKingfisherJson(stdout: string): RawFinding[] {
+  if (!stdout || stdout.trim().length === 0) return [];
+  let arr: unknown;
+  try {
+    arr = JSON.parse(stdout);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(arr)) return [];
+
+  const findings: RawFinding[] = [];
+  for (const item of arr) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
+    const obj = item as Record<string, unknown>;
+
+    const ruleId = typeof obj["rule_id"] === "string" ? obj["rule_id"] : undefined;
+    const description =
+      typeof obj["description"] === "string" ? obj["description"] : undefined;
+    const file = typeof obj["file"] === "string" ? obj["file"] : undefined;
+
+    // Both ruleId and file are required for a usable finding.
+    if (ruleId === undefined || file === undefined) continue;
+
+    const startLine =
+      typeof obj["start_line"] === "number" && Number.isFinite(obj["start_line"])
+        ? Math.trunc(obj["start_line"] as number)
+        : undefined;
+    const endLine =
+      typeof obj["end_line"] === "number" && Number.isFinite(obj["end_line"])
+        ? Math.trunc(obj["end_line"] as number)
+        : undefined;
+    const snippet =
+      typeof obj["matched_text"] === "string" ? obj["matched_text"] : undefined;
+
+    findings.push({
+      ruleId,
+      source: "secrets",
+      filePath: file,
+      message: description ?? ruleId,
+      ...(startLine !== undefined ? { startLine } : {}),
+      ...(endLine !== undefined ? { endLine } : {}),
+      ...(snippet !== undefined ? { snippet } : {}),
+    });
+  }
+  return findings;
+}
+
 /**
  * Create a {@link SastRunner} that drives a real CLI tool and normalizes its
- * SARIF stdout into {@link RawFinding}s.
+ * SARIF (or JSON for Kingfisher) stdout into {@link RawFinding}s.
  *
- * Graceful degradation:
+ * Graceful degradation (NEVER throws to caller):
  *   - If `whichImpl(bin)` is false (tool not installed) → return [] WITHOUT spawning.
  *   - If the spawned tool emits non-JSON stdout → return [].
  *   - If normalization throws → return [].
+ *   - OSV-Scanner and Kingfisher are OPTIONAL sidecars: absent binary → [].
+ *
+ * @param rulesDir  Path to an AikidoSec-MIT/self-authored Opengrep rules
+ *                  directory (STHRIP_OPENGREP_RULES_DIR). Non-empty value adds
+ *                  `--config <rulesDir>` to the opengrep argv. Ignored for
+ *                  all other tools.
  *
  * Determinism: spawn + which are injectable so tests never touch the real OS.
  */
@@ -177,14 +284,17 @@ export function createCliSastRunner(args: {
   tool: SastTool;
   source?: FindingSource;
   bin?: string;
+  rulesDir?: string;
   spawnImpl?: SpawnFn;
   whichImpl?: (bin: string) => Promise<boolean>;
 }): SastRunner {
   const tool = args.tool;
   const bin = args.bin ?? tool;
   const source = args.source ?? TOOL_SOURCE[tool];
+  const rulesDir = args.rulesDir;
   const spawn = args.spawnImpl ?? defaultSpawn;
   const which = args.whichImpl ?? defaultWhich;
+  const outputFormat = TOOL_OUTPUT_FORMAT[tool];
 
   return {
     name: tool,
@@ -193,10 +303,13 @@ export function createCliSastRunner(args: {
       if (!installed) return [];
       let result: SpawnResult;
       try {
-        result = await spawn(sarifArgv(tool, bin, repoDir), { cwd: repoDir });
+        result = await spawn(buildArgv(tool, bin, repoDir, rulesDir), { cwd: repoDir });
       } catch {
         // Spawn failure (e.g. tool crashed) must not break the batch.
         return [];
+      }
+      if (outputFormat === "kingfisher-json") {
+        return parseKingfisherJson(result.stdout);
       }
       return parseSarif(result.stdout, source);
     },

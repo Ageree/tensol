@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **пентест ИИ** (4197 symbols, 8566 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **пентест ИИ** (5235 symbols, 10706 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -155,16 +155,17 @@ A hunk in a file already rewritten by branch A **cannot** be committed to a para
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
 
-- Plan: `specs/002-blackbox-mvp/plan.md`
-- Spec: `specs/002-blackbox-mvp/spec.md`
-- Research: `specs/002-blackbox-mvp/research.md`
-- Data model: `specs/002-blackbox-mvp/data-model.md`
-- API contract: `specs/002-blackbox-mvp/contracts/openapi.yaml`
-- Webhook contract: `specs/002-blackbox-mvp/contracts/webhook.md`
-- Quickstart: `specs/002-blackbox-mvp/quickstart.md`
-- Design doc: `docs/superpowers/specs/2026-05-19-blackbox-mvp-design.md`
+- Plan: `specs/004-sthrip-pr-review/plan.md`
+- Spec: `specs/004-sthrip-pr-review/spec.md`
+- Research: `specs/004-sthrip-pr-review/research.md`
+- Data model: `specs/004-sthrip-pr-review/data-model.md`
+- API contract: `specs/004-sthrip-pr-review/contracts/openapi.yaml`
+- Webhook contract: `specs/004-sthrip-pr-review/contracts/webhooks.md`
+- Quickstart: `specs/004-sthrip-pr-review/quickstart.md`
 - Constitution: `.specify/memory/constitution.md` (v1.0.0)
 
-Prior feature (still on disk, NOT active scope):
+Prior features (still on disk, NOT active scope):
 - 001-backend-v2 plan: `specs/001-backend-v2/plan.md`
+- 002-blackbox-mvp plan: `specs/002-blackbox-mvp/plan.md`
+- 003-whitebox plan: `specs/003-whitebox/plan.md`
 <!-- SPECKIT END -->

@@ -1,14 +1,19 @@
 /**
- * 003-whitebox — review persistence service.
+ * 003-whitebox / 004-sthrip-pr-review — review persistence service.
  *
  * Owns all DB writes for the review domain (repos / reviews / findings /
- * threads / feedback) and emits the signed audit rows (Constitution X:
- * audit emission lives in the service, not the route). Mirrors the patterns
- * in `findings/service.ts` + `scan-orders/service.ts`.
+ * threads / feedback / suppressions) and emits the signed audit rows
+ * (Constitution X: audit emission lives in the service, not the route).
+ * Mirrors the patterns in `findings/service.ts` + `scan-orders/service.ts`.
  *
  * The signed-audit writer (`emitSignedAudit`) owns its own BEGIN IMMEDIATE
  * transaction, so it is always called OUTSIDE `withTx` blocks (bun:sqlite
  * forbids nested BEGINs — same rule as the webhook handlers).
+ *
+ * Wave-3 file-size refactor: installations CRUD + Wave-2 repo-settings methods
+ * are extracted to `service-installations.ts`. This file re-exports them as a
+ * thin barrel to keep both files under 800 lines while keeping the
+ * `ReviewService` interface + factory stable for consumers.
  */
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { emitSignedAudit } from "../audit/emit.ts";
@@ -19,18 +24,37 @@ import {
   reviewFeedback as reviewFeedbackTable,
   reviewFindings as reviewFindingsTable,
   reviewRepos as reviewReposTable,
-  reviews as reviewsTable,
+  reviewSuppressions as reviewSuppressionsTable,
   reviewThreads as reviewThreadsTable,
+  reviews as reviewsTable,
   webhookDedup as webhookDedupTable,
+  type Installation,
   type Review,
   type ReviewFeedback,
   type ReviewFinding as ReviewFindingRow,
   type ReviewRepo,
+  type ReviewSuppression,
   type ReviewThread,
 } from "../db/schema.ts";
 import { ulid } from "../lib/ids.ts";
 import { now as defaultNow } from "../lib/time.ts";
+import { NEVER_SUPPRESS } from "./learning.ts";
 import type { ReviewKind, ReviewResult } from "./types.ts";
+import {
+  createInstallationMethods,
+  type UpsertInstallationArgs,
+  type UpdateRepoSettingsArgs,
+  type ReconcileInstallationReposArgs,
+  type SetReposEnabledBySlugsArgs,
+} from "./service-installations.ts";
+
+// Re-export installation-module arg types so consumers import from one place.
+export type {
+  UpsertInstallationArgs,
+  UpdateRepoSettingsArgs,
+  ReconcileInstallationReposArgs,
+  SetReposEnabledBySlugsArgs,
+} from "./service-installations.ts";
 
 export interface CreateReviewServiceDeps {
   readonly db: DB;
@@ -77,54 +101,34 @@ export interface RecordFeedbackArgs {
   readonly embeddingJson?: string | null;
 }
 
+export interface ResolveThreadByFingerprintArgs {
+  readonly repoId: string;
+  readonly fingerprint: string;
+}
+
+export interface WriteSuppressionArgs {
+  readonly repoId: string;
+  readonly category: string;
+  readonly reason: "ignored_n_times" | "manual";
+  readonly ignoreCount: number;
+}
+
 export interface ReviewService {
+  // Core repo CRUD
   upsertRepo(args: UpsertRepoArgs): Promise<ReviewRepo>;
-  getRepoByFullName(
-    scm: string,
-    owner: string,
-    name: string,
-  ): Promise<ReviewRepo | null>;
-  /**
-   * Resolve a connected repo by its SIGNED GitHub `installation_id` (the only
-   * trustworthy tenant identifier on a webhook), asserting the event's
-   * owner/name match the stored row. Returns null when no row matches the
-   * installation, or when the installation's stored slug differs from the
-   * event's — so an attacker who minted a row for `victim/secret` under their
-   * OWN user can never be resolved from a victim's webhook (which carries the
-   * victim's installation id, not the attacker's). The per-user
-   * `(scm,owner,name,user_id)` unique index means `(owner,name)` alone can match
-   * multiple tenants — `installation_id` disambiguates to exactly one.
-   */
-  getRepoByInstallation(
-    scm: string,
-    installationId: string,
-    owner: string,
-    name: string,
-  ): Promise<ReviewRepo | null>;
+  getRepoByFullName(scm: string, owner: string, name: string): Promise<ReviewRepo | null>;
+  /** Resolve by SIGNED installation id — the only cross-tenant-safe lookup. */
+  getRepoByInstallation(scm: string, installationId: string, owner: string, name: string): Promise<ReviewRepo | null>;
   getRepo(id: string): Promise<ReviewRepo | null>;
   listReposByUser(userId: string): Promise<ReviewRepo[]>;
+
+  // Review lifecycle
   createReview(args: CreateReviewArgs): Promise<Review>;
-  /**
-   * Atomically insert a queued review + its `pending` job in ONE transaction,
-   * so a crash can never leave a `queued` review with no job to run it.
-   *
-   * When `dedup` is supplied (webhook delivery), its `webhook_dedup` row is
-   * inserted FIRST inside the SAME transaction. A UNIQUE collision rolls the
-   * whole tx back (no orphan review/job) and resolves with `{duplicate:true}`.
-   * Committing the dedup row in the same tx as the work means a crash before
-   * commit also rolls the dedup row back, so GitHub's retry re-processes the
-   * delivery instead of being swallowed as a duplicate with no review.
-   */
+  /** Atomic review+job insert with optional dedup; duplicate→{duplicate:true}. */
   createQueuedReviewWithJob(
     args: CreateReviewArgs,
     jobType: "pr_review" | "whitebox_scan",
-    dedup?: {
-      id: string;
-      webhookKind: string;
-      dedupKey: string;
-      receivedAt: number;
-      metadataJson: string;
-    },
+    dedup?: { id: string; webhookKind: string; dedupKey: string; receivedAt: number; metadataJson: string },
   ): Promise<{ review: Review; jobId: string; duplicate: boolean }>;
   markReviewRunning(id: string): Promise<Review>;
   finalizeReview(id: string, result: ReviewResult): Promise<Review>;
@@ -133,25 +137,37 @@ export interface ReviewService {
   listReviewsByRepo(repoId: string): Promise<Review[]>;
   listReviewsByUser(userId: string): Promise<Review[]>;
   getReviewFindings(reviewId: string): Promise<ReviewFindingRow[]>;
-  /**
-   * Count persisted `review_findings` rows per review id, WITHOUT loading the
-   * full findings. Returns a map keyed by review id; ids with no findings are
-   * absent (treat as 0). Used by the list endpoint's `findings_count`.
-   */
-  countFindingsByReviewIds(
-    reviewIds: string[],
-  ): Promise<Record<string, number>>;
+  countFindingsByReviewIds(reviewIds: string[]): Promise<Record<string, number>>;
+
+  // Threads + feedback
   upsertThread(args: UpsertThreadArgs): Promise<ReviewThread>;
-  getOpenThread(
-    repoId: string,
-    fingerprint: string,
-  ): Promise<ReviewThread | null>;
+  getOpenThread(repoId: string, fingerprint: string): Promise<ReviewThread | null>;
   markThreadResolved(id: string): Promise<void>;
   recordFeedback(args: RecordFeedbackArgs): Promise<ReviewFeedback>;
-  listFeedback(
-    repoId: string,
-    signal?: "up" | "down" | "addressed" | "ignored",
-  ): Promise<ReviewFeedback[]>;
+  listFeedback(repoId: string, signal?: "up" | "down" | "addressed" | "ignored"): Promise<ReviewFeedback[]>;
+
+  // Installations CRUD (T005/T006)
+  upsertInstallation(args: UpsertInstallationArgs): Promise<Installation>;
+  getInstallationByGithubId(scm: string, installationId: string): Promise<Installation | null>;
+  getInstallationsForUser(userId: string): Promise<Installation[]>;
+  markInstallationDeleted(installationId: string): Promise<void>;
+  setInstallationStatus(installationId: string, status: "active" | "suspended"): Promise<Installation>;
+  getInstallationByRowId(id: string): Promise<Installation | null>;
+
+  // Wave-2 repo-settings (T013–T016)
+  /** Owner-scoped; returns null if userId doesn't match. */
+  updateRepoSettings(args: UpdateRepoSettingsArgs): Promise<ReviewRepo | null>;
+  reconcileInstallationRepos(args: ReconcileInstallationReposArgs): Promise<void>;
+  setReposEnabledBySlugs(args: SetReposEnabledBySlugsArgs): Promise<void>;
+
+  // Wave-3 (T042, T045)
+  /** Mark thread resolved + set finding lifecycleState='resolved'. No-op when absent. */
+  resolveThreadByFingerprint(args: ResolveThreadByFingerprintArgs): Promise<void>;
+  /** Upsert suppression; THROWS for security/correctness (FR-024 invariant). */
+  writeSuppression(args: WriteSuppressionArgs): Promise<ReviewSuppression>;
+  listSuppressions(repoId: string): Promise<ReviewSuppression[]>;
+  /** True when a running review exists for (repoId, prNumber) — concurrency guard. */
+  hasRunningReview(repoId: string, prNumber: number): Promise<boolean>;
 }
 
 /** True when a SQLite error is a UNIQUE-constraint violation. */
@@ -181,94 +197,96 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
     );
   }
 
-  return {
-    async upsertRepo(args) {
-      const scm = args.scm ?? "github";
-      // USER-SCOPED lookup (multi-tenant isolation): a caller can only ever
-      // find/update their OWN row for (scm,owner,name) — never another tenant's.
-      // The unique index is (scm,owner,name,user_id) so each user gets a row.
-      const existing = db
+  // Delegate installations CRUD to the extracted module.
+  const installationMethods = createInstallationMethods(db, clock, emit);
+
+  // upsertRepo is defined as a standalone function so reconcileInstallationRepos
+  // can call it without needing a `this` reference.
+  async function upsertRepo(args: UpsertRepoArgs): Promise<ReviewRepo> {
+    const scm = args.scm ?? "github";
+    const existing = db
+      .select()
+      .from(reviewReposTable)
+      .where(
+        and(
+          eq(reviewReposTable.scm, scm),
+          eq(reviewReposTable.owner, args.owner),
+          eq(reviewReposTable.name, args.name),
+          eq(reviewReposTable.userId, args.userId),
+        ),
+      )
+      .get();
+    const ts = clock();
+    if (existing) {
+      db.update(reviewReposTable)
+        .set({
+          installationId:
+            args.installationId === undefined
+              ? existing.installationId
+              : args.installationId,
+          defaultBranch: args.defaultBranch ?? existing.defaultBranch,
+          coveredBranchesJson: args.coveredBranches
+            ? JSON.stringify(args.coveredBranches)
+            : existing.coveredBranchesJson,
+          rulesMd:
+            args.rulesMd === undefined ? existing.rulesMd : args.rulesMd,
+          updatedAt: ts,
+        })
+        .where(eq(reviewReposTable.id, existing.id))
+        .run();
+      const updated = db
         .select()
         .from(reviewReposTable)
-        .where(
-          and(
-            eq(reviewReposTable.scm, scm),
-            eq(reviewReposTable.owner, args.owner),
-            eq(reviewReposTable.name, args.name),
-            eq(reviewReposTable.userId, args.userId),
-          ),
-        )
+        .where(eq(reviewReposTable.id, existing.id))
         .get();
-      const ts = clock();
-      if (existing) {
-        db.update(reviewReposTable)
-          .set({
-            installationId:
-              args.installationId === undefined
-                ? existing.installationId
-                : args.installationId,
-            defaultBranch: args.defaultBranch ?? existing.defaultBranch,
-            coveredBranchesJson: args.coveredBranches
-              ? JSON.stringify(args.coveredBranches)
-              : existing.coveredBranchesJson,
-            rulesMd:
-              args.rulesMd === undefined ? existing.rulesMd : args.rulesMd,
-            updatedAt: ts,
-          })
-          .where(eq(reviewReposTable.id, existing.id))
-          .run();
-        const updated = db
+      return updated as ReviewRepo;
+    }
+    const id = ulid(ts);
+    const row = {
+      id,
+      userId: args.userId,
+      scm,
+      installationId: args.installationId ?? null,
+      owner: args.owner,
+      name: args.name,
+      defaultBranch: args.defaultBranch ?? "main",
+      coveredBranchesJson: JSON.stringify(args.coveredBranches ?? []),
+      rulesMd: args.rulesMd ?? null,
+      status: "active" as const,
+      createdAt: ts,
+      updatedAt: ts,
+    };
+    try {
+      db.insert(reviewReposTable).values(row).run();
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        const winner = db
           .select()
           .from(reviewReposTable)
-          .where(eq(reviewReposTable.id, existing.id))
+          .where(
+            and(
+              eq(reviewReposTable.scm, scm),
+              eq(reviewReposTable.owner, args.owner),
+              eq(reviewReposTable.name, args.name),
+              eq(reviewReposTable.userId, args.userId),
+            ),
+          )
           .get();
-        return updated as ReviewRepo;
+        if (winner) return winner as ReviewRepo;
       }
-      const id = ulid(ts);
-      const row = {
-        id,
-        userId: args.userId,
-        scm,
-        installationId: args.installationId ?? null,
-        owner: args.owner,
-        name: args.name,
-        defaultBranch: args.defaultBranch ?? "main",
-        coveredBranchesJson: JSON.stringify(args.coveredBranches ?? []),
-        rulesMd: args.rulesMd ?? null,
-        status: "active" as const,
-        createdAt: ts,
-        updatedAt: ts,
-      };
-      try {
-        db.insert(reviewReposTable).values(row).run();
-      } catch (err) {
-        // Concurrent connect of the same (scm,owner,name,user_id): the loser of
-        // the race re-reads the winner's row instead of throwing.
-        if (isUniqueViolation(err)) {
-          const winner = db
-            .select()
-            .from(reviewReposTable)
-            .where(
-              and(
-                eq(reviewReposTable.scm, scm),
-                eq(reviewReposTable.owner, args.owner),
-                eq(reviewReposTable.name, args.name),
-                eq(reviewReposTable.userId, args.userId),
-              ),
-            )
-            .get();
-          if (winner) return winner as ReviewRepo;
-        }
-        throw err;
-      }
-      await emit(
-        "review_repo_connected",
-        "success",
-        { repo: `${args.owner}/${args.name}`, scm, repo_id: id },
-        args.userId,
-      );
-      return row as ReviewRepo;
-    },
+      throw err;
+    }
+    await emit(
+      "review_repo_connected",
+      "success",
+      { repo: `${args.owner}/${args.name}`, scm, repo_id: id },
+      args.userId,
+    );
+    return row as ReviewRepo;
+  }
+
+  return {
+    upsertRepo,
 
     async getRepoByFullName(scm, owner, name) {
       const row = db
@@ -286,9 +304,6 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
     },
 
     async getRepoByInstallation(scm, installationId, owner, name) {
-      // Filter on the SIGNED installation id; assert the slug matches so a
-      // webhook for installation X can only ever resolve installation X's
-      // genuinely-connected repo row.
       const row = db
         .select()
         .from(reviewReposTable)
@@ -352,7 +367,7 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
     async createQueuedReviewWithJob(args, jobType, dedup) {
       const ts = clock();
       const reviewId = ulid(ts);
-      const jobId = ulid(ts + 1); // distinct id even with a frozen clock
+      const jobId = ulid(ts + 1);
       const reviewRow = {
         id: reviewId,
         repoId: args.repoId ?? null,
@@ -375,9 +390,6 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
       };
       try {
         await withTx(db, (tx) => {
-          // Record the webhook delivery FIRST, in the same tx — its UNIQUE
-          // collision aborts the whole tx (no orphan review/job), and a crash
-          // before COMMIT rolls it back too so GitHub's retry re-processes.
           if (dedup) {
             tx.insert(webhookDedupTable)
               .values({
@@ -405,8 +417,6 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
             .run();
         });
       } catch (err) {
-        // A duplicate webhook delivery (already-seen dedup key) is expected,
-        // not an error: the tx rolled back, so signal the route to 200.
         if (dedup && isUniqueViolation(err)) {
           return { review: reviewRow as Review, jobId, duplicate: true };
         }
@@ -438,7 +448,6 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
     async finalizeReview(id, result) {
       const ts = clock();
       await withTx(db, (tx) => {
-        // Idempotent re-finalize: clear prior findings for this review.
         tx.delete(reviewFindingsTable)
           .where(eq(reviewFindingsTable.reviewId, id))
           .run();
@@ -465,6 +474,11 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
               fixPromptMd: f.fixPromptMd ?? null,
               source: f.source,
               lifecycleState: "open",
+              // Wave-3: persist verificationStatus + reachabilityEvidenceMd
+              verificationStatus: f.verificationStatus ?? "unverified",
+              ...(f.reachabilityEvidenceMd !== undefined
+                ? { reachabilityEvidenceMd: f.reachabilityEvidenceMd }
+                : { reachabilityEvidenceMd: null }),
               createdAt: ts,
             })
             .run();
@@ -675,6 +689,180 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
         .where(where)
         .orderBy(desc(reviewFeedbackTable.createdAt))
         .all() as ReviewFeedback[];
+    },
+
+    // -------------------------------------------------------------------------
+    // Installations CRUD (delegated to service-installations.ts)
+    // -------------------------------------------------------------------------
+    upsertInstallation: (args) => installationMethods.upsertInstallation(args),
+    getInstallationByGithubId: (scm, id) =>
+      installationMethods.getInstallationByGithubId(scm, id),
+    getInstallationsForUser: (userId) =>
+      installationMethods.getInstallationsForUser(userId),
+    markInstallationDeleted: (id) =>
+      installationMethods.markInstallationDeleted(id),
+    setInstallationStatus: (id, status) =>
+      installationMethods.setInstallationStatus(id, status),
+    getInstallationByRowId: (id) =>
+      installationMethods.getInstallationByRowId(id),
+    updateRepoSettings: (args) =>
+      installationMethods.updateRepoSettings(args),
+    reconcileInstallationRepos: (args) =>
+      installationMethods.reconcileInstallationRepos(args, upsertRepo),
+    setReposEnabledBySlugs: (args) =>
+      installationMethods.setReposEnabledBySlugs(args),
+
+    // -------------------------------------------------------------------------
+    // Wave-3: resolveThreadByFingerprint (T042)
+    // -------------------------------------------------------------------------
+    async resolveThreadByFingerprint(args) {
+      const ts = clock();
+
+      // Find the open thread for this (repoId, fingerprint).
+      const thread = db
+        .select()
+        .from(reviewThreadsTable)
+        .where(
+          and(
+            eq(reviewThreadsTable.repoId, args.repoId),
+            eq(reviewThreadsTable.fingerprint, args.fingerprint),
+            eq(reviewThreadsTable.isResolved, 0),
+          ),
+        )
+        .get();
+
+      if (!thread) return; // No open thread — no-op.
+
+      // Mark the thread resolved.
+      db.update(reviewThreadsTable)
+        .set({ isResolved: 1, updatedAt: ts })
+        .where(eq(reviewThreadsTable.id, thread.id))
+        .run();
+
+      // Set the matching findings' lifecycleState to 'resolved'.
+      db.update(reviewFindingsTable)
+        .set({ lifecycleState: "resolved" })
+        .where(eq(reviewFindingsTable.fingerprint, args.fingerprint))
+        .run();
+
+      await emit(
+        "review_thread_resolved",
+        "success",
+        {
+          thread_id: thread.id,
+          repo_id: args.repoId,
+          fingerprint: args.fingerprint,
+        },
+        null,
+      );
+    },
+
+    // -------------------------------------------------------------------------
+    // Wave-3: writeSuppression + listSuppressions (T045)
+    // -------------------------------------------------------------------------
+    async writeSuppression(args) {
+      // FR-024 hard invariant: security and correctness are NEVER suppressed.
+      if (NEVER_SUPPRESS.has(args.category)) {
+        throw new Error(
+          `writeSuppression: cannot suppress category '${args.category}' — this category is protected by the NEVER_SUPPRESS invariant (FR-024).`,
+        );
+      }
+
+      const ts = clock();
+
+      // Attempt an insert; on UNIQUE violation (repoId, category), fall through
+      // to update the existing row.
+      const existing = db
+        .select()
+        .from(reviewSuppressionsTable)
+        .where(
+          and(
+            eq(reviewSuppressionsTable.repoId, args.repoId),
+            eq(reviewSuppressionsTable.category, args.category),
+          ),
+        )
+        .get();
+
+      if (existing) {
+        db.update(reviewSuppressionsTable)
+          .set({
+            reason: args.reason,
+            ignoreCount: args.ignoreCount,
+            updatedAt: ts,
+          })
+          .where(eq(reviewSuppressionsTable.id, existing.id))
+          .run();
+        const updated = db
+          .select()
+          .from(reviewSuppressionsTable)
+          .where(eq(reviewSuppressionsTable.id, existing.id))
+          .get() as ReviewSuppression;
+        await emit(
+          "review_category_suppressed",
+          "success",
+          {
+            repo_id: args.repoId,
+            category: args.category,
+            reason: args.reason,
+            ignore_count: args.ignoreCount,
+          },
+          null,
+        );
+        return updated;
+      }
+
+      const id = ulid(ts);
+      const row = {
+        id,
+        repoId: args.repoId,
+        category: args.category,
+        reason: args.reason,
+        ignoreCount: args.ignoreCount,
+        createdAt: ts,
+        updatedAt: ts,
+      };
+      db.insert(reviewSuppressionsTable).values(row).run();
+
+      await emit(
+        "review_category_suppressed",
+        "success",
+        {
+          repo_id: args.repoId,
+          category: args.category,
+          reason: args.reason,
+          ignore_count: args.ignoreCount,
+        },
+        null,
+      );
+
+      return row as ReviewSuppression;
+    },
+
+    async listSuppressions(repoId) {
+      return db
+        .select()
+        .from(reviewSuppressionsTable)
+        .where(eq(reviewSuppressionsTable.repoId, repoId))
+        .orderBy(desc(reviewSuppressionsTable.createdAt))
+        .all() as ReviewSuppression[];
+    },
+
+    // -------------------------------------------------------------------------
+    // Wave-3: hasRunningReview (T042 concurrency guard)
+    // -------------------------------------------------------------------------
+    async hasRunningReview(repoId, prNumber) {
+      const row = db
+        .select()
+        .from(reviewsTable)
+        .where(
+          and(
+            eq(reviewsTable.repoId, repoId),
+            eq(reviewsTable.prNumber, prNumber),
+            eq(reviewsTable.status, "running"),
+          ),
+        )
+        .get();
+      return row !== undefined && row !== null;
     },
   };
 }

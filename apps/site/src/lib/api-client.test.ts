@@ -12,10 +12,14 @@ import {
   scans,
   auth,
   deepInquiries,
+  github,
   ApiError,
   type ScanOrder,
   type ScanSummary,
   type CreateDeepInquiryBody,
+  type ConnectUrl,
+  type InstallationsResponse,
+  type InstallationRepo,
 } from "./api-client.ts";
 
 interface FetchCall {
@@ -392,5 +396,194 @@ describe("deepInquiries client", () => {
     expect(err.status).toBe(422);
     expect(err.code).toBe("validation_error");
     expect(Array.isArray(err.details)).toBe(true);
+  });
+});
+
+// ─── T020 — GitHub connect / installations namespace ────────────────────────
+
+describe("github.connect", () => {
+  test("returns install_url and state via GET /v1/github/connect", async () => {
+    const fixture: ConnectUrl = {
+      install_url: "https://github.com/apps/sthrip/installations/new?state=abc",
+      state: "abc",
+    };
+    installFetchStub(() => jsonResponse(200, fixture));
+
+    const result = await github.connect();
+
+    expect(result).toEqual(fixture);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("/v1/github/connect");
+    expect(calls[0]?.init.method).toBe("GET");
+    expect(calls[0]?.init.credentials).toBe("include");
+  });
+
+  test("401 surfaces as ApiError", async () => {
+    installFetchStub(() =>
+      jsonResponse(401, { error: "unauthenticated", message: "not logged in" }),
+    );
+
+    let caught: unknown;
+    try {
+      await github.connect();
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect((caught as ApiError).status).toBe(401);
+    expect((caught as ApiError).code).toBe("unauthenticated");
+  });
+});
+
+describe("github.installations", () => {
+  test("returns connected + installations array via GET /v1/github/installations", async () => {
+    const fixture: InstallationsResponse = {
+      connected: true,
+      installations: [
+        {
+          id: "01INST000000000000000000001",
+          account_login: "acmecorp",
+          account_type: "Organization",
+          repository_selection: "selected",
+          status: "active",
+        },
+      ],
+    };
+    installFetchStub(() => jsonResponse(200, fixture));
+
+    const result = await github.installations();
+
+    expect(result).toEqual(fixture);
+    expect(calls[0]?.url).toBe("/v1/github/installations");
+    expect(calls[0]?.init.method).toBe("GET");
+  });
+
+  test("returns connected:false with empty array when not connected", async () => {
+    const fixture: InstallationsResponse = { connected: false, installations: [] };
+    installFetchStub(() => jsonResponse(200, fixture));
+
+    const result = await github.installations();
+
+    expect(result.connected).toBe(false);
+    expect(result.installations).toHaveLength(0);
+  });
+});
+
+describe("github.installationRepos", () => {
+  test("returns InstallationRepo[] via GET /v1/github/installations/{id}/repos", async () => {
+    const fixture: InstallationRepo[] = [
+      {
+        owner: "acmecorp",
+        name: "backend",
+        default_branch: "main",
+        enabled: true,
+      },
+    ];
+    installFetchStub(() => jsonResponse(200, fixture));
+
+    const result = await github.installationRepos("01INST000000000000000000001");
+
+    expect(result).toEqual(fixture);
+    expect(calls[0]?.url).toBe(
+      "/v1/github/installations/01INST000000000000000000001/repos",
+    );
+    expect(calls[0]?.init.method).toBe("GET");
+  });
+
+  test("404 when installation not owned by user throws ApiError", async () => {
+    installFetchStub(() =>
+      jsonResponse(404, { error: "not_found", message: "installation not found" }),
+    );
+
+    let caught: unknown;
+    try {
+      await github.installationRepos("bogus-id");
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect((caught as ApiError).status).toBe(404);
+    expect((caught as ApiError).code).toBe("not_found");
+  });
+});
+
+describe("github.updateRepoSettings", () => {
+  test("PATCH /v1/review/repos/{id}/settings sends body and returns InstallationRepo", async () => {
+    const fixture: InstallationRepo = {
+      owner: "acmecorp",
+      name: "backend",
+      default_branch: "main",
+      enabled: false,
+      status_check_enabled: true,
+      merge_block_on_critical: false,
+    };
+    installFetchStub(() => jsonResponse(200, fixture));
+
+    const body = { enabled: false };
+    const result = await github.updateRepoSettings("01REPO00000000000000000001", body);
+
+    expect(result).toEqual(fixture);
+    expect(calls[0]?.url).toBe(
+      "/v1/review/repos/01REPO00000000000000000001/settings",
+    );
+    expect(calls[0]?.init.method).toBe("PATCH");
+    const headers = calls[0]?.init.headers as Record<string, string>;
+    expect(headers["content-type"]).toBe("application/json");
+    expect(calls[0]?.init.body).toBe(JSON.stringify(body));
+  });
+
+  test("403 when repo not owned by user throws ApiError", async () => {
+    installFetchStub(() =>
+      jsonResponse(403, { error: "forbidden", message: "not your repo" }),
+    );
+
+    let caught: unknown;
+    try {
+      await github.updateRepoSettings("bogus", { enabled: true });
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect((caught as ApiError).status).toBe(403);
+    expect((caught as ApiError).code).toBe("forbidden");
+  });
+});
+
+describe("github.disconnect", () => {
+  test("POST /v1/github/disconnect sends installation_id in body", async () => {
+    installFetchStub(() =>
+      new Response(null, { status: 200, headers: { "content-type": "application/json" } }),
+    );
+
+    // Returns undefined (empty 200 body) — no throw expected
+    installFetchStub(() => jsonResponse(200, {}));
+    await github.disconnect("01INST000000000000000000001");
+
+    expect(calls[0]?.url).toBe("/v1/github/disconnect");
+    expect(calls[0]?.init.method).toBe("POST");
+    const headers = calls[0]?.init.headers as Record<string, string>;
+    expect(headers["content-type"]).toBe("application/json");
+    expect(calls[0]?.init.body).toBe(
+      JSON.stringify({ installation_id: "01INST000000000000000000001" }),
+    );
+  });
+
+  test("403 when installation not owned throws ApiError", async () => {
+    installFetchStub(() =>
+      jsonResponse(403, { error: "forbidden", message: "not your installation" }),
+    );
+
+    let caught: unknown;
+    try {
+      await github.disconnect("bogus");
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    expect((caught as ApiError).status).toBe(403);
   });
 });

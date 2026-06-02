@@ -39,6 +39,13 @@ const Reviews = lazy(() => safeImport(() => import('./pages/Reviews.tsx'), 'revi
 const ReviewDetail = lazy(() =>
   safeImport(() => import('./pages/ReviewDetail.tsx'), 'review-detail'),
 );
+// T021 — PR Review connect + repository selection (feature 004).
+const ConnectGitHub = lazy(() =>
+  safeImport(() => import('./pages/ConnectGitHub.tsx'), 'connect-github'),
+);
+const Repositories = lazy(() =>
+  safeImport(() => import('./pages/Repositories.tsx'), 'repositories'),
+);
 const ScanWizard = lazy(() =>
   safeImport(
     () =>
@@ -108,6 +115,9 @@ export const App = () => (
         {/* Reviews — PR Review + Whitebox Pentest (003-whitebox). */}
         <Route path="/reviews" element={<Reviews />} />
         <Route path="/reviews/:id" element={<ReviewDetail />} />
+        {/* T021 — Connect GitHub + Repositories (feature 004). */}
+        <Route path="/connect" element={<ConnectGitHub />} />
+        <Route path="/repositories" element={<Repositories />} />
         {/* T083 — canonical Blackbox MVP scan routes. */}
         <Route path="/scan/new" element={<ScanWizard mode="create" />} />
         <Route
