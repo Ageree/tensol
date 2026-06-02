@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { Hono, type MiddlewareHandler } from "hono";
 
 import { createDb, type DB } from "../db/client.ts";
-import { jobs as jobsTable } from "../db/schema.ts";
+import { jobs as jobsTable, reviews as reviewsTable } from "../db/schema.ts";
 import { eq } from "drizzle-orm";
 import type { AuthVariables } from "../auth/middleware.ts";
 import { createRequireAuth } from "../auth/middleware.ts";
@@ -308,6 +308,69 @@ describe("POST /v1/review/whitebox (async)", () => {
       clone_url: "https://x/y.git",
     });
     expect("clone_url" in parsed).toBe(false);
+  });
+
+  test("F1: default launch persists mode='fast'", async () => {
+    const db = freshMemDb();
+    const { app } = makeReviewApp(db);
+    const res = await app.request("/whitebox", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: "acme/api" }),
+    });
+    expect(res.status).toBe(202);
+    const { review_id } = (await res.json()) as { review_id: string };
+    const row = db
+      .select()
+      .from(reviewsTable)
+      .where(eq(reviewsTable.id, review_id))
+      .get();
+    expect(row!.mode).toBe("fast");
+  });
+
+  test("F1: mode='deep' is rejected (422) when research is disabled", async () => {
+    const orig = process.env.TENSOL_RESEARCH_ENABLED;
+    delete process.env.TENSOL_RESEARCH_ENABLED;
+    try {
+      const db = freshMemDb();
+      const { app } = makeReviewApp(db);
+      const res = await app.request("/whitebox", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: "acme/api", mode: "deep" }),
+      });
+      expect(res.status).toBe(422);
+      const json = (await res.json()) as { error: string };
+      expect(json.error).toBe("feature_disabled");
+    } finally {
+      if (orig !== undefined) process.env.TENSOL_RESEARCH_ENABLED = orig;
+      else delete process.env.TENSOL_RESEARCH_ENABLED;
+    }
+  });
+
+  test("F1: mode='deep' is honored + persisted when research is enabled", async () => {
+    const orig = process.env.TENSOL_RESEARCH_ENABLED;
+    process.env.TENSOL_RESEARCH_ENABLED = "true";
+    try {
+      const db = freshMemDb();
+      const { app } = makeReviewApp(db);
+      const res = await app.request("/whitebox", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: "acme/api", mode: "deep" }),
+      });
+      expect(res.status).toBe(202);
+      const { review_id } = (await res.json()) as { review_id: string };
+      const row = db
+        .select()
+        .from(reviewsTable)
+        .where(eq(reviewsTable.id, review_id))
+        .get();
+      expect(row!.mode).toBe("deep");
+    } finally {
+      if (orig !== undefined) process.env.TENSOL_RESEARCH_ENABLED = orig;
+      else delete process.env.TENSOL_RESEARCH_ENABLED;
+    }
   });
 });
 

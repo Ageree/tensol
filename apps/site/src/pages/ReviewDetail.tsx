@@ -20,6 +20,7 @@ import { Eyebrow, Mono, SeverityChip, StatusChip } from '../components/primitive
 import { useTensol } from '../context.tsx';
 import {
   ApiError,
+  type ExploitStatus,
   type FindingConfidence,
   type ReviewFindingWire,
   type ReviewKind,
@@ -59,9 +60,12 @@ function kindTone(kind: ReviewKind | undefined): KindTone {
   return 'muted';
 }
 
-function kindLabel(kind: ReviewKind | undefined): string {
-  if (kind === 'pr') return 'PR';
-  if (kind === 'whitebox') return 'Whitebox';
+function kindLabel(
+  kind: ReviewKind | undefined,
+  labels: { readonly kindPr: string; readonly kindWhitebox: string },
+): string {
+  if (kind === 'pr') return labels.kindPr;
+  if (kind === 'whitebox') return labels.kindWhitebox;
   return '—';
 }
 
@@ -265,6 +269,81 @@ function VerificationBadge({ prefix, value, status }: VerificationBadgeProps): R
   );
 }
 
+// ─── Exploit verdict badge (F2) ───────────────────────────────────────────────
+
+interface ExploitBadgeProps {
+  /** Chip label prefix (e.g. "Exploit" / "Эксплойт") from i18n. */
+  prefix: string;
+  /** Human-readable status value in the current locale. */
+  value: string;
+  status: ExploitStatus;
+}
+
+function exploitBadgeStyle(status: ExploitStatus): {
+  bg: string;
+  color: string;
+  border: string;
+} {
+  // A proven exploit is a strong, unambiguous positive signal.
+  if (status === 'proven') {
+    return { bg: '#E5F4EB', color: '#0E5E2A', border: '#1F7A3A' };
+  }
+  // failed / error / skipped_* are neutral/muted — no verdict was reached.
+  return { bg: 'var(--bg-2)', color: 'var(--fg-3)', border: 'var(--line-soft)' };
+}
+
+function ExploitBadge({ prefix, value, status }: ExploitBadgeProps): ReactElement {
+  const { bg, color, border } = exploitBadgeStyle(status);
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'baseline',
+        gap: 5,
+        padding: '3px 9px',
+        border: `1px solid ${border}`,
+        background: bg,
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 11,
+        fontWeight: status === 'proven' ? 600 : 400,
+      }}
+    >
+      <span
+        style={{
+          color: 'var(--fg-3)',
+          fontSize: 9.5,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+        }}
+      >
+        {prefix}
+      </span>
+      <span style={{ color }}>{value}</span>
+    </span>
+  );
+}
+
+/** Maps an exploit status to its localized human-readable value. */
+function exploitStatusValue(
+  status: ExploitStatus,
+  tr: ReturnType<typeof useTensol>['t']['reviews'],
+): string {
+  switch (status) {
+    case 'proven':
+      return tr.exploitProven;
+    case 'failed':
+      return tr.exploitFailed;
+    case 'error':
+      return tr.exploitError;
+    case 'skipped_budget':
+      return tr.exploitSkippedBudget;
+    case 'skipped_unauthorized':
+      return tr.exploitSkippedUnauthorized;
+    case 'not_attempted':
+      return tr.exploitFailed; // unreachable — guarded by caller, kept for exhaustiveness
+  }
+}
+
 // ─── Finding card ─────────────────────────────────────────────────────────────
 
 function FindingCard({ f }: { f: ReviewFindingWire }): ReactElement {
@@ -336,6 +415,22 @@ function FindingCard({ f }: { f: ReviewFindingWire }): ReactElement {
                   : tr.verificationUnverified
             }
           />
+        )}
+        {f.exploit_status != null && f.exploit_status !== 'not_attempted' && (
+          <ExploitBadge
+            prefix={tr.labelExploit}
+            status={f.exploit_status}
+            value={exploitStatusValue(f.exploit_status, tr)}
+          />
+        )}
+        {f.exploitability_score != null && (
+          <InlineBadge
+            label={tr.labelExploitability}
+            value={String(f.exploitability_score)}
+          />
+        )}
+        {f.impact_score != null && (
+          <InlineBadge label={tr.labelImpact} value={String(f.impact_score)} />
         )}
         {f.source && (
           <InlineBadge label={tr.labelSource} value={f.source} />
@@ -447,6 +542,8 @@ function FindingsSection({ findings }: { findings: ReviewFindingWire[] }): React
 
 export default function ReviewDetail(): ReactElement {
   const { id } = useParams<{ id: string }>();
+  const { lang, t } = useTensol();
+  const tr = t.reviews;
 
   const [networkErr, setNetworkErr] = useState<string | null>(null);
 
@@ -481,11 +578,11 @@ export default function ReviewDetail(): ReactElement {
 
   return (
     <AppShell
-      breadcrumb={['Reviews', id ?? '—']}
+      breadcrumb={[tr.title, id ?? '—']}
       role="security_lead"
       density="comfortable"
       brand="sthrip"
-      language="en"
+      language={lang}
       showLanguageSwitcher={false}
       surface="white-mono"
     >
@@ -502,25 +599,25 @@ export default function ReviewDetail(): ReactElement {
               textDecoration: 'none',
             }}
           >
-            ← Reviews
+            {tr.back}
           </Link>
         </div>
 
         {!id && (
           <Mono size={12} color="var(--fg-3)">
-            No review ID provided.
+            {tr.noId}
           </Mono>
         )}
 
         {id && loading && !data && (
           <Mono size={12} color="var(--fg-3)">
-            Loading review…
+            {tr.loadingDetail}
           </Mono>
         )}
 
         {id && networkErr && !data && (
           <Mono size={12} color="var(--red)">
-            Failed to load review: {networkErr}
+            {tr.errorDetail}: {networkErr}
           </Mono>
         )}
 
@@ -530,10 +627,17 @@ export default function ReviewDetail(): ReactElement {
             <header>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
                 <StatusChip
-                  status={kindLabel(data.kind)}
+                  status={kindLabel(data.kind, tr)}
                   tone={kindTone(data.kind)}
                   size="sm"
                 />
+                {data.mode != null && (
+                  <StatusChip
+                    status={data.mode === 'deep' ? tr.modeDeep : tr.modeFast}
+                    tone={data.mode === 'deep' ? 'warn' : 'muted'}
+                    size="sm"
+                  />
+                )}
                 <StatusChip status={data.status} tone={statusTone(data.status)} size="sm" />
               </div>
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 18, flexWrap: 'wrap' }}>
@@ -566,7 +670,7 @@ export default function ReviewDetail(): ReactElement {
                 }}
               >
                 <Mono size={12} color="var(--fg-2)">
-                  Review in progress — results will appear automatically as they complete.
+                  {tr.inProgress}
                 </Mono>
               </div>
             )}
@@ -574,7 +678,7 @@ export default function ReviewDetail(): ReactElement {
             {/* Summary */}
             {data.summary_md != null && data.summary_md.trim().length > 0 && (
               <section>
-                <Eyebrow style={{ marginBottom: 12 }}>Summary</Eyebrow>
+                <Eyebrow style={{ marginBottom: 12 }}>{tr.sectionSummary}</Eyebrow>
                 <MarkdownRenderer source={data.summary_md} />
               </section>
             )}

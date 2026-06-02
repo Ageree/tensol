@@ -139,6 +139,10 @@ export const WhiteboxLaunchBodySchema = z.object({
     .regex(/^[^/\s]+\/[^/\s]+$/, "repo must be owner/name")
     .optional(),
   ref: z.string().optional(),
+  /** Engine mode (F1). 'deep' requests the multi-agent deep-research pipeline;
+   *  defaults to 'fast'. The route only HONORS 'deep' when the server has
+   *  TENSOL_RESEARCH_ENABLED on (else it 422s) — see routes/review.ts. */
+  mode: z.enum(["fast", "deep"]).optional(),
 });
 
 export type WhiteboxLaunchBody = z.infer<typeof WhiteboxLaunchBodySchema>;

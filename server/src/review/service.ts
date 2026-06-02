@@ -79,6 +79,9 @@ export interface CreateReviewArgs {
   readonly repoId?: string | null;
   readonly userId?: string | null;
   readonly kind: ReviewKind;
+  /** Engine mode (F1). 'deep' runs the multi-agent research pipeline; defaults
+   *  to 'fast' (single-pass) when omitted so existing callers are unchanged. */
+  readonly mode?: "fast" | "deep" | null;
   readonly prNumber?: number | null;
   readonly headSha?: string | null;
   readonly baseSha?: string | null;
@@ -345,6 +348,7 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
         repoId: args.repoId ?? null,
         userId: args.userId ?? null,
         kind: args.kind,
+        mode: args.mode ?? "fast",
         prNumber: args.prNumber ?? null,
         headSha: args.headSha ?? null,
         baseSha: args.baseSha ?? null,
@@ -373,6 +377,7 @@ export function createReviewService(deps: CreateReviewServiceDeps): ReviewServic
         repoId: args.repoId ?? null,
         userId: args.userId ?? null,
         kind: args.kind,
+        mode: args.mode ?? "fast",
         prNumber: args.prNumber ?? null,
         headSha: args.headSha ?? null,
         baseSha: args.baseSha ?? null,

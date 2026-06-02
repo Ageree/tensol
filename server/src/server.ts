@@ -32,11 +32,10 @@
  *   completes before listen()" — without paying for a real server.
  *
  * Migration application
- *   We read the on-disk SQL files under `migrations/*.sql` and execute
- *   them sequentially against the freshly-opened SQLite handle. The
- *   helper is idempotent: it sniffs whether the canonical `users` table
- *   already exists and skips re-applying the SQL if so. This makes the
- *   boot path safe to re-invoke on a warm DB (the production scenario).
+ *   We read the on-disk SQL files under `migrations/*.sql`, track each
+ *   applied file in `__migrations`, and can bootstrap that ledger from an
+ *   older warm DB by probing schema objects introduced by prior migrations.
+ *   This makes boot safe to re-invoke while still applying newly added SQL.
  *
  * NOT in this file
  *   - Migration GENERATION (that's `bun run db:generate` via drizzle-kit).
@@ -92,6 +91,7 @@ import { createTestV2Router } from "./routes/__test_v2.ts";
 import { createReviewRouter } from "./routes/review.ts";
 import { createReviewWebhookRouter } from "./routes/review-webhook.ts";
 import { createGithubConnectRouter } from "./routes/github-connect.ts";
+import { createAgentRouter } from "./routes/agent.ts";
 import { createReviewService, type ReviewService } from "./review/service.ts";
 import { createPrReviewHandler } from "./jobs/handlers/pr-review.ts";
 import { createWhiteboxScanHandler } from "./jobs/handlers/whitebox-scan.ts";
@@ -193,6 +193,7 @@ const DEFAULT_DATABASE_PATH = "./data/tensol.db";
 
 /** Default location of migration `.sql` files relative to this module. */
 const DEFAULT_MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
+const MIGRATIONS_TABLE = "__migrations";
 
 /**
  * Conditional-spread helper for `now?: () => number` props.
@@ -565,6 +566,15 @@ export function createApp(deps: CreateAppDeps): Hono {
       ...maybeNow(now),
     }),
   );
+  app.route(
+    "/v1/agent",
+    createAgentRouter({
+      db,
+      service: reviewService,
+      requireAuth: requireAuthForReview,
+      ...maybeNow(now),
+    }),
+  );
 
   // 004-sthrip-pr-review — GitHub App connect surface.
   //   Mounted at `/v1/github`. All endpoints are auth-gated via requireAuth.
@@ -639,21 +649,91 @@ export function createApp(deps: CreateAppDeps): Hono {
 // Migration helper — idempotent over an already-migrated SQLite handle
 // ===========================================================================
 
+function splitMigrationStatements(sql: string): string[] {
+  const cleaned = sql
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (trimmed.length === 0) return true;
+      if (trimmed.startsWith("-->")) return true;
+      if (trimmed.startsWith("--")) return false;
+      return true;
+    })
+    .join("\n");
+
+  return cleaned
+    .split(/-->\s*statement-breakpoint\s*/g)
+    .map((stmt) => stmt.trim())
+    .filter((stmt) => stmt.length > 0);
+}
+
+function tableExists(raw: Database, table: string): boolean {
+  return Boolean(
+    raw
+      .query(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+      )
+      .get(table),
+  );
+}
+
+function indexExists(raw: Database, index: string): boolean {
+  return Boolean(
+    raw
+      .query(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name = ?",
+      )
+      .get(index),
+  );
+}
+
+function columnExists(raw: Database, table: string, column: string): boolean {
+  if (!tableExists(raw, table)) return false;
+  const rows = raw.query(`PRAGMA table_info(${JSON.stringify(table)})`).all() as Array<{
+    name?: unknown;
+  }>;
+  return rows.some((row) => row.name === column);
+}
+
+function legacyMigrationAlreadyPresent(raw: Database, tag: string): boolean {
+  switch (tag) {
+    case "0000_init":
+      return tableExists(raw, "users");
+    case "0010_blackbox_mvp":
+      return tableExists(raw, "scan_orders");
+    case "0011_webhook_dedup":
+      return tableExists(raw, "webhook_dedup");
+    case "0012_whitebox_review":
+      return (
+        tableExists(raw, "review_repos") &&
+        tableExists(raw, "reviews") &&
+        tableExists(raw, "review_findings")
+      );
+    case "0013_exploit_lab":
+      return columnExists(raw, "review_findings", "exploit_status");
+    case "0013_pr_review_connect":
+      return (
+        tableExists(raw, "installations") &&
+        columnExists(raw, "review_repos", "enabled") &&
+        columnExists(raw, "review_findings", "verification_status")
+      );
+    case "0014_review_mode":
+      return columnExists(raw, "reviews", "mode");
+    case "0015_agent_api_tokens":
+      return (
+        tableExists(raw, "agent_api_tokens") &&
+        indexExists(raw, "agent_api_tokens_token_hash_uq")
+      );
+    default:
+      return false;
+  }
+}
+
 /**
  * Apply every `.sql` file under `migrationsDir` to the open SQLite
- * connection. Idempotent: if the canonical `users` table already exists
- * we treat the schema as up to date and return without re-running SQL.
- *
- * Why a `users` table sniff and not a `__drizzle_migrations` ledger:
- *   drizzle-kit's bun-sqlite migrator writes its own bookkeeping table,
- *   but our deployment uses raw `.sql` files (no drizzle-kit at runtime)
- *   so we don't have that ledger. A presence check on the first business
- *   table covers our only two boot scenarios — fresh DB (no users table
- *   → apply) and warm DB (users table exists → skip).
- *
- * Schema drift between code and DB is NOT handled here — it surfaces
- * later as a query-time SQLite error and is best caught by the
- * verify-chain / integration test suite.
+ * connection. Idempotent per file via `__migrations`; older warm DBs that were
+ * booted before the ledger existed are backfilled by probing known schema
+ * objects, then only missing migrations are executed.
  */
 export function applyMigrationsOnce(
   db: DB,
@@ -663,31 +743,63 @@ export function applyMigrationsOnce(
     throw new Error(`migrations directory not found: ${migrationsDir}`);
   }
   const raw = db.$client as Database;
-  const usersExists = raw
-    .query(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='users'",
-    )
-    .get();
-  if (usersExists) {
-    return { applied: false };
-  }
-
   const files = readdirSync(migrationsDir)
     .filter((f) => f.endsWith(".sql"))
     .sort();
   if (files.length === 0) {
     throw new Error(`no migration files found in ${migrationsDir}`);
   }
-  const combined = files
-    .map((f) =>
-      readFileSync(join(migrationsDir, f), "utf8").replace(
-        /-->\s*statement-breakpoint/g,
-        "",
-      ),
-    )
-    .join("\n");
-  raw.exec(combined);
-  return { applied: true };
+
+  raw.exec(
+    `CREATE TABLE IF NOT EXISTS ${MIGRATIONS_TABLE} (
+       tag TEXT PRIMARY KEY,
+       applied_at INTEGER NOT NULL
+     )`,
+  );
+
+  const appliedRows = raw
+    .query<{ tag: string }, []>(`SELECT tag FROM ${MIGRATIONS_TABLE}`)
+    .all();
+  const applied = new Set(appliedRows.map((row) => row.tag));
+
+  for (const file of files) {
+    const tag = file.replace(/\.sql$/, "");
+    if (!applied.has(tag) && legacyMigrationAlreadyPresent(raw, tag)) {
+      raw
+        .query(
+          `INSERT OR IGNORE INTO ${MIGRATIONS_TABLE} (tag, applied_at) VALUES (?, ?)`,
+        )
+        .run(tag, Date.now());
+      applied.add(tag);
+    }
+  }
+
+  let appliedCount = 0;
+  for (const file of files) {
+    const tag = file.replace(/\.sql$/, "");
+    if (applied.has(tag)) continue;
+
+    const statements = splitMigrationStatements(readFileSync(join(migrationsDir, file), "utf8"));
+    raw.exec("BEGIN");
+    try {
+      for (const statement of statements) {
+        raw.exec(statement);
+      }
+      raw
+        .query(
+          `INSERT INTO ${MIGRATIONS_TABLE} (tag, applied_at) VALUES (?, ?)`,
+        )
+        .run(tag, Date.now());
+      raw.exec("COMMIT");
+      applied.add(tag);
+      appliedCount += 1;
+    } catch (error) {
+      raw.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  return { applied: appliedCount > 0 };
 }
 
 // ===========================================================================
@@ -994,9 +1106,9 @@ export async function main(): Promise<{
             llm: reviewLlm,
             sastRunner: reviewSastRunner,
             cloneUrlFor,
-            deepResearch: config.TENSOL_RESEARCH_ENABLED,
-            // Per-scan cost bound for deep research (only consulted when
-            // deepResearch is on). Meters the research LLM + aborts at the ceiling.
+            deepResearchAllowed: config.TENSOL_RESEARCH_ENABLED,
+            // Per-scan cost bound for deep research (only consulted when a review
+            // opted into deep mode). Meters the research LLM + aborts at the ceiling.
             makeResearchBudget: () =>
               createBudget({
                 ceilingUsd: config.TENSOL_RESEARCH_BUDGET_USD,

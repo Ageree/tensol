@@ -13,6 +13,8 @@ import {
   auth,
   deepInquiries,
   github,
+  review,
+  agentTokens,
   ApiError,
   type ScanOrder,
   type ScanSummary,
@@ -20,6 +22,9 @@ import {
   type ConnectUrl,
   type InstallationsResponse,
   type InstallationRepo,
+  type ReviewListItemWire,
+  type ReviewResultWire,
+  type AgentTokenCreateResult,
 } from "./api-client.ts";
 
 interface FetchCall {
@@ -585,5 +590,142 @@ describe("github.disconnect", () => {
 
     expect(caught).toBeInstanceOf(ApiError);
     expect((caught as ApiError).status).toBe(403);
+  });
+});
+
+describe("review client", () => {
+  test("list — GET /v1/review preserves mode and findings_count", async () => {
+    const fixture: ReviewListItemWire[] = [
+      {
+        review_id: "01REV000000000000000000001",
+        kind: "whitebox",
+        mode: "deep",
+        status: "completed",
+        score_0_5: 4,
+        repo: "acme/api",
+        findings_count: 2,
+      },
+    ];
+    installFetchStub(() => jsonResponse(200, fixture));
+
+    const result = await review.list();
+
+    expect(result).toEqual(fixture);
+    expect(calls[0]?.url).toBe("/v1/review");
+    expect(calls[0]?.init.method).toBe("GET");
+  });
+
+  test("get — GET /v1/review/:id preserves verification and exploit fields", async () => {
+    const fixture: ReviewResultWire = {
+      review_id: "01REV000000000000000000001",
+      kind: "whitebox",
+      mode: "fast",
+      status: "completed",
+      score_0_5: 3,
+      summary_md: "summary",
+      findings: [
+        {
+          fingerprint: "fp1",
+          file_path: "src/auth.ts",
+          side: "RIGHT",
+          severity: "high",
+          cwe: ["CWE-287"],
+          confidence: "high",
+          reachable: true,
+          title: "Auth bypass",
+          rationale_md: "reachable",
+          source: "llm",
+          verification_status: "verified",
+          reachability_evidence_md: "taint path",
+          exploit_status: "proven",
+          exploitability_score: 80,
+          impact_score: 90,
+          exploit_iterations: 2,
+        },
+      ],
+    };
+    installFetchStub(() => jsonResponse(200, fixture));
+
+    const result = await review.get("01REV000000000000000000001");
+
+    expect(result.mode).toBe("fast");
+    expect(result.findings[0]!.verification_status).toBe("verified");
+    expect(result.findings[0]!.reachability_evidence_md).toBe("taint path");
+    expect(result.findings[0]!.exploit_status).toBe("proven");
+    expect(calls[0]?.url).toBe("/v1/review/01REV000000000000000000001");
+  });
+
+  test("listRepos — GET /v1/review/repos", async () => {
+    installFetchStub(() => jsonResponse(200, []));
+
+    const result = await review.listRepos();
+
+    expect(result).toEqual([]);
+    expect(calls[0]?.url).toBe("/v1/review/repos");
+    expect(calls[0]?.init.method).toBe("GET");
+  });
+
+  test("launchWhitebox — POST /v1/review/whitebox sends mode", async () => {
+    installFetchStub(() =>
+      jsonResponse(202, {
+        review_id: "01REV000000000000000000001",
+        job_id: "01JOB000000000000000000001",
+        status: "queued",
+      }),
+    );
+
+    const result = await review.launchWhitebox({
+      repo_id: "01REPO00000000000000000001",
+      mode: "deep",
+    });
+
+    expect(result.review_id).toBe("01REV000000000000000000001");
+    expect(calls[0]?.url).toBe("/v1/review/whitebox");
+    expect(calls[0]?.init.method).toBe("POST");
+    expect(calls[0]?.init.body).toBe(
+      JSON.stringify({ repo_id: "01REPO00000000000000000001", mode: "deep" }),
+    );
+  });
+});
+
+describe("agentTokens client", () => {
+  test("create — POST /v1/agent/tokens returns plaintext once plus metadata", async () => {
+    const fixture: AgentTokenCreateResult = {
+      token: "sthrip_testtoken",
+      token_meta: {
+        id: "01TOK000000000000000000001",
+        name: "Codex",
+        token_prefix: "sthrip_testtoken".slice(0, 18),
+        created_at: 1700000000,
+        last_used_at: null,
+        revoked_at: null,
+      },
+    };
+    installFetchStub(() => jsonResponse(201, fixture));
+
+    const result = await agentTokens.create({ name: "Codex" });
+
+    expect(result).toEqual(fixture);
+    expect(calls[0]?.url).toBe("/v1/agent/tokens");
+    expect(calls[0]?.init.method).toBe("POST");
+    expect(calls[0]?.init.body).toBe(JSON.stringify({ name: "Codex" }));
+  });
+
+  test("list and revoke use /v1/agent/tokens", async () => {
+    installFetchStub((url) => {
+      if (url.endsWith("/01TOK000000000000000000001")) {
+        return jsonResponse(200, { revoked: true });
+      }
+      return jsonResponse(200, { tokens: [] });
+    });
+
+    const listed = await agentTokens.list();
+    const revoked = await agentTokens.revoke("01TOK000000000000000000001");
+
+    expect(listed.tokens).toEqual([]);
+    expect(revoked.revoked).toBe(true);
+    expect(calls[0]?.url).toBe("/v1/agent/tokens");
+    expect(calls[1]?.url).toBe("/v1/agent/tokens/01TOK000000000000000000001");
+    expect(calls[1]?.init.method).toBe("DELETE");
   });
 });

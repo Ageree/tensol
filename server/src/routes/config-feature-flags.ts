@@ -19,13 +19,29 @@
  */
 import { Hono } from "hono";
 
-import { isYookassaLive } from "../lib/feature-flags.ts";
+import {
+  isYookassaLive,
+  isResearchEnabled,
+  isExploitEnabled,
+} from "../lib/feature-flags.ts";
 
 /**
  * Build the feature-flags subrouter. Mount at `/v1/config/feature-flags`.
  */
 export function createConfigFeatureFlagsRouter(): Hono {
   const app = new Hono();
-  app.get("/", (c) => c.json({ yookassa_live: isYookassaLive() }, 200));
+  app.get("/", (c) =>
+    c.json(
+      {
+        yookassa_live: isYookassaLive(),
+        // F1/F2 dashboard surfaces. `research_enabled` lets the UI show the
+        // per-review deep-research toggle; `exploit_enabled` lets it show the
+        // exploit-verdict section on findings. Both default false.
+        research_enabled: isResearchEnabled(),
+        exploit_enabled: isExploitEnabled(),
+      },
+      200,
+    ),
+  );
   return app;
 }

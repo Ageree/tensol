@@ -647,6 +647,10 @@ export const reviews = sqliteTable(
       onDelete: "set null",
     }),
     kind: text("kind").$type<"pr" | "whitebox">().notNull(),
+    // Engine mode (migration 0014). 'deep' selects the multi-agent research
+    // pipeline (F1); 'fast' is the single-pass default. Per-review opt-in so a
+    // dashboard user can request deep research per scan.
+    mode: text("mode").$type<"fast" | "deep">().notNull().default("fast"),
     prNumber: integer("pr_number"),
     headSha: text("head_sha"),
     baseSha: text("base_sha"),
@@ -821,6 +825,34 @@ export const reviewSuppressions = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// agent_api_tokens — bearer tokens for CLI and MCP.
+//
+// Plaintext token values are returned once by the creation endpoint and never
+// stored. `tokenHash` is SHA-256 over the full token; `tokenPrefix` is display
+// metadata so dashboard users can identify/revoke tokens.
+// ---------------------------------------------------------------------------
+export const agentApiTokens = sqliteTable(
+  "agent_api_tokens",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    tokenPrefix: text("token_prefix").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    lastUsedAt: integer("last_used_at"),
+    revokedAt: integer("revoked_at"),
+  },
+  (t) => ({
+    tokenHashUq: uniqueIndex("agent_api_tokens_token_hash_uq").on(t.tokenHash),
+    userIdx: index("agent_api_tokens_user_idx").on(t.userId, t.createdAt),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Inferred row types — consumed by repositories / services.
 // ---------------------------------------------------------------------------
 export type User = typeof users.$inferSelect;
@@ -867,6 +899,8 @@ export type Installation = typeof installations.$inferSelect;
 export type NewInstallation = typeof installations.$inferInsert;
 export type ReviewSuppression = typeof reviewSuppressions.$inferSelect;
 export type NewReviewSuppression = typeof reviewSuppressions.$inferInsert;
+export type AgentApiToken = typeof agentApiTokens.$inferSelect;
+export type NewAgentApiToken = typeof agentApiTokens.$inferInsert;
 
 // Keep `sql` import live for future `sql\`...\`` defaults (mirrors 001).
 void sql;

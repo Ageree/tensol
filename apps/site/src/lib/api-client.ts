@@ -211,6 +211,10 @@ export interface ReportRegenerateResult {
 // Feature flags (GET /v1/config/feature-flags) — see openapi.yaml + T073.
 export interface FeatureFlags {
   yookassa_live: boolean;
+  /** F1 — when true the dashboard offers a per-review "deep research" toggle. */
+  research_enabled?: boolean;
+  /** F2 — when true the dashboard surfaces exploit-lab verdicts on findings. */
+  exploit_enabled?: boolean;
 }
 
 // Auth (GET /v1/auth/me) — used by US2 deep-inquiry prefill (T106).
@@ -602,6 +606,7 @@ export const github = {
 // Mirrors `server/src/review/*` + `.claude/skills/tensol-loop/references/api.md`.
 
 export type ReviewKind = "pr" | "whitebox";
+export type ReviewMode = "fast" | "deep";
 export type ReviewRunStatus =
   | "queued"
   | "running"
@@ -638,11 +643,34 @@ export interface ReviewFindingWire {
   verification_status?: VerificationStatus | null;
   /** Markdown taint-path evidence from the Joern reachability adapter (T032). */
   reachability_evidence_md?: string | null;
+  // ── F2 — Exploit Lab verdict (migration 0013), surfaced for the dashboard ──
+  /** Terminal disposition of the autonomous exploit attempt. */
+  exploit_status?: ExploitStatus | null;
+  /** 0-100 exploitability score (how easily the PoC proved it). */
+  exploitability_score?: number | null;
+  /** 0-100 impact score (derived from CVSS). */
+  impact_score?: number | null;
+  /** Refine-loop iterations the Lab took. */
+  exploit_iterations?: number | null;
 }
+
+/**
+ * Terminal status of the Exploit Lab attempt for a finding (F2). Mirrors the
+ * server `ExploitStatus` union + the `exploit_status` DB column. When `proven`,
+ * the verified PoC is carried on `poc_md`.
+ */
+export type ExploitStatus =
+  | "not_attempted"
+  | "proven"
+  | "failed"
+  | "error"
+  | "skipped_budget"
+  | "skipped_unauthorized";
 
 export interface ReviewResultWire {
   review_id: string;
   kind?: ReviewKind;
+  mode?: ReviewMode;
   status: ReviewRunStatus;
   score_0_5?: number | null;
   summary_md?: string | null;
@@ -661,6 +689,7 @@ export interface ReviewResultWire {
 export interface ReviewListItemWire {
   review_id: string;
   kind?: ReviewKind;
+  mode?: ReviewMode;
   status: ReviewRunStatus;
   score_0_5?: number | null;
   pr_number?: number | null;
@@ -701,7 +730,50 @@ export interface LaunchWhiteboxBody {
   repo_id?: string;
   repo?: string;
   ref?: string;
+  /** F1 — "deep" requests the multi-agent deep-research pipeline (only honored
+   *  when the server reports `research_enabled`). Defaults to "fast". */
+  mode?: ReviewMode;
 }
+
+// ─── Agent API tokens (dashboard onboarding for CLI/MCP) ───────────────────
+
+export interface AgentTokenMeta {
+  id: string;
+  name: string;
+  token_prefix: string;
+  created_at: number;
+  last_used_at?: number | null;
+  revoked_at?: number | null;
+}
+
+export interface AgentTokenCreateResult {
+  token: string;
+  token_meta: AgentTokenMeta;
+}
+
+export interface AgentTokenListResult {
+  tokens: AgentTokenMeta[];
+}
+
+export const agentTokens = {
+  /** POST /v1/agent/tokens — create a token; plaintext is returned once. */
+  create: (body: { name: string }): Promise<AgentTokenCreateResult> =>
+    request<AgentTokenCreateResult>("/v1/agent/tokens", {
+      method: "POST",
+      body,
+    }),
+
+  /** GET /v1/agent/tokens — list token metadata only. */
+  list: (): Promise<AgentTokenListResult> =>
+    request<AgentTokenListResult>("/v1/agent/tokens"),
+
+  /** DELETE /v1/agent/tokens/:id — revoke one token. */
+  revoke: (id: string): Promise<{ revoked: boolean }> =>
+    request<{ revoked: boolean }>(
+      `/v1/agent/tokens/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
+};
 
 export const review = {
   /** POST /v1/review — trigger a review (sync or async). */
@@ -736,6 +808,7 @@ export const apiClient = {
   config,
   auth,
   deepInquiries,
+  agentTokens,
   review,
   github,
 };

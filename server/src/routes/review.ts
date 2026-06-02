@@ -31,6 +31,7 @@ import { eq } from "drizzle-orm";
 import { reviews as reviewsTable } from "../db/schema.ts";
 import type { Review } from "../db/schema.ts";
 import { createRateLimit, defaultKeyFn } from "../lib/rate-limit.ts";
+import { isResearchEnabled } from "../lib/feature-flags.ts";
 import { runReview } from "../review/engine.ts";
 import { fileToAddedDiff } from "../review/repo-fetch.ts";
 import { splitUnifiedDiff } from "../review/candidates.ts";
@@ -187,7 +188,7 @@ function findingToWire(f: ReviewFinding) {
 }
 
 /** Serialize a ReviewFinding DB row for the API (snake_case wire shape). */
-function findingRowToWire(row: {
+export function findingRowToWire(row: {
   id: string;
   fingerprint: string;
   filePath: string;
@@ -207,6 +208,12 @@ function findingRowToWire(row: {
   fixPromptMd: string | null;
   source: string;
   lifecycleState: string;
+  exploitStatus: string;
+  exploitabilityScore: number | null;
+  impactScore: number | null;
+  exploitIterations: number;
+  verificationStatus: string;
+  reachabilityEvidenceMd: string | null;
 }) {
   let cwe: string[] = [];
   try {
@@ -247,6 +254,16 @@ function findingRowToWire(row: {
     category: row.category,
     id: row.id,
     lifecycle_state: row.lifecycleState,
+    // Verification gate (T026/T031) — already on the DB row; surface to the UI.
+    verification_status: row.verificationStatus,
+    reachability_evidence_md: row.reachabilityEvidenceMd,
+    // Exploit Lab verdict (F2) — proven/failed status + 0-100 scores + the
+    // iteration count. The proven PoC itself rides on `poc_md` above (the
+    // exploit hook overwrites it on a proven verdict).
+    exploit_status: row.exploitStatus,
+    exploitability_score: row.exploitabilityScore,
+    impact_score: row.impactScore,
+    exploit_iterations: row.exploitIterations,
   };
 }
 
@@ -407,6 +424,7 @@ export function createReviewRouter(
       reviews.map((r) => ({
         review_id: r.id,
         kind: r.kind,
+        mode: r.mode,
         status: r.status,
         score_0_5: r.score0to5,
         pr_number: r.prNumber,
@@ -432,6 +450,7 @@ export function createReviewRouter(
         id: review.id,
         repo_id: review.repoId,
         kind: review.kind,
+        mode: review.mode,
         pr_number: review.prNumber,
         head_sha: review.headSha,
         status: review.status,
@@ -488,12 +507,29 @@ export function createReviewRouter(
       );
     }
 
+    // Deep research (F1) is a gated capability: only honor `mode: "deep"` when
+    // the server has it enabled. The dashboard hides the toggle when the
+    // feature flag is off, but the route must still enforce it (defense in
+    // depth — a crafted request can't smuggle a deep scan onto a server that
+    // disabled it / didn't budget for it).
+    if (body.mode === "deep" && !isResearchEnabled()) {
+      return c.json(
+        {
+          error: "feature_disabled",
+          message: "deep research is not enabled on this server",
+        },
+        422,
+      );
+    }
+    const mode = body.mode ?? "fast";
+
     // Atomic: the queued review + its pending whitebox_scan job commit together.
     const { review, jobId } = await service.createQueuedReviewWithJob(
       {
         repoId,
         userId: user.id,
         kind: "whitebox",
+        mode,
         ...(body.ref !== undefined ? { commitRef: body.ref } : {}),
       },
       "whitebox_scan",

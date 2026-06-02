@@ -357,9 +357,22 @@ const en = {
     quotaUsed: 'Blackbox trial used · resets in {days}d',
     quotaHelp:
       'One blackbox trial assessment per 30 days. Whitebox and continuous code review are enabled after scope approval.',
+    agentTokensTitle: 'AGENT API TOKENS',
+    agentTokensHelp:
+      'Use these bearer tokens from the Sthrip CLI or MCP server. The full token is shown only once.',
+    agentTokensName: 'token name',
+    agentTokensCreate: 'Create token',
+    agentTokensCreating: 'Creating…',
+    agentTokensEmpty: 'No agent tokens yet.',
+    agentTokensPlaintextLabel: 'new token',
+    agentTokensPlaintextHelp: 'Store it now. Sthrip will not show it again.',
+    agentTokensRevoke: 'Revoke',
+    agentTokensLoadError: 'Failed to load agent tokens',
+    agentTokensCreateError: 'Failed to create token',
+    agentTokensRevokeError: 'Failed to revoke token',
     mvpTitle: 'OTHER SETTINGS',
     mvpBody:
-      'Tenant roles, repository integrations, notification channels, API tokens, and retention controls are enabled during onboarding. If you need them today, reach out.',
+      'Tenant roles, notification channels, and retention controls are enabled during onboarding. If you need them today, reach out.',
     contactCta: 'Contact us',
   },
 
@@ -1409,6 +1422,7 @@ const en = {
     sectionRepos: 'Connected repositories',
     sectionRecent: 'Recent reviews',
     colKind: 'Kind',
+    colMode: 'Mode',
     colRepo: 'Repository',
     colScore: 'Score',
     colStatus: 'Status',
@@ -1423,6 +1437,8 @@ const en = {
     detailLink: 'Detail →',
     kindPr: 'PR',
     kindWhitebox: 'Whitebox',
+    modeFast: 'fast',
+    modeDeep: 'deep',
     // Detail page
     back: '← Reviews',
     loadingDetail: 'Loading review…',
@@ -1452,6 +1468,21 @@ const en = {
     verificationVerified: 'verified',
     verificationUnverified: 'unverified',
     verificationRefuted: 'refuted',
+    // ── F2 — Exploit Lab verdict (finding card) ──
+    labelExploit: 'Exploit',
+    labelExploitability: 'Exploitability',
+    labelImpact: 'Impact',
+    exploitProven: 'proven',
+    exploitFailed: 'failed',
+    exploitError: 'error',
+    exploitSkippedBudget: 'skipped (budget)',
+    exploitSkippedUnauthorized: 'skipped (unauthorized)',
+    // ── F1/B — Launch whitebox scan from the repos list ──
+    runScan: 'Run scan',
+    runningScan: 'Starting…',
+    deepResearch: 'Deep research',
+    runScanError: 'Could not start scan',
+    featureDisabled: 'Deep research is not available on your plan.',
   },
   // ── END:reviews ───────────────────────────────────────────────────────
 
@@ -1841,9 +1872,22 @@ const ru: TensolDict = {
     quotaUsed: 'Бесплатный Quick использован · сброс через {days} дн',
     quotaHelp:
       'Одна бесплатная Quick-проверка раз в 30 дней. Сбрасывается автоматически, когда предыдущая проверка старше 30 дней.',
+    agentTokensTitle: 'API-ТОКЕНЫ ДЛЯ АГЕНТОВ',
+    agentTokensHelp:
+      'Используйте эти bearer-токены из Sthrip CLI или MCP-сервера. Полный токен показывается только один раз.',
+    agentTokensName: 'имя токена',
+    agentTokensCreate: 'Создать токен',
+    agentTokensCreating: 'Создаём…',
+    agentTokensEmpty: 'API-токенов пока нет.',
+    agentTokensPlaintextLabel: 'новый токен',
+    agentTokensPlaintextHelp: 'Сохраните его сейчас. Sthrip больше не покажет токен полностью.',
+    agentTokensRevoke: 'Отозвать',
+    agentTokensLoadError: 'Не удалось загрузить API-токены',
+    agentTokensCreateError: 'Не удалось создать токен',
+    agentTokensRevokeError: 'Не удалось отозвать токен',
     mvpTitle: 'ОСТАЛЬНЫЕ НАСТРОЙКИ',
     mvpBody:
-      'В MVP остальных настроек нет. Тенанты, роли, каналы уведомлений, API-токены и политики хранения появятся в командном тарифе. Если нужно сейчас — напишите нам.',
+      'Тенанты, роли, каналы уведомлений и политики хранения появятся в командном тарифе. Если нужно сейчас — напишите нам.',
     contactCta: 'Связаться',
   },
 
@@ -2858,6 +2902,7 @@ const ru: TensolDict = {
     sectionRepos: 'Подключённые репозитории',
     sectionRecent: 'Последние проверки',
     colKind: 'Тип',
+    colMode: 'Режим',
     colRepo: 'Репозиторий',
     colScore: 'Оценка',
     colStatus: 'Статус',
@@ -2872,6 +2917,8 @@ const ru: TensolDict = {
     detailLink: 'Подробнее →',
     kindPr: 'PR',
     kindWhitebox: 'Whitebox',
+    modeFast: 'fast',
+    modeDeep: 'deep',
     // Страница детали
     back: '← Проверки',
     loadingDetail: 'Загружаем проверку…',
@@ -2901,6 +2948,21 @@ const ru: TensolDict = {
     verificationVerified: 'подтверждено',
     verificationUnverified: 'не проверено',
     verificationRefuted: 'опровергнуто',
+    // ── F2 — Вердикт лаборатории эксплойтов (карточка находки) ──
+    labelExploit: 'Эксплойт',
+    labelExploitability: 'Эксплуатируемость',
+    labelImpact: 'Влияние',
+    exploitProven: 'подтверждён',
+    exploitFailed: 'неудача',
+    exploitError: 'ошибка',
+    exploitSkippedBudget: 'пропущено (бюджет)',
+    exploitSkippedUnauthorized: 'пропущено (нет доступа)',
+    // ── F1/B — Запуск whitebox-сканирования из списка репозиториев ──
+    runScan: 'Запустить скан',
+    runningScan: 'Запускаем…',
+    deepResearch: 'Глубокое исследование',
+    runScanError: 'Не удалось запустить скан',
+    featureDisabled: 'Глубокое исследование недоступно на вашем тарифе.',
   },
   // ── END:reviews ───────────────────────────────────────────────────────
 

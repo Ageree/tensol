@@ -39,14 +39,18 @@ export interface WhiteboxScanHandlerDeps {
   }) => Promise<string> | string;
   readonly tokenBudget?: number;
   /**
-   * When true, run the engine in DEEP mode (the OpenHack-derived multi-agent
-   * research pipeline) instead of the fast single-pass path. Off by default so
-   * existing behavior is byte-for-byte unchanged. (F1: Deep Whitebox Research.)
+   * Whether DEEP research (F1: the OpenHack-derived multi-agent pipeline) is
+   * ALLOWED on this server — the TENSOL_RESEARCH_ENABLED operator gate. A scan
+   * only runs deep when this is true AND the review opted in
+   * (`review.mode === "deep"`), so deep mode is a per-review user choice bounded
+   * by the operator gate. Off by default → existing behavior is byte-for-byte
+   * unchanged.
    */
-  readonly deepResearch?: boolean;
+  readonly deepResearchAllowed?: boolean;
   /**
    * Builds a per-scan spend budget for DEEP research (F1). When provided AND
-   * `deepResearch` is on, the handler meters the research LLM against it and the
+   * the scan resolves to deep mode (allowed + opted-in), the handler meters the
+   * research LLM against it and the
    * engine consults `assertWithin()` per scenario, so a deep scan is cost-bounded
    * (an exhausted budget throws → the scan is marked failed rather than running
    * up an unbounded bill). No-op when deep mode is off. Server builds it from
@@ -126,14 +130,16 @@ export function createWhiteboxScanHandler(deps: WhiteboxScanHandlerDeps) {
         ...(review.commitRef ? { ref: review.commitRef } : {}),
       });
 
-      // DEEP mode (F1) cost bound: when a research budget factory is wired, meter
-      // the research LLM against a fresh per-scan budget and hand the budget to
-      // the engine so the pipeline aborts once the ceiling is hit. Fast mode and
+      // DEEP mode (F1): per-review opt-in (`review.mode`) bounded by the operator
+      // gate (`deepResearchAllowed`). Both must hold to run the research pipeline.
+      const deep = (deps.deepResearchAllowed ?? false) && review.mode === "deep";
+
+      // DEEP mode cost bound: when a research budget factory is wired, meter the
+      // research LLM against a fresh per-scan budget and hand the budget to the
+      // engine so the pipeline aborts once the ceiling is hit. Fast mode and
       // unbudgeted deep mode use the raw client unchanged.
       const researchBudget =
-        deps.deepResearch && deps.makeResearchBudget
-          ? deps.makeResearchBudget()
-          : undefined;
+        deep && deps.makeResearchBudget ? deps.makeResearchBudget() : undefined;
       const reviewLlm = researchBudget ? createMeteredClient(llm, researchBudget) : llm;
 
       try {
@@ -145,7 +151,7 @@ export function createWhiteboxScanHandler(deps: WhiteboxScanHandlerDeps) {
             ...(checkout.repoDir !== undefined ? { repoDir: checkout.repoDir } : {}),
             ...(repo.rulesMd ? { rulesMd: repo.rulesMd } : {}),
             ...(deps.tokenBudget !== undefined ? { tokenBudget: deps.tokenBudget } : {}),
-            ...(deps.deepResearch ? { mode: "deep" as const } : {}),
+            ...(deep ? { mode: "deep" as const } : {}),
           },
           {
             llm: reviewLlm,
