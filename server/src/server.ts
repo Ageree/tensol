@@ -96,6 +96,13 @@ import { createPrReviewHandler } from "./jobs/handlers/pr-review.ts";
 import { createWhiteboxScanHandler } from "./jobs/handlers/whitebox-scan.ts";
 import { createOpenRouterClient } from "./review/llm/openrouter.ts";
 import type { LlmClient } from "./review/reviewer.ts";
+// 2026-06-01 — Exploit Lab (F2) wiring.
+import { createExploitHook } from "./exploit/hook.ts";
+import { createReviewRepoScopeDeps } from "./exploit/scope-deps.ts";
+import { enrichFindingWithVerdict } from "./exploit/service.ts";
+import { chooseSandbox } from "./exploit/sandbox.ts";
+import { createBudget } from "./exploit/budget.ts";
+import { ulid } from "./lib/ids.ts";
 import {
   createHttpGitHubClient,
   type GitHubClient,
@@ -834,6 +841,82 @@ export async function main(): Promise<{
             "pr_review: GitHub App or review LLM not configured (set GITHUB_APP_* + TENSOL_REVIEW_LLM_API_KEY)",
           );
         };
+  // 2026-06-01 — Exploit Lab (F2) auto-trigger hook. FAIL-CLOSED on isolation.
+  // The Lab executes LLM-generated (attacker-influenceable) PoC code, so it must
+  // run inside a real isolation boundary. The VM sandbox (egress-locked ephemeral
+  // VM) is the production path, but its exec transport is not wired here yet (the
+  // "careful with Decepticon" deferral). The LOCAL sandbox is an UN-ISOLATED
+  // subprocess (scrubbed env + hard timeout + pinned cwd, but NO network/FS
+  // namespace) — fit for tests/dev/E2E, NOT production. So the hook is wired ONLY
+  // when ALL hold: feature enabled, a review LLM is configured, sandbox=local,
+  // and the operator has explicitly accepted the un-isolated local path. Any
+  // other combination REFUSES to wire the Lab (the review/scan still runs) and
+  // logs why — never a silent degrade to an un-isolated executor.
+  const exploitHook = ((): ReturnType<typeof createExploitHook> | undefined => {
+    if (!config.TENSOL_EXPLOIT_ENABLED) return undefined;
+    if (!reviewLlm) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[tensol] exploit: TENSOL_EXPLOIT_ENABLED is set but no review LLM is " +
+          "configured — Exploit Lab NOT wired (set TENSOL_REVIEW_LLM_API_KEY).",
+      );
+      return undefined;
+    }
+    if (config.TENSOL_EXPLOIT_SANDBOX === "vm") {
+      // eslint-disable-next-line no-console
+      console.error(
+        "[tensol] exploit: TENSOL_EXPLOIT_SANDBOX=vm is not yet wired in the " +
+          "server (VM exec transport pending). REFUSING to run the Exploit Lab " +
+          "rather than silently degrading to the un-isolated local sandbox. To " +
+          "use the local subprocess path for dev/controlled use, set " +
+          "TENSOL_EXPLOIT_SANDBOX=local + TENSOL_EXPLOIT_ALLOW_UNSANDBOXED_LOCAL=true.",
+      );
+      return undefined;
+    }
+    if (!config.TENSOL_EXPLOIT_ALLOW_UNSANDBOXED_LOCAL) {
+      // eslint-disable-next-line no-console
+      console.error(
+        "[tensol] exploit: refusing to run the Exploit Lab on the LOCAL sandbox " +
+          "— it is an un-isolated subprocess (no network/FS jail) and must not " +
+          "execute attacker-influenced PoC code in production. Set " +
+          "TENSOL_EXPLOIT_ALLOW_UNSANDBOXED_LOCAL=true to explicitly accept this " +
+          "for dev/controlled use, or wait for the VM sandbox.",
+      );
+      return undefined;
+    }
+    // Enabled + review LLM + local sandbox + explicit unsandboxed-local ack.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[tensol] exploit: Exploit Lab ENABLED on the UN-ISOLATED local sandbox " +
+        "(TENSOL_EXPLOIT_ALLOW_UNSANDBOXED_LOCAL=true). PoC code runs in a bare " +
+        "subprocess — use only against trusted/controlled targets.",
+    );
+    return createExploitHook({
+      llm: createOpenRouterClient({
+        apiKey: config.TENSOL_REVIEW_LLM_API_KEY,
+        baseUrl: config.TENSOL_REVIEW_LLM_BASE_URL,
+        model: config.TENSOL_EXPLOIT_LLM_MODEL,
+        jsonMode: false,
+      }),
+      sandbox: chooseSandbox({ kind: "local" }),
+      scopeDeps: createReviewRepoScopeDeps(db),
+      makeMarker: () => `CANARY_${ulid()}`,
+      maxIters: config.TENSOL_EXPLOIT_MAX_ITERS,
+      makeBudget: () =>
+        createBudget({
+          ceilingUsd: config.TENSOL_EXPLOIT_BUDGET_USD,
+          usdPerMTokOut: config.TENSOL_EXPLOIT_USD_PER_MTOK_OUT,
+        }),
+      getFindings: (reviewId) => reviewServiceForJobs.getReviewFindings(reviewId),
+      enrich: (findingId, verdict) =>
+        enrichFindingWithVerdict(
+          { db, auditKey: config.TENSOL_AUDIT_SIGNING_KEY },
+          findingId,
+          verdict,
+        ),
+    });
+  })();
+
   const whiteboxScanHandler: (payload: unknown, ctx: { jobId: string; attempts: number }) => Promise<void> =
     reviewLlm
       ? adaptNewStyle(
@@ -843,6 +926,8 @@ export async function main(): Promise<{
             llm: reviewLlm,
             sastRunner: reviewSastRunner,
             cloneUrlFor,
+            deepResearch: config.TENSOL_RESEARCH_ENABLED,
+            ...(exploitHook ? { exploit: exploitHook } : {}),
           }),
         )
       : async () => {

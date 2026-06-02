@@ -101,11 +101,19 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 <!-- gitnexus:end -->
 
 <!-- gitbutler:start -->
-# GitButler — Virtual Branch Workflow (ACTIVE in this checkout)
+# GitButler — Virtual Branch Workflow
 
-This repo is GitButler-managed. The working branch is `gitbutler/workspace` and `but status` exits 0 — virtual branches are LIVE. Use the **`but`** CLI for **all git writes**. Plain `git` writes bypass GitButler's virtual-branch routing and can corrupt the workspace.
+This repo is GitButler-managed in its **cockpit checkout** — the `gitbutler/workspace` working dir where `but status` exits 0. There, virtual branches are LIVE and you use the **`but`** CLI for **all git writes**; plain `git` writes bypass GitButler's routing and can corrupt the workspace.
 
-> **Ground-truth check, every time.** Before relying on these rules, run `but status` — exit 0 means GitButler is active. If it ever fails (fresh clone, `but` not installed, `but setup` never run), fall back to normal `git` and do NOT invoke `but`. This section and any committed `.claude/skills/gitbutler/` folder signal INTENT, not active state — the runtime probe is the only proof.
+## FIRST: which context am I in? — cockpit vs worktree
+
+Run `git rev-parse --show-toplevel` + `but status`:
+- **Cockpit checkout** — toplevel is the main repo dir AND `but status` exits 0 → GitButler is LIVE. Follow the `but`-for-writes rules below.
+- **Git worktree** — toplevel is a *linked worktree* (a sibling `<repo>.<agent>-<task>` dir, or under `.claude/worktrees/`, created by `wt` / `git worktree add`) → it is **NOT** a GitButler workspace. Use **plain git** (`git add` / `git commit` / `git push`) on a feature branch → PR to `main`. **Never run `but` in a worktree** (even though it shares `.git`).
+
+> **Why two contexts:** parallel multi-agent work (Claude + Codex, many simultaneous sessions) is isolated with **one git worktree per session** — that is the unit that stops two agents clobbering one tree. GitButler is the single hand-driven cockpit, not the multi-agent coordinator. Full model: `~/Documents/multi-harness-power-user-guide.md`; spawn a worktree with `wt <task> --agent claude|codex`.
+
+> **Ground-truth check, every time.** Before relying on the `but` rules, run `but status` — exit 0 in the cockpit means GitButler is active. If it fails (fresh clone, `but` not installed, `but setup` never run) **or you are in a worktree**, use plain `git` and do NOT invoke `but`. This section + any committed `.claude/skills/gitbutler/` folder signal INTENT, not active state — the runtime probe is the only proof.
 
 ## Always Do (writes → `but`, never `git`)
 
@@ -123,7 +131,7 @@ This repo is GitButler-managed. The working branch is `gitbutler/workspace` and 
 ## Never Do
 
 - NEVER use `git add`, `git commit`, `git push`, `git checkout -b`, `git branch <name>`, `git merge`, or `git rebase` for writes here — they bypass virtual branches. Use the `but` equivalents (`but stage`, `but commit`, `but push`, `but branch new`, `but merge`).
-- NEVER create a git worktree / `EnterWorktree` mid-task on this repo — it forks the branch off the workspace and drops GitButler-routed commits. If hard isolation is genuinely needed (conflicting migrations/dev-servers), raise it with the user first.
+- NEVER spontaneously create a worktree / `EnterWorktree` to escape the **cockpit** mid-task — that forks the branch off the workspace and drops GitButler-routed commits. (Deliberate parallel isolation is the opposite and is encouraged: the sanctioned flow is `wt <task>` → work in that worktree with **plain git** → PR to `main`; inside such a worktree the `but` rules above do NOT apply.)
 - NEVER classify GitButler as inactive from file presence alone — probe with `but status`.
 
 ## Gotcha — hunk locked to a parallel branch

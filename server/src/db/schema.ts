@@ -667,6 +667,23 @@ export const reviewFindings = sqliteTable(
       .$type<"open" | "resolved" | "suppressed">()
       .notNull()
       .default("open"),
+    // Exploit Lab verdict (migration 0013). exploitStatus mirrors the
+    // ExploitStatus union in src/exploit/types.ts; scores are 0-100;
+    // exploitEvidenceJson is the serialized verdict evidence.
+    exploitStatus: text("exploit_status")
+      .$type<
+        | "not_attempted"
+        | "proven"
+        | "failed"
+        | "skipped_budget"
+        | "skipped_unauthorized"
+      >()
+      .notNull()
+      .default("not_attempted"),
+    exploitabilityScore: integer("exploitability_score"),
+    impactScore: integer("impact_score"),
+    exploitEvidenceJson: text("exploit_evidence_json"),
+    exploitIterations: integer("exploit_iterations").notNull().default(0),
     createdAt: integer("created_at").notNull(),
   },
   (t) => ({

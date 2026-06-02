@@ -19,6 +19,7 @@
 import { deriveCandidates } from "./candidates.ts";
 import { buildContextBundle } from "./context/repomap.ts";
 import { fingerprint } from "./fingerprint.ts";
+import { runResearch } from "./research/orchestrator.ts";
 import { review, type LlmClient } from "./reviewer.ts";
 import type { SastRunner } from "./sast/runner.ts";
 import {
@@ -47,6 +48,14 @@ export interface RunReviewInput {
   /** Filesystem path to a checked-out repo; required to run the SAST runner. */
   readonly repoDir?: string;
   readonly tokenBudget?: number;
+  /**
+   * Review depth. "fast" (default) runs the single-pass candidate reviewer;
+   * "deep" runs the multi-agent research pipeline (recon → routing → experts →
+   * triage) to obtain verdicts. Both feed the SAME deterministic downstream
+   * (scoring + fingerprinting + result assembly). Omitting it preserves the
+   * exact fast-mode behavior for existing callers.
+   */
+  readonly mode?: "fast" | "deep";
 }
 
 export interface RunReviewDeps {
@@ -157,43 +166,59 @@ export async function runReview(
   input: RunReviewInput,
   deps: RunReviewDeps,
 ): Promise<ReviewResult> {
-  // 1. Gather SAST findings (provided + optionally run a runner).
-  let rawFindings: RawFinding[] = input.rawFindings ? [...input.rawFindings] : [];
-  if (deps.sastRunner && input.repoDir) {
-    const sastFindings = await deps.sastRunner.run({ repoDir: input.repoDir });
-    rawFindings = [...rawFindings, ...sastFindings];
+  // Deep mode: obtain verdicts from the multi-agent research pipeline instead
+  // of the single-pass reviewer, then feed them into the SAME deterministic
+  // downstream below. Fast mode (default) is byte-for-byte the original path.
+  let verdicts: LlmVerdict[];
+  let candById: Map<string, Candidate>;
+
+  if (input.mode === "deep") {
+    verdicts = await runResearch(input.files, deps.llm);
+    // Deep-mode verdicts carry research candidateIds ("S001-F001"), which never
+    // collide with fast-path candidate ids — there is no snippet map to join.
+    candById = new Map<string, Candidate>();
+  } else {
+    // 1. Gather SAST findings (provided + optionally run a runner).
+    let rawFindings: RawFinding[] = input.rawFindings
+      ? [...input.rawFindings]
+      : [];
+    if (deps.sastRunner && input.repoDir) {
+      const sastFindings = await deps.sastRunner.run({ repoDir: input.repoDir });
+      rawFindings = [...rawFindings, ...sastFindings];
+    }
+
+    // 2. Derive candidates from diff hunks + SAST hits.
+    const candidates = deriveCandidates({ files: input.files, rawFindings });
+    if (candidates.length === 0) {
+      return {
+        kind: input.kind,
+        score0to5: 5,
+        summaryMd: buildSummary([], 5),
+        findings: [],
+      };
+    }
+
+    // 3. Build the token-budgeted context bundle.
+    const context = buildContextBundle({
+      files: input.files,
+      candidates,
+      ...(input.tokenBudget !== undefined
+        ? { tokenBudget: input.tokenBudget }
+        : {}),
+    });
+
+    // 4. LLM judge (generator≠judge boundary lives at the model layer).
+    verdicts = await review({
+      context,
+      candidates,
+      llm: deps.llm,
+      ...(input.rulesMd !== undefined ? { rulesMd: input.rulesMd } : {}),
+    });
+
+    candById = new Map<string, Candidate>(candidates.map((c) => [c.id, c]));
   }
 
-  // 2. Derive candidates from diff hunks + SAST hits.
-  const candidates = deriveCandidates({ files: input.files, rawFindings });
-  if (candidates.length === 0) {
-    return {
-      kind: input.kind,
-      score0to5: 5,
-      summaryMd: buildSummary([], 5),
-      findings: [],
-    };
-  }
-
-  // 3. Build the token-budgeted context bundle.
-  const context = buildContextBundle({
-    files: input.files,
-    candidates,
-    ...(input.tokenBudget !== undefined ? { tokenBudget: input.tokenBudget } : {}),
-  });
-
-  // 4. LLM judge (generator≠judge boundary lives at the model layer).
-  const verdicts = await review({
-    context,
-    candidates,
-    llm: deps.llm,
-    ...(input.rulesMd !== undefined ? { rulesMd: input.rulesMd } : {}),
-  });
-
-  // 5. Deterministic scoring + fingerprinting.
-  const candById = new Map<string, Candidate>(
-    candidates.map((c) => [c.id, c]),
-  );
+  // 5. Deterministic scoring + fingerprinting (shared by both modes).
   const findings = dedupeByFingerprint(
     verdicts.map((v) =>
       verdictToFinding(

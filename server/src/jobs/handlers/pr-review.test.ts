@@ -404,4 +404,102 @@ describe("createWhiteboxScanHandler", () => {
     const after = await svc.getReview(review.id);
     expect(after!.status).toBe("failed");
   });
+
+  // F2: exploit-hook auto-trigger wiring.
+  const emptyVerdicts = () => JSON.stringify({ summary: "ok", verdicts: [] });
+
+  test("invokes the exploit hook after finalize with installation auth + repoDir", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "u",
+      owner: "acme",
+      name: "api",
+      installationId: "inst-9",
+    });
+    const review = await svc.createReview({ repoId: repo.id, userId: "u", kind: "whitebox" });
+
+    const calls: Array<{ reviewId: string; authorization: unknown; repoDir?: string }> = [];
+    // Inline fetcher that DOES expose a repoDir (FakeRepoFetcher is in-memory and
+    // omits it), so we can assert the handler forwards the live checkout path.
+    const onDiskFetcher = {
+      fetch: async () => ({
+        files: [],
+        repoDir: "/tmp/fake-checkout",
+        cleanup: () => {},
+      }),
+    } as unknown as FakeRepoFetcher;
+    const handler = createWhiteboxScanHandler({
+      service: svc,
+      fetcher: onDiskFetcher,
+      llm: new FakeLlmClient(emptyVerdicts),
+      cloneUrlFor: () => "https://github.com/acme/api.git",
+      exploit: async (args) => {
+        calls.push(args);
+        return [];
+      },
+    });
+
+    await handler("job-1", { reviewId: review.id });
+
+    expect((await svc.getReview(review.id))!.status).toBe("completed");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.reviewId).toBe(review.id);
+    expect(calls[0]!.authorization).toEqual({
+      kind: "github-installation",
+      installationId: "inst-9",
+      owner: "acme",
+      repo: "api",
+    });
+    expect(calls[0]!.repoDir).toBe("/tmp/fake-checkout");
+  });
+
+  test("does NOT invoke the exploit hook when the repo has no installationId", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({ userId: "u", owner: "acme", name: "api" }); // no installationId
+    const review = await svc.createReview({ repoId: repo.id, userId: "u", kind: "whitebox" });
+
+    let called = false;
+    const handler = createWhiteboxScanHandler({
+      service: svc,
+      fetcher: new FakeRepoFetcher({ "a.ts": "export const x = 1\n" }),
+      llm: new FakeLlmClient(emptyVerdicts),
+      cloneUrlFor: () => "https://github.com/acme/api.git",
+      exploit: async () => {
+        called = true;
+        return [];
+      },
+    });
+
+    await handler("job-1", { reviewId: review.id });
+    expect((await svc.getReview(review.id))!.status).toBe("completed");
+    expect(called).toBe(false);
+  });
+
+  test("an exploit-hook throw does not fail the scan", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "u",
+      owner: "acme",
+      name: "api",
+      installationId: "inst-9",
+    });
+    const review = await svc.createReview({ repoId: repo.id, userId: "u", kind: "whitebox" });
+
+    const handler = createWhiteboxScanHandler({
+      service: svc,
+      fetcher: new FakeRepoFetcher({ "a.ts": "export const x = 1\n" }),
+      llm: new FakeLlmClient(emptyVerdicts),
+      cloneUrlFor: () => "https://github.com/acme/api.git",
+      exploit: async () => {
+        throw new Error("lab exploded");
+      },
+    });
+
+    await handler("job-1", { reviewId: review.id });
+    // The scan still completes — exploitation is best-effort enrichment.
+    expect((await svc.getReview(review.id))!.status).toBe("completed");
+  });
 });

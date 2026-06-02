@@ -36,6 +36,29 @@ export interface WhiteboxScanHandlerDeps {
     installationId: string | null;
   }) => Promise<string> | string;
   readonly tokenBudget?: number;
+  /**
+   * When true, run the engine in DEEP mode (the OpenHack-derived multi-agent
+   * research pipeline) instead of the fast single-pass path. Off by default so
+   * existing behavior is byte-for-byte unchanged. (F1: Deep Whitebox Research.)
+   */
+  readonly deepResearch?: boolean;
+  /**
+   * Optional auto-exploit hook (F2: Exploit Lab). When wired, it runs AFTER
+   * findings are persisted (so they have ids) and BEFORE the checkout is torn
+   * down (so it can read code excerpts), attempting to PROVE the high-confidence
+   * findings under a per-review budget and writing verdicts back. Never throws
+   * out — a failure here must not fail the scan. Off by default.
+   */
+  readonly exploit?: (args: {
+    reviewId: string;
+    authorization: {
+      kind: "github-installation";
+      installationId: string;
+      owner: string;
+      repo: string;
+    };
+    repoDir?: string;
+  }) => Promise<unknown>;
 }
 
 interface NormalizedPayload {
@@ -101,6 +124,7 @@ export function createWhiteboxScanHandler(deps: WhiteboxScanHandlerDeps) {
             ...(checkout.repoDir !== undefined ? { repoDir: checkout.repoDir } : {}),
             ...(repo.rulesMd ? { rulesMd: repo.rulesMd } : {}),
             ...(deps.tokenBudget !== undefined ? { tokenBudget: deps.tokenBudget } : {}),
+            ...(deps.deepResearch ? { mode: "deep" as const } : {}),
           },
           {
             llm,
@@ -108,6 +132,26 @@ export function createWhiteboxScanHandler(deps: WhiteboxScanHandlerDeps) {
           },
         );
         await service.finalizeReview(reviewId, result);
+
+        // F2: auto-exploit the persisted findings (findings now have ids; the
+        // checkout is still on disk for code excerpts). Off unless wired; never
+        // allowed to fail the scan — exploitation is best-effort enrichment.
+        if (deps.exploit && repo.installationId) {
+          try {
+            await deps.exploit({
+              reviewId,
+              authorization: {
+                kind: "github-installation",
+                installationId: repo.installationId,
+                owner: repo.owner,
+                repo: repo.name,
+              },
+              ...(checkout.repoDir !== undefined ? { repoDir: checkout.repoDir } : {}),
+            });
+          } catch {
+            // Best-effort: a Lab failure must never turn a completed scan failed.
+          }
+        }
       } finally {
         await checkout.cleanup();
       }
