@@ -77,7 +77,7 @@
 
 ### Bearer — **DISQUALIFIED (Elastic License 2.0)**
 - **URL:** https://github.com/Bearer/bearer (now "Bearer by Cycode"; Cycode acquired Bearer 2024).
-- **License:** **Elastic License 2.0** (verified `LICENSE.txt`) — explicitly: "may not provide the software to third parties as a hosted or managed service." 
+- **License:** **Elastic License 2.0** (verified `LICENSE.txt`) — explicitly: "may not provide the software to third parties as a hosted or managed service."
 - **COMMERCIAL-SAFE?** **NO.** Cannot be the engine of a competing SaaS. Privacy/PII-flow SAST is nice, but ELv2 kills it for Sthrip. Prior finding **CONFIRMED**.
 
 ### Joern — **OSS reachability / CPG taint, recommended (advanced tier)**
