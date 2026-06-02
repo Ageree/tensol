@@ -94,11 +94,17 @@ export interface ProofObligation {
   summary: string;
 }
 
-/** An expert's verdict on one scenario (OpenHack `scenario-result` + our cvss). */
+/** An expert's verdict on one scenario (OpenHack `scenario-result` + our cvss).
+ *
+ * `failed_transport` is a SYNTHETIC status (never emitted by the model — the
+ * model is limited to the first four) set by the orchestrator when an expert run
+ * THREW (a transport/infra error, not bad model output). It is excluded from
+ * findings like `rejected`, but is kept DISTINCT so an infrastructure outage is
+ * never silently conflated with a genuine "not vulnerable" verdict. */
 export interface ScenarioResult {
   scenarioId: string;
   expert: ExpertKey;
-  status: "verified" | "candidate" | "rejected" | "needs_context";
+  status: "verified" | "candidate" | "rejected" | "needs_context" | "failed_transport";
   primaryVulnerabilityClass?: string;
   summary: string;
   evidence: EvidenceItem[];

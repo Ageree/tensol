@@ -27,7 +27,7 @@
  * its own beyond the leaf modules' cached prompt-file reads and the injected
  * transport. Inputs are never mutated.
  */
-import type { DiffFile, LlmVerdict } from "../types.ts";
+import type { CvssVector, DiffFile, LlmVerdict } from "../types.ts";
 import type { LlmClient } from "../reviewer.ts";
 import { buildRoutingUnits } from "./recon.ts";
 import { routeScenarios } from "./routing.ts";
@@ -51,6 +51,20 @@ export interface RunResearchOptions {
 /** Triage decisions that may materialize a final finding. */
 const ACCEPTING_DECISIONS: ReadonlySet<TriageDecision["decision"]> =
   new Set<TriageDecision["decision"]>(["accepted", "downgraded"]);
+
+/** A benign default CVSS base vector for a synthetic `failed_transport` result
+ * (no real assessment was made). Lowest-impact metrics; the scorer never uses it
+ * because transport-failed results are excluded from findings. */
+const BENIGN_CVSS: CvssVector = {
+  AV: "N",
+  AC: "H",
+  PR: "H",
+  UI: "R",
+  S: "U",
+  C: "N",
+  I: "N",
+  A: "N",
+};
 
 /**
  * Readable source for an expert to analyze, derived from a `DiffFile`:
@@ -127,9 +141,14 @@ function buildRationale(result: ScenarioResult): string {
 function toCandidate(
   result: ScenarioResult,
   candidateId: string,
+  fallbackPath: string,
 ): FindingCandidate {
   const firstEvidence = result.evidence[0];
-  const filePath = firstEvidence?.path ?? "";
+  // Honor the documented contract: when an expert returns a candidate with NO
+  // evidence, fall back to the scenario's own target path rather than emitting a
+  // finding with an empty filePath (which renders blank and can be dropped from
+  // SARIF). `fallbackPath` is the scenario targetPath (or "(unknown)").
+  const filePath = firstEvidence?.path ?? fallbackPath;
   const title = result.primaryVulnerabilityClass ?? result.summary;
 
   const base: FindingCandidate = {
@@ -226,34 +245,47 @@ export async function runResearch(
       opts?.budget?.assertWithin();
       try {
         return await runExpert(scenario, ctx, llm);
-      } catch {
-        // A throwing expert (transport error, etc.) must not abort the run —
-        // treat it as a rejected result with a benign default CVSS vector.
+      } catch (err) {
+        // A THROW out of runExpert is ALWAYS a transport/infra error: bad model
+        // OUTPUT is collapsed to a `rejected` result INSIDE runExpert and never
+        // thrown. So we must NOT relabel it as a benign `rejected` (which triage
+        // would silently filter, making an infra outage indistinguishable from a
+        // genuinely clean run). Mark it `failed_transport` — excluded from
+        // findings, but kept DISTINCT; a TOTAL outage is caught right below.
+        const message = err instanceof Error ? err.message : String(err);
         return {
           scenarioId: scenario.id,
           expert: scenario.expert,
-          status: "rejected",
-          summary: "expert run failed",
+          status: "failed_transport",
+          summary: `expert transport error: ${message}`,
           evidence: [],
           proofObligations: [],
           cwe: [],
-          cvss: {
-            AV: "N",
-            AC: "H",
-            PR: "H",
-            UI: "R",
-            S: "U",
-            C: "N",
-            I: "N",
-            A: "N",
-          },
+          cvss: BENIGN_CVSS,
         };
       }
     }),
   );
 
+  // Fail LOUD on a TOTAL expert outage. If EVERY scenario's expert threw a
+  // transport error, the run produced zero trustworthy results — returning `[]`
+  // would falsely report "clean / no findings". Throw so the caller (the scan
+  // job handler) fails/retries instead, mirroring routing.ts's own
+  // propagate-on-transport contract. A PARTIAL outage is isolated above: the
+  // surviving experts' findings still flow through.
+  const transportFailures = results.filter(
+    (r) => r.status === "failed_transport",
+  ).length;
+  if (transportFailures > 0 && transportFailures === results.length) {
+    throw new Error(
+      `deep research: all ${results.length} expert run(s) failed with transport ` +
+        `errors — aborting rather than returning a falsely-clean result`,
+    );
+  }
+
   // 4. Promote verified/candidate results to triage-pending candidates. Track
   //    each candidate's source result so reachability/confidence can be mapped.
+  const scenarioById = new Map(scenarios.map((s) => [s.id, s]));
   const candidates: FindingCandidate[] = [];
   const resultByCandidateId = new Map<string, ScenarioResult>();
   for (const result of results) {
@@ -261,7 +293,9 @@ export async function runResearch(
       continue;
     }
     const candidateId = `${result.scenarioId}-${findingSeq(1)}`;
-    candidates.push(toCandidate(result, candidateId));
+    const fallbackPath =
+      scenarioById.get(result.scenarioId)?.targetPaths[0] ?? "(unknown)";
+    candidates.push(toCandidate(result, candidateId, fallbackPath));
     resultByCandidateId.set(candidateId, result);
   }
   if (candidates.length === 0) return [];
