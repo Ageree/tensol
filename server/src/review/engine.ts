@@ -85,6 +85,14 @@ export interface RunReviewDeps {
   /** Optional SAST runner; when present + repoDir set, its findings are merged. */
   readonly sastRunner?: SastRunner;
   /**
+   * Optional spend meter for DEEP mode (F1). When present, it is threaded into
+   * the research pipeline and `assertWithin()` is consulted once per scenario so
+   * a deep run is COST-BOUNDED. The caller is responsible for metering `llm`
+   * (e.g. wrapping it with `createMeteredClient`) so this budget actually
+   * accumulates. Ignored in fast mode. Without it, deep mode runs UNBOUNDED.
+   */
+  readonly researchBudget?: { assertWithin(): void };
+  /**
    * Optional reachability adapter (e.g. Joern). When present + repoDir set, it
    * is run over the scored findings; proven taint paths upgrade a finding to
    * `verified` and attach `reachabilityEvidenceMd`. MUST degrade gracefully —
@@ -251,7 +259,11 @@ export async function runReview(
   let candById = new Map<string, Candidate>();
 
   if (input.mode === "deep") {
-    verdicts = await runResearch(input.files, deps.llm);
+    verdicts = await runResearch(
+      input.files,
+      deps.llm,
+      deps.researchBudget ? { budget: deps.researchBudget } : undefined,
+    );
     // Deep-mode verdicts carry research candidateIds ("S001-F001"), which never
     // collide with fast-path candidate ids — there is no snippet map to join.
   } else {

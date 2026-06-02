@@ -22,6 +22,8 @@ import type { RepoFetcher } from "../../review/repo-fetch.ts";
 import type { LlmClient } from "../../review/reviewer.ts";
 import type { SastRunner } from "../../review/sast/runner.ts";
 import type { ReviewService } from "../../review/service.ts";
+import { createMeteredClient } from "../../exploit/metered-client.ts";
+import type { Budget } from "../../exploit/budget.ts";
 
 export interface WhiteboxScanHandlerDeps {
   readonly service: ReviewService;
@@ -42,6 +44,15 @@ export interface WhiteboxScanHandlerDeps {
    * existing behavior is byte-for-byte unchanged. (F1: Deep Whitebox Research.)
    */
   readonly deepResearch?: boolean;
+  /**
+   * Builds a per-scan spend budget for DEEP research (F1). When provided AND
+   * `deepResearch` is on, the handler meters the research LLM against it and the
+   * engine consults `assertWithin()` per scenario, so a deep scan is cost-bounded
+   * (an exhausted budget throws → the scan is marked failed rather than running
+   * up an unbounded bill). No-op when deep mode is off. Server builds it from
+   * TENSOL_RESEARCH_BUDGET_USD.
+   */
+  readonly makeResearchBudget?: () => Budget;
   /**
    * Optional auto-exploit hook (F2: Exploit Lab). When wired, it runs AFTER
    * findings are persisted (so they have ids) and BEFORE the checkout is torn
@@ -115,6 +126,16 @@ export function createWhiteboxScanHandler(deps: WhiteboxScanHandlerDeps) {
         ...(review.commitRef ? { ref: review.commitRef } : {}),
       });
 
+      // DEEP mode (F1) cost bound: when a research budget factory is wired, meter
+      // the research LLM against a fresh per-scan budget and hand the budget to
+      // the engine so the pipeline aborts once the ceiling is hit. Fast mode and
+      // unbudgeted deep mode use the raw client unchanged.
+      const researchBudget =
+        deps.deepResearch && deps.makeResearchBudget
+          ? deps.makeResearchBudget()
+          : undefined;
+      const reviewLlm = researchBudget ? createMeteredClient(llm, researchBudget) : llm;
+
       try {
         const result = await runReview(
           {
@@ -127,8 +148,9 @@ export function createWhiteboxScanHandler(deps: WhiteboxScanHandlerDeps) {
             ...(deps.deepResearch ? { mode: "deep" as const } : {}),
           },
           {
-            llm,
+            llm: reviewLlm,
             ...(deps.sastRunner ? { sastRunner: deps.sastRunner } : {}),
+            ...(researchBudget ? { researchBudget } : {}),
           },
         );
         await service.finalizeReview(reviewId, result);

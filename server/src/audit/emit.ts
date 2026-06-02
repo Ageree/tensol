@@ -50,7 +50,9 @@ import { signEntry, type AuditEntry } from "./sign.ts";
 /**
  * Blackbox-MVP audit event-type literals (data-model.md §E8).
  *
- * Source-of-truth list of 29 event names emitted by feature 002. Existing
+ * Source-of-truth list of 29 event names emitted by feature 002. (F2's
+ * `exploit_attempted`, like feature-001 events, is emitted via the `string`
+ * `EmitArgs.event` and intentionally lives OUTSIDE this 002-spec tuple.) Existing
  * feature-001 events (e.g. `auth_login_succeeded`, `target_created`,
  * `auth_proof_verified`) are NOT included here — `EmitArgs.event` remains
  * `string` for backward-compat, so 001 callers continue to type-check.

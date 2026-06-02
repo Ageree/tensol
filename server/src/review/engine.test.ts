@@ -221,6 +221,34 @@ describe("runReview engine", () => {
   });
 });
 
+// Deep mode (F1) must thread an injected research budget into the pipeline so a
+// deep run is COST-BOUNDED — previously the deep path ran the multi-agent
+// pipeline with no budget at all (unbounded spend).
+test("deep mode forwards researchBudget into the pipeline (assertWithin consulted)", async () => {
+  function deepScript(user: string): string {
+    if (/routing units|scoped scenarios/i.test(user)) {
+      return JSON.stringify({
+        scenarios: [
+          { id: "S001", expert: "injection", routing_unit_ids: ["U001"], target_paths: ["src/db.ts"], proof_question: "q?", evidence_required: [] },
+        ],
+      });
+    }
+    if (/candidates to triage/i.test(user)) return JSON.stringify({ decisions: [] });
+    return JSON.stringify({
+      scenario_id: "S001", expert: "injection", status: "rejected",
+      summary: "n/a", evidence: [], proof_obligations: [], cwe: [],
+      cvss: { AV: "N", AC: "H", PR: "H", UI: "R", S: "U", C: "N", I: "N", A: "N" },
+    });
+  }
+  let asserts = 0;
+  const researchBudget = { assertWithin() { asserts += 1; } };
+  await runReview(
+    { kind: "whitebox", files: [sqliFile], mode: "deep" },
+    { llm: new FakeLlmClient(deepScript), researchBudget },
+  );
+  expect(asserts).toBeGreaterThanOrEqual(1);
+});
+
 // ---------------------------------------------------------------------------
 // Trust upgrades (T046 / T022 engine part): self-challenge, reachability,
 // verification gate, suppressions. The model NEVER sets the score; scoring

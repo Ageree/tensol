@@ -145,32 +145,80 @@ test("rejected triage decision yields no verdict", async () => {
   expect(verdicts).toEqual([]);
 });
 
-test("a throwing expert never aborts the whole run", async () => {
-  // Router emits one scenario; the expert stage throws; the run must not reject.
-  function throwingExpert(user: string): string {
+test("a PARTIAL expert transport failure is isolated; surviving experts' findings still surface", async () => {
+  // Two scenarios: the `injection` expert throws (transport), the
+  // `broken-access-control` expert succeeds. The run must NOT throw and must
+  // return the surviving expert's finding — one bad expert doesn't void the run.
+  function partialOutage(user: string): string {
     if (/routing units|scoped scenarios/i.test(user)) {
       return JSON.stringify({
         scenarios: [
-          {
-            id: "S001",
-            expert: "injection",
-            routing_unit_ids: ["U001"],
-            target_paths: ["a.ts"],
-            proof_question: "q?",
-            evidence_required: [],
-          },
+          { id: "S001", expert: "injection", routing_unit_ids: ["U001"], target_paths: ["a.ts"], proof_question: "q?", evidence_required: [] },
+          { id: "S002", expert: "broken-access-control", routing_unit_ids: ["U002"], target_paths: ["a.ts"], proof_question: "q?", evidence_required: [] },
         ],
       });
     }
     if (/candidates to triage/i.test(user)) {
-      return JSON.stringify({ decisions: [] });
+      return JSON.stringify({
+        decisions: [{ candidate_id: "S002-F001", decision: "accepted", confidence: "high", severity_rationale: "reachable" }],
+      });
     }
-    throw new Error("expert transport blew up");
+    if (/expert: injection/i.test(user)) throw new Error("429 rate limited");
+    return JSON.stringify({
+      scenario_id: "S002", expert: "broken-access-control", status: "verified",
+      primary_vulnerability_class: "Broken Access Control", summary: "missing authz",
+      evidence: [{ path: "a.ts", line: 1, snippet: "no check", note: "sink" }],
+      proof_obligations: [{ id: "reach", status: "proven_vulnerable", summary: "flows" }],
+      cwe: ["CWE-862"], cvss: { AV: "N", AC: "L", PR: "N", UI: "N", S: "U", C: "H", I: "H", A: "H" },
+    });
   }
-  const verdicts = await runResearch(files, new FakeLlmClient(throwingExpert));
-  // The throwing expert is treated as a rejected result -> no candidate ->
-  // no verdict, but the run resolves cleanly.
-  expect(verdicts).toEqual([]);
+  const verdicts = await runResearch(files, new FakeLlmClient(partialOutage));
+  expect(verdicts).toHaveLength(1);
+  expect(verdicts[0]!.category).toBe("Broken Access Control");
+  expect(verdicts[0]!.filePath).toBe("a.ts");
+});
+
+test("a TOTAL expert transport outage THROWS instead of returning a falsely-clean []", async () => {
+  // The only expert throws a transport error: every scenario failed via infra,
+  // so a clean `[]` would be a lie. The run must throw so the job fails/retries.
+  function totalOutage(user: string): string {
+    if (/routing units|scoped scenarios/i.test(user)) {
+      return JSON.stringify({
+        scenarios: [
+          { id: "S001", expert: "injection", routing_unit_ids: ["U001"], target_paths: ["a.ts"], proof_question: "q?", evidence_required: [] },
+        ],
+      });
+    }
+    if (/candidates to triage/i.test(user)) return JSON.stringify({ decisions: [] });
+    throw new Error("503 upstream down");
+  }
+  expect(runResearch(files, new FakeLlmClient(totalOutage))).rejects.toThrow(/transport/i);
+});
+
+test("a candidate with NO evidence falls back to the scenario targetPath, not an empty filePath", async () => {
+  function emptyEvidence(user: string): string {
+    if (/routing units|scoped scenarios/i.test(user)) {
+      return JSON.stringify({
+        scenarios: [
+          { id: "S001", expert: "injection", routing_unit_ids: ["U001"], target_paths: ["src/handler.ts"], proof_question: "q?", evidence_required: [] },
+        ],
+      });
+    }
+    if (/candidates to triage/i.test(user)) {
+      return JSON.stringify({
+        decisions: [{ candidate_id: "S001-F001", decision: "accepted", confidence: "high", severity_rationale: "r" }],
+      });
+    }
+    return JSON.stringify({
+      scenario_id: "S001", expert: "injection", status: "candidate",
+      primary_vulnerability_class: "SQL Injection", summary: "likely",
+      evidence: [], proof_obligations: [], cwe: ["CWE-89"],
+      cvss: { AV: "N", AC: "L", PR: "N", UI: "N", S: "U", C: "H", I: "H", A: "H" },
+    });
+  }
+  const verdicts = await runResearch(files, new FakeLlmClient(emptyEvidence));
+  expect(verdicts).toHaveLength(1);
+  expect(verdicts[0]!.filePath).toBe("src/handler.ts");
 });
 
 test("fileSourceText prefers contents when present", () => {

@@ -719,6 +719,7 @@ export const reviewFindings = sqliteTable(
         | "not_attempted"
         | "proven"
         | "failed"
+        | "error"
         | "skipped_budget"
         | "skipped_unauthorized"
       >()
