@@ -33,6 +33,9 @@ const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "migrations");
 const AUDIT_KEY = "test-key-github-connect-0123456789abcdef0123456789abcdef";
 const STATE_SECRET = "state-secret-0123456789abcdef0123456789abcdef";
 const GITHUB_SLUG = "sthrip-app";
+/** OAuth `code` the happy-path callbacks pass; the default Fake maps it to the
+ *  installation ids the user is allowed to claim. */
+const OWNED_CODE = "oauth-code-user-1";
 
 // ── DB helpers ───────────────────────────────────────────────────────────────
 
@@ -104,6 +107,9 @@ function makeConnectApp(
         accountType: "Organization",
         repositorySelection: "all",
       },
+      // The OAuth `code` the happy-path callbacks pass maps to the installation
+      // ids the user is allowed to claim (ownership proof for the takeover fix).
+      userInstallationIds: { [OWNED_CODE]: ["inst_42", "inst_99"] },
     });
   const service = createReviewService({ db, auditKey: AUDIT_KEY, now: clock });
   const requireAuth =
@@ -177,7 +183,7 @@ describe("GET /connect — begin GitHub connection", () => {
 describe("GET /callback — installation callback", () => {
   test("validates state, persists installation, reconciles repos, 302 to /repositories", async () => {
     const db = freshMemDb();
-    const { router, service } = makeConnectApp(db);
+    const { router, service, github } = makeConnectApp(db);
 
     const state = buildConnectState({
       userId: "user_1",
@@ -186,7 +192,7 @@ describe("GET /callback — installation callback", () => {
     });
 
     const res = await router.request(
-      `/callback?installation_id=inst_42&setup_action=install&state=${encodeURIComponent(state)}`,
+      `/callback?installation_id=inst_42&setup_action=install&code=${OWNED_CODE}&state=${encodeURIComponent(state)}`,
     );
     expect(res.status).toBe(302);
 
@@ -199,17 +205,34 @@ describe("GET /callback — installation callback", () => {
     expect(installation?.accountLogin).toBe("acme");
     expect(installation?.userId).toBe("user_1");
     expect(installation?.setupAction).toBe("install");
+    expect(github.listUserInstallationIdsCalls).toEqual([{ code: OWNED_CODE }]);
   });
 
   test("returns 400 when state is missing", async () => {
     const db = freshMemDb();
     const { router } = makeConnectApp(db);
 
-    const res = await router.request("/callback?installation_id=inst_42&setup_action=install");
+    const res = await router.request(
+      `/callback?installation_id=inst_42&setup_action=install&code=${OWNED_CODE}`,
+    );
     expect(res.status).toBe(400);
 
     const body = (await res.json()) as { error: string };
     expect(body.error).toBeTruthy();
+  });
+
+  test("returns 400 when OAuth code is missing", async () => {
+    const db = freshMemDb();
+    const { router } = makeConnectApp(db);
+
+    const state = buildConnectState({ userId: "user_1", now: clockNow, secret: STATE_SECRET });
+    const res = await router.request(
+      `/callback?installation_id=inst_42&setup_action=install&state=${encodeURIComponent(state)}`,
+    );
+    expect(res.status).toBe(400);
+
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("validation_failed");
   });
 
   test("returns 400 on forged/invalid state", async () => {
@@ -217,7 +240,7 @@ describe("GET /callback — installation callback", () => {
     const { router } = makeConnectApp(db);
 
     const res = await router.request(
-      "/callback?installation_id=inst_42&setup_action=install&state=totally-invalid-state",
+      `/callback?installation_id=inst_42&setup_action=install&code=${OWNED_CODE}&state=totally-invalid-state`,
     );
     expect(res.status).toBe(400);
   });
@@ -237,9 +260,33 @@ describe("GET /callback — installation callback", () => {
 
     const { router } = makeConnectApp(db, { userId: "user_1" });
     const res = await router.request(
-      `/callback?installation_id=inst_42&setup_action=install&state=${encodeURIComponent(forgedState)}`,
+      `/callback?installation_id=inst_42&setup_action=install&code=${OWNED_CODE}&state=${encodeURIComponent(forgedState)}`,
     );
     expect(res.status).toBe(400);
+  });
+
+  test("returns 403 when OAuth user cannot access claimed installation", async () => {
+    const db = freshMemDb();
+    const github = new FakeGitHubClient({
+      installationMetadata: {
+        accountLogin: "victim-org",
+        accountType: "Organization",
+        repositorySelection: "all",
+      },
+      userInstallationIds: { [OWNED_CODE]: ["inst_owned_elsewhere"] },
+    });
+    const { router, service } = makeConnectApp(db, { github });
+
+    const state = buildConnectState({ userId: "user_1", now: clockNow, secret: STATE_SECRET });
+    const res = await router.request(
+      `/callback?installation_id=inst_victim&setup_action=install&code=${OWNED_CODE}&state=${encodeURIComponent(state)}`,
+    );
+    expect(res.status).toBe(403);
+
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("forbidden");
+    expect(await service.getInstallationByGithubId("github", "inst_victim")).toBeNull();
+    expect(github.getInstallationMetadataCalls).toHaveLength(0);
   });
 
   test("returns 400 when installation_id is missing", async () => {
@@ -248,7 +295,7 @@ describe("GET /callback — installation callback", () => {
 
     const state = buildConnectState({ userId: "user_1", now: clockNow, secret: STATE_SECRET });
     const res = await router.request(
-      `/callback?setup_action=install&state=${encodeURIComponent(state)}`,
+      `/callback?setup_action=install&code=${OWNED_CODE}&state=${encodeURIComponent(state)}`,
     );
     expect(res.status).toBe(400);
   });
@@ -258,12 +305,12 @@ describe("GET /callback — installation callback", () => {
     const { router, service } = makeConnectApp(db);
 
     const state = buildConnectState({ userId: "user_1", now: clockNow, secret: STATE_SECRET });
-    const qs = `?installation_id=inst_99&setup_action=install&state=${encodeURIComponent(state)}`;
+    const qs = `?installation_id=inst_99&setup_action=install&code=${OWNED_CODE}&state=${encodeURIComponent(state)}`;
 
     await router.request(`/callback${qs}`);
 
     const state2 = buildConnectState({ userId: "user_1", now: clockNow, secret: STATE_SECRET });
-    const qs2 = `?installation_id=inst_99&setup_action=update&state=${encodeURIComponent(state2)}`;
+    const qs2 = `?installation_id=inst_99&setup_action=update&code=${OWNED_CODE}&state=${encodeURIComponent(state2)}`;
     const res2 = await router.request(`/callback${qs2}`);
     expect(res2.status).toBe(302);
 

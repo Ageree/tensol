@@ -599,6 +599,8 @@ export function createApp(deps: CreateAppDeps): Hono {
         Promise.reject(new Error("GitHub App not configured")),
       getPullRequest: () =>
         Promise.reject(new Error("GitHub App not configured")),
+      listUserInstallationIds: () =>
+        Promise.reject(new Error("GitHub App not configured")),
     } satisfies GitHubClient);
   const requireAuthForConnect = createRequireAuth({ db, ...maybeNow(now) });
   app.route(
@@ -876,6 +878,10 @@ export async function main(): Promise<{
       ? createHttpGitHubClient({
           appId: config.GITHUB_APP_ID,
           privateKeyPem: config.GITHUB_APP_PRIVATE_KEY,
+          ...(config.GITHUB_APP_CLIENT_ID ? { clientId: config.GITHUB_APP_CLIENT_ID } : {}),
+          ...(config.GITHUB_APP_CLIENT_SECRET
+            ? { clientSecret: config.GITHUB_APP_CLIENT_SECRET }
+            : {}),
         })
       : null;
   const repoFetcher = createGitRepoFetcher();

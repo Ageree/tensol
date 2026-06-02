@@ -123,6 +123,20 @@ export interface GitHubClient {
     pr: number;
     installationId?: string;
   }): Promise<{ headSha: string; baseSha: string; baseRef: string }>;
+  /**
+   * List the GitHub App installation ids the *user* (not the App) can access,
+   * by exchanging the OAuth `code` from the post-install redirect for a user
+   * access token and calling `GET /user/installations`. Returns installation ids
+   * as strings.
+   *
+   * The connect callback uses this to PROVE the authenticated Sthrip user
+   * actually controls the `installation_id` they claim. The App JWT can read any
+   * installation's private repos, so without this proof an attacker could claim
+   * a victim's (guessable, sequential) installation id and bind it to their own
+   * account — a cross-tenant installation takeover + private-repo leak. Requires
+   * the App's OAuth client_id + client_secret; throws when they are absent.
+   */
+  listUserInstallationIds(a: { code: string }): Promise<string[]>;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -195,6 +209,8 @@ export class FakeGitHubClient implements GitHubClient {
   readonly installationMetadata: InstallationMetadata;
   /** Pre-seeded PR info returned by `getPullRequest`. */
   readonly pullRequestInfo: PullRequestInfo;
+  /** Pre-seeded user-accessible installation ids, keyed by OAuth `code`. */
+  readonly userInstallationIds: Record<string, string[]>;
 
   readonly getFilesCalls: GetFilesCall[] = [];
   readonly listCommentsCalls: ListCommentsCall[] = [];
@@ -216,6 +232,7 @@ export class FakeGitHubClient implements GitHubClient {
     installationRepos?: InstallationRepo[];
     installationMetadata?: InstallationMetadata;
     pullRequestInfo?: PullRequestInfo;
+    userInstallationIds?: Record<string, string[]>;
   }) {
     this.files = opts?.files ? [...opts.files] : [];
     this.fileContents = opts?.fileContents ? { ...opts.fileContents } : {};
@@ -231,6 +248,11 @@ export class FakeGitHubClient implements GitHubClient {
     this.pullRequestInfo = opts?.pullRequestInfo
       ? { ...opts.pullRequestInfo }
       : { headSha: "fake-head-sha", baseSha: "fake-base-sha", baseRef: "main" };
+    this.userInstallationIds = opts?.userInstallationIds
+      ? Object.fromEntries(
+          Object.entries(opts.userInstallationIds).map(([k, v]) => [k, [...v]]),
+        )
+      : {};
   }
 
   getPullRequestFiles(a: GetFilesCall): Promise<DiffFile[]> {
@@ -280,6 +302,14 @@ export class FakeGitHubClient implements GitHubClient {
     this.getPullRequestCalls.push({ ...a });
     return Promise.resolve({ ...this.pullRequestInfo });
   }
+
+  readonly listUserInstallationIdsCalls: Array<{ code: string }> = [];
+
+  listUserInstallationIds(a: { code: string }): Promise<string[]> {
+    this.listUserInstallationIdsCalls.push({ ...a });
+    const hit = Object.prototype.hasOwnProperty.call(this.userInstallationIds, a.code);
+    return Promise.resolve(hit ? [...(this.userInstallationIds[a.code] as string[])] : []);
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -320,6 +350,10 @@ export function createHttpGitHubClient(a: {
   privateKeyPem: string;
   fetchImpl?: typeof fetch;
   tokenProvider?: (installationId: string) => Promise<string>;
+  /** OAuth App client id — required only for `listUserInstallationIds`. */
+  clientId?: string;
+  /** OAuth App client secret — required only for `listUserInstallationIds`. */
+  clientSecret?: string;
 }): GitHubClient {
   const fetchImpl = a.fetchImpl ?? fetch;
 
@@ -574,6 +608,62 @@ export function createHttpGitHubClient(a: {
         baseSha: json.base?.sha ?? "",
         baseRef: json.base?.ref ?? "",
       };
+    },
+
+    async listUserInstallationIds(args): Promise<string[]> {
+      if (!a.clientId || !a.clientSecret) {
+        throw new Error(
+          "GitHub: OAuth client_id/client_secret not configured — cannot verify installation ownership",
+        );
+      }
+      // 1. Exchange the OAuth code (from the post-install redirect) for a USER
+      //    access token. This token is scoped to the human, not the App, so the
+      //    next call reflects only the installations the human can actually see.
+      const tokenRes = await fetchImpl("https://github.com/login/oauth/access_token", {
+        method: "POST",
+        headers: { accept: "application/json", "content-type": "application/json" },
+        body: JSON.stringify({
+          client_id: a.clientId,
+          client_secret: a.clientSecret,
+          code: args.code,
+        }),
+      });
+      if (!tokenRes.ok) {
+        throw new Error(`GitHub: OAuth code exchange failed (${tokenRes.status})`);
+      }
+      const tokenJson = (await tokenRes.json()) as { access_token?: string; error?: string };
+      if (!tokenJson.access_token) {
+        throw new Error(
+          `GitHub: OAuth code exchange returned no access_token${
+            tokenJson.error ? ` (${tokenJson.error})` : ""
+          }`,
+        );
+      }
+      const userToken = tokenJson.access_token;
+
+      // 2. Page through GET /user/installations with the USER token.
+      const ids: string[] = [];
+      const perPage = 100;
+      for (let page = 1; ; page += 1) {
+        const url = `${GITHUB_API}/user/installations?per_page=${perPage}&page=${page}`;
+        const res = await fetchImpl(url, {
+          method: "GET",
+          headers: { ...BASE_HEADERS, authorization: `Bearer ${userToken}` },
+        });
+        if (!res.ok) {
+          throw new Error(`GitHub: list user installations failed (${res.status})`);
+        }
+        const json = (await res.json()) as {
+          installations?: Array<{ id?: number | string }>;
+        };
+        const batch = json.installations ?? [];
+        if (batch.length === 0) break;
+        for (const inst of batch) {
+          if (inst.id !== undefined) ids.push(String(inst.id));
+        }
+        if (batch.length < perPage) break;
+      }
+      return ids;
     },
   };
 }

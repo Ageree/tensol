@@ -118,6 +118,21 @@ describe("FakeGitHubClient", () => {
     await c.resolveReviewThread({ threadId: "T_kwthread" });
     expect(c.resolveThreadCalls).toEqual([{ threadId: "T_kwthread" }]);
   });
+
+  test("listUserInstallationIds returns ids for the OAuth code and records the call", async () => {
+    const c = new FakeGitHubClient({
+      userInstallationIds: { code_owned: ["123", "456"] },
+    });
+    await expect(c.listUserInstallationIds({ code: "code_owned" })).resolves.toEqual([
+      "123",
+      "456",
+    ]);
+    await expect(c.listUserInstallationIds({ code: "unknown" })).resolves.toEqual([]);
+    expect(c.listUserInstallationIdsCalls).toEqual([
+      { code: "code_owned" },
+      { code: "unknown" },
+    ]);
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -453,6 +468,95 @@ describe("createHttpGitHubClient — listInstallationRepos", () => {
 
     await expect(c.listInstallationRepos({ installationId: "42" })).rejects.toThrow(
       "GitHub: listInstallationRepos failed (403)",
+    );
+  });
+});
+
+describe("createHttpGitHubClient — listUserInstallationIds", () => {
+  function makeInstallationsPage(ids: Array<number | string>) {
+    return ids.map((id) => ({ id }));
+  }
+
+  test("exchanges OAuth code for a user token and paginates /user/installations", async () => {
+    const fullPage = makeInstallationsPage(Array.from({ length: 100 }, (_, i) => i + 1));
+    const tailPage = makeInstallationsPage(["tail-101"]);
+    const { impl, calls } = makeFetch((rec) => {
+      if (rec.url === "https://github.com/login/oauth/access_token") {
+        return { json: { access_token: "ghu_user_token", token_type: "bearer" } };
+      }
+      if (rec.url.includes("/user/installations")) {
+        if (rec.url.includes("page=2")) {
+          return { json: { installations: tailPage } };
+        }
+        return { json: { installations: fullPage } };
+      }
+      return { json: {} };
+    });
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+      clientId: "Iv1.client",
+      clientSecret: "secret",
+    });
+
+    const ids = await c.listUserInstallationIds({ code: "oauth-code" });
+
+    expect(ids).toHaveLength(101);
+    expect(ids[0]).toBe("1");
+    expect(ids[100]).toBe("tail-101");
+
+    const tokenCall = calls[0];
+    expect(tokenCall).toBeDefined();
+    expect(tokenCall?.method).toBe("POST");
+    expect(tokenCall?.url).toBe("https://github.com/login/oauth/access_token");
+    expect(tokenCall?.headers.accept).toBe("application/json");
+    expect(tokenCall?.body).toEqual({
+      client_id: "Iv1.client",
+      client_secret: "secret",
+      code: "oauth-code",
+    });
+
+    const installationCalls = calls.filter((call) => call.url.includes("/user/installations"));
+    expect(installationCalls).toHaveLength(2);
+    expect(installationCalls[0]?.headers.authorization).toBe("Bearer ghu_user_token");
+    expect(installationCalls[0]?.url).toContain("per_page=100");
+    expect(installationCalls[0]?.url).toContain("page=1");
+    expect(installationCalls[1]?.url).toContain("page=2");
+  });
+
+  test("throws when OAuth client credentials are missing", async () => {
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: makeFetch(() => ({ json: {} })).impl,
+      tokenProvider,
+    });
+
+    await expect(c.listUserInstallationIds({ code: "oauth-code" })).rejects.toThrow(
+      "GitHub: OAuth client_id/client_secret not configured",
+    );
+  });
+
+  test("throws when GitHub returns no user access token", async () => {
+    const { impl } = makeFetch((rec) => {
+      if (rec.url === "https://github.com/login/oauth/access_token") {
+        return { json: { error: "bad_verification_code" } };
+      }
+      return { json: {} };
+    });
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+      clientId: "Iv1.client",
+      clientSecret: "secret",
+    });
+
+    await expect(c.listUserInstallationIds({ code: "bad-code" })).rejects.toThrow(
+      "GitHub: OAuth code exchange returned no access_token (bad_verification_code)",
     );
   });
 });

@@ -314,6 +314,7 @@ describe("createPrReviewHandler", () => {
         baseSha: "fake-base",
         baseRef: "main",
       }),
+      listUserInstallationIds: async () => [],
     };
     const handler = createPrReviewHandler({
       service: svc,

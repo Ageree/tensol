@@ -83,6 +83,10 @@ const CallbackQuerySchema = z.object({
   installation_id: z.string().min(1),
   setup_action: z.string().min(1),
   state: z.string().min(1),
+  // OAuth `code` from the combined install+authorize redirect. Required: it is
+  // the only way to prove the authenticated user actually controls the claimed
+  // installation_id (the App JWT alone can read ANY installation's repos).
+  code: z.string().min(1),
 });
 
 const DisconnectBodySchema = z.object({
@@ -194,6 +198,7 @@ export function createGithubConnectRouter(
     const raw = {
       installation_id: c.req.query("installation_id"),
       setup_action: c.req.query("setup_action"),
+      code: c.req.query("code"),
       state: c.req.query("state"),
     };
 
@@ -208,7 +213,7 @@ export function createGithubConnectRouter(
       );
     }
 
-    const { installation_id, setup_action, state } = parsed.data;
+    const { installation_id, setup_action, state, code } = parsed.data;
     const user = c.get("user");
 
     // Verify the CSRF state nonce. The state must have been minted for this
@@ -218,6 +223,32 @@ export function createGithubConnectRouter(
       return c.json(
         { error: "invalid_state", message: "state is missing, forged, or expired" },
         400,
+      );
+    }
+
+    // Prove the authenticated user actually controls this GitHub installation.
+    // The App JWT can read ANY installation's private repos, so without this
+    // check an authenticated attacker could claim a victim's (sequential,
+    // guessable) installation_id and bind it to their own account — a
+    // cross-tenant installation takeover + private-repo leak. We exchange the
+    // OAuth `code` for a USER token and confirm installation_id is in the
+    // user's own installation list (spec.md:128, data-model.md:103).
+    let userInstallationIds: string[];
+    try {
+      userInstallationIds = await github.listUserInstallationIds({ code });
+    } catch {
+      return c.json(
+        {
+          error: "github_oauth_failed",
+          message: "could not verify installation ownership with GitHub",
+        },
+        400,
+      );
+    }
+    if (!userInstallationIds.includes(installation_id)) {
+      return c.json(
+        { error: "forbidden", message: "you do not control this installation" },
+        403,
       );
     }
 

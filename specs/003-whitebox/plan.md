@@ -60,7 +60,7 @@ Extend `jobs.type` union: `pr_review`, `whitebox_scan`, `resolve_threads`, `inde
 `api-client.ts` review namespace + `pages/Reviews.tsx` (connected repos, recent reviews, scores) +
 nav entry + route. `pages/ReviewDetail.tsx` (findings list).
 
-## Client skill `.claude/skills/tensol-loop/`
+## Client skill `.claude/skills/sthrip-loop/`
 greploop shape: SKILL.md + scripts (push → trigger `/v1/review` → poll → parse score+comments →
 fixer (host agent) → resolve threads → commit/push → stop at 5/5 & 0 unresolved or 5 iters).
 
