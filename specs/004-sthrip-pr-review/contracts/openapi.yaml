@@ -1,0 +1,199 @@
+openapi: 3.1.0
+info:
+  title: Sthrip PR Review — Connect & Repository Management API
+  version: 0.1.0
+  description: |
+    NEW endpoints added by feature 004-sthrip-pr-review. These complete the
+    self-serve product around the existing review engine. All routes are under
+    `/v1`, session-cookie authenticated, Zod-validated server-side (Constitution
+    IX), and emit signed audit events for state changes (Constitution X).
+
+    EXISTING review endpoints (defined in 003-whitebox, referenced not redefined
+    here): `POST /v1/review`, `GET /v1/review`, `GET /v1/review/{id}`,
+    `GET /v1/review/repos`, `POST /v1/review/whitebox`, and the webhook
+    `POST /v1/review/github/webhook` (see webhooks.md for the NEW event variants).
+
+servers:
+  - url: https://api.sthrip.com
+    description: Production
+  - url: http://localhost:3001
+    description: Local dev
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: sthrip_session
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error: { type: string }
+        message: { type: string }
+    ConnectUrl:
+      type: object
+      required: [install_url]
+      properties:
+        install_url:
+          type: string
+          description: GitHub App installation URL the frontend redirects the user to.
+        state:
+          type: string
+          description: CSRF nonce echoed back on the callback.
+    Installation:
+      type: object
+      required: [id, account_login, account_type, repository_selection, status]
+      properties:
+        id: { type: string }
+        account_login: { type: string }
+        account_type: { type: string, enum: [User, Organization] }
+        repository_selection: { type: string, enum: [all, selected] }
+        status: { type: string, enum: [active, suspended, deleted] }
+    InstallationRepo:
+      type: object
+      required: [owner, name, enabled]
+      properties:
+        repo_id: { type: string, nullable: true, description: Sthrip review_repos id if already tracked. }
+        owner: { type: string }
+        name: { type: string }
+        default_branch: { type: string }
+        enabled: { type: boolean }
+        covered_branches: { type: array, items: { type: string } }
+        status_check_enabled: { type: boolean }
+        merge_block_on_critical: { type: boolean }
+        last_review:
+          type: object
+          nullable: true
+          properties:
+            review_id: { type: string }
+            status: { type: string, enum: [queued, running, completed, failed, cancelled] }
+            score_0_5: { type: number, nullable: true }
+            updated_at: { type: integer }
+    RepoSettingsUpdate:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        covered_branches:
+          type: array
+          maxItems: 50
+          items: { type: string, maxLength: 255 }
+        status_check_enabled: { type: boolean }
+        merge_block_on_critical: { type: boolean }
+
+security:
+  - sessionCookie: []
+
+paths:
+  /v1/github/connect:
+    get:
+      summary: Begin GitHub connection — returns the App install URL.
+      description: Generates a CSRF `state` nonce and the GitHub App installation URL. The frontend redirects the browser there.
+      responses:
+        "200":
+          description: Install URL.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectUrl" }
+        "401": { description: Not authenticated, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /v1/github/callback:
+    get:
+      summary: GitHub App installation callback.
+      description: |
+        GitHub redirects here after install/authorize with `installation_id` and
+        `setup_action`. Validates `state`, mints an installation token, fetches
+        installation metadata, persists/updates the `installations` row mapped to
+        the current user, and reconciles accessible repos. Emits
+        `github_app_installed`. Redirects the browser to the Repositories page.
+      parameters:
+        - in: query
+          name: installation_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: setup_action
+          required: true
+          schema: { type: string, enum: [install, update] }
+        - in: query
+          name: state
+          required: true
+          schema: { type: string }
+      responses:
+        "302": { description: Redirect to /repositories (connected). }
+        "400": { description: Bad/forged state or missing params, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /v1/github/installations:
+    get:
+      summary: Connection status + installations for the current user.
+      responses:
+        "200":
+          description: Installations list (empty ⇒ not connected).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [connected, installations]
+                properties:
+                  connected: { type: boolean }
+                  installations:
+                    type: array
+                    items: { $ref: "#/components/schemas/Installation" }
+
+  /v1/github/installations/{installation_id}/repos:
+    get:
+      summary: List repositories the installation can access (with Sthrip coverage state).
+      parameters:
+        - in: path
+          name: installation_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Repos with enable/coverage/last-review state.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/InstallationRepo" }
+        "404": { description: Installation not owned by this user, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /v1/review/repos/{repo_id}/settings:
+    patch:
+      summary: Update per-repo review coverage and settings.
+      description: Enable/disable, set covered target branches, toggle the status check and merge-blocking. Emits `review_repo_enabled`/`review_repo_disabled`/`review_settings_changed`.
+      parameters:
+        - in: path
+          name: repo_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RepoSettingsUpdate" }
+      responses:
+        "200":
+          description: Updated repo.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstallationRepo" }
+        "400": { description: Validation error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "403": { description: Repo not owned by this user, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /v1/github/disconnect:
+    post:
+      summary: Disconnect (mark installation deleted locally; user uninstalls on GitHub).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [installation_id]
+              properties:
+                installation_id: { type: string }
+      responses:
+        "200": { description: Disconnected; repos disabled. }
+        "403": { description: Not owned by this user, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }

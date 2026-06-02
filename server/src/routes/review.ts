@@ -23,9 +23,13 @@
  */
 import { Hono, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { z } from "zod";
 
 import type { AuthVariables } from "../auth/middleware.ts";
 import type { DB } from "../db/client.ts";
+import { eq } from "drizzle-orm";
+import { reviews as reviewsTable } from "../db/schema.ts";
+import type { Review } from "../db/schema.ts";
 import { createRateLimit, defaultKeyFn } from "../lib/rate-limit.ts";
 import { runReview } from "../review/engine.ts";
 import { fileToAddedDiff } from "../review/repo-fetch.ts";
@@ -55,10 +59,74 @@ interface ErrorEnvelope {
 }
 
 const NOT_FOUND: ErrorEnvelope = { error: "not_found", message: "resource not found" };
+const FORBIDDEN: ErrorEnvelope = { error: "forbidden", message: "access denied" };
 const LLM_UNCONFIGURED: ErrorEnvelope = {
   error: "review_llm_unconfigured",
   message: "the review LLM is not configured on this server (set TENSOL_REVIEW_LLM_API_KEY)",
 };
+
+/**
+ * Zod schema for `PATCH /repos/:id/settings` body (RepoSettingsUpdate from
+ * openapi.yaml). covered_branches is bounded: ≤50 items, each ≤255 chars.
+ */
+const RepoSettingsUpdateSchema = z.object({
+  enabled: z.boolean().optional(),
+  covered_branches: z
+    .array(z.string().max(255))
+    .max(50)
+    .optional(),
+  status_check_enabled: z.boolean().optional(),
+  merge_block_on_critical: z.boolean().optional(),
+});
+
+type RepoSettingsUpdate = z.infer<typeof RepoSettingsUpdateSchema>;
+
+/**
+ * Map a ReviewRepo DB row + optional last Review row to the InstallationRepo
+ * wire shape (snake_case, per openapi.yaml InstallationRepo schema).
+ */
+function repoToInstallationRepoWire(
+  repo: {
+    id: string;
+    owner: string;
+    name: string;
+    defaultBranch: string;
+    coveredBranchesJson: string;
+    enabled: number;
+    statusCheckEnabled: number;
+    mergeBlockOnCritical: number;
+    lastReviewId: string | null;
+  },
+  lastReview: Review | null,
+) {
+  let coveredBranches: string[] = [];
+  try {
+    const parsed = JSON.parse(repo.coveredBranchesJson);
+    if (Array.isArray(parsed)) coveredBranches = parsed as string[];
+  } catch {
+    coveredBranches = [];
+  }
+
+  return {
+    repo_id: repo.id,
+    owner: repo.owner,
+    name: repo.name,
+    default_branch: repo.defaultBranch,
+    enabled: repo.enabled === 1,
+    covered_branches: coveredBranches,
+    status_check_enabled: repo.statusCheckEnabled === 1,
+    merge_block_on_critical: repo.mergeBlockOnCritical === 1,
+    last_review:
+      lastReview !== null
+        ? {
+            review_id: lastReview.id,
+            status: lastReview.status,
+            score_0_5: lastReview.score0to5 ?? null,
+            updated_at: lastReview.updatedAt,
+          }
+        : null,
+  };
+}
 
 /** Split an "owner/name" slug. */
 function splitRepo(slug: string): { owner: string; name: string } {
@@ -432,6 +500,74 @@ export function createReviewRouter(
     );
 
     return c.json({ review_id: review.id, job_id: jobId, status: "queued" }, 202);
+  });
+
+  // -------------------------------------------------------------------------
+  // PATCH /repos/:id/settings — update per-repo review coverage and settings.
+  //
+  // Owner-scoped: if the repo does not exist OR belongs to a different user,
+  // the service returns null and we respond with 403 (per openapi.yaml — this
+  // endpoint hides existence with 403, not 404, to distinguish from not-found
+  // review resources which use 404). Zod-validates the body, then delegates
+  // the update to service.updateRepoSettings. Audit events are emitted by the
+  // service (Constitution X). Maps the updated row to the InstallationRepo
+  // wire shape.
+  // -------------------------------------------------------------------------
+  app.patch("/repos/:id/settings", async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid_json", message: "body must be JSON" }, 400);
+    }
+
+    const parsed = RepoSettingsUpdateSchema.safeParse(raw);
+    if (!parsed.success) {
+      return c.json(
+        {
+          error: "validation_failed",
+          message: parsed.error.issues[0]?.message ?? "invalid body",
+          issues: parsed.error.issues,
+        },
+        400,
+      );
+    }
+
+    const body: RepoSettingsUpdate = parsed.data;
+    const user = c.get("user");
+    const repoId = c.req.param("id");
+
+    const updatedRepo = await service.updateRepoSettings({
+      repoId,
+      userId: user.id,
+      ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+      ...(body.covered_branches !== undefined
+        ? { coveredBranches: body.covered_branches }
+        : {}),
+      ...(body.status_check_enabled !== undefined
+        ? { statusCheckEnabled: body.status_check_enabled }
+        : {}),
+      ...(body.merge_block_on_critical !== undefined
+        ? { mergeBlockOnCritical: body.merge_block_on_critical }
+        : {}),
+    });
+
+    // service.updateRepoSettings returns null when the repo is absent or owned
+    // by a different user — both cases surface as 403 per openapi.yaml.
+    if (updatedRepo === null) return c.json(FORBIDDEN, 403);
+
+    // Fetch the last review row (if any) to populate last_review in the response.
+    let lastReview: Review | null = null;
+    if (updatedRepo.lastReviewId !== null) {
+      lastReview =
+        (deps.db
+          .select()
+          .from(reviewsTable)
+          .where(eq(reviewsTable.id, updatedRepo.lastReviewId))
+          .get() as Review | undefined) ?? null;
+    }
+
+    return c.json(repoToInstallationRepoWire(updatedRepo, lastReview), 200);
   });
 
   return app;

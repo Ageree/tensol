@@ -118,6 +118,21 @@ describe("FakeGitHubClient", () => {
     await c.resolveReviewThread({ threadId: "T_kwthread" });
     expect(c.resolveThreadCalls).toEqual([{ threadId: "T_kwthread" }]);
   });
+
+  test("listUserInstallationIds returns ids for the OAuth code and records the call", async () => {
+    const c = new FakeGitHubClient({
+      userInstallationIds: { code_owned: ["123", "456"] },
+    });
+    await expect(c.listUserInstallationIds({ code: "code_owned" })).resolves.toEqual([
+      "123",
+      "456",
+    ]);
+    await expect(c.listUserInstallationIds({ code: "unknown" })).resolves.toEqual([]);
+    expect(c.listUserInstallationIdsCalls).toEqual([
+      { code: "code_owned" },
+      { code: "unknown" },
+    ]);
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -350,6 +365,273 @@ describe("createHttpGitHubClient — resolveReviewThread", () => {
     const body = call.body as { query: string; variables: { threadId: string } };
     expect(body.query).toContain("resolveReviewThread");
     expect(body.variables.threadId).toBe("T_x");
+  });
+});
+
+describe("FakeGitHubClient — listInstallationRepos", () => {
+  test("returns canned repos and records the call", async () => {
+    const cannedRepos = [
+      { owner: "acme", name: "widgets", defaultBranch: "main" },
+      { owner: "acme", name: "backend", defaultBranch: "master", repoId: "R_123" },
+    ];
+    const c = new FakeGitHubClient({ installationRepos: cannedRepos });
+    const result = await c.listInstallationRepos({ installationId: "42" });
+    expect(result).toEqual(cannedRepos);
+    expect(c.listInstallationReposCalls).toHaveLength(1);
+    expect(c.listInstallationReposCalls[0]).toEqual({ installationId: "42" });
+  });
+
+  test("returns empty array when no repos configured", async () => {
+    const c = new FakeGitHubClient();
+    const result = await c.listInstallationRepos({ installationId: "99" });
+    expect(result).toEqual([]);
+    expect(c.listInstallationReposCalls).toHaveLength(1);
+  });
+});
+
+describe("createHttpGitHubClient — listInstallationRepos", () => {
+  /** Build a full page of 100 dummy repo entries (names repo-0 … repo-99). */
+  function makeFullPage(startId: number) {
+    return Array.from({ length: 100 }, (_, i) => ({
+      owner: { login: "acme" },
+      name: `repo-${startId + i}`,
+      default_branch: "main",
+      id: startId + i,
+    }));
+  }
+
+  test("GETs /installation/repositories with pagination and maps repos", async () => {
+    // page1 has 100 repos (full) → triggers page 2 request.
+    // page2 has 1 repo (partial) → pagination stops.
+    const page1Repos = makeFullPage(0);
+    const page2Repos = [
+      { owner: { login: "acme" }, name: "frontend", default_branch: "develop", id: 9999 },
+    ];
+
+    const { impl, calls } = makeFetch((rec) => {
+      if (rec.url.includes("/installation/repositories")) {
+        if (rec.url.includes("page=2")) return { json: { total_count: 101, repositories: page2Repos } };
+        return { json: { total_count: 101, repositories: page1Repos } };
+      }
+      return { json: {} };
+    });
+
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+    });
+
+    const repos = await c.listInstallationRepos({ installationId: "42" });
+
+    // Should have 101 repos total (100 from page1 + 1 from page2).
+    expect(repos).toHaveLength(101);
+    // First repo from page 1.
+    expect(repos[0]).toEqual({ owner: "acme", name: "repo-0", defaultBranch: "main", repoId: "0" });
+    // Last repo from page 2.
+    expect(repos[100]).toEqual({ owner: "acme", name: "frontend", defaultBranch: "develop", repoId: "9999" });
+
+    const repoCall = calls[0]!;
+    expect(repoCall.method).toBe("GET");
+    expect(repoCall.url).toContain("https://api.github.com/installation/repositories");
+    expect(repoCall.headers.authorization).toBe("Bearer ghs_installation_token_fake");
+    // Two pages were fetched.
+    expect(calls.length).toBe(2);
+  });
+
+  test("returns empty array when no repositories exist", async () => {
+    const { impl } = makeFetch(() => ({
+      json: { total_count: 0, repositories: [] },
+    }));
+
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+    });
+
+    const repos = await c.listInstallationRepos({ installationId: "42" });
+    expect(repos).toEqual([]);
+  });
+
+  test("throws on non-OK response", async () => {
+    const { impl } = makeFetch(() => ({ status: 403, json: { message: "Forbidden" } }));
+
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+    });
+
+    await expect(c.listInstallationRepos({ installationId: "42" })).rejects.toThrow(
+      "GitHub: listInstallationRepos failed (403)",
+    );
+  });
+});
+
+describe("createHttpGitHubClient — listUserInstallationIds", () => {
+  function makeInstallationsPage(ids: Array<number | string>) {
+    return ids.map((id) => ({ id }));
+  }
+
+  test("exchanges OAuth code for a user token and paginates /user/installations", async () => {
+    const fullPage = makeInstallationsPage(Array.from({ length: 100 }, (_, i) => i + 1));
+    const tailPage = makeInstallationsPage(["tail-101"]);
+    const { impl, calls } = makeFetch((rec) => {
+      if (rec.url === "https://github.com/login/oauth/access_token") {
+        return { json: { access_token: "ghu_user_token", token_type: "bearer" } };
+      }
+      if (rec.url.includes("/user/installations")) {
+        if (rec.url.includes("page=2")) {
+          return { json: { installations: tailPage } };
+        }
+        return { json: { installations: fullPage } };
+      }
+      return { json: {} };
+    });
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+      clientId: "Iv1.client",
+      clientSecret: "secret",
+    });
+
+    const ids = await c.listUserInstallationIds({ code: "oauth-code" });
+
+    expect(ids).toHaveLength(101);
+    expect(ids[0]).toBe("1");
+    expect(ids[100]).toBe("tail-101");
+
+    const tokenCall = calls[0];
+    expect(tokenCall).toBeDefined();
+    expect(tokenCall?.method).toBe("POST");
+    expect(tokenCall?.url).toBe("https://github.com/login/oauth/access_token");
+    expect(tokenCall?.headers.accept).toBe("application/json");
+    expect(tokenCall?.body).toEqual({
+      client_id: "Iv1.client",
+      client_secret: "secret",
+      code: "oauth-code",
+    });
+
+    const installationCalls = calls.filter((call) => call.url.includes("/user/installations"));
+    expect(installationCalls).toHaveLength(2);
+    expect(installationCalls[0]?.headers.authorization).toBe("Bearer ghu_user_token");
+    expect(installationCalls[0]?.url).toContain("per_page=100");
+    expect(installationCalls[0]?.url).toContain("page=1");
+    expect(installationCalls[1]?.url).toContain("page=2");
+  });
+
+  test("throws when OAuth client credentials are missing", async () => {
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: makeFetch(() => ({ json: {} })).impl,
+      tokenProvider,
+    });
+
+    await expect(c.listUserInstallationIds({ code: "oauth-code" })).rejects.toThrow(
+      "GitHub: OAuth client_id/client_secret not configured",
+    );
+  });
+
+  test("throws when GitHub returns no user access token", async () => {
+    const { impl } = makeFetch((rec) => {
+      if (rec.url === "https://github.com/login/oauth/access_token") {
+        return { json: { error: "bad_verification_code" } };
+      }
+      return { json: {} };
+    });
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+      clientId: "Iv1.client",
+      clientSecret: "secret",
+    });
+
+    await expect(c.listUserInstallationIds({ code: "bad-code" })).rejects.toThrow(
+      "GitHub: OAuth code exchange returned no access_token (bad_verification_code)",
+    );
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// FakeGitHubClient — getPullRequest (T040)
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("FakeGitHubClient — getPullRequest", () => {
+  test("returns default canned PR info when not seeded", async () => {
+    const c = new FakeGitHubClient();
+    const info = await c.getPullRequest({ owner: "o", name: "n", pr: 7 });
+    expect(info.headSha).toBe("fake-head-sha");
+    expect(info.baseSha).toBe("fake-base-sha");
+    expect(info.baseRef).toBe("main");
+    expect(c.getPullRequestCalls).toHaveLength(1);
+    expect(c.getPullRequestCalls[0]).toEqual({ owner: "o", name: "n", pr: 7 });
+  });
+
+  test("returns seeded PR info", async () => {
+    const c = new FakeGitHubClient({
+      pullRequestInfo: { headSha: "abc123", baseSha: "def456", baseRef: "develop" },
+    });
+    const info = await c.getPullRequest({ owner: "o", name: "n", pr: 3, installationId: "42" });
+    expect(info.headSha).toBe("abc123");
+    expect(info.baseRef).toBe("develop");
+    expect(c.getPullRequestCalls[0]).toEqual({ owner: "o", name: "n", pr: 3, installationId: "42" });
+  });
+});
+
+describe("createHttpGitHubClient — getPullRequest", () => {
+  test("GETs /pulls/{pr} and maps headSha/baseSha/baseRef", async () => {
+    const { impl, calls } = makeFetch((rec) => {
+      if (rec.url.includes("/pulls/5") && !rec.url.includes("/files") && !rec.url.includes("/reviews") && !rec.url.includes("/comments")) {
+        return {
+          json: {
+            head: { sha: "head-sha-xyz" },
+            base: { sha: "base-sha-abc", ref: "main" },
+          },
+        };
+      }
+      return { json: {} };
+    });
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+    });
+    const info = await c.getPullRequest({
+      owner: "acme",
+      name: "widgets",
+      pr: 5,
+      installationId: "42",
+    });
+    expect(info.headSha).toBe("head-sha-xyz");
+    expect(info.baseSha).toBe("base-sha-abc");
+    expect(info.baseRef).toBe("main");
+    const call = calls.find((c2) => c2.url.includes("/pulls/5") && !c2.url.includes("files"))!;
+    expect(call.method).toBe("GET");
+    expect(call.url).toBe("https://api.github.com/repos/acme/widgets/pulls/5");
+    expect(call.headers.authorization).toBe("Bearer ghs_installation_token_fake");
+  });
+
+  test("throws on non-OK response", async () => {
+    const { impl } = makeFetch(() => ({ status: 404, json: { message: "Not Found" } }));
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+    });
+    await expect(
+      c.getPullRequest({ owner: "o", name: "n", pr: 99, installationId: "42" }),
+    ).rejects.toThrow("GitHub: getPullRequest failed (404)");
   });
 });
 

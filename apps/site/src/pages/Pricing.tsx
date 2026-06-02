@@ -1,65 +1,22 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import {
+  ArrowIcon,
+  HudOverlay,
+  MarketingFooter,
+  MarketingNav,
+  SignalBackground,
+} from '../components/MarketingChrome.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { TENSOL_I18N } from '../i18n.ts';
 
 const t = TENSOL_I18N.en;
 const brandText = (value: string): string => value.replaceAll('Tensol', 'Sthrip');
 
-function ArrowIcon() {
-  return (
-    <svg className="minimal-arrow" viewBox="0 0 18 18" aria-hidden="true">
-      <path d="M3 9h11" />
-      <path d="m10 5 4 4-4 4" />
-    </svg>
-  );
-}
-
-function SignalBackground() {
-  return (
-    <div className="minimal-bg" aria-hidden="true">
-      <div className="minimal-bg-image minimal-bg-image-primary" />
-      <div className="minimal-bg-image minimal-bg-image-secondary" />
-      <div className="minimal-bg-fade" />
-      <div className="minimal-scanline" />
-    </div>
-  );
-}
-
-function PricingNav() {
-  const navigate = useNavigate();
-
-  return (
-    <header className="minimal-nav">
-      <Link className="minimal-wordmark" to="/" aria-label="STHRIP home">
-        <img src="/assets/sthrip-wordmark-white.png" alt="STHRIP" />
-      </Link>
-      <nav className="minimal-nav-links" aria-label="Primary navigation">
-        <Link to="/method">Method</Link>
-        <a href="#pricing-faq">Evidence</a>
-        <Link to="/pricing" aria-current="page">
-          Pricing
-        </Link>
-        <button type="button" onClick={() => navigate('/login')}>
-          Sign in
-        </button>
-      </nav>
-    </header>
-  );
-}
-
 function PricingHero() {
-  const proof = ['blackbox', 'whitebox', 'PR review'];
-
   return (
     <section className="minimal-page-hero pricing-hero" aria-labelledby="pricing-title">
       <div className="minimal-page-hero-copy">
         <h1 id="pricing-title">{brandText(t.pricing.title)}</h1>
-        <p>{brandText(t.pricing.sub)}</p>
-        <ul className="minimal-proofline" aria-label="Pricing proof points">
-          {proof.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
       </div>
     </section>
   );
@@ -70,7 +27,6 @@ function PricingPlans() {
 
   return (
     <section className="minimal-section pricing-plans" aria-label="Pricing plans">
-      <p className="pricing-positioning">{brandText(t.pricing.mythosPositioning)}</p>
       <div className="pricing-plan-grid">
         {t.pricing.plans.map((plan) => (
           <article key={plan.name} className="pricing-plan">
@@ -147,16 +103,6 @@ function PricingCta() {
   );
 }
 
-function PricingFooter() {
-  return (
-    <footer className="minimal-footer">
-      <span>STHRIP</span>
-      <span>(c) 2026</span>
-      <a href="mailto:hello@sthrip.dev">hello@sthrip.dev</a>
-    </footer>
-  );
-}
-
 export default function Pricing() {
   return (
     <>
@@ -169,15 +115,16 @@ export default function Pricing() {
       />
       <div className="minimal-marketing minimal-subpage" data-screen-label="11 Pricing - minimal">
         <SignalBackground />
+        <HudOverlay />
         <div className="minimal-content">
-          <PricingNav />
+          <MarketingNav />
           <main className="minimal-page-main">
             <PricingHero />
             <PricingPlans />
             <PricingFaq />
             <PricingCta />
           </main>
-          <PricingFooter />
+          <MarketingFooter />
         </div>
       </div>
     </>

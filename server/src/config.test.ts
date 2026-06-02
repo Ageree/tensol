@@ -169,4 +169,111 @@ describe("loadConfig", () => {
     // An unrecognized value is treated as OFF (fail-safe), not an error.
     expect(loadConfig({ ...validEnv, TENSOL_EXPLOIT_ENABLED: "maybe" }).TENSOL_EXPLOIT_ENABLED).toBe(false);
   });
+
+  // --- T003: 004-sthrip-pr-review config additions ---
+
+  describe("GITHUB_APP_SLUG", () => {
+    test("defaults to empty string when unset", () => {
+      const cfg = loadConfig(validEnv);
+      expect(cfg.GITHUB_APP_SLUG).toBe("");
+    });
+
+    test("accepts a custom slug", () => {
+      const cfg = loadConfig({ ...validEnv, GITHUB_APP_SLUG: "sthrip-app" });
+      expect(cfg.GITHUB_APP_SLUG).toBe("sthrip-app");
+    });
+  });
+
+  describe("GITHUB_APP_CLIENT_SECRET", () => {
+    test("defaults to empty string when unset", () => {
+      const cfg = loadConfig(validEnv);
+      expect(cfg.GITHUB_APP_CLIENT_SECRET).toBe("");
+    });
+
+    test("accepts a custom secret", () => {
+      const cfg = loadConfig({ ...validEnv, GITHUB_APP_CLIENT_SECRET: "ghs_secretvalue123" });
+      expect(cfg.GITHUB_APP_CLIENT_SECRET).toBe("ghs_secretvalue123");
+    });
+  });
+
+  describe("STHRIP_REVIEW_CONFIDENCE_FLOOR", () => {
+    test("defaults to 'medium' when unset", () => {
+      const cfg = loadConfig(validEnv);
+      expect(cfg.STHRIP_REVIEW_CONFIDENCE_FLOOR).toBe("medium");
+    });
+
+    test("accepts 'verified'", () => {
+      const cfg = loadConfig({ ...validEnv, STHRIP_REVIEW_CONFIDENCE_FLOOR: "verified" });
+      expect(cfg.STHRIP_REVIEW_CONFIDENCE_FLOOR).toBe("verified");
+    });
+
+    test("accepts 'high'", () => {
+      const cfg = loadConfig({ ...validEnv, STHRIP_REVIEW_CONFIDENCE_FLOOR: "high" });
+      expect(cfg.STHRIP_REVIEW_CONFIDENCE_FLOOR).toBe("high");
+    });
+
+    test("accepts 'medium'", () => {
+      const cfg = loadConfig({ ...validEnv, STHRIP_REVIEW_CONFIDENCE_FLOOR: "medium" });
+      expect(cfg.STHRIP_REVIEW_CONFIDENCE_FLOOR).toBe("medium");
+    });
+
+    test("accepts 'low'", () => {
+      const cfg = loadConfig({ ...validEnv, STHRIP_REVIEW_CONFIDENCE_FLOOR: "low" });
+      expect(cfg.STHRIP_REVIEW_CONFIDENCE_FLOOR).toBe("low");
+    });
+
+    test("rejects an invalid value", () => {
+      expect(() =>
+        loadConfig({ ...validEnv, STHRIP_REVIEW_CONFIDENCE_FLOOR: "critical" }),
+      ).toThrow(/STHRIP_REVIEW_CONFIDENCE_FLOOR/);
+    });
+  });
+
+  describe("STHRIP_SUPPRESS_AFTER_N_IGNORES", () => {
+    test("defaults to 3 when unset", () => {
+      const cfg = loadConfig(validEnv);
+      expect(cfg.STHRIP_SUPPRESS_AFTER_N_IGNORES).toBe(3);
+    });
+
+    test("coerces string to number", () => {
+      const cfg = loadConfig({ ...validEnv, STHRIP_SUPPRESS_AFTER_N_IGNORES: "5" });
+      expect(cfg.STHRIP_SUPPRESS_AFTER_N_IGNORES).toBe(5);
+      expect(typeof cfg.STHRIP_SUPPRESS_AFTER_N_IGNORES).toBe("number");
+    });
+
+    test("accepts a positive integer override", () => {
+      const cfg = loadConfig({ ...validEnv, STHRIP_SUPPRESS_AFTER_N_IGNORES: "10" });
+      expect(cfg.STHRIP_SUPPRESS_AFTER_N_IGNORES).toBe(10);
+    });
+
+    test("rejects zero", () => {
+      expect(() =>
+        loadConfig({ ...validEnv, STHRIP_SUPPRESS_AFTER_N_IGNORES: "0" }),
+      ).toThrow(/STHRIP_SUPPRESS_AFTER_N_IGNORES/);
+    });
+
+    test("rejects negative values", () => {
+      expect(() =>
+        loadConfig({ ...validEnv, STHRIP_SUPPRESS_AFTER_N_IGNORES: "-1" }),
+      ).toThrow(/STHRIP_SUPPRESS_AFTER_N_IGNORES/);
+    });
+
+    test("rejects non-integer floats", () => {
+      expect(() =>
+        loadConfig({ ...validEnv, STHRIP_SUPPRESS_AFTER_N_IGNORES: "2.5" }),
+      ).toThrow(/STHRIP_SUPPRESS_AFTER_N_IGNORES/);
+    });
+  });
+
+  describe("STHRIP_OPENGREP_RULES_DIR", () => {
+    test("defaults to empty string when unset", () => {
+      const cfg = loadConfig(validEnv);
+      expect(cfg.STHRIP_OPENGREP_RULES_DIR).toBe("");
+    });
+
+    test("accepts a custom path", () => {
+      const cfg = loadConfig({ ...validEnv, STHRIP_OPENGREP_RULES_DIR: "/opt/rules/aikido" });
+      expect(cfg.STHRIP_OPENGREP_RULES_DIR).toBe("/opt/rules/aikido");
+    });
+  });
 });

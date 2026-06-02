@@ -113,6 +113,16 @@ export const BLACKBOX_AUDIT_EVENTS = [
   // Decepticon webhook ingress (2)
   "webhook_received",
   "webhook_invalid_signature",
+  // 004-sthrip PR-review (9)
+  "github_app_installed",
+  "github_app_uninstalled",
+  "github_app_suspended",
+  "review_repo_enabled",
+  "review_repo_disabled",
+  "review_settings_changed",
+  "review_finding_verified",
+  "review_thread_resolved",
+  "review_category_suppressed",
 ] as const;
 
 /** Compile-time union derived from {@link BLACKBOX_AUDIT_EVENTS}. New

@@ -20,9 +20,16 @@
  */
 import type { GitHubClient } from "../../review/github/client.ts";
 import { runReview } from "../../review/engine.ts";
-import { fingerprintsFromComments, postReviewResult } from "../../review/poster.ts";
+import {
+  buildOverCapacityComment,
+  fingerprintsFromComments,
+  postReviewResult,
+  type PriorThread,
+} from "../../review/poster.ts";
+import type { ReachabilityClient } from "../../review/reachability/joern.ts";
 import type { LlmClient } from "../../review/reviewer.ts";
 import type { ReviewService } from "../../review/service.ts";
+import type { Confidence } from "../../review/types.ts";
 
 export interface PrReviewHandlerDeps {
   readonly service: ReviewService;
@@ -30,6 +37,24 @@ export interface PrReviewHandlerDeps {
   readonly llm: LlmClient;
   /** Optional token-budget override for the context bundle. */
   readonly tokenBudget?: number;
+  /**
+   * Confidence floor for the trust gate (STHRIP_REVIEW_CONFIDENCE_FLOOR). When
+   * set, the engine runs an adversarial self-challenge pass over the verdicts
+   * before scoring (below-floor / refuted findings are dropped). Omit to keep
+   * the legacy LLM-only behaviour.
+   */
+  readonly confidenceFloor?: Confidence;
+  /**
+   * Optional reachability adapter (e.g. Joern). Injected into the engine; it is
+   * only invoked when a `repoDir` is also available. Absent → the engine simply
+   * skips reachability and labels findings lower-confidence (graceful degrade).
+   */
+  readonly reachability?: ReachabilityClient;
+  /**
+   * Filesystem path to a checked-out repo. PR review works off the diff alone,
+   * so this is normally absent; when present it enables the reachability adapter.
+   */
+  readonly repoDir?: string;
 }
 
 interface NormalizedPayload {
@@ -49,6 +74,45 @@ function normalizePayload(raw: unknown): NormalizedPayload {
     throw new Error(`pr_review: payload missing reviewId (got ${JSON.stringify(raw)})`);
   }
   return { reviewId };
+}
+
+/**
+ * Collect the prior OPEN threads for a (repo, PR) so the poster can auto-resolve
+ * the ones whose finding has been remediated this cycle (T042 / FR-015).
+ *
+ * Sourced from the most recent COMPLETED review of the same PR (excluding the
+ * current review). Every distinct fingerprint of that review that still has an
+ * open thread becomes a {@link PriorThread}. The thread's GitHub node id is used
+ * to resolve it on GitHub; an absent node id (legacy / inline-only thread) is
+ * skipped from the GitHub-resolve list but still resolved locally by fingerprint.
+ */
+async function collectPriorThreads(
+  service: ReviewService,
+  repoId: string,
+  prNumber: number,
+  currentReviewId: string,
+): Promise<PriorThread[]> {
+  const reviews = await service.listReviewsByRepo(repoId);
+  const prior = reviews.find(
+    (r) =>
+      r.id !== currentReviewId &&
+      r.prNumber === prNumber &&
+      r.status === "completed",
+  );
+  if (!prior) return [];
+
+  const findings = await service.getReviewFindings(prior.id);
+  const seen = new Set<string>();
+  const out: PriorThread[] = [];
+  for (const f of findings) {
+    if (seen.has(f.fingerprint)) continue;
+    seen.add(f.fingerprint);
+    const open = await service.getOpenThread(repoId, f.fingerprint);
+    if (open && open.githubThreadId) {
+      out.push({ fingerprint: f.fingerprint, threadId: open.githubThreadId });
+    }
+  }
+  return out;
 }
 
 /** Build a `pr_review` handler closing over injected deps. */
@@ -77,7 +141,37 @@ export function createPrReviewHandler(deps: PrReviewHandlerDeps) {
       }
       const installationId = repo.installationId ?? undefined;
 
+      // Over-capacity / concurrency guard (T025 / FR-017): if another review is
+      // already RUNNING for this (repo, PR), do not start a second concurrent
+      // engine pass. Post a transparent explanatory comment instead of silently
+      // skipping, and finalize this review as completed with no findings.
+      const concurrent = await service.hasRunningReview(repo.id, review.prNumber);
+      if (concurrent) {
+        await github.postReview({
+          owner: repo.owner,
+          name: repo.name,
+          pr: review.prNumber,
+          body: buildOverCapacityComment(),
+          event: "COMMENT",
+          comments: [],
+          ...(installationId !== undefined ? { installationId } : {}),
+        });
+        await service.finalizeReview(reviewId, {
+          kind: "pr",
+          score0to5: 5,
+          summaryMd: buildOverCapacityComment(),
+          findings: [],
+        });
+        return;
+      }
+
       await service.markReviewRunning(reviewId);
+
+      // Prior open threads for this PR (for remediation auto-resolve, T042).
+      // Derived from the latest COMPLETED review of the same (repo, PR): each of
+      // its findings that still has an open thread is a candidate to resolve if
+      // the current cycle no longer reports that fingerprint.
+      const priorThreads = await collectPriorThreads(service, repo.id, review.prNumber, reviewId);
 
       const files = await github.getPullRequestFiles({
         owner: repo.owner,
@@ -86,14 +180,27 @@ export function createPrReviewHandler(deps: PrReviewHandlerDeps) {
         ...(installationId !== undefined ? { installationId } : {}),
       });
 
+      // Per-repo learned suppressions (style/nit classes only — the engine's
+      // NEVER_SUPPRESS guard re-strips security/correctness as defense in depth).
+      const suppressions = await service.listSuppressions(repo.id);
+      const suppressedCategories = new Set(suppressions.map((s) => s.category));
+
       const result = await runReview(
         {
           kind: "pr",
           files,
           ...(repo.rulesMd ? { rulesMd: repo.rulesMd } : {}),
           ...(deps.tokenBudget !== undefined ? { tokenBudget: deps.tokenBudget } : {}),
+          ...(deps.confidenceFloor !== undefined
+            ? { confidenceFloor: deps.confidenceFloor }
+            : {}),
+          ...(suppressedCategories.size > 0 ? { suppressedCategories } : {}),
+          ...(deps.repoDir !== undefined ? { repoDir: deps.repoDir } : {}),
         },
-        { llm },
+        {
+          llm,
+          ...(deps.reachability ? { reachability: deps.reachability } : {}),
+        },
       );
 
       // Skip findings that already have an open thread (prior review of this PR).
@@ -122,10 +229,13 @@ export function createPrReviewHandler(deps: PrReviewHandlerDeps) {
           name: repo.name,
           pr: review.prNumber,
           headSha: review.headSha,
+          statusCheckEnabled: repo.statusCheckEnabled !== 0,
+          mergeBlockOnCritical: repo.mergeBlockOnCritical !== 0,
           ...(installationId !== undefined ? { installationId } : {}),
         },
         github,
         alreadyPosted,
+        ...(priorThreads.length > 0 ? { priorThreads } : {}),
       });
 
       // Map newly-posted fingerprints to threads so the next re-review dedups.
@@ -136,6 +246,18 @@ export function createPrReviewHandler(deps: PrReviewHandlerDeps) {
           fingerprint: fp,
           ...(out.reviewId !== undefined ? { githubThreadId: out.reviewId } : {}),
         });
+      }
+
+      // Mark the local thread state for remediated findings (the poster resolved
+      // them on GitHub; the service also flips review_findings.lifecycle_state).
+      const currentFingerprints = new Set(result.findings.map((f) => f.fingerprint));
+      for (const t of priorThreads) {
+        if (!currentFingerprints.has(t.fingerprint)) {
+          await service.resolveThreadByFingerprint({
+            repoId: repo.id,
+            fingerprint: t.fingerprint,
+          });
+        }
       }
 
       await service.finalizeReview(reviewId, result);

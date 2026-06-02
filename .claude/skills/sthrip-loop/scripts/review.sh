@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
-# tensol-loop — trigger one Tensol review of the current branch diff and print
+# sthrip-loop — trigger one Sthrip review of the current branch diff and print
 # the parsed result as JSON on stdout.
 #
 # Usage:
-#   TENSOL_API_BASE=https://api.tensol.ru TENSOL_SESSION=<cookie> \
+#   STHRIP_API_BASE=https://api.sthrip.com STHRIP_SESSION=<cookie> \
 #     bash review.sh <owner/name> [base-branch]
 #
 # Output (stdout): the raw JSON returned by POST /v1/review, e.g.
 #   {"review_id":"...","status":"completed","score_0_5":2,
 #    "findings":[{"file_path":"src/db.ts","start_line":42,"severity":"high",
 #                 "title":"SQLi ...","rationale_md":"...","fix_prompt_md":"..."}]}
+#
+# Edit-in-place note: Sthrip edits the PR summary comment in place. When reading
+# the current score from the PR, always sort comments by updated_at descending and
+# take the first one matching the <!-- sthrip:fp:* --> anchor marker.
 set -euo pipefail
 
 REPO="${1:?usage: review.sh <owner/name> [base-branch]}"
 BASE="${2:-main}"
-API="${TENSOL_API_BASE:-https://api.tensol.ru}"
-SESSION="${TENSOL_SESSION:-}"
+API="${STHRIP_API_BASE:-https://api.sthrip.com}"
+SESSION="${STHRIP_SESSION:-}"
 
 HEAD_SHA="$(git rev-parse HEAD)"
 # Three-dot diff = changes on this branch since it diverged from base.
@@ -47,7 +51,7 @@ PY
 
 COOKIE_ARG=()
 if [ -n "${SESSION}" ]; then
-  COOKIE_ARG=(-H "Cookie: tensol_session=${SESSION}")
+  COOKIE_ARG=(-H "Cookie: sthrip_session=${SESSION}")
 fi
 
 encode_body | curl -sS -X POST "${API}/v1/review" \

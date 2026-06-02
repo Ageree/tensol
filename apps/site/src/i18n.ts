@@ -5,13 +5,13 @@ export type TensolLang = 'en' | 'ru';
 
 const en = {
   // Marketing
-  nav: ['PRODUCT', 'METHOD', 'PROOF', 'SCOPE'],
+  nav: ['PRODUCT', 'SOLUTIONS', 'RESOURCES', 'SCOPE'],
   navItems: [
-    { label: 'RESEARCH', to: '/blog' },
-    { label: 'METHOD', to: '/method' },
+    { label: 'SOLUTIONS', to: '/solutions' },
+    { label: 'RESOURCES', to: '/resources' },
   ],
   signin: 'Sign in',
-  requestDemo: 'Book a demo',
+  requestDemo: 'Start for free',
   navPricing: 'PRICING',
   eyebrowLive: '// AI OFFENSIVE SECURITY',
   heroL1: 'AI security testing',
@@ -19,7 +19,7 @@ const en = {
   heroL3: 'Blackbox and whitebox',
   heroBlurb:
     'Sthrip combines autonomous offensive agents with expert validation to find exploitable vulnerabilities across running applications, APIs, and source code. Every confirmed issue ships with proof, context, and a remediation path your team can act on.',
-  ctaPrimary: 'Book a demo',
+  ctaPrimary: 'Start for free',
   ctaGhost: 'See the method',
   ctaQuickFree: 'Start blackbox scan',
   ctaDeepAudit: 'Book whitebox assessment',
@@ -83,10 +83,10 @@ const en = {
   proofTitle: 'Proof before priority',
   proofBlurb:
     'Every confirmed finding includes reproduction steps, HTTP evidence or code context, exploitability rationale, remediation guidance, and the audit trail behind the agent’s decision.',
-  russiaEyebrow: '// REGION · RU',
-  russiaTitle: 'Attacker AI is already operating in your jurisdiction. Defense has to be here too.',
+  russiaEyebrow: '// REGION · GLOBAL',
+  russiaTitle: 'Security programs cross borders. Evidence and controls have to travel with them.',
   russiaBlurb:
-    'Deployed inside your Yandex Cloud folder. Aligned with 152-FZ; GOST R and FSTEC report appendices on request. Russian-language deliverables. Regulator-compliant data retention by default. Your data, your jurisdiction, your regulator — not a foreign vendor that becomes unreachable on the day of the first incident.',
+    'Deploy in the customer-designated cloud region with contractual data-handling boundaries, audit-ready evidence, and retention rules set per engagement. Your data, your jurisdiction, your operating model.',
   supplyEyebrow: '// SUPPLY CHAIN',
   supplyTitle: 'Offensive supply chain under customer control',
   supplyBlurb:
@@ -273,6 +273,9 @@ const en = {
   navAssessments: 'Assessments',
   navFindings: 'Findings',
   navReports: 'Reports',
+  navReviews: 'Reviews',
+  navConnect: 'Connect',
+  navRepositories: 'Repositories',
   navSettings: 'Settings',
   engineHealth: '// ENGINE',
 
@@ -555,7 +558,7 @@ const en = {
     fTelegram: 'Telegram',
     fTelegramHint: 'Your Telegram handle — we will use it for fast coordination.',
     fPhone: 'Phone',
-    fConsent: 'I agree my data is processed under 152-FZ — see',
+    fConsent: 'I agree Sthrip may use my details to respond to this request — see',
     fConsentLink: 'privacy policy',
     submit: 'Send assessment request',
     submitting: 'Sending…',
@@ -569,7 +572,7 @@ const en = {
     errInvalidTelegram: 'Telegram handle must be 4–32 chars (letters, digits, underscore).',
     errInvalidPhone: 'Enter a valid phone number.',
     errRequired: 'Required.',
-    errConsent: 'Please confirm 152-FZ consent.',
+    errConsent: 'Please confirm contact consent.',
   },
   // ── END:contact ─────────────────────────────────────────────────────
 
@@ -593,7 +596,7 @@ const en = {
     fBudgetBandHint: 'Indicative only — we quote after the call.',
     fDesiredDate: 'Desired start date',
     fDesiredDateHint: 'Optional. We will confirm the slot.',
-    fConsent: 'I agree my data is processed under 152-FZ — see',
+    fConsent: 'I agree Sthrip may use my details to respond to this request — see',
     fConsentLink: 'privacy policy',
     submit: 'Send request',
     submitting: 'Sending…',
@@ -610,7 +613,7 @@ const en = {
       invalidPhone: 'Enter a valid phone (+7…) or Telegram @handle.',
       scopeTooLong: 'Scope description is too long (max 10 000 characters).',
       domainsTooLong: 'Domains list is too long (max 10 000 characters).',
-      consent: 'Please confirm 152-FZ consent.',
+      consent: 'Please confirm contact consent.',
       generic: 'Could not submit your request. Please try again.',
     },
     thankYou: {
@@ -732,8 +735,8 @@ const en = {
     complianceTitle: 'Controls your security, legal, and engineering teams can reason about.',
     compliance: [
       {
-        name: '152-ФЗ',
-        statusLabel: 'aligned',
+        name: 'Privacy controls',
+        statusLabel: 'available',
         statusTone: 'ok',
         body: 'Sthrip can operate with customer-designated regional storage and contractual data-handling boundaries. DPA available on request.',
         caption: '',
@@ -870,7 +873,7 @@ const en = {
       updated: 'Updated · 2026-05-08',
       eyebrow: '// LEGAL · PRIVACY',
       intro:
-        'Sthrip provides authorized AI offensive security services, including blackbox assessments, whitebox testing, and code-review workflows. We collect a minimum set of personal data to respond to inquiries, negotiate engagement contracts, and operate the website. This document describes what we collect, why, and your rights as a data subject under Russian Federal Law 152-ФЗ "On Personal Data" and applicable equivalents.',
+        'Sthrip provides authorized AI offensive security services, including blackbox assessments, whitebox testing, and code-review workflows. We collect a minimum set of personal data to respond to inquiries, negotiate engagement contracts, and operate the website. This document describes what we collect, why, and your rights under applicable privacy and data-protection laws.',
       sections: [
         {
           eyebrow: '// 01 · WHO WE ARE',
@@ -906,9 +909,9 @@ const en = {
           h: 'Legal basis',
           anchor: '',
           p: [
-            'Lead-form submissions: your consent under Article 9(1)(1) of 152-ФЗ. Submitting the form is the consent action.',
-            'Server logs: legitimate interest in operating, securing, and debugging the website (Article 6(1)(7) of 152-ФЗ).',
-            'Customer-account data: contractual necessity once an engagement is signed (Article 6(1)(5) of 152-ФЗ).',
+            'Lead-form submissions: your consent. Submitting the form is the consent action.',
+            'Server logs: legitimate interest in operating, securing, and debugging the website.',
+            'Customer-account data: contractual necessity once an engagement is signed.',
           ],
         },
         {
@@ -916,7 +919,7 @@ const en = {
           h: 'Storage and retention',
           anchor: '',
           p: [
-            'All personal data is stored on Yandex Cloud infrastructure in the Russian Federation region. Encrypted at rest with AES-256 and in transit with TLS 1.3.',
+            'Personal data is stored in the customer-designated cloud region or in Sthrip-managed infrastructure defined by the engagement terms. Encrypted at rest with AES-256 and in transit with TLS 1.3.',
             'Lead-form data: retained for three years from the date of last contact, then deleted. If you become a customer, retention is governed by your engagement contract instead.',
             'Server logs: rotated after 90 days. Backups retained 30 days, then destroyed.',
           ],
@@ -928,7 +931,7 @@ const en = {
           p: [
             'We share personal data only with subprocessors strictly necessary to operate the service. The current list is in our DPA: Yandex Cloud (compute and storage), Anthropic / OpenAI (LLM inference, customer-flag-controlled), and a transactional email provider.',
             'We do not share data with advertising networks, data brokers, or analytics vendors.',
-            'We will disclose data to government authorities only when compelled by a lawful order under Russian law and only the minimum necessary to comply.',
+            'We will disclose data to government authorities only when compelled by a lawful order in an applicable jurisdiction and only the minimum necessary to comply.',
           ],
         },
         {
@@ -936,9 +939,9 @@ const en = {
           h: 'Your rights',
           anchor: '',
           p: [
-            'Under 152-ФЗ Article 14 you have the right to access your personal data, correct it, delete it, restrict processing, withdraw consent, and request portability of data you provided.',
+            'Subject to applicable law, you may request access, correction, deletion, restriction of processing, withdrawal of consent, and portability of data you provided.',
             'To exercise any of these rights, email nikto256@gmail.com. We respond within five business days and complete the request within 30 days.',
-            'You also have the right to file a complaint with Roskomnadzor (роскомнадзор.рф) under Article 23 of 152-ФЗ if you believe we processed your data unlawfully.',
+            'You may also file a complaint with the privacy authority that applies to your jurisdiction if you believe we processed your data unlawfully.',
           ],
         },
         {
@@ -1049,7 +1052,7 @@ const en = {
             '"Controller" — the customer who instructs Sthrip to perform an authorized assessment and decides the purpose of processing.',
             '"Processor" — Sthrip, processing personal data only on the Controller\'s documented instructions (the SOW + the platform\'s scope objects).',
             '"Subprocessor" — a third party engaged by Sthrip to assist with processing (compute, storage, LLM inference, transactional email).',
-            '"Personal Data" — any data relating to an identified or identifiable natural person, as defined by 152-ФЗ Article 3.',
+            '"Personal Data" — any data relating to an identified or identifiable natural person.',
             '"Sub-processing" — any processing carried out by a Subprocessor on Sthrip\'s behalf.',
           ],
         },
@@ -1359,18 +1362,138 @@ const en = {
     backToFindings: 'Back to findings',
   },
   // ── END:reports ──────────────────────────────────────────────────────
+  // ── BEGIN:repos (T019 — Repositories page) ───────────────────────────
+  repos: {
+    title: 'Repositories',
+    subtitle: 'Select which repositories Sthrip monitors. Enable coverage, set branches, and configure merge gates per repo.',
+    loading: 'Loading repositories…',
+    loadError: 'Could not load repositories',
+    empty: 'No repositories found. Install the Sthrip GitHub App to see your repositories here.',
+    colRepo: 'Repository',
+    colBranches: 'Covered branches',
+    colStatusCheck: 'Status check',
+    colMergeBlock: 'Block on critical',
+    colLastReview: 'Last review',
+    colEnabled: 'Enabled',
+    enabledLabel: 'Enabled',
+    disabledLabel: 'Disabled',
+    statusCheckOn: 'On',
+    statusCheckOff: 'Off',
+    mergeBlockOn: 'On',
+    mergeBlockOff: 'Off',
+    branchesPlaceholder: 'main, dev (comma-separated)',
+    branchesSave: 'Save',
+    branchesCancel: 'Cancel',
+    lastReviewNone: 'No reviews yet',
+    saving: 'Saving…',
+    saveError: 'Failed to save settings',
+    installationSection: 'GitHub installation',
+    disconnectLabel: 'Disconnect',
+    disconnectConfirm: 'Disconnect this GitHub installation? Sthrip will stop reviewing PRs for these repositories.',
+    disconnecting: 'Disconnecting…',
+    disconnectError: 'Failed to disconnect',
+    statusActive: 'active',
+    statusSuspended: 'suspended',
+    statusDeleted: 'deleted',
+    connectCta: 'Connect GitHub',
+    connectHint: 'Connect your GitHub account to select repositories for PR review.',
+  },
+  // ── END:repos ─────────────────────────────────────────────────────────
+
+  // ── BEGIN:reviews (T026 — Reviews list + detail pages) ───────────────
+  reviews: {
+    pageTitle: 'Security Reviews — Sthrip',
+    title: 'Security Reviews',
+    subtitle: 'AI-assisted PR review and full-repository whitebox assessment coverage.',
+    // List page
+    sectionRepos: 'Connected repositories',
+    sectionRecent: 'Recent reviews',
+    colKind: 'Kind',
+    colRepo: 'Repository',
+    colScore: 'Score',
+    colStatus: 'Status',
+    colFindings: 'Findings',
+    colCreated: 'Created',
+    loadingRepos: 'Loading repositories…',
+    loadingReviews: 'Loading reviews…',
+    errorRepos: 'Failed to load repositories',
+    errorReviews: 'Failed to load reviews',
+    emptyRepos: 'No repositories connected yet. Install the GitHub App to start reviewing pull requests.',
+    emptyReviews: 'No reviews yet. Push a pull request or trigger a whitebox scan to see results here.',
+    detailLink: 'Detail →',
+    kindPr: 'PR',
+    kindWhitebox: 'Whitebox',
+    // Detail page
+    back: '← Reviews',
+    loadingDetail: 'Loading review…',
+    errorDetail: 'Failed to load review',
+    noId: 'No review ID provided.',
+    inProgress: 'Review in progress — results will appear automatically as they complete.',
+    sectionSummary: 'Summary',
+    sectionFindings: 'Findings',
+    findingsSuffix: '·',
+    noFindings: 'No findings for this review.',
+    rationale: 'Rationale',
+    pocLabel: 'Proof of concept',
+    fixLabel: 'Suggested fix',
+    // Finding chip labels
+    labelCategory: 'Category',
+    labelCvss: 'CVSS',
+    labelConfidence: 'Confidence',
+    labelReachable: 'Reachable',
+    labelSource: 'Source',
+    labelCwe: 'CWE',
+    labelVerification: 'Verified',
+    labelReachEvidence: 'Reachability evidence',
+    // Reachability values
+    reachableYes: 'yes',
+    reachableNo: 'not proven',
+    // Verification status values
+    verificationVerified: 'verified',
+    verificationUnverified: 'unverified',
+    verificationRefuted: 'refuted',
+  },
+  // ── END:reviews ───────────────────────────────────────────────────────
+
+  // ── BEGIN:connect (owned by T018 — ConnectGitHub page) ───────────────
+  connect: {
+    pageTitle: 'Connect GitHub — Sthrip',
+    title: 'Connect GitHub',
+    subtitle: 'Link your GitHub account to enable automated security review on pull requests.',
+    statusTitle: '// CONNECTION STATUS',
+    statusLoading: 'Checking GitHub connection…',
+    statusLoadError: 'Failed to load connection status',
+    statusNotConnected: 'Not connected',
+    statusConnected: 'Connected',
+    statusSuspended: 'Suspended',
+    statusDeleted: 'Removed',
+    accountsTitle: '// CONNECTED ACCOUNTS',
+    accountType: 'type',
+    accountRepoSelection: 'access',
+    repoSelectionAll: 'all repositories',
+    repoSelectionSelected: 'selected repositories',
+    connectBtn: 'Install Sthrip GitHub App →',
+    connecting: 'Redirecting to GitHub…',
+    connectError: 'Could not start GitHub connection. Please try again.',
+    disconnectBtn: 'Remove',
+    disconnectConfirm: 'Remove this GitHub connection? You will also need to uninstall the Sthrip app from your GitHub account.',
+    disconnecting: 'Removing…',
+    disconnectError: 'Could not remove connection. Please try again.',
+    noAccounts: 'No GitHub accounts connected. Install the Sthrip GitHub App to begin.',
+  },
+  // ── END:connect ───────────────────────────────────────────────────────
 };
 
 export type TensolDict = typeof en;
 
 const ru: TensolDict = {
-  nav: ['УГРОЗА', 'КАК МЫ ЛОМАЕМ', 'ПРУФ', 'ПЕРИМЕТР'],
+  nav: ['ПРОДУКТ', 'РЕШЕНИЯ', 'РЕСУРСЫ', 'ПЕРИМЕТР'],
   navItems: [
-    { label: 'БЛОГ', to: '/blog' },
-    { label: 'КАК МЫ ЛОМАЕМ', to: '/method' },
+    { label: 'РЕШЕНИЯ', to: '/solutions' },
+    { label: 'РЕСУРСЫ', to: '/resources' },
   ],
   signin: 'Войти',
-  requestDemo: 'Запросить демо',
+  requestDemo: 'Начать бесплатно',
   navPricing: 'ЦЕНЫ',
   eyebrowLive: '// ИИ УЖЕ ЗДЕСЬ · v0.4.1',
   heroL1: 'ИИ взломает тебя',
@@ -1378,7 +1501,7 @@ const ru: TensolDict = {
   heroL3: 'Не дай этому случиться',
   heroBlurb:
     'ИИ научились взламывать чудовищно хорошо. Один агент за ночь проводит последовательную цепочку атак, на ходу пишет эксплоиты и находит уязвимости нулевого дня. Sthrip запускает такого же агента у тебя — по подписанному периметру, в твоём журнале аудита. Через 48 часов покажем подтверждённые уязвимости с хэшем для воспроизведения.',
-  ctaPrimary: 'Запросить демо',
+  ctaPrimary: 'Начать бесплатно',
   ctaGhost: 'Как это работает',
   ctaQuickFree: 'Попробовать Quick бесплатно',
   ctaDeepAudit: 'Запросить Deep аудит',
@@ -1442,10 +1565,10 @@ const ru: TensolDict = {
   proofTitle: 'Всё задокументировано',
   proofBlurb:
     'Каждая подтверждённая уязвимость — это HTTP-запрос и ответ, скриншот, OOB-callback, лог валидатора и хэш артефакта. Галлюцинации отсекаются валидатором, а не остаются в почтовой переписке',
-  russiaEyebrow: '// РЕГИОН · РФ',
-  russiaTitle: 'Атакующий ИИ уже работает в вашей юрисдикции. Защита — должна тоже.',
+  russiaEyebrow: '// РЕГИОН · GLOBAL',
+  russiaTitle: 'Безопасность работает через границы. Доказательства и контроль — тоже.',
   russiaBlurb:
-    'Развёртывание в вашем контуре Yandex Cloud. Соответствие 152-ФЗ, приложения по ГОСТ Р и требованиям ФСТЭК. Отчётность на русском, хранение данных согласно регуляторным требованиям — по умолчанию. Ваши данные, ваша юрисдикция, ваш регулятор. Не вендор из другой юрисдикции, который окажется недоступен в момент первого инцидента.',
+    'Развёртывание в выбранном заказчиком облачном регионе, договорные границы обработки данных, audit-ready доказательства и retention-правила под конкретный engagement. Ваши данные, ваша юрисдикция, ваша операционная модель.',
   supplyEyebrow: '// SUPPLY CHAIN',
   supplyTitle: 'Цепочка поставок наступательного инструментария — под контролем заказчика',
   supplyBlurb:
@@ -1535,7 +1658,7 @@ const ru: TensolDict = {
       name: 'Отчёт',
       what: 'По каждой подтверждённой уязвимости: шаги воспроизведения, исходный запрос и ответ, хэш доказательства, оценка по CVSS, рекомендации по устранению, ссылка на участок кода или конфигурации. Отчёт сопровождается полным журналом аудита действий агента и подписью платформы.',
       hard: 'Отчёт без журнала аудита — это «поверь нам». Внутренняя служба безопасности заказчика не может перепроверить, внешний аудитор не может принять, регулятор не может подшить к делу.',
-      tensol: 'Найденные уязвимости маппятся на MITRE ATT&CK, NIST CSF, MITRE ATLAS, D3FEND. Двойной формат — для людей (PDF) и для систем (JSON). Принимается внутренними службами безопасности, внешними аудиторами и проверяющими по 152-ФЗ.',
+      tensol: 'Найденные уязвимости маппятся на MITRE ATT&CK, NIST CSF, MITRE ATLAS, D3FEND. Двойной формат — для людей (PDF) и для систем (JSON). Принимается внутренними службами безопасности, внешними аудиторами и проверяющими командами.',
       claim: '4 фреймворка · 2 формата · 1 подпись',
     },
   ],
@@ -1634,6 +1757,9 @@ const ru: TensolDict = {
   navAssessments: 'Assessments',
   navFindings: 'Findings',
   navReports: 'Отчёты',
+  navReviews: 'Ревью',
+  navConnect: 'Подключить',
+  navRepositories: 'Репозитории',
   navSettings: 'Настройки',
   engineHealth: '// ENGINE',
 
@@ -1905,7 +2031,7 @@ const ru: TensolDict = {
     fTelegram: 'Telegram',
     fTelegramHint: 'Твой ник в Telegram — напишу туда.',
     fPhone: 'Телефон',
-    fConsent: 'Согласен на обработку данных по 152-ФЗ — см.',
+    fConsent: 'Согласен, что Sthrip может использовать мои контакты для ответа на запрос — см.',
     fConsentLink: 'политику конфиденциальности',
     submit: 'Отправить основателю',
     submitting: 'Отправляю…',
@@ -1919,7 +2045,7 @@ const ru: TensolDict = {
     errInvalidTelegram: 'Ник Telegram: 4–32 символа (буквы, цифры, подчёркивание).',
     errInvalidPhone: 'Введи корректный номер телефона.',
     errRequired: 'Обязательное поле.',
-    errConsent: 'Подтверди согласие 152-ФЗ.',
+    errConsent: 'Подтверди согласие на связь.',
   },
   // ── END:contact ─────────────────────────────────────────────────────
 
@@ -1943,7 +2069,7 @@ const ru: TensolDict = {
     fBudgetBandHint: 'Ориентир — точную смету выставим после звонка.',
     fDesiredDate: 'Желаемая дата старта',
     fDesiredDateHint: 'Необязательно. Слот подтвердим отдельно.',
-    fConsent: 'Согласен на обработку данных по 152-ФЗ — см.',
+    fConsent: 'Согласен, что Sthrip может использовать мои контакты для ответа на запрос — см.',
     fConsentLink: 'политику конфиденциальности',
     submit: 'Отправить заявку',
     submitting: 'Отправляем…',
@@ -1960,7 +2086,7 @@ const ru: TensolDict = {
       invalidPhone: 'Введите телефон (+7…) или Telegram @ник.',
       scopeTooLong: 'Описание периметра слишком длинное (макс. 10 000 символов).',
       domainsTooLong: 'Список доменов слишком длинный (макс. 10 000 символов).',
-      consent: 'Подтвердите согласие 152-ФЗ.',
+      consent: 'Подтвердите согласие на связь.',
       generic: 'Не получилось отправить заявку. Попробуйте ещё раз.',
     },
     thankYou: {
@@ -2037,7 +2163,7 @@ const ru: TensolDict = {
       },
       {
         q: 'Что входит в финальный отчёт и подходит ли он для проверок регулятора?',
-        a: 'По каждой подтверждённой уязвимости: шаги воспроизведения, исходный запрос и ответ, хэш доказательства, оценка по CVSS, рекомендации по устранению, ссылка на участок кода или конфигурации. Отчёт сопровождается журналом аудита всех действий агента и подписью платформы. В таком виде он принимается внутренними службами безопасности, внешними аудиторами и проверяющими по 152-ФЗ.',
+        a: 'По каждой подтверждённой уязвимости: шаги воспроизведения, исходный запрос и ответ, хэш доказательства, оценка по CVSS, рекомендации по устранению, ссылка на участок кода или конфигурации. Отчёт сопровождается журналом аудита всех действий агента и подписью платформы. В таком виде он принимается внутренними службами безопасности, внешними аудиторами и проверяющими командами.',
       },
       {
         q: 'Почему нет опубликованных цен?',
@@ -2062,10 +2188,10 @@ const ru: TensolDict = {
     complianceTitle: 'Стандарты, под которые мы маппимся, и где мы сегодня.',
     compliance: [
       {
-        name: '152-ФЗ',
-        statusLabel: 'соответствие',
+        name: 'Privacy controls',
+        statusLabel: 'доступно',
         statusTone: 'ok',
-        body: 'Sthrip хостится в Yandex Cloud в указанной заказчиком папке. Локальная обработка ПДн. Соглашение об обработке (DPA) предоставляется по запросу.',
+        body: 'Sthrip может работать в выбранном заказчиком регионе с договорными границами обработки данных. DPA предоставляется по запросу.',
         caption: '',
       },
       {
@@ -2200,7 +2326,7 @@ const ru: TensolDict = {
       updated: 'Обновлено · 2026-05-08',
       eyebrow: '// LEGAL · PRIVACY',
       intro:
-        'Sthrip предоставляет инструменты авторизованного автономного пентеста. Мы собираем минимальный набор персональных данных, чтобы отвечать на запросы лидов, согласовывать договоры engagement и эксплуатировать сайт. Этот документ описывает, что мы собираем, зачем, и какие у вас права как у субъекта персональных данных по 152-ФЗ «О персональных данных» и применимым аналогам.',
+        'Sthrip предоставляет инструменты авторизованного автономного пентеста. Мы собираем минимальный набор персональных данных, чтобы отвечать на запросы лидов, согласовывать договоры engagement и эксплуатировать сайт. Этот документ описывает, что мы собираем, зачем, и какие у вас права по применимым законам о приватности и защите данных.',
       sections: [
         {
           eyebrow: '// 01 · КТО МЫ',
@@ -2236,9 +2362,9 @@ const ru: TensolDict = {
           h: 'Правовое основание',
           anchor: '',
           p: [
-            'Для лид-формы — ваше согласие по статье 9, ч. 1, п. 1 152-ФЗ. Отправка формы — действие согласия.',
-            'Для server-логов — законный интерес в эксплуатации, защите и отладке сайта (статья 6, ч. 1, п. 7 152-ФЗ).',
-            'Для клиентских данных — необходимость исполнения договора после подписания engagement (статья 6, ч. 1, п. 5 152-ФЗ).',
+            'Для лид-формы — ваше согласие. Отправка формы — действие согласия.',
+            'Для server-логов — законный интерес в эксплуатации, защите и отладке сайта.',
+            'Для клиентских данных — необходимость исполнения договора после подписания engagement.',
           ],
         },
         {
@@ -2246,7 +2372,7 @@ const ru: TensolDict = {
           h: 'Хранение и retention',
           anchor: '',
           p: [
-            'Все персональные данные хранятся в Yandex Cloud в регионе Российской Федерации. Шифрование at-rest — AES-256, in-transit — TLS 1.3.',
+            'Персональные данные хранятся в выбранном заказчиком облачном регионе или в Sthrip-managed инфраструктуре, указанной в условиях engagement. Шифрование at-rest — AES-256, in-transit — TLS 1.3.',
             'Лид-данные: храним 3 года с момента последнего контакта, потом удаляем. Если вы стали клиентом — retention регулируется договором engagement.',
             'Server-логи: ротация после 90 дней. Бэкапы — 30 дней, потом уничтожаются.',
           ],
@@ -2258,7 +2384,7 @@ const ru: TensolDict = {
           p: [
             'Передаём только субпроцессорам, строго необходимым для работы сервиса. Актуальный список — в нашем DPA: Yandex Cloud (compute и storage), Anthropic / OpenAI (LLM-инференс, под флагом клиента), провайдер транзакционной почты.',
             'Не передаём данные рекламным сетям, дата-брокерам и аналитическим вендорам.',
-            'Госорганам раскрываем данные только по законному запросу в рамках российского права и только в объёме, необходимом для исполнения.',
+            'Госорганам раскрываем данные только по законному запросу в применимой юрисдикции и только в объёме, необходимом для исполнения.',
           ],
         },
         {
@@ -2266,9 +2392,9 @@ const ru: TensolDict = {
           h: 'Ваши права',
           anchor: '',
           p: [
-            'По статье 14 152-ФЗ у вас есть право на доступ к персональным данным, исправление, удаление, ограничение обработки, отзыв согласия и portability данных, которые вы предоставили.',
+            'С учётом применимого права вы можете запросить доступ к персональным данным, исправление, удаление, ограничение обработки, отзыв согласия и portability данных, которые вы предоставили.',
             'Чтобы воспользоваться правами — пишите на nikto256@gmail.com. Отвечаем в течение пяти рабочих дней, выполняем запрос в течение 30 дней.',
-            'Вы также имеете право подать жалобу в Роскомнадзор (роскомнадзор.рф) по статье 23 152-ФЗ, если считаете, что ваши данные обрабатываются неправомерно.',
+            'Вы также можете подать жалобу в орган по защите данных, применимый к вашей юрисдикции, если считаете, что ваши данные обрабатываются неправомерно.',
           ],
         },
         {
@@ -2379,7 +2505,7 @@ const ru: TensolDict = {
             '«Контроллер» — клиент, поручающий Sthrip проведение авторизованного пентеста и определяющий цель обработки.',
             '«Процессор» — Sthrip, обрабатывающий персональные данные исключительно по документированным инструкциям Контроллера (SOW + scope-объекты платформы).',
             '«Субпроцессор» — третье лицо, привлечённое Sthrip для содействия обработке (compute, storage, LLM-инференс, транзакционная почта).',
-            '«Персональные данные» — любая информация, относящаяся к прямо или косвенно определённому физическому лицу, по статье 3 152-ФЗ.',
+            '«Персональные данные» — любая информация, относящаяся к прямо или косвенно определённому физическому лицу.',
             '«Субобработка» — любая обработка, выполняемая Субпроцессором по поручению Sthrip.',
           ],
         },
@@ -2685,6 +2811,126 @@ const ru: TensolDict = {
     backToFindings: 'К находкам',
   },
   // ── END:reports ──────────────────────────────────────────────────────
+  // ── BEGIN:repos (T019 — страница репозиториев) ───────────────────────
+  repos: {
+    title: 'Репозитории',
+    subtitle: 'Выберите репозитории, которые Sthrip будет проверять. Включите покрытие, задайте ветки и настройте блокировки слияний.',
+    loading: 'Загружаем репозитории…',
+    loadError: 'Не удалось загрузить репозитории',
+    empty: 'Репозитории не найдены. Установите GitHub App Sthrip, чтобы видеть репозитории здесь.',
+    colRepo: 'Репозиторий',
+    colBranches: 'Ветки',
+    colStatusCheck: 'Статус-чек',
+    colMergeBlock: 'Блок при critical',
+    colLastReview: 'Последняя проверка',
+    colEnabled: 'Включено',
+    enabledLabel: 'Включён',
+    disabledLabel: 'Выключен',
+    statusCheckOn: 'Вкл',
+    statusCheckOff: 'Выкл',
+    mergeBlockOn: 'Вкл',
+    mergeBlockOff: 'Выкл',
+    branchesPlaceholder: 'main, dev (через запятую)',
+    branchesSave: 'Сохранить',
+    branchesCancel: 'Отмена',
+    lastReviewNone: 'Проверок нет',
+    saving: 'Сохраняем…',
+    saveError: 'Не удалось сохранить настройки',
+    installationSection: 'Подключение GitHub',
+    disconnectLabel: 'Отключить',
+    disconnectConfirm: 'Отключить подключение GitHub? Sthrip перестанет проверять PR для этих репозиториев.',
+    disconnecting: 'Отключаем…',
+    disconnectError: 'Не удалось отключить',
+    statusActive: 'активно',
+    statusSuspended: 'приостановлено',
+    statusDeleted: 'удалено',
+    connectCta: 'Подключить GitHub',
+    connectHint: 'Подключите GitHub, чтобы выбрать репозитории для проверки PR.',
+  },
+  // ── END:repos ─────────────────────────────────────────────────────────
+
+  // ── BEGIN:reviews (T026 — страницы списка и детали проверок) ─────────
+  reviews: {
+    pageTitle: 'Проверки безопасности — Sthrip',
+    title: 'Проверки безопасности',
+    subtitle: 'AI-ассистированная проверка PR и полный whitebox-аудит репозиториев.',
+    // Список
+    sectionRepos: 'Подключённые репозитории',
+    sectionRecent: 'Последние проверки',
+    colKind: 'Тип',
+    colRepo: 'Репозиторий',
+    colScore: 'Оценка',
+    colStatus: 'Статус',
+    colFindings: 'Находки',
+    colCreated: 'Создано',
+    loadingRepos: 'Загружаем репозитории…',
+    loadingReviews: 'Загружаем проверки…',
+    errorRepos: 'Не удалось загрузить репозитории',
+    errorReviews: 'Не удалось загрузить проверки',
+    emptyRepos: 'Нет подключённых репозиториев. Установите GitHub App, чтобы начать проверку pull request.',
+    emptyReviews: 'Проверок нет. Создайте pull request или запустите whitebox-сканирование.',
+    detailLink: 'Подробнее →',
+    kindPr: 'PR',
+    kindWhitebox: 'Whitebox',
+    // Страница детали
+    back: '← Проверки',
+    loadingDetail: 'Загружаем проверку…',
+    errorDetail: 'Не удалось загрузить проверку',
+    noId: 'Идентификатор проверки не указан.',
+    inProgress: 'Проверка выполняется — результаты появятся автоматически.',
+    sectionSummary: 'Резюме',
+    sectionFindings: 'Находки',
+    findingsSuffix: '·',
+    noFindings: 'У этой проверки нет находок.',
+    rationale: 'Обоснование',
+    pocLabel: 'Proof of concept',
+    fixLabel: 'Предложение по исправлению',
+    // Метки чипов находки
+    labelCategory: 'Категория',
+    labelCvss: 'CVSS',
+    labelConfidence: 'Уверенность',
+    labelReachable: 'Достижимость',
+    labelSource: 'Источник',
+    labelCwe: 'CWE',
+    labelVerification: 'Подтверждение',
+    labelReachEvidence: 'Путь достижимости',
+    // Значения достижимости
+    reachableYes: 'да',
+    reachableNo: 'не доказано',
+    // Статусы верификации
+    verificationVerified: 'подтверждено',
+    verificationUnverified: 'не проверено',
+    verificationRefuted: 'опровергнуто',
+  },
+  // ── END:reviews ───────────────────────────────────────────────────────
+
+  // ── BEGIN:connect (owned by T018 — страница подключения GitHub) ───────
+  connect: {
+    pageTitle: 'Подключить GitHub — Sthrip',
+    title: 'Подключить GitHub',
+    subtitle: 'Привяжите аккаунт GitHub, чтобы включить автоматическую проверку безопасности в pull request.',
+    statusTitle: '// СТАТУС ПОДКЛЮЧЕНИЯ',
+    statusLoading: 'Проверяем подключение GitHub…',
+    statusLoadError: 'Не удалось загрузить статус подключения',
+    statusNotConnected: 'Не подключено',
+    statusConnected: 'Подключено',
+    statusSuspended: 'Приостановлено',
+    statusDeleted: 'Удалено',
+    accountsTitle: '// ПОДКЛЮЧЁННЫЕ АККАУНТЫ',
+    accountType: 'тип',
+    accountRepoSelection: 'доступ',
+    repoSelectionAll: 'все репозитории',
+    repoSelectionSelected: 'выбранные репозитории',
+    connectBtn: 'Установить GitHub App Sthrip →',
+    connecting: 'Перенаправляем на GitHub…',
+    connectError: 'Не удалось начать подключение к GitHub. Попробуйте снова.',
+    disconnectBtn: 'Удалить',
+    disconnectConfirm: 'Удалить подключение GitHub? Вам также нужно будет удалить приложение Sthrip из вашего аккаунта GitHub.',
+    disconnecting: 'Удаляем…',
+    disconnectError: 'Не удалось удалить подключение. Попробуйте снова.',
+    noAccounts: 'Нет подключённых аккаунтов GitHub. Установите GitHub App Sthrip, чтобы начать.',
+  },
+  // ── END:connect ───────────────────────────────────────────────────────
 };
 
 export const TENSOL_I18N: Record<TensolLang, TensolDict> = { en, ru };

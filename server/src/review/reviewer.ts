@@ -19,7 +19,8 @@
  * Determinism: pure assembly + parsing. No clock, no RNG, no I/O beyond the
  * injected `LlmClient` (itself injectable/fakeable for tests).
  */
-import type { ContextBundle, Candidate, LlmVerdict } from "./types.ts";
+import { z } from "zod";
+import type { ContextBundle, Candidate, LlmVerdict, Confidence } from "./types.ts";
 import { LlmReviewOutputSchema, type LlmReviewOutput } from "./schemas.ts";
 import { estimateTokens } from "./context/repomap.ts";
 
@@ -253,6 +254,136 @@ function toLlmVerdict(v: LlmReviewOutput["verdicts"][number]): LlmVerdict {
     ...(v.poc_md !== undefined ? { pocMd: v.poc_md } : {}),
     ...(v.fix_prompt_md !== undefined ? { fixPromptMd: v.fix_prompt_md } : {}),
   };
+}
+
+// ---------------------------------------------------------------------------
+// selfChallenge — T033
+// ---------------------------------------------------------------------------
+
+/**
+ * Ordered from highest to lowest confidence (index = rank; lower index = higher).
+ * Used to compare whether a verdict's confidence meets the floor.
+ */
+const CONFIDENCE_ORDER: readonly Confidence[] = [
+  "verified",
+  "high",
+  "medium",
+  "low",
+] as const;
+
+/**
+ * Return true iff `level` is at or above `floor` in the confidence hierarchy.
+ *
+ * "verified" >= "high" >= "medium" >= "low"
+ */
+function meetsFloor(level: Confidence, floor: Confidence): boolean {
+  return CONFIDENCE_ORDER.indexOf(level) <= CONFIDENCE_ORDER.indexOf(floor);
+}
+
+/**
+ * System prompt for the skeptical challenge pass.
+ *
+ * HARD RULES encoded: rationale first; NEVER emit a numeric score or severity.
+ */
+const CHALLENGE_SYSTEM_PROMPT = `You are a rigorous security reviewer performing an adversarial second-pass audit. You are given one candidate security finding and must decide whether it can be REFUTED — i.e., the alleged vulnerability is NOT actually exploitable, or the reasoning is wrong.
+
+HARD RULES — follow exactly:
+1. REASON FIRST. Write your reasoning before answering. Think: is the exploit path valid? Is the sink really reachable with attacker-controlled input? Is the described impact achievable?
+2. NEVER OUTPUT A NUMERIC SEVERITY OR SCORE. Emitting a final severity number is forbidden. Your only output is the strict JSON object below.
+3. OUTPUT STRICT JSON ONLY — a single JSON object, no prose, no markdown fences.
+
+OUTPUT SHAPE (strict JSON):
+{
+  "refuted": boolean,    // true if you can REFUTE the finding (not a real vuln / not reachable)
+  "reason": string       // brief explanation of your conclusion
+}`;
+
+/**
+ * Build the challenge prompt (user turn) for one verdict.
+ */
+function buildChallengePrompt(v: LlmVerdict): string {
+  return [
+    `## Finding to challenge`,
+    `Title: ${v.title}`,
+    `Category: ${v.category}`,
+    `File: ${v.filePath}${v.startLine != null ? `:${v.startLine}` : ""}`,
+    `Confidence: ${v.confidence}`,
+    `CWE: ${v.cwe.join(", ") || "n/a"}`,
+    ``,
+    `### Rationale provided`,
+    v.rationaleMd,
+    ...(v.pocMd ? [``, `### PoC provided`, v.pocMd] : []),
+    ``,
+    `Can you REFUTE this finding? Return ONLY the strict JSON object.`,
+  ].join("\n");
+}
+
+/** Zod schema for the model's challenge (refutation) response. */
+const ChallengeResponseSchema = z.object({
+  refuted: z.boolean(),
+  reason: z.string().optional(),
+});
+
+/**
+ * For each verdict:
+ *   1. If its confidence is below `confidenceFloor`, drop it immediately.
+ *   2. Otherwise ask the LLM to refute it (a skeptical second pass).
+ *   3. If the LLM refutes it, drop it.
+ *   4. If the challenge response is malformed/unparseable, keep the verdict
+ *      (conservative — don't drop findings due to model parse failures).
+ *
+ * The model challenge prompt explicitly forbids emitting a numeric score.
+ * The returned verdicts are pure `LlmVerdict` — no score field is ever added.
+ */
+export async function selfChallenge(args: {
+  verdicts: LlmVerdict[];
+  llm: LlmClient;
+  confidenceFloor: Confidence;
+}): Promise<LlmVerdict[]> {
+  const { verdicts, llm, confidenceFloor } = args;
+  if (verdicts.length === 0) return [];
+
+  const results: LlmVerdict[] = [];
+
+  for (const verdict of verdicts) {
+    // Step 1: confidence gate — drop immediately if below floor
+    if (!meetsFloor(verdict.confidence, confidenceFloor)) {
+      continue;
+    }
+
+    // Step 2: skeptical challenge pass
+    let refuted = false;
+    try {
+      const raw = await llm.complete({
+        system: CHALLENGE_SYSTEM_PROMPT,
+        user: buildChallengePrompt(verdict),
+      });
+      const inner = stripCodeFences(raw);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(inner);
+      } catch {
+        // Unparseable response → conservative: keep verdict
+        refuted = false;
+      }
+      if (parsed !== undefined) {
+        const result = ChallengeResponseSchema.safeParse(parsed);
+        // On schema failure → conservative: keep verdict
+        if (result.success) {
+          refuted = result.data.refuted;
+        }
+      }
+    } catch {
+      // LLM transport error → conservative: keep verdict
+      refuted = false;
+    }
+
+    if (!refuted) {
+      results.push(verdict);
+    }
+  }
+
+  return results;
 }
 
 /**

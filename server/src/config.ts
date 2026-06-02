@@ -123,16 +123,46 @@ const ConfigSchema = z
     // `parseOperatorEmails` (see `routes/admin/deep-inquiries.ts`).
     TENSOL_OPERATOR_EMAILS: z.string().default(""),
 
-    // 003-whitebox — GitHub App (PR Review). All optional with empty defaults
-    // so dev boot doesn't halt; the review domain degrades gracefully and the
-    // webhook route 503s when unconfigured (no signature can verify against an
-    // empty secret). Production deployments populate these from the GitHub App
-    // settings page.
+    // 003-whitebox / 004-sthrip-pr-review — GitHub App (PR Review). All
+    // optional with empty defaults so dev boot doesn't halt; the review domain
+    // degrades gracefully and the webhook route 503s when unconfigured (no
+    // signature can verify against an empty secret). Production deployments
+    // populate these from the GitHub App settings page.
     GITHUB_APP_ID: z.string().default(""),
     // PEM private key (may contain literal `\n` — normalized at read time).
     GITHUB_APP_PRIVATE_KEY: z.string().default(""),
     GITHUB_APP_WEBHOOK_SECRET: z.string().default(""),
     GITHUB_APP_CLIENT_ID: z.string().default(""),
+    // 004-sthrip-pr-review — App slug (used to build install URL) and OAuth
+    // client secret (OAuth flow during connect). Both default to "" so dev
+    // boot never halts when unconfigured.
+    GITHUB_APP_SLUG: z.string().default(""),
+    GITHUB_APP_CLIENT_SECRET: z.string().default(""),
+
+    // 004-sthrip-pr-review — review quality / noise-control knobs. All have
+    // safe defaults so dev boot never halts when the env vars are absent.
+    //
+    // STHRIP_REVIEW_CONFIDENCE_FLOOR: findings below this threshold are
+    // dropped before posting. Default "medium" — same as the legacy
+    // LLM-only mode, so existing behaviour is preserved on upgrade.
+    STHRIP_REVIEW_CONFIDENCE_FLOOR: z
+      .enum(["verified", "high", "medium", "low"])
+      .default("medium"),
+    // STHRIP_SUPPRESS_AFTER_N_IGNORES: after N dismissals of the same
+    // category the repo suppresses that category automatically. Must be a
+    // positive integer; coerced from string env value.
+    STHRIP_SUPPRESS_AFTER_N_IGNORES: z.coerce
+      .number({
+        invalid_type_error: "STHRIP_SUPPRESS_AFTER_N_IGNORES must be a number",
+      })
+      .int({ message: "STHRIP_SUPPRESS_AFTER_N_IGNORES must be an integer" })
+      .positive({
+        message: "STHRIP_SUPPRESS_AFTER_N_IGNORES must be a positive integer",
+      })
+      .default(3),
+    // STHRIP_OPENGREP_RULES_DIR: path to the AikidoSec-MIT or self-authored
+    // Opengrep rules directory. Empty string means "use built-in rules only".
+    STHRIP_OPENGREP_RULES_DIR: z.string().default(""),
 
     // 003-whitebox — Review LLM (OpenRouter/LiteLLM-compatible). When the
     // review-specific key is unset it falls back to the shared OpenRouter key

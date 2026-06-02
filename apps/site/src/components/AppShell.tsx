@@ -5,6 +5,8 @@ import {
   Code2,
   FileText,
   Gauge,
+  GitBranch,
+  Link2,
   PanelLeftClose,
   PanelLeftOpen,
   Settings as SettingsIcon,
@@ -23,6 +25,8 @@ export type AppRoute =
   | 'findings'
   | 'reports'
   | 'reviews'
+  | 'connect'
+  | 'repositories'
   | 'settings';
 
 export type AppRole =
@@ -52,6 +56,8 @@ const ROUTE_PATHS: Record<AppRoute, string> = {
   findings: '/findings',
   reports: '/reports',
   reviews: '/reviews',
+  connect: '/connect',
+  repositories: '/repositories',
   settings: '/settings',
 };
 
@@ -213,14 +219,14 @@ export function AppShell({
       style={{
         ...(isWhiteMono
           ? ({
-              '--paper': '#FFFFFF',
-              '--bg': '#FFFFFF',
-              '--bg-alt': '#F7F7F7',
-              '--fg-inv': '#FFFFFF',
-              '--line-soft': '#D8D8D8',
-              '--red': '#0A0A0A',
-              '--red-deep': '#0A0A0A',
-              '--red-tint': '#F4F4F4',
+              '--paper': '#fbf4e2',
+              '--bg': '#fbf4e2',
+              '--bg-alt': '#f3ead2',
+              '--fg-inv': '#fbf4e2',
+              '--line-soft': 'rgba(18, 12, 13, 0.22)',
+              '--red': '#120c0d',
+              '--red-deep': '#120c0d',
+              '--red-tint': 'rgba(18, 12, 13, 0.08)',
             } as CSSProperties)
           : {}),
         minHeight: '100vh',
@@ -262,6 +268,7 @@ export function AppShell({
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
+                gap: 8,
                 border: 0,
                 background: 'transparent',
                 padding: 0,
@@ -269,13 +276,24 @@ export function AppShell({
               }}
             >
               <img
-                src="/assets/sthrip-speed-wordmark-user-cropped.png"
+                src="/assets/tensol-logo-mark-white.png"
+                alt=""
+                aria-hidden="true"
+                style={{
+                  display: 'block',
+                  width: 30,
+                  height: 30,
+                  filter: 'invert(1) brightness(0.12)',
+                }}
+              />
+              <img
+                src="/assets/sthrip-wordmark-white.png"
                 alt="STHRIP"
                 style={{
                   display: 'block',
-                  width: 118,
+                  width: 112,
                   height: 'auto',
-                  imageRendering: 'pixelated',
+                  filter: 'invert(1) brightness(0.12)',
                 }}
               />
             </button>
@@ -355,9 +373,23 @@ export function AppShell({
           />
           <NavItem
             icon={<Code2 {...navIconProps} />}
-            label="Reviews"
+            label={t.navReviews}
             active={route === 'reviews'}
             onClick={() => go('reviews')}
+            collapsed={sidebarCollapsed}
+          />
+          <NavItem
+            icon={<Link2 {...navIconProps} />}
+            label={t.navConnect}
+            active={route === 'connect'}
+            onClick={() => go('connect')}
+            collapsed={sidebarCollapsed}
+          />
+          <NavItem
+            icon={<GitBranch {...navIconProps} />}
+            label={t.navRepositories}
+            active={route === 'repositories'}
+            onClick={() => go('repositories')}
             collapsed={sidebarCollapsed}
           />
         </div>

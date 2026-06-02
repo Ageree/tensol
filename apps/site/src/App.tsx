@@ -24,7 +24,8 @@ const Pricing = lazy(() => safeImport(() => import('./pages/Pricing.tsx'), 'pric
 const Trust = lazy(() => safeImport(() => import('./pages/Trust.tsx'), 'trust'));
 const Legal = lazy(() => safeImport(() => import('./pages/Legal.tsx'), 'legal'));
 const Blog = lazy(() => safeImport(() => import('./pages/Blog.tsx'), 'blog'));
-const Method = lazy(() => safeImport(() => import('./pages/Method.tsx'), 'method'));
+const Solutions = lazy(() => safeImport(() => import('./pages/Solutions.tsx'), 'solutions'));
+const Resources = lazy(() => safeImport(() => import('./pages/Resources.tsx'), 'resources'));
 const DeepInquiry = lazy(() =>
   safeImport(() => import('./pages/DeepInquiry.tsx'), 'deep-inquiry'),
 );
@@ -37,6 +38,13 @@ const DeepInquiryThankYou = lazy(() =>
 const Reviews = lazy(() => safeImport(() => import('./pages/Reviews.tsx'), 'reviews'));
 const ReviewDetail = lazy(() =>
   safeImport(() => import('./pages/ReviewDetail.tsx'), 'review-detail'),
+);
+// T021 — PR Review connect + repository selection (feature 004).
+const ConnectGitHub = lazy(() =>
+  safeImport(() => import('./pages/ConnectGitHub.tsx'), 'connect-github'),
+);
+const Repositories = lazy(() =>
+  safeImport(() => import('./pages/Repositories.tsx'), 'repositories'),
 );
 const ScanWizard = lazy(() =>
   safeImport(
@@ -95,7 +103,9 @@ export const App = () => (
         <Route path="/trust" element={<Trust />} />
         <Route path="/legal/:kind" element={<Legal />} />
         <Route path="/blog" element={<Blog />} />
-        <Route path="/method" element={<Method />} />
+        <Route path="/resources" element={<Resources />} />
+        <Route path="/solutions" element={<Solutions />} />
+        <Route path="/solutions/:productId" element={<Solutions />} />
         {/* T108 — US2 Deep audit lead-gen funnel. */}
         <Route path="/deep-inquiry" element={<DeepInquiry />} />
         <Route
@@ -105,6 +115,9 @@ export const App = () => (
         {/* Reviews — PR Review + Whitebox Pentest (003-whitebox). */}
         <Route path="/reviews" element={<Reviews />} />
         <Route path="/reviews/:id" element={<ReviewDetail />} />
+        {/* T021 — Connect GitHub + Repositories (feature 004). */}
+        <Route path="/connect" element={<ConnectGitHub />} />
+        <Route path="/repositories" element={<Repositories />} />
         {/* T083 — canonical Blackbox MVP scan routes. */}
         <Route path="/scan/new" element={<ScanWizard mode="create" />} />
         <Route

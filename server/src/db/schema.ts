@@ -549,6 +549,44 @@ export const jobs = sqliteTable(
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
+// installations — first-class GitHub-App installation (connect-flow anchor).
+// Migration: 0013_pr_review_connect.sql.
+// Authorization root: webhook deliveries resolve owning account via
+// `installationId` → `installations.userId`; repo slug alone never authorizes.
+// ---------------------------------------------------------------------------
+export const installations = sqliteTable(
+  "installations",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    scm: text("scm").notNull().default("github"),
+    installationId: text("installation_id").notNull(),
+    accountLogin: text("account_login").notNull(),
+    accountType: text("account_type")
+      .$type<"User" | "Organization">()
+      .notNull(),
+    repositorySelection: text("repository_selection")
+      .$type<"all" | "selected">()
+      .notNull(),
+    status: text("status")
+      .$type<"active" | "suspended" | "deleted">()
+      .notNull()
+      .default("active"),
+    setupAction: text("setup_action"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => ({
+    scmInstallationIdUq: uniqueIndex(
+      "installations_scm_installation_id_uq",
+    ).on(t.scm, t.installationId),
+    userIdx: index("installations_user_idx").on(t.userId),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // review_repos — connected source repos (GitHub App installations).
 // ---------------------------------------------------------------------------
 export const reviewRepos = sqliteTable(
@@ -572,6 +610,12 @@ export const reviewRepos = sqliteTable(
       .$type<"active" | "paused" | "revoked">()
       .notNull()
       .default("active"),
+    // 004-sthrip-pr-review new columns (migration 0013)
+    enabled: integer("enabled").notNull().default(1),
+    statusCheckEnabled: integer("status_check_enabled").notNull().default(1),
+    mergeBlockOnCritical: integer("merge_block_on_critical").notNull().default(0),
+    lastReviewId: text("last_review_id"),
+    installationRowId: text("installation_row_id"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -685,6 +729,12 @@ export const reviewFindings = sqliteTable(
     impactScore: integer("impact_score"),
     exploitEvidenceJson: text("exploit_evidence_json"),
     exploitIterations: integer("exploit_iterations").notNull().default(0),
+    // 004-sthrip-pr-review new columns (migration 0013)
+    verificationStatus: text("verification_status")
+      .$type<"verified" | "unverified" | "refuted">()
+      .notNull()
+      .default("unverified"),
+    reachabilityEvidenceMd: text("reachability_evidence_md"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => ({
@@ -741,6 +791,36 @@ export const reviewFeedback = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// review_suppressions — derived suppression decisions for the learning loop.
+// Migration: 0013_pr_review_connect.sql. (FR-023/024)
+// INVARIANT (code-enforced): rows whose category ∈ {security, correctness}
+// are NEVER written — suppression applies to style/nit classes only.
+// ---------------------------------------------------------------------------
+export const reviewSuppressions = sqliteTable(
+  "review_suppressions",
+  {
+    id: text("id").primaryKey(),
+    repoId: text("repo_id")
+      .notNull()
+      .references(() => reviewRepos.id, { onDelete: "cascade" }),
+    category: text("category").notNull(),
+    reason: text("reason")
+      .$type<"ignored_n_times" | "manual">()
+      .notNull(),
+    ignoreCount: integer("ignore_count").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => ({
+    repoCategoryUq: uniqueIndex("review_suppressions_repo_category_uq").on(
+      t.repoId,
+      t.category,
+    ),
+    repoIdx: index("review_suppressions_repo_idx").on(t.repoId),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Inferred row types — consumed by repositories / services.
 // ---------------------------------------------------------------------------
 export type User = typeof users.$inferSelect;
@@ -782,6 +862,11 @@ export type ReviewThread = typeof reviewThreads.$inferSelect;
 export type NewReviewThread = typeof reviewThreads.$inferInsert;
 export type ReviewFeedback = typeof reviewFeedback.$inferSelect;
 export type NewReviewFeedback = typeof reviewFeedback.$inferInsert;
+// 004-sthrip-pr-review inferred row types.
+export type Installation = typeof installations.$inferSelect;
+export type NewInstallation = typeof installations.$inferInsert;
+export type ReviewSuppression = typeof reviewSuppressions.$inferSelect;
+export type NewReviewSuppression = typeof reviewSuppressions.$inferInsert;
 
 // Keep `sql` import live for future `sql\`...\`` defaults (mirrors 001).
 void sql;

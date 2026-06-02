@@ -88,9 +88,10 @@ import { createWebhookScanCompleteRouter } from "./routes/webhooks-scan-complete
 import { createWebhookTelegramRouter } from "./routes/webhooks-telegram.ts";
 import { createConfigFeatureFlagsRouter } from "./routes/config-feature-flags.ts";
 import { createTestV2Router } from "./routes/__test_v2.ts";
-// 003-whitebox — code-review engine (PR review + whitebox scan).
+// 003-whitebox + 004-sthrip-pr-review — code-review engine + GitHub connect.
 import { createReviewRouter } from "./routes/review.ts";
 import { createReviewWebhookRouter } from "./routes/review-webhook.ts";
+import { createGithubConnectRouter } from "./routes/github-connect.ts";
 import { createReviewService, type ReviewService } from "./review/service.ts";
 import { createPrReviewHandler } from "./jobs/handlers/pr-review.ts";
 import { createWhiteboxScanHandler } from "./jobs/handlers/whitebox-scan.ts";
@@ -294,6 +295,19 @@ export interface CreateAppDeps {
   readonly reviewLlm?: LlmClient | null;
   /** 003-whitebox — GITHUB_APP_WEBHOOK_SECRET (empty → webhook 401s all). */
   readonly githubAppWebhookSecret?: string;
+  /**
+   * 004-sthrip-pr-review — GitHub App slug (`GITHUB_APP_SLUG`).
+   * Empty string → `GET /v1/github/connect` returns 503; all other connect
+   * endpoints still work (graceful-null pattern mirrors reviewLlm above).
+   */
+  readonly githubAppSlug?: string;
+  /**
+   * 004-sthrip-pr-review — authenticated GitHub App client for the connect
+   * router. Null when `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` are absent;
+   * the connect router degrades gracefully (callback + repos endpoints will
+   * error at the GitHub API call site, caught by the route handlers).
+   */
+  readonly githubConnectClient?: GitHubClient | null;
   readonly now?: () => number;
 }
 
@@ -548,6 +562,56 @@ export function createApp(deps: CreateAppDeps): Hono {
       service: reviewService,
       requireAuth: requireAuthForReview,
       llm: deps.reviewLlm ?? null,
+      ...maybeNow(now),
+    }),
+  );
+
+  // 004-sthrip-pr-review — GitHub App connect surface.
+  //   Mounted at `/v1/github`. All endpoints are auth-gated via requireAuth.
+  //   Graceful-null: when `GITHUB_APP_SLUG` is absent the /connect endpoint
+  //   returns 503; all other routes remain functional (they don't need the
+  //   slug). When `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` are absent the
+  //   `githubConnectClient` is null and a null-stub is used — the /callback
+  //   and /installations/:id/repos endpoints will propagate the error from
+  //   the stub, which the route handlers already catch gracefully. Dev boot
+  //   is never halted by missing GitHub App creds.
+  //
+  //   The state-nonce HMAC secret is the session cookie secret (a shared
+  //   HMAC key already present at boot time — no additional env var needed).
+  const githubConnectClientResolved: GitHubClient =
+    deps.githubConnectClient ??
+    ({
+      getPullRequestFiles: () =>
+        Promise.reject(new Error("GitHub App not configured")),
+      listReviewComments: () =>
+        Promise.reject(new Error("GitHub App not configured")),
+      getFileContents: () =>
+        Promise.reject(new Error("GitHub App not configured")),
+      postReview: () =>
+        Promise.reject(new Error("GitHub App not configured")),
+      createCheckRun: () =>
+        Promise.reject(new Error("GitHub App not configured")),
+      resolveReviewThread: () =>
+        Promise.reject(new Error("GitHub App not configured")),
+      listInstallationRepos: () =>
+        Promise.reject(new Error("GitHub App not configured")),
+      getInstallationMetadata: () =>
+        Promise.reject(new Error("GitHub App not configured")),
+      getPullRequest: () =>
+        Promise.reject(new Error("GitHub App not configured")),
+      listUserInstallationIds: () =>
+        Promise.reject(new Error("GitHub App not configured")),
+    } satisfies GitHubClient);
+  const requireAuthForConnect = createRequireAuth({ db, ...maybeNow(now) });
+  app.route(
+    "/v1/github",
+    createGithubConnectRouter({
+      db,
+      service: reviewService,
+      github: githubConnectClientResolved,
+      requireAuth: requireAuthForConnect,
+      slug: deps.githubAppSlug ?? "",
+      stateSecret: deps.sessionCookieSecret,
       ...maybeNow(now),
     }),
   );
@@ -814,6 +878,10 @@ export async function main(): Promise<{
       ? createHttpGitHubClient({
           appId: config.GITHUB_APP_ID,
           privateKeyPem: config.GITHUB_APP_PRIVATE_KEY,
+          ...(config.GITHUB_APP_CLIENT_ID ? { clientId: config.GITHUB_APP_CLIENT_ID } : {}),
+          ...(config.GITHUB_APP_CLIENT_SECRET
+            ? { clientSecret: config.GITHUB_APP_CLIENT_SECRET }
+            : {}),
         })
       : null;
   const repoFetcher = createGitRepoFetcher();
@@ -1125,6 +1193,13 @@ export async function main(): Promise<{
     // 003-whitebox — review LLM (sync POST /v1/review) + GitHub webhook secret.
     reviewLlm,
     githubAppWebhookSecret: config.GITHUB_APP_WEBHOOK_SECRET,
+    // 004-sthrip-pr-review — GitHub App connect surface.
+    // `githubAppSlug` is the App's URL slug (GITHUB_APP_SLUG); empty string
+    // degrades GET /v1/github/connect to 503 without halting boot.
+    // `githubConnectClient` re-uses the same HttpGitHubClient already built
+    // for the PR-review job handler — null when App credentials are absent.
+    githubAppSlug: config.GITHUB_APP_SLUG,
+    ...(githubReviewClient !== null ? { githubConnectClient: githubReviewClient } : {}),
   });
 
   const server = Bun.serve({
