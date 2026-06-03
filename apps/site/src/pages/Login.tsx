@@ -1,22 +1,17 @@
-import { Show, SignIn } from '@clerk/react';
+import { Show } from '@clerk/react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthShell } from '../components/AuthShell.tsx';
+import { GitHubOAuthButton } from '../components/GitHubOAuthButton.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Btn, Mono } from '../components/primitives.tsx';
 import { TENSOL_I18N } from '../i18n.ts';
+import { normalizeReturnTo } from '../lib/auth-routing.ts';
 import { isClerkConfigured } from '../lib/clerk.ts';
 
 const ERROR_COPY: Record<string, string> = {
   auth_not_configured: 'clerk_publishable_key_missing',
   unauthenticated: 'sign_in_required',
 };
-
-function normalizeReturnTo(raw: string | null): string {
-  if (!raw || !raw.startsWith('/') || raw.startsWith('//')) {
-    return '/dashboard';
-  }
-  return raw;
-}
 
 export default function Login() {
   const t = TENSOL_I18N.en;
@@ -33,7 +28,7 @@ export default function Login() {
       brand="sthrip"
       eyebrow={t.authLoginEyebrow}
       title="Log in to Sthrip."
-      sub="Use Google through Clerk to unlock the workspace."
+      sub="Use GitHub through Clerk to unlock the workspace."
     >
       <RouteHead title="Log In — Sthrip" />
       <div
@@ -66,13 +61,7 @@ export default function Login() {
               </div>
             }
           >
-            <SignIn
-              routing="path"
-              path="/login"
-              signUpUrl="/signup"
-              forceRedirectUrl={returnTo}
-              fallback={<Mono size={12}>loading auth</Mono>}
-            />
+            <GitHubOAuthButton mode="sign-in" returnTo={returnTo} />
           </Show>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

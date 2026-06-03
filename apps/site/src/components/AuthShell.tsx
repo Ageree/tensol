@@ -3,7 +3,8 @@ import type { ReactNode } from 'react';
 import { useTensol } from '../context.tsx';
 import { TENSOL_I18N, type TensolLang } from '../i18n.ts';
 import { LangSwitcher } from './LangSwitcher.tsx';
-import { Eyebrow, LogoLockup } from './primitives.tsx';
+import { AuthWave } from './PixelWaveBg.tsx';
+import { Eyebrow, HalftoneBg, LogoLockup } from './primitives.tsx';
 
 type AuthShellProps = {
   children: ReactNode;
@@ -44,16 +45,27 @@ export function AuthShell({
         style={{
           position: 'relative',
           overflow: 'hidden',
-          background: 'var(--paper)',
-          color: 'var(--ink)',
+          background: 'var(--ink)',
+          color: 'var(--paper)',
           padding: '40px 48px',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',
-          borderRight: '1px solid rgba(18, 12, 13, 0.42)',
         }}
       >
-        <div className="auth-minimal-bg" aria-hidden="true" />
+        <HalftoneBg color="var(--paper)" opacity={0.08} />
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <AuthWave />
+        </div>
         <div style={{ position: 'relative' }}>
           <button
             type="button"
@@ -61,7 +73,7 @@ export function AuthShell({
             style={{
               background: 'transparent',
               border: 'none',
-              color: 'var(--ink)',
+              color: 'var(--paper)',
               cursor: 'pointer',
               padding: 0,
               display: 'inline-flex',
@@ -79,7 +91,6 @@ export function AuthShell({
                     display: 'block',
                     width: 34,
                     height: 34,
-                    filter: 'invert(1) brightness(0.12)',
                   }}
                 />
                 <img
@@ -89,12 +100,11 @@ export function AuthShell({
                     display: 'block',
                     width: 126,
                     height: 'auto',
-                    filter: 'invert(1) brightness(0.12)',
                   }}
                 />
               </>
             ) : (
-              <LogoLockup size={20} color="var(--ink)" onClick={onBack} />
+              <LogoLockup size={20} color="var(--paper)" onClick={onBack} />
             )}
           </button>
         </div>
@@ -103,7 +113,7 @@ export function AuthShell({
             position: 'relative',
             fontFamily: 'var(--font-mono)',
             fontSize: 11,
-            color: 'var(--fg-2)',
+            color: 'rgba(250, 249, 246, 0.62)',
             letterSpacing: '0.04em',
             display: 'flex',
             justifyContent: 'space-between',

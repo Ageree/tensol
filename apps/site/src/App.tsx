@@ -10,6 +10,9 @@ import type { ScanWizardContainerProps } from './pages/scan-wizard/ScanWizardCon
 // If a file is missing the lazy import will throw → caught by ErrorBoundary fallback.
 const Login = lazy(() => safeImport(() => import('./pages/Login.tsx'), 'login'));
 const SignUp = lazy(() => safeImport(() => import('./pages/SignUp.tsx'), 'signup'));
+const SsoCallback = lazy(() =>
+  safeImport(() => import('./pages/SsoCallback.tsx'), 'sso-callback'),
+);
 const Bootstrap = lazy(() => safeImport(() => import('./pages/Bootstrap.tsx'), 'bootstrap'));
 const Invite = lazy(() => safeImport(() => import('./pages/Invite.tsx'), 'invite'));
 const Dashboard = lazy(() => safeImport(() => import('./pages/Dashboard.tsx'), 'dashboard'));
@@ -103,6 +106,7 @@ export const App = () => (
         <Route path="/" element={<MarketingRoute />} />
         <Route path="/login/*" element={<Login />} />
         <Route path="/signup/*" element={<SignUp />} />
+        <Route path="/sso-callback" element={<SsoCallback />} />
         <Route path="/bootstrap" element={<Bootstrap />} />
         <Route path="/invite" element={<Invite />} />
         <Route path="/dashboard" element={authed(<Dashboard />)} />
