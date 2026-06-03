@@ -12,6 +12,7 @@
     "e2e": "bun run test:e2e"
   },
   "dependencies": {
+    "@clerk/react": "6.7.2",
     "lucide-react": "1.17.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

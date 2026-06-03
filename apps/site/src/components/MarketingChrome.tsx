@@ -168,9 +168,28 @@ export function HudOverlay() {
   return null;
 }
 
-export function MarketingNav({ onDemo }: { readonly onDemo?: () => void }) {
-  void onDemo;
+type MarketingNavProps = {
+  readonly onSignIn?: () => void;
+  readonly onSignUp?: () => void;
+  readonly onDemo?: () => void;
+};
+
+export function MarketingNav({ onSignIn, onSignUp }: MarketingNavProps) {
   const navigate = useNavigate();
+  const handleSignIn = () => {
+    if (onSignIn) {
+      onSignIn();
+      return;
+    }
+    navigate('/login');
+  };
+  const handleSignUp = () => {
+    if (onSignUp) {
+      onSignUp();
+      return;
+    }
+    navigate('/signup');
+  };
 
   return (
     <header className="minimal-nav">
@@ -196,11 +215,18 @@ export function MarketingNav({ onDemo }: { readonly onDemo?: () => void }) {
       <div className="minimal-nav-actions">
         <button
           type="button"
+          className="minimal-button minimal-button-secondary minimal-nav-login"
+          onClick={handleSignIn}
+        >
+          Sign in
+        </button>
+        <button
+          type="button"
           className="minimal-button minimal-button-primary minimal-nav-cta"
-          onClick={() => navigate('/contact')}
+          onClick={handleSignUp}
         >
           Start for free
-          <ExternalIcon />
+          <ArrowIcon />
         </button>
       </div>
     </header>

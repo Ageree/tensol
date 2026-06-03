@@ -1,13 +1,15 @@
 // T077 — Typed HTTP client for `/v1/scan-orders/*` + `/v1/scans/*`.
 //
-// Mirrors specs/002-blackbox-mvp/contracts/openapi.yaml 1:1. All requests
-// are cookie-authenticated (Constitution VIII — session cookie). Snake_case
-// field names match the wire contract exactly; we do NOT translate to
-// camelCase at this layer (page components read snake_case directly, which
-// keeps grep-ability against the openapi).
+// Mirrors specs/002-blackbox-mvp/contracts/openapi.yaml 1:1. Requests keep
+// the legacy cookie path and add a Clerk bearer token when the React app has
+// an active Clerk session. Snake_case field names match the wire contract
+// exactly; we do NOT translate to camelCase at this layer (page components
+// read snake_case directly, which keeps grep-ability against the openapi).
 //
 // This is a sibling to `api.ts` (the legacy v1 backend client). The two
 // coexist while pages migrate from `/api/*` → `/v1/*`.
+
+import { getClerkSessionToken } from "./clerk.ts";
 
 const BASE_URL: string =
   (import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } }).env
@@ -217,7 +219,7 @@ export interface FeatureFlags {
   exploit_enabled?: boolean;
 }
 
-// Auth (GET /v1/auth/me) — used by US2 deep-inquiry prefill (T106).
+// Auth (GET /api/auth/me) — used by US2 deep-inquiry prefill (T106).
 // Anonymous callers receive a 401 which we map back to `null`.
 export interface AuthMe {
   id: string;
@@ -298,10 +300,11 @@ async function request<T>(
 ): Promise<T> {
   const method = opts.method ?? "GET";
   const hasBody = opts.body !== undefined;
+  const headers = await requestHeaders(hasBody);
   const init: RequestInit = {
     method,
     credentials: "include",
-    headers: hasBody ? { "content-type": "application/json" } : undefined,
+    headers,
     body: hasBody ? JSON.stringify(opts.body) : undefined,
   };
 
@@ -353,9 +356,21 @@ async function request<T>(
   return parsed as T;
 }
 
+async function requestHeaders(
+  hasBody: boolean,
+): Promise<Record<string, string> | undefined> {
+  const headers: Record<string, string> = {};
+  if (hasBody) headers["content-type"] = "application/json";
+
+  const token = await getClerkSessionToken();
+  if (token) headers.authorization = `Bearer ${token}`;
+
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
 // ─── Scan Orders (9 endpoints) ─────────────────────────────────────────────
 
-function orderPath(id: string, suffix: string = ""): string {
+function orderPath(id: string, suffix = ""): string {
   return `/v1/scan-orders/${encodeURIComponent(id)}${suffix}`;
 }
 
@@ -405,7 +420,7 @@ export const scanOrders = {
 
 // ─── Scans (6 endpoints) ───────────────────────────────────────────────────
 
-function scanPath(id: string, suffix: string = ""): string {
+function scanPath(id: string, suffix = ""): string {
   return `/v1/scans/${encodeURIComponent(id)}${suffix}`;
 }
 
@@ -459,7 +474,7 @@ export const config = {
 
 export const auth = {
   /**
-   * GET /v1/auth/me — current user session.
+   * GET /api/auth/me — current user session.
    *
    * Anonymous callers get a 401 — we map that to `null` so the deep-inquiry
    * form can transparently fall back to the anonymous flow. Other errors
@@ -467,7 +482,8 @@ export const auth = {
    */
   me: async (): Promise<AuthMe | null> => {
     try {
-      return await request<AuthMe>("/v1/auth/me");
+      const body = await request<{ user: AuthMe }>("/api/auth/me");
+      return body.user;
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return null;
       throw err;

@@ -46,9 +46,13 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 
 import { loadConfig, type Config } from "./config.ts";
+import {
+  createClerkAuth,
+  parseClerkAuthorizedParties,
+} from "./auth/clerk.ts";
 import { createDb, type DB } from "./db/client.ts";
 import { reconcileInFlight, type ReconcileResult } from "./scans/reconcile.ts";
 import type { VpsProvider } from "./vps/provider.ts";
@@ -103,6 +107,8 @@ import { createReviewRepoScopeDeps } from "./exploit/scope-deps.ts";
 import { enrichFindingWithVerdict } from "./exploit/service.ts";
 import { chooseSandbox } from "./exploit/sandbox.ts";
 import { createBudget } from "./exploit/budget.ts";
+import { createMeteredClient } from "./exploit/metered-client.ts";
+import type { ChatTransport } from "./review/agent/loop.ts";
 import { ulid } from "./lib/ids.ts";
 import {
   createHttpGitHubClient,
@@ -116,7 +122,7 @@ import {
 } from "./review/sast/runner.ts";
 import { createScanOrdersService } from "./scan-orders/service.ts";
 import { createDeepInquiriesService } from "./deep-inquiries/service.ts";
-import { createRequireAuth } from "./auth/middleware.ts";
+import { createRequireAuth, type ClerkAuth } from "./auth/middleware.ts";
 import { readSessionCookie } from "./auth/session.ts";
 import { sessions as sessionsTable } from "./db/schema.ts";
 import { eq } from "drizzle-orm";
@@ -307,8 +313,10 @@ export interface CreateAppDeps {
    * router. Null when `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` are absent;
    * the connect router degrades gracefully (callback + repos endpoints will
    * error at the GitHub API call site, caught by the route handlers).
-   */
+  */
   readonly githubConnectClient?: GitHubClient | null;
+  /** Optional Clerk bearer-token verifier for Vercel/Clerk auth sessions. */
+  readonly clerkAuth?: ClerkAuth;
   readonly now?: () => number;
 }
 
@@ -328,6 +336,7 @@ export function createApp(deps: CreateAppDeps): Hono {
     webhookSecret,
     telegramWebhookSecret,
     operatorEmails,
+    clerkAuth,
     now,
   } = deps;
   // `baseUrl` is currently unused after the email magic-link removal but is
@@ -354,7 +363,12 @@ export function createApp(deps: CreateAppDeps): Hono {
     origin: (origin) => (origin && ALLOWED_ORIGINS.has(origin) ? origin : ""),
     credentials: true,
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "X-Telegram-Bot-Api-Secret-Token", "X-Tensol-Signature"],
+    allowHeaders: [
+      "Authorization",
+      "Content-Type",
+      "X-Telegram-Bot-Api-Secret-Token",
+      "X-Tensol-Signature",
+    ],
     exposeHeaders: ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
     maxAge: 600,
   }));
@@ -385,6 +399,7 @@ export function createApp(deps: CreateAppDeps): Hono {
       signingKey,
       isProd,
       ...maybeNow(now),
+      ...maybeProp("clerkAuth", clerkAuth),
     }),
   );
   // Legacy projects/targets/auth-proof route mounts removed (T016) — the
@@ -399,7 +414,11 @@ export function createApp(deps: CreateAppDeps): Hono {
   // direct scans.user_id (no projects/targets JOIN — those tables were
   // dropped in 0010). Mounts BEFORE /v1/scan-orders to share the same
   // requireAuth middleware factory.
-  const requireAuthForScans = createRequireAuth({ db, ...maybeNow(now) });
+  const requireAuthForScans = createRequireAuth({
+    db,
+    ...maybeNow(now),
+    ...maybeProp("clerkAuth", clerkAuth),
+  });
   app.route(
     "/v1/scans",
     createScansRouter({
@@ -420,6 +439,7 @@ export function createApp(deps: CreateAppDeps): Hono {
   const requireAuthForScanOrders = createRequireAuth({
     db,
     ...maybeNow(now),
+    ...maybeProp("clerkAuth", clerkAuth),
   });
   app.route(
     "/v1/scan-orders",
@@ -470,7 +490,11 @@ export function createApp(deps: CreateAppDeps): Hono {
   // is strict (401 on missing/expired cookie) PLUS an operator-email gate
   // (403 when `user.email` is not in `operatorEmails`). The service emits
   // all signed audits.
-  const requireAuthForAdmin = createRequireAuth({ db, ...maybeNow(now) });
+  const requireAuthForAdmin = createRequireAuth({
+    db,
+    ...maybeNow(now),
+    ...maybeProp("clerkAuth", clerkAuth),
+  });
   app.route(
     "/v1/admin/deep-inquiries",
     createAdminDeepInquiriesRouter({
@@ -555,7 +579,11 @@ export function createApp(deps: CreateAppDeps): Hono {
       ...maybeNow(now),
     }),
   );
-  const requireAuthForReview = createRequireAuth({ db, ...maybeNow(now) });
+  const requireAuthForReview = createRequireAuth({
+    db,
+    ...maybeNow(now),
+    ...maybeProp("clerkAuth", clerkAuth),
+  });
   app.route(
     "/v1/review",
     createReviewRouter({
@@ -612,7 +640,11 @@ export function createApp(deps: CreateAppDeps): Hono {
       listUserInstallationIds: () =>
         Promise.reject(new Error("GitHub App not configured")),
     } satisfies GitHubClient);
-  const requireAuthForConnect = createRequireAuth({ db, ...maybeNow(now) });
+  const requireAuthForConnect = createRequireAuth({
+    db,
+    ...maybeNow(now),
+    ...maybeProp("clerkAuth", clerkAuth),
+  });
   app.route(
     "/v1/github",
     createGithubConnectRouter({
@@ -937,6 +969,11 @@ export async function main(): Promise<{
       postgresPassword: config.TENSOL_POSTGRES_PASSWORD,
       neo4jPassword: config.TENSOL_NEO4J_PASSWORD,
       vpsAgentImage: config.TENSOL_VPS_AGENT_IMAGE,
+      // P1 — drive the Decepticon scan with real gpt-5.5 only when explicitly
+      // enabled; default (omitted) keeps the cost-safe qwen hijack.
+      ...(config.TENSOL_BLACKBOX_AGENT_ENABLED
+        ? { blackboxAgentModel: config.TENSOL_AGENT_MODEL }
+        : {}),
     }),
   );
   const teardownYandexVm = adaptNewStyle(
@@ -1007,6 +1044,47 @@ export async function main(): Promise<{
   const cloneUrlFor = (repo: { owner: string; name: string }): string =>
     `https://github.com/${repo.owner}/${repo.name}.git`;
 
+  // 2026-06-02 — Agentic PR review (gpt-5.5 tool-use). DARK unless
+  // TENSOL_AGENT_PR_ENABLED. The chat-capable client is built once (stateless);
+  // each review gets a FRESH metered session so its per-review budget actually
+  // accumulates and bounds spend (gpt-5.5 is ~24× the qwen reviewer + agentic
+  // loops multiply round-trips, so a hard dollar ceiling is mandatory). The base
+  // URL + key are the shared OpenRouter creds; only the model id differs.
+  const prAgentBaseClient: LlmClient | null =
+    config.TENSOL_AGENT_PR_ENABLED && config.TENSOL_REVIEW_LLM_API_KEY
+      ? createOpenRouterClient({
+          apiKey: config.TENSOL_REVIEW_LLM_API_KEY,
+          baseUrl: config.TENSOL_REVIEW_LLM_BASE_URL,
+          model: config.TENSOL_AGENT_MODEL,
+          jsonMode: false, // tool-calling path never sends response_format
+        })
+      : null;
+  const prAgentDeps =
+    prAgentBaseClient && typeof prAgentBaseClient.chat === "function"
+      ? {
+          makeSession: () => {
+            const budget = createBudget({
+              ceilingUsd: config.TENSOL_AGENT_BUDGET_USD,
+              usdPerMTokOut: config.TENSOL_AGENT_USD_PER_MTOK_OUT,
+              usdPerMTokIn: config.TENSOL_AGENT_USD_PER_MTOK_IN,
+            });
+            // metered.chat is defined because prAgentBaseClient.chat is.
+            const metered = createMeteredClient(prAgentBaseClient, budget);
+            return { transport: metered as ChatTransport, budget };
+          },
+          maxRounds: config.TENSOL_AGENT_MAX_ROUNDS,
+          maxToolCalls: config.TENSOL_AGENT_MAX_TOOL_CALLS,
+        }
+      : undefined;
+  if (config.TENSOL_AGENT_PR_ENABLED && !prAgentDeps) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[tensol] agentic PR review enabled (TENSOL_AGENT_PR_ENABLED) but no " +
+        "chat-capable agent client — set TENSOL_REVIEW_LLM_API_KEY; falling " +
+        "back to the fixed-prompt reviewer.",
+    );
+  }
+
   const prReviewHandler: (payload: unknown, ctx: { jobId: string; attempts: number }) => Promise<void> =
     reviewLlm && githubReviewClient
       ? adaptNewStyle(
@@ -1014,6 +1092,7 @@ export async function main(): Promise<{
             service: reviewServiceForJobs,
             github: githubReviewClient,
             llm: reviewLlm,
+            ...(prAgentDeps ? { agent: prAgentDeps } : {}),
           }),
         )
       : async () => {
@@ -1291,6 +1370,13 @@ export async function main(): Promise<{
     }
   }
 
+  const clerkAuth = createClerkAuth({
+    secretKey: config.CLERK_SECRET_KEY,
+    authorizedParties: parseClerkAuthorizedParties(
+      config.CLERK_AUTHORIZED_PARTIES,
+    ),
+  });
+
   const app = createApp({
     db,
     signingKey: config.TENSOL_AUDIT_SIGNING_KEY,
@@ -1312,6 +1398,7 @@ export async function main(): Promise<{
     // for the PR-review job handler — null when App credentials are absent.
     githubAppSlug: config.GITHUB_APP_SLUG,
     ...(githubReviewClient !== null ? { githubConnectClient: githubReviewClient } : {}),
+    ...maybeProp("clerkAuth", clerkAuth ?? undefined),
   });
 
   const server = Bun.serve({

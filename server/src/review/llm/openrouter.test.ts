@@ -199,3 +199,221 @@ describe("createOpenRouterClient", () => {
     expect(sawSignal).toBe(true);
   });
 });
+
+describe("createOpenRouterClient.chat (tool calling)", () => {
+  const toolCallBody = {
+    choices: [
+      {
+        finish_reason: "tool_calls",
+        message: {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              id: "call_abc",
+              type: "function",
+              function: { name: "read_file", arguments: '{"path":"a.ts"}' },
+            },
+          ],
+        },
+      },
+    ],
+    usage: { prompt_tokens: 1234, completion_tokens: 56 },
+  };
+
+  const finalBody = {
+    choices: [
+      { finish_reason: "stop", message: { role: "assistant", content: "done" } },
+    ],
+    usage: { prompt_tokens: 10, completion_tokens: 2 },
+  };
+
+  test("serializes tools (type:function) + tool_choice, omits response_format", async () => {
+    let body: any;
+    const fakeFetch = (async (_u: any, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return jsonResponse(toolCallBody);
+    }) as unknown as typeof fetch;
+
+    const client = createOpenRouterClient({
+      apiKey: "k",
+      baseUrl: "https://x/v1",
+      model: "openai/gpt-5.5",
+      fetchImpl: fakeFetch,
+    });
+
+    await client.chat!({
+      messages: [{ role: "user", content: "review a.ts" }],
+      tools: [
+        {
+          name: "read_file",
+          description: "Read a file",
+          parameters: { type: "object", properties: { path: { type: "string" } } },
+        },
+      ],
+      toolChoice: "auto",
+    });
+
+    expect(body.model).toBe("openai/gpt-5.5");
+    expect(body.response_format).toBeUndefined(); // tools ⇒ never json_object
+    expect(body.tool_choice).toBe("auto");
+    expect(body.tools).toEqual([
+      {
+        type: "function",
+        function: {
+          name: "read_file",
+          description: "Read a file",
+          parameters: { type: "object", properties: { path: { type: "string" } } },
+        },
+      },
+    ]);
+    expect(body.messages).toEqual([{ role: "user", content: "review a.ts" }]);
+  });
+
+  test("parses tool_calls + exact usage from the response", async () => {
+    const fakeFetch = (async () => jsonResponse(toolCallBody)) as unknown as typeof fetch;
+    const client = createOpenRouterClient({
+      apiKey: "k",
+      baseUrl: "https://x/v1",
+      model: "m",
+      fetchImpl: fakeFetch,
+    });
+
+    const res = await client.chat!({ messages: [{ role: "user", content: "go" }] });
+    expect(res.content).toBeNull();
+    expect(res.toolCalls).toEqual([
+      { id: "call_abc", name: "read_file", argumentsJson: '{"path":"a.ts"}' },
+    ]);
+    expect(res.usage).toEqual({ inputTokens: 1234, outputTokens: 56 });
+  });
+
+  test("returns final content with empty toolCalls when the model answers", async () => {
+    const fakeFetch = (async () => jsonResponse(finalBody)) as unknown as typeof fetch;
+    const client = createOpenRouterClient({
+      apiKey: "k",
+      baseUrl: "https://x/v1",
+      model: "m",
+      fetchImpl: fakeFetch,
+    });
+
+    const res = await client.chat!({ messages: [{ role: "user", content: "go" }] });
+    expect(res.content).toBe("done");
+    expect(res.toolCalls).toEqual([]);
+  });
+
+  test("serializes assistant tool_calls + tool results back onto the wire", async () => {
+    let body: any;
+    const fakeFetch = (async (_u: any, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return jsonResponse(finalBody);
+    }) as unknown as typeof fetch;
+
+    const client = createOpenRouterClient({
+      apiKey: "k",
+      baseUrl: "https://x/v1",
+      model: "m",
+      fetchImpl: fakeFetch,
+    });
+
+    await client.chat!({
+      messages: [
+        { role: "system", content: "you review code" },
+        { role: "user", content: "review a.ts" },
+        {
+          role: "assistant",
+          content: null,
+          toolCalls: [{ id: "call_abc", name: "read_file", argumentsJson: '{"path":"a.ts"}' }],
+        },
+        { role: "tool", toolCallId: "call_abc", content: "file body" },
+      ],
+    });
+
+    expect(body.messages).toEqual([
+      { role: "system", content: "you review code" },
+      { role: "user", content: "review a.ts" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call_abc",
+            type: "function",
+            function: { name: "read_file", arguments: '{"path":"a.ts"}' },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_abc", content: "file body" },
+    ]);
+  });
+
+  test("omits tools/tool_choice from the body when none are given", async () => {
+    let body: any;
+    const fakeFetch = (async (_u: any, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return jsonResponse(finalBody);
+    }) as unknown as typeof fetch;
+
+    const client = createOpenRouterClient({
+      apiKey: "k",
+      baseUrl: "https://x/v1",
+      model: "m",
+      fetchImpl: fakeFetch,
+    });
+
+    await client.chat!({ messages: [{ role: "user", content: "hi" }] });
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+  });
+
+  test("serializes a forced tool_choice by name", async () => {
+    let body: any;
+    const fakeFetch = (async (_u: any, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return jsonResponse(finalBody);
+    }) as unknown as typeof fetch;
+
+    const client = createOpenRouterClient({
+      apiKey: "k",
+      baseUrl: "https://x/v1",
+      model: "m",
+      fetchImpl: fakeFetch,
+    });
+
+    await client.chat!({
+      messages: [{ role: "user", content: "hi" }],
+      toolChoice: { name: "submit_findings" },
+    });
+    expect(body.tool_choice).toEqual({
+      type: "function",
+      function: { name: "submit_findings" },
+    });
+  });
+
+  test("throws when a chat response has neither content nor tool_calls", async () => {
+    const fakeFetch = (async () =>
+      jsonResponse({ choices: [{ message: { role: "assistant", content: null } }] })) as unknown as typeof fetch;
+    const client = createOpenRouterClient({
+      apiKey: "k",
+      baseUrl: "https://x/v1",
+      model: "m",
+      fetchImpl: fakeFetch,
+    });
+    await expect(
+      client.chat!({ messages: [{ role: "user", content: "go" }] }),
+    ).rejects.toThrow(/neither content nor tool_calls/i);
+  });
+
+  test("throws a clear error on a non-2xx chat response", async () => {
+    const fakeFetch = (async () =>
+      jsonResponse({ error: "rate limited" }, 429)) as unknown as typeof fetch;
+    const client = createOpenRouterClient({
+      apiKey: "k",
+      baseUrl: "https://x/v1",
+      model: "m",
+      fetchImpl: fakeFetch,
+    });
+    await expect(
+      client.chat!({ messages: [{ role: "user", content: "go" }] }),
+    ).rejects.toThrow(/openrouter.*429/i);
+  });
+});

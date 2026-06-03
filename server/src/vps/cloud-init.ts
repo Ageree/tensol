@@ -101,6 +101,17 @@ export interface BuildCloudInitArgs {
   vpsAgentImage?: string;
   /** Port the vps-agent Hono server binds to. Defaults to 8080. */
   agentPort?: number;
+  /**
+   * P1 — OpenRouter model id to drive the Decepticon scan with real tool-using
+   * gpt-5.5 (e.g. `"openai/gpt-5.5"`). When set, the embedded LiteLLM config's
+   * `openai/*` routes are repointed from the qwen hijack to
+   * `openrouter/<model>`, and the Decepticon resolver is pinned to the openai
+   * auth path so agents resolve to those (now-real) routes. Omit (default) to
+   * keep the cost-safe qwen3.7-max hijack unchanged — output is then byte-
+   * identical to before this field existed. gpt-5.5 is ~24× qwen; enable only
+   * deliberately (gated by `TENSOL_BLACKBOX_AGENT_ENABLED`).
+   */
+  blackboxAgentModel?: string;
 }
 
 import {
@@ -120,6 +131,37 @@ function shEsc(s: string): string {
 
 const DEFAULT_AGENT_IMAGE = "ghcr.io/tensol/vps-agent:latest";
 const DEFAULT_AGENT_PORT = 8080;
+
+/** The qwen target the embedded litellm.yaml hijacks every model name to. */
+const QWEN_HIJACK_TARGET = "openrouter/qwen/qwen3.7-max";
+/** OpenAI route names whose target is repointed when running blackbox on gpt-5.5. */
+const OPENAI_ROUTE_NAMES = ["openai/gpt-5.5", "openai/gpt-5.4", "openai/gpt-5-nano"];
+
+/** Escape a string for safe literal use inside a RegExp. */
+function reEscape(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Repoint the embedded LiteLLM config's `openai/*` routes from the qwen hijack
+ * to `openrouter/<model>`, so a Decepticon scan pinned to the openai auth path
+ * actually reaches real gpt-5.5. Anchored on each exact `model_name:` block so
+ * the anthropic/* and nvidia_nim/* qwen hijacks are left untouched. Pure: returns
+ * a new string; the embedded constant is never mutated.
+ */
+function repointOpenAiRoutesToRealModel(yaml: string, model: string): string {
+  const target = `openrouter/${model}`;
+  let out = yaml;
+  for (const name of OPENAI_ROUTE_NAMES) {
+    const re = new RegExp(
+      `(- model_name: ${reEscape(name)}\\n\\s+litellm_params:\\n\\s+model: )${reEscape(
+        QWEN_HIJACK_TARGET,
+      )}`,
+    );
+    out = out.replace(re, `$1${target}`);
+  }
+  return out;
+}
 
 /**
  * Heredoc delimiters for the embedded Decepticon stack files. The
@@ -167,6 +209,34 @@ assertNoDelimiterCollision(RECON_EOF, DECEPTICON_RECON_MD, "recon.md");
 export function buildCloudInit(args: BuildCloudInitArgs): string {
   const vpsAgentImage = args.vpsAgentImage ?? DEFAULT_AGENT_IMAGE;
   const agentPort = args.agentPort ?? DEFAULT_AGENT_PORT;
+
+  // P1 — when a blackbox agent model is set, repoint the openai/* LiteLLM routes
+  // to real gpt-5.5 and pin Decepticon to the openai auth path; otherwise keep
+  // the cost-safe qwen hijack + anthropic auth path (byte-identical to before).
+  const blackboxModel = args.blackboxAgentModel?.trim();
+  const litellmYaml = blackboxModel
+    ? repointOpenAiRoutesToRealModel(DECEPTICON_LITELLM_YAML, blackboxModel)
+    : DECEPTICON_LITELLM_YAML;
+  const decepticonAuthEnvLines = blackboxModel
+    ? [
+        // Pin to the openai auth path so the resolver produces openai/* names →
+        // the (now-real) gpt-5.5 routes above. The synthetic key only satisfies
+        // Decepticon's _is_real_key gate; the real call goes via litellm →
+        // OpenRouter using OPENROUTER_API_KEY (never sent upstream), mirroring
+        // the anthropic synthetic-key pattern.
+        "DECEPTICON_AUTH_PRIORITY=openai_api",
+        "OPENAI_API_KEY=sk-tensol-routes-via-litellm-gpt55",
+      ]
+    : [
+        // [FIX A 2026-05-25] Pin the resolver to a single provider so all tiers
+        // resolve to anthropic/* names → litellm hijacks them to qwen3.7-max.
+        // Avoids the unauthed nvidia_nim fallback tail that crashed prod scan
+        // 01KSF7X1… The synthetic key only satisfies Decepticon's _is_real_key
+        // gate; it is never sent upstream. These also feed the compose
+        // ${VAR:-default} interpolation for the langgraph container env.
+        "DECEPTICON_AUTH_PRIORITY=anthropic_api",
+        "ANTHROPIC_API_KEY=sk-ant-tensol-routes-via-litellm-qwen",
+      ];
 
   // Pre-escape every caller-supplied value once so the template stays
   // readable. Image refs and the port are NOT escaped — image refs are
@@ -231,7 +301,7 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
     COMPOSE_EOF,
     "",
     `cat > /opt/decepticon/config/litellm.yaml <<'${LITELLM_EOF}'`,
-    DECEPTICON_LITELLM_YAML.replace(/\n$/, ""),
+    litellmYaml.replace(/\n$/, ""),
     LITELLM_EOF,
     "",
     `cat > /opt/decepticon/decepticon/agents/prompts/recon.md <<'${RECON_EOF}'`,
@@ -247,14 +317,7 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
     `NEO4J_PASSWORD=${e.neo4jPassword}`,
     "DECEPTICON_MODEL_PROFILE=eco",
     "DECEPTICON_ASSISTANT_ID=recon",
-    // [FIX A 2026-05-25] Pin the resolver to a single provider so all tiers
-    // resolve to anthropic/* names → litellm hijacks them to qwen3.7-max.
-    // Avoids the unauthed nvidia_nim fallback tail that crashed prod scan
-    // 01KSF7X1… The synthetic key only satisfies Decepticon's _is_real_key
-    // gate; it is never sent upstream. These also feed the compose
-    // ${VAR:-default} interpolation for the langgraph container env.
-    "DECEPTICON_AUTH_PRIORITY=anthropic_api",
-    "ANTHROPIC_API_KEY=sk-ant-tensol-routes-via-litellm-qwen",
+    ...decepticonAuthEnvLines,
     "ENV_EOF",
     "chmod 600 /opt/decepticon/.env",
     "",

@@ -169,6 +169,13 @@ export interface SpawnYandexVmHandlerDeps {
   readonly vpsAgentImage?: string;
   readonly agentPort?: number;
   /**
+   * P1 — OpenRouter model id to drive the Decepticon scan with real gpt-5.5
+   * tool-use (e.g. `"openai/gpt-5.5"`). When set, cloud-init repoints the VM's
+   * openai/* LiteLLM routes to it + pins the openai auth path. Omit (default) →
+   * the cost-safe qwen hijack. Wired from `TENSOL_BLACKBOX_AGENT_ENABLED`.
+   */
+  readonly blackboxAgentModel?: string;
+  /**
    * HTTP client for the agent-dispatch probe. Injected so tests can drive
    * the agent-readiness loop without a real socket. Defaults to global
    * `fetch`.
@@ -245,6 +252,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
     neo4jPassword,
     vpsAgentImage,
     agentPort,
+    blackboxAgentModel,
     fetchImpl = fetch,
     agentWaitBudgetMs = DEFAULT_AGENT_WAIT_BUDGET_MS,
     agentProbeIntervalMs = DEFAULT_AGENT_PROBE_INTERVAL_MS,
@@ -301,6 +309,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
       neo4jPassword,
       ...(vpsAgentImage !== undefined ? { vpsAgentImage } : {}),
       ...(agentPort !== undefined ? { agentPort } : {}),
+      ...(blackboxAgentModel ? { blackboxAgentModel } : {}),
     });
 
     // 3. Provider call with transient retry. We pass the scan id as the

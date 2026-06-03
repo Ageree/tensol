@@ -11,6 +11,7 @@ import { RouteHead } from '../components/RouteHead.tsx';
 
 type MarketingPageProps = {
   onSignIn?: () => void;
+  onSignUp?: () => void;
   onDemo?: () => void;
 };
 
@@ -152,7 +153,7 @@ function ClosingCta() {
   );
 }
 
-export function MarketingPage({ onDemo }: MarketingPageProps) {
+export function MarketingPage({ onSignIn, onSignUp }: MarketingPageProps) {
   return (
     <>
       <RouteHead
@@ -166,7 +167,7 @@ export function MarketingPage({ onDemo }: MarketingPageProps) {
         <SignalBackground />
         <HudOverlay />
         <div className="minimal-content">
-          <MarketingNav onDemo={onDemo} />
+          <MarketingNav onSignIn={onSignIn} onSignUp={onSignUp} />
           <main>
             <MarketingHero />
             <ProofSection />

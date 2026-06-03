@@ -39,7 +39,9 @@
 import { eq } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import type { DB } from "../db/client.ts";
+import { withTx } from "../db/client.ts";
 import { sessions as sessionsTable, users as usersTable } from "../db/schema.ts";
+import { ulid } from "../lib/ids.ts";
 import { now as defaultNow } from "../lib/time.ts";
 import { readSessionCookie } from "./session.ts";
 
@@ -70,7 +72,12 @@ export interface AuthVariables {
 export interface CreateRequireAuthDeps {
   readonly db: DB;
   readonly now?: () => number;
+  readonly clerkAuth?: ClerkAuth;
 }
+
+export type ClerkAuth = (
+  req: Request,
+) => Promise<{ readonly id: string; readonly email: string } | null>;
 
 function unauthenticated() {
   return { error: "unauthenticated" as const };
@@ -84,39 +91,109 @@ export function createRequireAuth(
 
   return async (c, next) => {
     const sessionId = readSessionCookie(c);
-    if (!sessionId) {
+    if (sessionId) {
+      const sessionAuth = readValidSessionAuth(db, sessionId, clock);
+      if (sessionAuth) {
+        c.set("user", sessionAuth.user);
+        c.set("session", sessionAuth.session);
+        await next();
+        return;
+      }
+    }
+
+    const clerkUser = deps.clerkAuth
+      ? await deps.clerkAuth(c.req.raw)
+      : null;
+    if (!clerkUser) {
       return c.json(unauthenticated(), 401);
     }
 
-    const sessionRow = db
-      .select()
-      .from(sessionsTable)
-      .where(eq(sessionsTable.id, sessionId))
-      .get();
-    if (!sessionRow) {
-      return c.json(unauthenticated(), 401);
-    }
-
-    if (clock() >= sessionRow.expiresAt) {
-      return c.json(unauthenticated(), 401);
-    }
-
-    const userRow = db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, sessionRow.userId))
-      .get();
-    if (!userRow) {
-      // Orphan session (user deleted between auth and now). Fail closed.
-      return c.json(unauthenticated(), 401);
-    }
-
-    c.set("user", { id: userRow.id, email: userRow.email });
+    const user = await findOrCreateClerkUser(db, clerkUser.email, clock);
+    c.set("user", user);
     c.set("session", {
-      id: sessionRow.id,
-      user_id: sessionRow.userId,
-      expires_at: sessionRow.expiresAt,
+      id: `clerk:${clerkUser.id}`,
+      user_id: user.id,
+      expires_at: Number.MAX_SAFE_INTEGER,
     });
     await next();
   };
+}
+
+function readValidSessionAuth(
+  db: DB,
+  sessionId: string,
+  clock: () => number,
+): { user: AuthUser; session: AuthSession } | null {
+  const sessionRow = db
+    .select()
+    .from(sessionsTable)
+    .where(eq(sessionsTable.id, sessionId))
+    .get();
+  if (!sessionRow) return null;
+  if (clock() >= sessionRow.expiresAt) return null;
+
+  const userRow = db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.id, sessionRow.userId))
+    .get();
+  if (!userRow) {
+    // Orphan session (user deleted between auth and now). Fail closed.
+    return null;
+  }
+
+  return {
+    user: { id: userRow.id, email: userRow.email },
+    session: {
+      id: sessionRow.id,
+      user_id: sessionRow.userId,
+      expires_at: sessionRow.expiresAt,
+    },
+  };
+}
+
+async function findOrCreateClerkUser(
+  db: DB,
+  email: string,
+  clock: () => number,
+): Promise<AuthUser> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const user = db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.email, normalizedEmail))
+    .get();
+  if (user) {
+    return { id: user.id, email: user.email };
+  }
+
+  await withTx(db, async (tx) => {
+    const existing = tx
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, normalizedEmail))
+      .get();
+    if (existing) return;
+    const nowMs = clock();
+    const newUserId = ulid(nowMs);
+    tx.insert(usersTable)
+      .values({
+        id: newUserId,
+        email: normalizedEmail,
+        createdAt: nowMs,
+        freeQuickConsumedCount: 0,
+      })
+      .run();
+  });
+
+  const savedUser = db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.email, normalizedEmail))
+    .get();
+  if (!savedUser) {
+    throw new Error("failed_to_create_clerk_user");
+  }
+
+  return { id: savedUser.id, email: savedUser.email };
 }

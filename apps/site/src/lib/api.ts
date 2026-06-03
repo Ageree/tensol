@@ -1,11 +1,14 @@
 // T081 — Shared HTTP client for Tensol Backend v2.
 // Mirrors specs/001-backend-v2/contracts/openapi.yaml 1:1.
-// All requests are cookie-authenticated (credentials: 'include').
+// Requests keep the legacy cookie path and add a Clerk bearer token when
+// the React app has an active Clerk session.
 //
 // Base URL defaults to "" (relative paths) so Vite's dev proxy routes /api/*
 // to the local Bun backend (see vite.config.ts). In production builds the
 // frontend is served from the same origin as the API, so relative paths Just
 // Work. Override with VITE_API_BASE_URL only for cross-origin deployments.
+
+import { getClerkSessionToken } from './clerk.ts';
 
 const BASE_URL: string =
   (import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } }).env
@@ -134,12 +137,11 @@ interface RequestOptions {
 
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const method = opts.method ?? 'GET';
+  const headers = await requestHeaders(opts.body !== undefined);
   const init: RequestInit = {
     method,
     credentials: 'include',
-    headers: opts.body
-      ? { 'content-type': 'application/json' }
-      : undefined,
+    headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   };
 
@@ -175,6 +177,16 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   return parsed as T;
 }
 
+async function requestHeaders(hasBody: boolean): Promise<Record<string, string> | undefined> {
+  const headers: Record<string, string> = {};
+  if (hasBody) headers['content-type'] = 'application/json';
+
+  const token = await getClerkSessionToken();
+  if (token) headers.authorization = `Bearer ${token}`;
+
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
 // ─── Auth ───────────────────────────────────────────────────────────────────
 
 export const auth = {
@@ -191,7 +203,10 @@ export const auth = {
   verifyPath: (token: string): string =>
     `${BASE_URL}/api/auth/verify?token=${encodeURIComponent(token)}`,
 
-  me: (): Promise<User> => request<User>('/api/auth/me'),
+  me: async (): Promise<User> => {
+    const body = await request<{ user: User }>('/api/auth/me');
+    return body.user;
+  },
 
   logout: (): Promise<void> =>
     request<void>('/api/auth/logout', { method: 'POST', noBody: true }),

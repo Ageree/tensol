@@ -58,9 +58,22 @@ function freshMemDb(): DB {
 
 // Helper to build a Hono app with the middleware mounted on `*` and a
 // downstream `/me` handler that returns the bound user.
-function buildApp(db: DB, nowFn: () => number) {
+function buildApp(
+  db: DB,
+  nowFn: () => number,
+  opts?: {
+    clerkAuth?: (req: Request) => Promise<{ id: string; email: string } | null>;
+  },
+) {
   const app = new Hono<{ Variables: AuthVariables }>();
-  app.use("*", createRequireAuth({ db, now: nowFn }));
+  app.use(
+    "*",
+    createRequireAuth({
+      db,
+      now: nowFn,
+      ...(opts?.clerkAuth ? { clerkAuth: opts.clerkAuth } : {}),
+    }),
+  );
   app.get("/me", (c) => {
     const user = c.get("user");
     const session = c.get("session");
@@ -239,4 +252,71 @@ test("requireAuth: expires_at == now() → 401 (boundary is exclusive)", async (
     headers: { Cookie: `${SESSION_COOKIE_NAME}=sess-boundary` },
   });
   expect(res.status).toBe(401);
+});
+
+// ---------------------------------------------------------------------------
+// 7. Clerk bearer token fallback creates a local user and binds auth context.
+// ---------------------------------------------------------------------------
+test("requireAuth: Clerk bearer token → local user + auth context", async () => {
+  const db = freshMemDb();
+  const fixedNow = 1_700_000_000_000;
+  const clock = createClock(fixedNow);
+  const app = buildApp(db, clock.now, {
+    clerkAuth: async (req) => {
+      expect(req.headers.get("authorization")).toBe("Bearer clerk-session");
+      return { id: "user_clerk_123", email: "clerk@example.com" };
+    },
+  });
+
+  const res = await app.request("/me", {
+    headers: { Authorization: "Bearer clerk-session" },
+  });
+
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as {
+    user: { id: string; email: string };
+    session: { id: string; user_id: string; expires_at: number };
+  };
+  expect(body.user.email).toBe("clerk@example.com");
+  expect(body.session.id).toBe("clerk:user_clerk_123");
+  expect(body.session.user_id).toBe(body.user.id);
+  expect(body.session.expires_at).toBe(Number.MAX_SAFE_INTEGER);
+
+  const rows = db.select().from(usersTable).all();
+  expect(rows).toMatchObject([{ email: "clerk@example.com" }]);
+});
+
+// ---------------------------------------------------------------------------
+// 8. Cookie sessions stay authoritative when both cookie and bearer exist.
+// ---------------------------------------------------------------------------
+test("requireAuth: valid cookie wins over Clerk bearer fallback", async () => {
+  const db = freshMemDb();
+  const fixedNow = 1_700_000_000_000;
+  const clock = createClock(fixedNow);
+  let clerkCalls = 0;
+  const app = buildApp(db, clock.now, {
+    clerkAuth: async () => {
+      clerkCalls += 1;
+      return { id: "user_clerk_ignored", email: "ignored@example.com" };
+    },
+  });
+  seedUserAndSession(db, {
+    userId: "user-cookie",
+    email: "cookie@example.com",
+    sessionId: "sess-cookie",
+    createdAt: fixedNow - 1_000,
+    expiresAt: fixedNow + 60_000,
+  });
+
+  const res = await app.request("/me", {
+    headers: {
+      Cookie: `${SESSION_COOKIE_NAME}=sess-cookie`,
+      Authorization: "Bearer clerk-session",
+    },
+  });
+
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { user: { id: string; email: string } };
+  expect(body.user).toEqual({ id: "user-cookie", email: "cookie@example.com" });
+  expect(clerkCalls).toBe(0);
 });

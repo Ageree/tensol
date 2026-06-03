@@ -45,6 +45,7 @@ import { issueLink, pollLink } from "../auth/magic-link.ts";
 import {
   createRequireAuth,
   type AuthVariables,
+  type ClerkAuth,
 } from "../auth/middleware.ts";
 import {
   clearSessionCookie,
@@ -75,6 +76,8 @@ export interface CreateAuthRoutesDeps {
   /** Telegram bot username (without leading @). Defaults to
    *  `tensol_leadsbot` per pivot doc. Overridable for staging bots. */
   readonly botUsername?: string;
+  /** Optional Clerk bearer-token verifier for Vercel/Clerk auth sessions. */
+  readonly clerkAuth?: ClerkAuth;
 }
 
 export function createAuthRoutes(
@@ -82,7 +85,11 @@ export function createAuthRoutes(
 ): Hono<{ Variables: AuthVariables }> {
   const { db, signingKey, isProd, botUsername } = deps;
   const clock = deps.now ?? defaultNow;
-  const requireAuth = createRequireAuth({ db, now: clock });
+  const requireAuth = createRequireAuth({
+    db,
+    now: clock,
+    ...(deps.clerkAuth ? { clerkAuth: deps.clerkAuth } : {}),
+  });
 
   const app = new Hono<{ Variables: AuthVariables }>();
 

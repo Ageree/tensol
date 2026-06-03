@@ -3,9 +3,10 @@
  */
 import { test, expect, describe } from "bun:test";
 import { runReview } from "./engine.ts";
-import { FakeLlmClient } from "./reviewer.ts";
+import { FakeLlmClient, FakeChatClient } from "./reviewer.ts";
 import { FakeSastRunner } from "./sast/runner.ts";
 import { FakeJoernClient } from "./reachability/joern.ts";
+import { buildPrAgentTools, type PrToolGitHub } from "./agent/tools/pr-tools.ts";
 import type { DiffFile, RawFinding } from "./types.ts";
 
 const sqliFile: DiffFile = {
@@ -502,5 +503,78 @@ describe("runReview trust upgrades", () => {
     );
     expect(result.findings.length).toBe(1);
     expect(result.score0to5).toBe(0);
+  });
+});
+
+describe("runReview agentic fast path (deps.agent)", () => {
+  const fakeGh: PrToolGitHub = {
+    async getFileContents() {
+      return "function q(req){ const id=req.query.id; return db.exec('SELECT '+id) }";
+    },
+    async getPullRequestFiles() {
+      return [sqliFile];
+    },
+  };
+
+  test("runs the agent loop then scores its verdict deterministically", async () => {
+    let toolUsed = false;
+    const gh: PrToolGitHub = {
+      async getFileContents(a) {
+        toolUsed = true;
+        return fakeGh.getFileContents(a);
+      },
+      getPullRequestFiles: fakeGh.getPullRequestFiles,
+    };
+    // The model reads the file, then emits the same SQLi verdict JSON.
+    const transport = new FakeChatClient((_args, i) =>
+      i === 0
+        ? {
+            content: null,
+            toolCalls: [{ id: "t1", name: "read_file", argumentsJson: '{"path":"src/db.ts"}' }],
+          }
+        : { content: sqliResponder(), toolCalls: [] },
+    );
+
+    const result = await runReview(
+      { kind: "pr", files: [sqliFile] },
+      {
+        llm: new FakeLlmClient(() => "{}"), // must NOT be used on the agent path
+        agent: {
+          transport,
+          tools: buildPrAgentTools(gh, { owner: "o", name: "r", pr: 1, ref: "head" }),
+          maxRounds: 5,
+        },
+      },
+    );
+
+    expect(toolUsed).toBe(true);
+    expect(result.findings.length).toBe(1);
+    const f = result.findings[0]!;
+    expect(f.category).toBe("SQL Injection");
+    expect(f.cvssScore).toBe(9.8); // deterministic scorer still owns the number
+    expect(result.score0to5).toBe(0);
+  });
+
+  test("a budget-stopped agent loop yields no findings (no self-declared bug)", async () => {
+    const budget = {
+      assertWithin() {
+        throw new Error("over budget");
+      },
+    };
+    const transport = new FakeChatClient(() => ({ content: sqliResponder(), toolCalls: [] }));
+    const result = await runReview(
+      { kind: "pr", files: [sqliFile] },
+      {
+        llm: new FakeLlmClient(() => "{}"),
+        agent: {
+          transport,
+          tools: buildPrAgentTools(fakeGh, { owner: "o", name: "r", pr: 1, ref: "head" }),
+          maxRounds: 5,
+          budget,
+        },
+      },
+    );
+    expect(result.findings.length).toBe(0);
+    expect(result.score0to5).toBe(5);
   });
 });

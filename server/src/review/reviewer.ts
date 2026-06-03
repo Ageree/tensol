@@ -23,14 +23,31 @@ import { z } from "zod";
 import type { ContextBundle, Candidate, LlmVerdict, Confidence } from "./types.ts";
 import { LlmReviewOutputSchema, type LlmReviewOutput } from "./schemas.ts";
 import { estimateTokens } from "./context/repomap.ts";
+import type {
+  ChatMessage,
+  ChatResult,
+  ToolChoice,
+  ToolSpec,
+} from "./llm/chat-types.ts";
 
 /**
  * Minimal LLM transport contract. Implementations send a system+user prompt to
  * a chat model and return the raw assistant text. Kept tiny so any provider
  * (OpenRouter, a local model, a fake) can satisfy it.
+ *
+ * `chat` is the OPTIONAL agentic (tool-calling) surface: a multi-turn exchange
+ * where the model may request tool calls instead of (or before) answering. It
+ * is additive — text-only clients omit it, and every existing `complete()`
+ * caller is unaffected. Callers MUST feature-detect (`typeof client.chat ===
+ * "function"`) before using it.
  */
 export interface LlmClient {
   complete(args: { system: string; user: string }): Promise<string>;
+  chat?(args: {
+    messages: ChatMessage[];
+    tools?: ToolSpec[];
+    toolChoice?: ToolChoice;
+  }): Promise<ChatResult>;
 }
 
 /**
@@ -46,6 +63,50 @@ export class FakeLlmClient implements LlmClient {
 
   async complete(args: { system: string; user: string }): Promise<string> {
     return this.responder(args.user);
+  }
+}
+
+/**
+ * A deterministic, network-free tool-calling `LlmClient` for agent-loop tests.
+ *
+ * The `responder` is handed the running message history plus a zero-based call
+ * index and returns the {@link ChatResult} the "model" would emit that round —
+ * letting a test script a precise sequence of tool-call rounds and a final
+ * answer that can react to the tool results fed back in `messages`. `complete()`
+ * is intentionally unsupported (this double exists only to exercise `chat`).
+ */
+export class FakeChatClient implements LlmClient {
+  private readonly responder: (
+    args: { messages: ChatMessage[]; tools?: ToolSpec[]; toolChoice?: ToolChoice },
+    callIndex: number,
+  ) => ChatResult | Promise<ChatResult>;
+  private calls = 0;
+
+  constructor(
+    responder: (
+      args: {
+        messages: ChatMessage[];
+        tools?: ToolSpec[];
+        toolChoice?: ToolChoice;
+      },
+      callIndex: number,
+    ) => ChatResult | Promise<ChatResult>,
+  ) {
+    this.responder = responder;
+  }
+
+  async complete(): Promise<string> {
+    throw new Error("FakeChatClient: complete() is not supported (chat-only)");
+  }
+
+  async chat(args: {
+    messages: ChatMessage[];
+    tools?: ToolSpec[];
+    toolChoice?: ToolChoice;
+  }): Promise<ChatResult> {
+    const index = this.calls;
+    this.calls += 1;
+    return this.responder(args, index);
   }
 }
 
@@ -387,6 +448,36 @@ export async function selfChallenge(args: {
 }
 
 /**
+ * Parse a raw model completion into the verdicts judged to be real
+ * vulnerabilities — the single source of truth for the review output contract,
+ * shared by the fixed-prompt {@link review} and the agentic review path.
+ *
+ * Robustness contract: NEVER throws. A surrounding markdown fence is stripped;
+ * non-JSON, schema-invalid JSON, or `null` all collapse to `[]`. Only verdicts
+ * with `is_vulnerability === true` survive, mapped to the camelCase domain type.
+ * Whatever produced `raw` (a one-shot `complete` or an agent loop) cannot smuggle
+ * a finding past this gate — determinism stays downstream of the model.
+ */
+export function parseReviewVerdicts(raw: string | null): LlmVerdict[] {
+  if (raw == null) return [];
+  const inner = stripCodeFences(raw);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(inner);
+  } catch {
+    return [];
+  }
+
+  const result = LlmReviewOutputSchema.safeParse(parsed);
+  if (!result.success) return [];
+
+  return result.data.verdicts
+    .filter((v) => v.is_vulnerability === true)
+    .map(toLlmVerdict);
+}
+
+/**
  * Run one review pass: prompt the model, parse + validate its structured
  * output, and return only the verdicts judged to be real vulnerabilities.
  *
@@ -409,19 +500,5 @@ export async function review(args: {
   });
 
   const raw = await llm.complete(prompt);
-  const inner = stripCodeFences(raw);
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(inner);
-  } catch {
-    return [];
-  }
-
-  const result = LlmReviewOutputSchema.safeParse(parsed);
-  if (!result.success) return [];
-
-  return result.data.verdicts
-    .filter((v) => v.is_vulnerability === true)
-    .map(toLlmVerdict);
+  return parseReviewVerdicts(raw);
 }

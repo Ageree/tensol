@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1049.0",
+    "@clerk/backend": "3.4.14",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@sparticuz/chromium-min": "^148.0.0",
     "better-sqlite3": "^11.5.0",

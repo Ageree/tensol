@@ -20,6 +20,8 @@
  */
 import type { GitHubClient } from "../../review/github/client.ts";
 import { runReview } from "../../review/engine.ts";
+import { buildPrAgentTools } from "../../review/agent/tools/pr-tools.ts";
+import type { ChatTransport, LoopBudget } from "../../review/agent/loop.ts";
 import {
   buildOverCapacityComment,
   fingerprintsFromComments,
@@ -55,6 +57,21 @@ export interface PrReviewHandlerDeps {
    * so this is normally absent; when present it enables the reachability adapter.
    */
   readonly repoDir?: string;
+  /**
+   * Optional agentic (gpt-5.5) review. When present, each review builds a fresh
+   * metered session (`makeSession`) — a chat transport whose token usage meters
+   * into a per-review spend `budget` — and the engine runs the tool-using
+   * {@link agentReview} fast path. The PR tools (read_file / get_pr_diff) are
+   * bound here to this exact (repo, PR, headSha). Absent → legacy review.
+   * The wiring layer only sets this when `TENSOL_AGENT_PR_ENABLED` is on and the
+   * agent model client is chat-capable.
+   */
+  readonly agent?: {
+    /** Build one review's metered transport + the budget it meters into. */
+    makeSession: () => { transport: ChatTransport; budget: LoopBudget };
+    maxRounds: number;
+    maxToolCalls: number;
+  };
 }
 
 interface NormalizedPayload {
@@ -185,6 +202,29 @@ export function createPrReviewHandler(deps: PrReviewHandlerDeps) {
       const suppressions = await service.listSuppressions(repo.id);
       const suppressedCategories = new Set(suppressions.map((s) => s.category));
 
+      // Agentic fast path (gpt-5.5): build a fresh per-review metered session +
+      // tools bound to THIS PR head. Only when the agent dep is wired (flag on)
+      // and we have a head SHA to read files at.
+      const agentDeps =
+        deps.agent && review.headSha
+          ? (() => {
+              const { transport, budget } = deps.agent!.makeSession();
+              return {
+                transport,
+                budget,
+                tools: buildPrAgentTools(github, {
+                  owner: repo.owner,
+                  name: repo.name,
+                  pr: review.prNumber!,
+                  ref: review.headSha,
+                  ...(installationId !== undefined ? { installationId } : {}),
+                }),
+                maxRounds: deps.agent!.maxRounds,
+                maxToolCalls: deps.agent!.maxToolCalls,
+              };
+            })()
+          : undefined;
+
       const result = await runReview(
         {
           kind: "pr",
@@ -200,6 +240,7 @@ export function createPrReviewHandler(deps: PrReviewHandlerDeps) {
         {
           llm,
           ...(deps.reachability ? { reachability: deps.reachability } : {}),
+          ...(agentDeps ? { agent: agentDeps } : {}),
         },
       );
 

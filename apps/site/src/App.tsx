@@ -1,6 +1,7 @@
 import { Suspense, lazy, type ComponentType } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Placeholder } from './components/Placeholder.tsx';
+import { ProtectedRoute } from './components/ProtectedRoute.tsx';
 import { TensolProvider } from './context.tsx';
 import { MarketingPage } from './pages/Marketing.tsx';
 import type { ScanWizardContainerProps } from './pages/scan-wizard/ScanWizardContainer.tsx';
@@ -8,6 +9,7 @@ import type { ScanWizardContainerProps } from './pages/scan-wizard/ScanWizardCon
 // Lazy-loaded screens — files written by parallel agents.
 // If a file is missing the lazy import will throw → caught by ErrorBoundary fallback.
 const Login = lazy(() => safeImport(() => import('./pages/Login.tsx'), 'login'));
+const SignUp = lazy(() => safeImport(() => import('./pages/SignUp.tsx'), 'signup'));
 const Bootstrap = lazy(() => safeImport(() => import('./pages/Bootstrap.tsx'), 'bootstrap'));
 const Invite = lazy(() => safeImport(() => import('./pages/Invite.tsx'), 'invite'));
 const Dashboard = lazy(() => safeImport(() => import('./pages/Dashboard.tsx'), 'dashboard'));
@@ -73,8 +75,18 @@ function safeImport<T extends { default: React.ComponentType<unknown> }>(
 
 const MarketingRoute = () => {
   const navigate = useNavigate();
-  return <MarketingPage onSignIn={() => navigate('/login')} onDemo={() => navigate('/contact')} />;
+  return (
+    <MarketingPage
+      onSignIn={() => navigate('/login')}
+      onSignUp={() => navigate('/signup')}
+      onDemo={() => navigate('/contact')}
+    />
+  );
 };
+
+const authed = (children: React.ReactNode) => (
+  <ProtectedRoute>{children}</ProtectedRoute>
+);
 
 export const App = () => (
   <TensolProvider defaultLang="en">
@@ -89,14 +101,15 @@ export const App = () => (
     >
       <Routes>
         <Route path="/" element={<MarketingRoute />} />
-        <Route path="/login" element={<Login />} />
+        <Route path="/login/*" element={<Login />} />
+        <Route path="/signup/*" element={<SignUp />} />
         <Route path="/bootstrap" element={<Bootstrap />} />
         <Route path="/invite" element={<Invite />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/live" element={<Live />} />
-        <Route path="/findings" element={<Findings />} />
-        <Route path="/reports" element={<Reports />} />
-        <Route path="/settings" element={<Settings />} />
+        <Route path="/dashboard" element={authed(<Dashboard />)} />
+        <Route path="/live" element={authed(<Live />)} />
+        <Route path="/findings" element={authed(<Findings />)} />
+        <Route path="/reports" element={authed(<Reports />)} />
+        <Route path="/settings" element={authed(<Settings />)} />
         <Route path="/err/:kind" element={<ErrorScreen />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/pricing" element={<Pricing />} />
@@ -113,26 +126,26 @@ export const App = () => (
           element={<DeepInquiryThankYou />}
         />
         {/* Reviews — PR Review + Whitebox Pentest (003-whitebox). */}
-        <Route path="/reviews" element={<Reviews />} />
-        <Route path="/reviews/:id" element={<ReviewDetail />} />
+        <Route path="/reviews" element={authed(<Reviews />)} />
+        <Route path="/reviews/:id" element={authed(<ReviewDetail />)} />
         {/* T021 — Connect GitHub + Repositories (feature 004). */}
-        <Route path="/connect" element={<ConnectGitHub />} />
-        <Route path="/repositories" element={<Repositories />} />
+        <Route path="/connect" element={authed(<ConnectGitHub />)} />
+        <Route path="/repositories" element={authed(<Repositories />)} />
         {/* T083 — canonical Blackbox MVP scan routes. */}
-        <Route path="/scan/new" element={<ScanWizard mode="create" />} />
+        <Route path="/scan/new" element={authed(<ScanWizard mode="create" />)} />
         <Route
           path="/scan/new/:orderId/:step"
-          element={<ScanWizard mode="edit" />}
+          element={authed(<ScanWizard mode="edit" />)}
         />
-        <Route path="/scan/:id" element={<Live />} />
-        <Route path="/scan/:id/findings" element={<Findings />} />
-        <Route path="/scan/:id/findings/:findingId" element={<FindingDetail />} />
-        <Route path="/scan/:id/report" element={<Reports />} />
+        <Route path="/scan/:id" element={authed(<Live />)} />
+        <Route path="/scan/:id/findings" element={authed(<Findings />)} />
+        <Route path="/scan/:id/findings/:findingId" element={authed(<FindingDetail />)} />
+        <Route path="/scan/:id/report" element={authed(<Reports />)} />
         {/* Legacy aliases — keep existing /wizard/* links working. */}
-        <Route path="/wizard/new" element={<ScanWizard mode="create" />} />
+        <Route path="/wizard/new" element={authed(<ScanWizard mode="create" />)} />
         <Route
           path="/wizard/:orderId/:step"
-          element={<ScanWizard mode="edit" />}
+          element={authed(<ScanWizard mode="edit" />)}
         />
         <Route path="*" element={<Navigate to="/err/404" replace />} />
       </Routes>

@@ -1,5 +1,6 @@
 // Sthrip — App shell: sticky left nav, breadcrumb topbar, content slot.
 import { Fragment, type CSSProperties, type ReactElement, type ReactNode, useState } from 'react';
+import { Show, UserButton } from '@clerk/react';
 import {
   Activity,
   Code2,
@@ -492,6 +493,9 @@ export function AppShell({
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               {showLanguageSwitcher && <LangSwitcher />}
+              <Show when="signed-in">
+                <UserButton />
+              </Show>
               {actions}
             </div>
           </header>

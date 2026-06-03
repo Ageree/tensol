@@ -85,6 +85,20 @@ describe("loadConfig", () => {
     expect(cfg.PORT).toBe(3000);
     expect(cfg.NODE_ENV).toBe("development");
     expect(cfg.EMAIL_PROVIDER).toBe("stdout");
+    expect(cfg.CLERK_SECRET_KEY).toBe("");
+    expect(cfg.CLERK_AUTHORIZED_PARTIES).toBe("");
+  });
+
+  test("accepts Clerk server auth env vars", () => {
+    const cfg = loadConfig({
+      ...validEnv,
+      CLERK_SECRET_KEY: "sk_test_123",
+      CLERK_AUTHORIZED_PARTIES: "https://sthrip.dev,http://localhost:5175",
+    });
+    expect(cfg.CLERK_SECRET_KEY).toBe("sk_test_123");
+    expect(cfg.CLERK_AUTHORIZED_PARTIES).toBe(
+      "https://sthrip.dev,http://localhost:5175",
+    );
   });
 
   test("rejects invalid NODE_ENV value", () => {
@@ -168,6 +182,56 @@ describe("loadConfig", () => {
     }
     // An unrecognized value is treated as OFF (fail-safe), not an error.
     expect(loadConfig({ ...validEnv, TENSOL_EXPLOIT_ENABLED: "maybe" }).TENSOL_EXPLOIT_ENABLED).toBe(false);
+  });
+
+  test("agentic (gpt-5.5) knobs default off with sane values", () => {
+    const cfg = loadConfig(validEnv);
+    expect(cfg.TENSOL_AGENT_PR_ENABLED).toBe(false);
+    expect(cfg.TENSOL_AGENT_WHITEBOX_ENABLED).toBe(false);
+    expect(cfg.TENSOL_AGENT_MODEL).toBe("openai/gpt-5.5");
+    expect(cfg.TENSOL_AGENT_MAX_ROUNDS).toBe(12);
+    expect(cfg.TENSOL_AGENT_MAX_TOOL_CALLS).toBe(48);
+    expect(cfg.TENSOL_AGENT_BUDGET_USD).toBe(2);
+    expect(cfg.TENSOL_AGENT_USD_PER_MTOK_IN).toBe(5);
+    expect(cfg.TENSOL_AGENT_USD_PER_MTOK_OUT).toBe(30);
+  });
+
+  test("agentic gates FAIL SAFE: falsey strings stay OFF", () => {
+    for (const falsey of ["false", "0", "no", "off", "FALSE", "  off  ", ""]) {
+      const cfg = loadConfig({
+        ...validEnv,
+        TENSOL_AGENT_PR_ENABLED: falsey,
+        TENSOL_AGENT_WHITEBOX_ENABLED: falsey,
+      });
+      expect(cfg.TENSOL_AGENT_PR_ENABLED).toBe(false);
+      expect(cfg.TENSOL_AGENT_WHITEBOX_ENABLED).toBe(false);
+    }
+  });
+
+  test("agentic gates turn ON only for explicit truthy tokens", () => {
+    for (const truthy of ["true", "1", "yes", "on"]) {
+      const cfg = loadConfig({
+        ...validEnv,
+        TENSOL_AGENT_PR_ENABLED: truthy,
+        TENSOL_AGENT_WHITEBOX_ENABLED: truthy,
+      });
+      expect(cfg.TENSOL_AGENT_PR_ENABLED).toBe(true);
+      expect(cfg.TENSOL_AGENT_WHITEBOX_ENABLED).toBe(true);
+    }
+  });
+
+  test("blackbox gpt-5.5 gate defaults off and fails safe", () => {
+    expect(loadConfig(validEnv).TENSOL_BLACKBOX_AGENT_ENABLED).toBe(false);
+    for (const falsey of ["false", "0", "off", ""]) {
+      expect(
+        loadConfig({ ...validEnv, TENSOL_BLACKBOX_AGENT_ENABLED: falsey })
+          .TENSOL_BLACKBOX_AGENT_ENABLED,
+      ).toBe(false);
+    }
+    expect(
+      loadConfig({ ...validEnv, TENSOL_BLACKBOX_AGENT_ENABLED: "true" })
+        .TENSOL_BLACKBOX_AGENT_ENABLED,
+    ).toBe(true);
   });
 
   // --- T003: 004-sthrip-pr-review config additions ---

@@ -123,6 +123,13 @@ const ConfigSchema = z
     // `parseOperatorEmails` (see `routes/admin/deep-inquiries.ts`).
     TENSOL_OPERATOR_EMAILS: z.string().default(""),
 
+    // Clerk auth (Vercel Marketplace friendly). The secret stays server-only;
+    // the Vite site reads VITE_CLERK_PUBLISHABLE_KEY / NEXT_PUBLIC_* directly.
+    CLERK_SECRET_KEY: z.string().default(""),
+    // Optional comma-separated allowed frontend origins for Clerk session
+    // tokens (`azp` claim). Empty = Clerk default verification only.
+    CLERK_AUTHORIZED_PARTIES: z.string().default(""),
+
     // 003-whitebox / 004-sthrip-pr-review — GitHub App (PR Review). All
     // optional with empty defaults so dev boot doesn't halt; the review domain
     // degrades gracefully and the webhook route 503s when unconfigured (no
@@ -202,6 +209,39 @@ const ConfigSchema = z
     // explicitly set true (an operator's eyes-open acknowledgement). The VM
     // sandbox is the real isolation path (deferred wiring). Default false.
     TENSOL_EXPLOIT_ALLOW_UNSANDBOXED_LOCAL: envBool(false),
+
+    // Agentic tool-use (gpt-5.5) foundation — P0. The agentic loop
+    // (think → call-tool → observe → repeat; src/review/agent/loop.ts) is DARK
+    // by default behind per-service gates, so the existing fixed-prompt
+    // behaviour is unchanged until an operator opts in. The gates use the STRICT
+    // `envBool` (NOT z.coerce.boolean, which makes "false"/"0"/"off" truthy —
+    // fail-unsafe for a dark gate). The numeric tunables use z.coerce.
+    TENSOL_AGENT_PR_ENABLED: envBool(false),
+    TENSOL_AGENT_WHITEBOX_ENABLED: envBool(false),
+    // The tool-using model. gpt-5.5 supports function calling on OpenRouter.
+    TENSOL_AGENT_MODEL: z.string().default("openai/gpt-5.5"),
+    // Hard caps on the loop (defense against runaway tool-calling spend).
+    TENSOL_AGENT_MAX_ROUNDS: z.coerce.number().int().positive().default(12),
+    TENSOL_AGENT_MAX_TOOL_CALLS: z.coerce.number().int().positive().default(48),
+    // Per-loop USD ceiling. gpt-5.5 is ~24× qwen3.7-max, and agentic loops
+    // multiply round-trips, so a hard dollar bound is mandatory.
+    TENSOL_AGENT_BUDGET_USD: z.coerce.number().positive().default(2.0),
+    // gpt-5.5 asymmetric pricing per 1M tokens ($5 in / $30 out). Input pricing
+    // MATTERS for agentic loops (tool results balloon the input side), so the
+    // agent budget counts BOTH sides — see createBudget({usdPerMTokIn}).
+    TENSOL_AGENT_USD_PER_MTOK_IN: z.coerce.number().nonnegative().default(5.0),
+    TENSOL_AGENT_USD_PER_MTOK_OUT: z.coerce.number().positive().default(30.0),
+
+    // P1 — Blackbox (Decepticon) on gpt-5.5. Decepticon is ALREADY a tool-using
+    // agent; this only swaps the model driving it. DARK by default: when off,
+    // the per-scan VM's LiteLLM keeps hijacking openai/* → qwen3.7-max (the
+    // cost-safe default, unchanged byte-for-byte). When ON, cloud-init repoints
+    // the openai/* routes to `openrouter/<TENSOL_AGENT_MODEL>` and pins the
+    // Decepticon resolver to the openai auth path so real gpt-5.5 drives the
+    // scan. gpt-5.5 is ~24× qwen, so this is a deliberate per-scan cost increase
+    // — leave OFF unless you've accepted that. LIVE VM verification required
+    // before production (the route rewrite is unit-tested, not E2E here).
+    TENSOL_BLACKBOX_AGENT_ENABLED: envBool(false),
 
     PORT: z.coerce
       .number({ invalid_type_error: "PORT must be a number" })

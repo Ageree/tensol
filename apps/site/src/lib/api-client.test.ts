@@ -313,9 +313,11 @@ describe("auth.me client", () => {
   test("200 returns typed AuthMe object", async () => {
     installFetchStub(() =>
       jsonResponse(200, {
-        id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-        email: "ops@acme.test",
-        free_quick_available: true,
+        user: {
+          id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          email: "ops@acme.test",
+          free_quick_available: true,
+        },
       }),
     );
 
@@ -323,7 +325,7 @@ describe("auth.me client", () => {
 
     expect(result).not.toBeNull();
     expect(result?.email).toBe("ops@acme.test");
-    expect(calls[0]?.url).toBe("/v1/auth/me");
+    expect(calls[0]?.url).toBe("/api/auth/me");
     expect(calls[0]?.init.method).toBe("GET");
     expect(calls[0]?.init.credentials).toBe("include");
   });

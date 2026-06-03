@@ -1642,6 +1642,12 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   min-width: 196px;
 }
 
+.minimal-nav-login {
+  min-width: 118px;
+  min-height: 44px;
+  padding-inline: 16px;
+}
+
 .minimal-nav .minimal-nav-cta {
   border: 1px solid var(--minimal-fg);
   background: var(--minimal-fg);

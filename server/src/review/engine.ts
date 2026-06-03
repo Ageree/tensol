@@ -21,6 +21,8 @@ import { buildContextBundle } from "./context/repomap.ts";
 import { fingerprint } from "./fingerprint.ts";
 import { runResearch } from "./research/orchestrator.ts";
 import { review, selfChallenge, type LlmClient } from "./reviewer.ts";
+import { agentReview } from "./agent/review.ts";
+import type { AgentTool, ChatTransport, LoopBudget } from "./agent/loop.ts";
 import type { ReachabilityClient } from "./reachability/joern.ts";
 import { verifyFindings } from "./verify.ts";
 import {
@@ -99,6 +101,22 @@ export interface RunReviewDeps {
    * a `{}` result simply leaves findings un-upgraded.
    */
   readonly reachability?: ReachabilityClient;
+  /**
+   * Optional agentic (gpt-5.5 tool-using) review configuration for the FAST
+   * path. When present, the fast path runs {@link agentReview} — the model may
+   * call tools (read_file / get_pr_diff) to investigate before answering —
+   * instead of one blind `review()` pass. The output flows through the IDENTICAL
+   * verdict gate, so deterministic scoring, self-challenge, suppression, and
+   * reachability downstream are all unchanged. Absent → legacy fixed-prompt
+   * review (default). Ignored in DEEP mode (the research pipeline is P3).
+   */
+  readonly agent?: {
+    readonly transport: ChatTransport;
+    readonly tools: AgentTool[];
+    readonly maxRounds: number;
+    readonly maxToolCalls?: number;
+    readonly budget?: LoopBudget;
+  };
 }
 
 const SEVERITY_ORDER: Record<string, number> = {
@@ -285,12 +303,30 @@ export async function runReview(
         : {}),
     });
 
-    verdicts = await review({
-      context,
-      candidates,
-      llm: deps.llm,
-      ...(input.rulesMd !== undefined ? { rulesMd: input.rulesMd } : {}),
-    });
+    if (deps.agent) {
+      // Agentic fast path: the model investigates with tools, then emits the
+      // SAME strict JSON. Verdicts pass through the identical downstream gate.
+      const agentResult = await agentReview({
+        context,
+        candidates,
+        transport: deps.agent.transport,
+        tools: deps.agent.tools,
+        maxRounds: deps.agent.maxRounds,
+        ...(deps.agent.maxToolCalls !== undefined
+          ? { maxToolCalls: deps.agent.maxToolCalls }
+          : {}),
+        ...(deps.agent.budget ? { budget: deps.agent.budget } : {}),
+        ...(input.rulesMd !== undefined ? { rulesMd: input.rulesMd } : {}),
+      });
+      verdicts = agentResult.verdicts;
+    } else {
+      verdicts = await review({
+        context,
+        candidates,
+        llm: deps.llm,
+        ...(input.rulesMd !== undefined ? { rulesMd: input.rulesMd } : {}),
+      });
+    }
 
     candById = new Map<string, Candidate>(candidates.map((c) => [c.id, c]));
   }
