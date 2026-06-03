@@ -99,6 +99,10 @@ import { createAgentRouter } from "./routes/agent.ts";
 import { createReviewService, type ReviewService } from "./review/service.ts";
 import { createPrReviewHandler } from "./jobs/handlers/pr-review.ts";
 import { createWhiteboxScanHandler } from "./jobs/handlers/whitebox-scan.ts";
+import { createJoernClient } from "./review/reachability/joern.ts";
+import { buildHarnessModels } from "./review/harness/models.ts";
+import { runHarness } from "./review/harness/orchestrator.ts";
+import type { HarnessSession, HarnessRunArgs } from "./review/harness/types.ts";
 import { createOpenRouterClient } from "./review/llm/openrouter.ts";
 import type { LlmClient } from "./review/reviewer.ts";
 // 2026-06-01 — Exploit Lab (F2) wiring.
@@ -1176,6 +1180,51 @@ export async function main(): Promise<{
     });
   })();
 
+  // 005: deterministic reachability for whitebox "Prove". createJoernClient is
+  // lazy — it spawns `joern` only on analyze() and degrades to {} if absent.
+  const joernClient = createJoernClient();
+
+  // 005: MDASH harness — gated by TENSOL_HARNESS_ENABLED + the research gate + a
+  // review LLM key. When undefined, whitebox deep falls back to runResearch and
+  // reachability is NOT wired, so default behavior is byte-for-byte unchanged.
+  const harnessConfig =
+    config.TENSOL_HARNESS_ENABLED && config.TENSOL_RESEARCH_ENABLED && config.TENSOL_REVIEW_LLM_API_KEY
+      ? {
+          makeSession: () =>
+            buildHarnessModels({
+              apiKey: config.TENSOL_REVIEW_LLM_API_KEY,
+              baseUrl: config.TENSOL_REVIEW_LLM_BASE_URL,
+              auditorModel: config.TENSOL_HARNESS_MODEL_AUDITOR,
+              debaterModel: config.TENSOL_HARNESS_MODEL_DEBATER,
+              counterpointModel: config.TENSOL_HARNESS_MODEL_COUNTERPOINT,
+              reconModel: config.TENSOL_HARNESS_MODEL_RECON,
+              budget: createBudget({
+                ceilingUsd: config.TENSOL_HARNESS_BUDGET_USD,
+                usdPerMTokOut: config.TENSOL_HARNESS_USD_PER_MTOK_OUT,
+                usdPerMTokIn: config.TENSOL_HARNESS_USD_PER_MTOK_IN,
+              }),
+            }),
+          makeRunner: (session: HarnessSession) => ({
+            run: (a: HarnessRunArgs) =>
+              runHarness(a, session, {
+                sastRunner: reviewSastRunner,
+                reachability: joernClient,
+                opts: {
+                  maxAuditors: config.TENSOL_HARNESS_MAX_AUDITORS,
+                  auditorMaxRounds: config.TENSOL_HARNESS_AUDITOR_MAX_ROUNDS,
+                  debateMaxRounds: config.TENSOL_HARNESS_DEBATE_MAX_ROUNDS,
+                },
+              }),
+          }),
+        }
+      : undefined;
+
+  if (config.TENSOL_HARNESS_ENABLED && !harnessConfig) {
+    console.warn(
+      "[tensol] TENSOL_HARNESS_ENABLED set but prerequisites missing (need TENSOL_RESEARCH_ENABLED + review LLM key) — whitebox deep falls back to runResearch.",
+    );
+  }
+
   const whiteboxScanHandler: (payload: unknown, ctx: { jobId: string; attempts: number }) => Promise<void> =
     reviewLlm
       ? adaptNewStyle(
@@ -1194,6 +1243,9 @@ export async function main(): Promise<{
                 usdPerMTokOut: config.TENSOL_RESEARCH_USD_PER_MTOK_OUT,
               }),
             ...(exploitHook ? { exploit: exploitHook } : {}),
+            // 005: reachability + harness are wired ONLY when the harness is
+            // enabled, so fast mode (and harness-off deep) are unchanged.
+            ...(harnessConfig ? { reachability: joernClient, harness: harnessConfig } : {}),
           }),
         )
       : async () => {

@@ -117,6 +117,15 @@ export interface RunReviewDeps {
     readonly maxToolCalls?: number;
     readonly budget?: LoopBudget;
   };
+  /**
+   * Optional MDASH-style multi-model agentic harness for DEEP mode (005). When
+   * present + `mode === "deep"` + `repoDir` set, deep-mode verdicts come from the
+   * harness (Prepare→Scan auditors→Validate debaters) instead of `runResearch`.
+   * Returns `LlmVerdict[]` exactly like `runResearch`, so the downstream
+   * deterministic moat (dedup/reachability/verify/score) is unchanged. Absent →
+   * deep mode runs the legacy `runResearch` pipeline (default).
+   */
+  readonly harness?: import("./harness/types.ts").HarnessRunner;
 }
 
 const SEVERITY_ORDER: Record<string, number> = {
@@ -277,11 +286,21 @@ export async function runReview(
   let candById = new Map<string, Candidate>();
 
   if (input.mode === "deep") {
-    verdicts = await runResearch(
-      input.files,
-      deps.llm,
-      deps.researchBudget ? { budget: deps.researchBudget } : undefined,
-    );
+    if (deps.harness && input.repoDir) {
+      // 005: MDASH harness (multi-model agentic) replaces the runResearch chain.
+      verdicts = await deps.harness.run({
+        files: input.files,
+        repoDir: input.repoDir,
+        ...(rawFindings.length > 0 ? { rawFindings } : {}),
+        ...(input.rulesMd !== undefined ? { rulesMd: input.rulesMd } : {}),
+      });
+    } else {
+      verdicts = await runResearch(
+        input.files,
+        deps.llm,
+        deps.researchBudget ? { budget: deps.researchBudget } : undefined,
+      );
+    }
     // Deep-mode verdicts carry research candidateIds ("S001-F001"), which never
     // collide with fast-path candidate ids — there is no snippet map to join.
   } else {

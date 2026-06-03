@@ -340,4 +340,29 @@ describe("loadConfig", () => {
       expect(cfg.STHRIP_OPENGREP_RULES_DIR).toBe("/opt/rules/aikido");
     });
   });
+
+  describe("TENSOL_HARNESS_* (MDASH harness)", () => {
+    test("defaults are off and conservative", () => {
+      const c = loadConfig(validEnv);
+      expect(c.TENSOL_HARNESS_ENABLED).toBe(false);
+      expect(c.TENSOL_HARNESS_MODEL_AUDITOR).toBe("openai/gpt-5.5");
+      expect(c.TENSOL_HARNESS_MODEL_DEBATER).toBe("qwen/qwen3.7-max");
+      expect(c.TENSOL_HARNESS_MODEL_COUNTERPOINT).toBe("");
+      expect(c.TENSOL_HARNESS_MODEL_RECON).toBe("qwen/qwen3.7-max");
+      expect(c.TENSOL_HARNESS_BUDGET_USD).toBe(2.0);
+      expect(c.TENSOL_HARNESS_MAX_AUDITORS).toBe(12);
+      expect(c.TENSOL_HARNESS_AUDITOR_MAX_ROUNDS).toBe(6);
+      expect(c.TENSOL_HARNESS_DEBATE_MAX_ROUNDS).toBe(3);
+    });
+
+    test("enabled parses strictly via envBool", () => {
+      expect(loadConfig({ ...validEnv, TENSOL_HARNESS_ENABLED: "true" }).TENSOL_HARNESS_ENABLED).toBe(true);
+      expect(loadConfig({ ...validEnv, TENSOL_HARNESS_ENABLED: "0" }).TENSOL_HARNESS_ENABLED).toBe(false);
+    });
+
+    test("counterpoint model is configurable", () => {
+      const c = loadConfig({ ...validEnv, TENSOL_HARNESS_MODEL_COUNTERPOINT: "google/gemini-2.5-pro" });
+      expect(c.TENSOL_HARNESS_MODEL_COUNTERPOINT).toBe("google/gemini-2.5-pro");
+    });
+  });
 });

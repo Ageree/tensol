@@ -243,6 +243,23 @@ const ConfigSchema = z
     // before production (the route rewrite is unit-tested, not E2E here).
     TENSOL_BLACKBOX_AGENT_ENABLED: envBool(false),
 
+    // 005-whitebox-mdash — MDASH-style multi-model agentic harness for whitebox
+    // DEEP mode. Default OFF: when off, whitebox deep falls back byte-for-byte to
+    // the existing `runResearch` chain. When ON (+ TENSOL_RESEARCH_ENABLED), deep
+    // mode runs Prepare→Scan(auditors)→Validate(debaters) with per-role models.
+    TENSOL_HARNESS_ENABLED: envBool(false),
+    TENSOL_HARNESS_MODEL_AUDITOR: z.string().default("openai/gpt-5.5"),
+    TENSOL_HARNESS_MODEL_DEBATER: z.string().default("qwen/qwen3.7-max"),
+    // "" → debate counterpoint falls back to the auditor model (models.ts warns).
+    TENSOL_HARNESS_MODEL_COUNTERPOINT: z.string().default(""),
+    TENSOL_HARNESS_MODEL_RECON: z.string().default("qwen/qwen3.7-max"),
+    TENSOL_HARNESS_BUDGET_USD: z.coerce.number().positive().default(2.0),
+    TENSOL_HARNESS_USD_PER_MTOK_IN: z.coerce.number().nonnegative().default(5.0),
+    TENSOL_HARNESS_USD_PER_MTOK_OUT: z.coerce.number().positive().default(30.0),
+    TENSOL_HARNESS_MAX_AUDITORS: z.coerce.number().int().positive().default(12),
+    TENSOL_HARNESS_AUDITOR_MAX_ROUNDS: z.coerce.number().int().positive().default(6),
+    TENSOL_HARNESS_DEBATE_MAX_ROUNDS: z.coerce.number().int().positive().default(3),
+
     PORT: z.coerce
       .number({ invalid_type_error: "PORT must be a number" })
       .int()

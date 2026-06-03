@@ -24,6 +24,11 @@ import type { SastRunner } from "../../review/sast/runner.ts";
 import type { ReviewService } from "../../review/service.ts";
 import { createMeteredClient } from "../../exploit/metered-client.ts";
 import type { Budget } from "../../exploit/budget.ts";
+import type { ReachabilityClient } from "../../review/reachability/joern.ts";
+import type {
+  HarnessRunner,
+  HarnessSession,
+} from "../../review/harness/types.ts";
 
 export interface WhiteboxScanHandlerDeps {
   readonly service: ReviewService;
@@ -74,6 +79,26 @@ export interface WhiteboxScanHandlerDeps {
     };
     repoDir?: string;
   }) => Promise<unknown>;
+  /**
+   * Optional deterministic reachability adapter (Joern). When wired, it is
+   * threaded into the engine so DEEP/harness findings get taint-verified before
+   * scoring (MDASH "Prove" — reachability). Degrades gracefully if `joern` is
+   * absent. (PR review already wires this; whitebox did not until 005.)
+   */
+  readonly reachability?: ReachabilityClient;
+  /**
+   * Optional MDASH-style multi-model agentic harness (005). When wired AND the
+   * scan resolves to deep mode AND the checkout is on disk (`repoDir`), the
+   * handler builds a fresh per-review harness session and runner and hands it to
+   * the engine as the deep-mode verdict source (replacing `runResearch`). Off →
+   * deep mode runs the legacy research pipeline. `makeSession` mints the per-role
+   * metered clients + shared budget; `makeRunner` closes a `HarnessRunner` over
+   * that session.
+   */
+  readonly harness?: {
+    makeSession: () => HarnessSession;
+    makeRunner: (session: HarnessSession) => HarnessRunner;
+  };
 }
 
 interface NormalizedPayload {
@@ -142,6 +167,14 @@ export function createWhiteboxScanHandler(deps: WhiteboxScanHandlerDeps) {
         deep && deps.makeResearchBudget ? deps.makeResearchBudget() : undefined;
       const reviewLlm = researchBudget ? createMeteredClient(llm, researchBudget) : llm;
 
+      // 005: MDASH harness drives deep mode when wired AND the checkout is on
+      // disk (the harness tools read files from `repoDir`). Build a fresh
+      // per-review session (per-role metered clients + shared budget).
+      const useHarness = deep && deps.harness !== undefined && checkout.repoDir !== undefined;
+      const harnessRunner = useHarness
+        ? deps.harness!.makeRunner(deps.harness!.makeSession())
+        : undefined;
+
       try {
         const result = await runReview(
           {
@@ -156,7 +189,9 @@ export function createWhiteboxScanHandler(deps: WhiteboxScanHandlerDeps) {
           {
             llm: reviewLlm,
             ...(deps.sastRunner ? { sastRunner: deps.sastRunner } : {}),
+            ...(deps.reachability ? { reachability: deps.reachability } : {}),
             ...(researchBudget ? { researchBudget } : {}),
+            ...(harnessRunner ? { harness: harnessRunner } : {}),
           },
         );
         await service.finalizeReview(reviewId, result);

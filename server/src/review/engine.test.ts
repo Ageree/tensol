@@ -577,4 +577,50 @@ describe("runReview agentic fast path (deps.agent)", () => {
     expect(result.findings.length).toBe(0);
     expect(result.score0to5).toBe(5);
   });
+
+  test("deep mode uses deps.harness when present + repoDir, and scores its verdicts", async () => {
+    const harness = {
+      run: async () => [
+        {
+          filePath: "a.ts",
+          startLine: 1,
+          isVulnerability: true,
+          category: "SQLi",
+          cwe: ["CWE-89"],
+          rationaleMd: "tainted\n\n## Multi-model debate\n- survived",
+          reachable: true,
+          confidence: "high" as const,
+          cvss: { AV: "N" as const, AC: "L" as const, PR: "N" as const, UI: "N" as const, S: "U" as const, C: "H" as const, I: "H" as const, A: "H" as const },
+          title: "SQLi",
+        },
+      ],
+    };
+    const result = await runReview(
+      { kind: "whitebox", files: [sqliFile], repoDir: "/repo", mode: "deep" },
+      { llm: new FakeLlmClient(() => "{}"), harness },
+    );
+    expect(result.findings.length).toBe(1);
+    expect(result.findings[0]!.category).toBe("SQLi");
+    expect(result.score0to5).toBeLessThan(5); // a high-sev finding lowers the score
+  });
+
+  test("deep mode without harness falls back to runResearch (no throw)", async () => {
+    const result = await runReview(
+      { kind: "whitebox", files: [sqliFile], mode: "deep" },
+      { llm: new FakeLlmClient(() => JSON.stringify({ summary: "", verdicts: [] })) },
+    );
+    expect(result).toBeDefined();
+    expect(Array.isArray(result.findings)).toBe(true);
+  });
+
+  test("deep mode with harness but no repoDir falls back to runResearch", async () => {
+    let harnessCalled = false;
+    const harness = { run: async () => { harnessCalled = true; return []; } };
+    const result = await runReview(
+      { kind: "whitebox", files: [sqliFile], mode: "deep" }, // no repoDir
+      { llm: new FakeLlmClient(() => JSON.stringify({ summary: "", verdicts: [] })), harness },
+    );
+    expect(harnessCalled).toBe(false); // repoDir absent → harness not used
+    expect(result).toBeDefined();
+  });
 });
