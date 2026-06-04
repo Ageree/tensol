@@ -1,7 +1,6 @@
-import { Show } from '@clerk/react';
+import { Show, SignUp } from '@clerk/react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthShell } from '../components/AuthShell.tsx';
-import { GitHubOAuthButton } from '../components/GitHubOAuthButton.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Btn, Mono } from '../components/primitives.tsx';
 import { TENSOL_I18N } from '../i18n.ts';
@@ -21,7 +20,7 @@ export default function SignUpPage() {
       brand="sthrip"
       eyebrow="// SIGN UP"
       title="Create your Sthrip account."
-      sub="Use GitHub through Clerk to unlock the workspace."
+      sub="Use Google or GitHub through Clerk to unlock the workspace."
     >
       <RouteHead title="Sign Up — Sthrip" />
       {isClerkConfigured ? (
@@ -38,7 +37,13 @@ export default function SignUpPage() {
             </div>
           }
         >
-          <GitHubOAuthButton mode="sign-up" returnTo={returnTo} />
+          <SignUp
+            routing="path"
+            path="/signup"
+            signInUrl="/login"
+            forceRedirectUrl={returnTo}
+            fallback={<Mono size={12}>loading auth</Mono>}
+          />
         </Show>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

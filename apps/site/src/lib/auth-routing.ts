@@ -4,8 +4,3 @@ export function normalizeReturnTo(raw: string | null): string {
   }
   return raw;
 }
-
-export function githubSsoCallbackUrl(returnTo: string): string {
-  const params = new URLSearchParams({ return_to: returnTo });
-  return `/sso-callback?${params.toString()}`;
-}
