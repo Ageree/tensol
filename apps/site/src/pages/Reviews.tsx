@@ -9,9 +9,10 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AppShell } from '../components/AppShell.tsx';
+import { DashboardPage } from '../components/dashboard-ui.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Btn, Checkbox, Eyebrow, Mono, StatusChip } from '../components/primitives.tsx';
-import { useTensol } from '../context.tsx';
+import { TENSOL_I18N } from '../i18n.ts';
 import {
   ApiError,
   type FeatureFlags,
@@ -134,8 +135,7 @@ interface RepoRowProps {
 }
 
 function RepoRow({ repo, researchEnabled }: RepoRowProps): ReactElement {
-  const { t } = useTensol();
-  const tr = t.reviews;
+  const tr = TENSOL_I18N.en.reviews;
   const navigate = useNavigate();
 
   const [deep, setDeep] = useState<boolean>(false);
@@ -225,8 +225,7 @@ function ReposSection({
   error,
   researchEnabled,
 }: ReposSectionProps): ReactElement {
-  const { t } = useTensol();
-  const tr = t.reviews;
+  const tr = TENSOL_I18N.en.reviews;
   return (
     <section style={{ marginBottom: 40 }}>
       <Eyebrow style={{ marginBottom: 14 }}>{tr.sectionRepos}</Eyebrow>
@@ -277,8 +276,7 @@ interface ReviewsTableProps {
 }
 
 function ReviewsTable({ reviews, loading, error }: ReviewsTableProps): ReactElement {
-  const { t } = useTensol();
-  const tr = t.reviews;
+  const tr = TENSOL_I18N.en.reviews;
   const columns = [
     tr.colKind,
     tr.colMode,
@@ -418,8 +416,7 @@ function ReviewsTable({ reviews, loading, error }: ReviewsTableProps): ReactElem
 // ─── Page component ───────────────────────────────────────────────────────────
 
 export default function Reviews(): ReactElement {
-  const { lang, t } = useTensol();
-  const tr = t.reviews;
+  const tr = TENSOL_I18N.en.reviews;
   const [reviews, setReviews] = useState<ReviewListItemWire[] | null>(null);
   const [reviewsErr, setReviewsErr] = useState<string | null>(null);
   const [reviewsLoading, setReviewsLoading] = useState<boolean>(true);
@@ -485,41 +482,17 @@ export default function Reviews(): ReactElement {
       role="security_lead"
       density="comfortable"
       brand="sthrip"
-      language={lang}
+      language="en"
       showLanguageSwitcher={false}
-      surface="white-mono"
+      surface="hacktron-light"
     >
       <RouteHead title={tr.pageTitle} />
-      <div data-screen-label="Reviews">
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
-            marginBottom: 8,
-          }}
-        >
-          <h1
-            style={{
-              fontFamily: "'Space Grotesk', sans-serif",
-              fontWeight: 500,
-              fontSize: 44,
-              lineHeight: 1.05,
-              letterSpacing: '-0.02em',
-              margin: 0,
-            }}
-          >
-            {tr.title}
-          </h1>
-        </div>
-        <Mono
-          size={13}
-          color="var(--fg-3)"
-          style={{ display: 'block', marginBottom: 36 }}
-        >
-          {tr.subtitle}
-        </Mono>
-
+      <DashboardPage
+        title={tr.title}
+        section="PR Reviews"
+        description={tr.subtitle}
+        data-screen-label="Reviews"
+      >
         <ReposSection
           repos={repos ?? []}
           loading={reposLoading}
@@ -532,7 +505,7 @@ export default function Reviews(): ReactElement {
           loading={reviewsLoading}
           error={reviewsErr}
         />
-      </div>
+      </DashboardPage>
     </AppShell>
   );
 }

@@ -14,8 +14,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AppShell } from '../components/AppShell.tsx';
+import { DashboardPage } from '../components/dashboard-ui.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
-import { Btn, Mono, Scroll, StatusChip } from '../components/primitives.tsx';
+import { Mono, Scroll, StatusChip } from '../components/primitives.tsx';
 import { TENSOL_I18N } from '../i18n.ts';
 import {
   ApiError,
@@ -272,65 +273,40 @@ export default function Live(): ReactElement {
       brand="sthrip"
       language="en"
       showLanguageSwitcher={false}
-      surface="white-mono"
+      surface="hacktron-light"
     >
       <RouteHead title={`Sthrip · ${t.live.title}`} />
-      <div data-screen-label="C6 Live (T084)">
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
-            marginBottom: 24,
-          }}
-        >
-          <div>
-            <h1
-              style={{
-                fontFamily: "'Space Grotesk', sans-serif",
-                fontWeight: 500,
-                fontSize: 44,
-                lineHeight: 1.05,
-                letterSpacing: '-0.02em',
-                margin: 0,
-              }}
-            >
-              {t.live.title}
-            </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
-              <StatusChip
-                status={scan ? scan.status : t.live.loading}
-                tone={
-                  failed
-                    ? 'warn'
-                    : scan?.status === 'completed'
-                      ? 'ok'
-                      : 'ok'
-                }
-              />
-              <Mono size={11} color="var(--fg-3)">
-                {id ?? '—'}
-              </Mono>
-            </div>
-          </div>
-          {terminal && id ? (
-            <div style={{ display: 'flex', gap: 8 }}>
+      <DashboardPage
+        title={t.live.title}
+        section="Blackbox Scans"
+        description={
+          <span>
+            <StatusChip
+              status={scan ? scan.status : t.live.loading}
+              tone={failed ? 'warn' : scan?.status === 'completed' ? 'ok' : 'ok'}
+            />
+            <span style={{ marginLeft: 10 }}>{id ?? '—'}</span>
+          </span>
+        }
+        data-screen-label="C6 Live (T084)"
+        actions={
+          terminal && id ? (
+            <div className="hack-filter-actions">
               <Link
                 to={`/scan/${id}/findings`}
-                style={{ textDecoration: 'none' }}
+                className="hack-button"
+                data-slot="button"
+                data-variant="primary"
               >
-                <Btn kind="primary" size="md">
-                  {t.live.navFindings}
-                </Btn>
+                {t.live.navFindings}
               </Link>
-              <Link to={`/scan/${id}/report`} style={{ textDecoration: 'none' }}>
-                <Btn kind="secondary" size="md">
-                  {t.live.navReport}
-                </Btn>
+              <Link to={`/scan/${id}/report`} className="hack-button" data-slot="button">
+                {t.live.navReport}
               </Link>
             </div>
-          ) : null}
-        </div>
+          ) : undefined
+        }
+      >
 
         <PhaseBar active={phaseIdx} failed={failed} labels={phaseLabels} />
 
@@ -406,7 +382,7 @@ export default function Live(): ReactElement {
             </div>
           </Scroll>
         </section>
-      </div>
+      </DashboardPage>
     </AppShell>
   );
 }

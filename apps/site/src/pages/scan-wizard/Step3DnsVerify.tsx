@@ -29,7 +29,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Btn, Mono } from '../../components/primitives.tsx';
-import { useTensol } from '../../context.tsx';
+import { TENSOL_I18N } from '../../i18n.ts';
 import {
   scanOrders,
   type DnsVerifyCheckResult,
@@ -118,7 +118,7 @@ function useClipboardCopy(): {
 export const Step3DnsVerify = ({
   api,
 }: Step3DnsVerifyProps): ReactElement => {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   const navigate = useNavigate();
   const { state, dispatch } = api;
   const { copy, copiedKey } = useClipboardCopy();

@@ -14,7 +14,7 @@
 
 import type { CSSProperties, ReactElement } from 'react';
 import { Btn, Field, Input, Mono } from '../../components/primitives.tsx';
-import { useTensol } from '../../context.tsx';
+import { TENSOL_I18N } from '../../i18n.ts';
 import type { ScanWizardStateApi } from './useScanWizardState.ts';
 
 export interface Step2SafetyProps {
@@ -77,7 +77,7 @@ const SLIDER_STYLE: CSSProperties = {
 // Preset label resolver — kept inline so we don't pay the cost of a memo
 // for three string lookups.
 function presetLabel(
-  t: ReturnType<typeof useTensol>['t'],
+  t: typeof TENSOL_I18N.en,
   key: RpsPreset['key'],
 ): string {
   if (key === 'safe') return t.wizard.step2.presetSafe;
@@ -86,7 +86,7 @@ function presetLabel(
 }
 
 function presetHint(
-  t: ReturnType<typeof useTensol>['t'],
+  t: typeof TENSOL_I18N.en,
   key: RpsPreset['key'],
 ): string {
   if (key === 'safe') return t.wizard.step2.presetSafeHint;
@@ -95,7 +95,7 @@ function presetHint(
 }
 
 export const Step2Safety = ({ api }: Step2SafetyProps): ReactElement => {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   const { state, dispatch } = api;
 
   const activePreset = RPS_PRESETS.find((p) => p.value === state.rps) ?? null;

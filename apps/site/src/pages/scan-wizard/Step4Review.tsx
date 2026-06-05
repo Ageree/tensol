@@ -7,9 +7,9 @@
 //     :id payload (its `payment_kind` and presence of `amount_kopecks`
 //     indicate whether the user is on the free Quick tier or has to pay).
 //   - Feature-flag gate via GET /v1/config/feature-flags (T073):
-//       * `yookassa_live=false` (MVP default) → CTA "Запустить бесплатный Quick"
+//       * `yookassa_live=false` (MVP default) → free Quick launch CTA
 //         (calls scanOrders.launch).
-//       * `yookassa_live=true` AND quota exhausted → CTA "Оплатить"
+//       * `yookassa_live=true` AND quota exhausted → paid checkout CTA
 //         (disabled in MVP — future feature copy).
 //   - On launch success (POST /v1/scan-orders/:id/launch 202 → `{scan_id}`),
 //     navigates to `/scan/:scanId` (T087's Live page).
@@ -26,7 +26,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Btn, Mono } from '../../components/primitives.tsx';
-import { useTensol } from '../../context.tsx';
+import { TENSOL_I18N } from '../../i18n.ts';
 import {
   ApiError,
   config,
@@ -89,7 +89,7 @@ const SummaryRow = ({ label, value, testId }: SummaryRowProps): ReactElement => 
 // ─── Component ─────────────────────────────────────────────────────────────
 
 export const Step4Review = ({ api }: Step4ReviewProps): ReactElement => {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   const navigate = useNavigate();
   const { state, dispatch } = api;
 

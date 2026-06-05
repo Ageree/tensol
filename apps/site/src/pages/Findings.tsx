@@ -20,8 +20,9 @@ import {
 } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AppShell } from '../components/AppShell.tsx';
+import { DashboardPage } from '../components/dashboard-ui.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
-import { Btn, Mono, SeverityChip } from '../components/primitives.tsx';
+import { Mono, SeverityChip } from '../components/primitives.tsx';
 import { TENSOL_I18N } from '../i18n.ts';
 import {
   ApiError,
@@ -308,39 +309,27 @@ export default function Findings(): ReactElement {
       brand="sthrip"
       language="en"
       showLanguageSwitcher={false}
-      surface="white-mono"
+      surface="hacktron-light"
     >
       <RouteHead title={`Sthrip · ${t.findings.title}`} />
-      <div data-screen-label="Findings (T085)">
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
-            marginBottom: 24,
-          }}
-        >
-          <h1
-            style={{
-              fontFamily: "'Space Grotesk', sans-serif",
-              fontWeight: 500,
-              fontSize: 44,
-              lineHeight: 1.05,
-              letterSpacing: '-0.02em',
-              margin: 0,
-            }}
-          >
-            {t.findings.title}
-          </h1>
-          {scanId && (
+      <DashboardPage
+        title={t.findings.title}
+        section="Findings"
+        description={scanId ? `Blackbox scan ${scanId}` : t.findings.noScanId}
+        data-screen-label="Findings (T085)"
+        actions={
+          scanId ? (
             <Link
               to={`/scan/${encodeURIComponent(scanId)}/report`}
-              style={{ textDecoration: 'none' }}
+              className="hack-button"
+              data-slot="button"
+              data-variant="primary"
             >
-              <Btn kind="primary">{t.findings.gotoReport} →</Btn>
+              {t.findings.gotoReport}
             </Link>
-          )}
-        </div>
+          ) : undefined
+        }
+      >
 
         {!scanId && (
           <Mono size={12} color="var(--fg-3)">
@@ -573,7 +562,7 @@ export default function Findings(): ReactElement {
             </table>
           </>
         )}
-      </div>
+      </DashboardPage>
     </AppShell>
   );
 }

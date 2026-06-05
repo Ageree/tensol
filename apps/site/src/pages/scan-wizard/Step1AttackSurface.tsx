@@ -15,7 +15,7 @@
 
 import { useMemo, useState, type CSSProperties, type ReactElement } from 'react';
 import { Btn, Field, Input, Mono } from '../../components/primitives.tsx';
-import { useTensol } from '../../context.tsx';
+import { TENSOL_I18N } from '../../i18n.ts';
 import type { AttackSurfaceHeader } from '../../lib/api-client.ts';
 import type { ScanWizardStateApi } from './useScanWizardState.ts';
 
@@ -70,7 +70,7 @@ const MAX_HEADERS = 10 as const;
 export const Step1AttackSurface = ({
   api,
 }: Step1AttackSurfaceProps): ReactElement => {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   const { state, dispatch } = api;
   const [subdomainDraft, setSubdomainDraft] = useState('');
   const [subdomainErr, setSubdomainErr] = useState<string | null>(null);

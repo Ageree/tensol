@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AppShell } from '../components/AppShell.tsx';
+import { DashboardPage } from '../components/dashboard-ui.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Btn, Eyebrow, Mono, StatusChip } from '../components/primitives.tsx';
 import { TENSOL_I18N } from '../i18n.ts';
@@ -220,39 +221,26 @@ export default function Reports(): ReactElement {
       brand="sthrip"
       language="en"
       showLanguageSwitcher={false}
-      surface="white-mono"
+      surface="hacktron-light"
     >
       <RouteHead title={`Sthrip · ${t.reports.title}`} />
-      <div data-screen-label="Reports (T087)">
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
-            marginBottom: 24,
-          }}
-        >
-          <h1
-            style={{
-              fontFamily: "'Space Grotesk', sans-serif",
-              fontWeight: 500,
-              fontSize: 44,
-              lineHeight: 1.05,
-              letterSpacing: '-0.02em',
-              margin: 0,
-            }}
-          >
-            {t.reports.title}
-          </h1>
-          {scanId && (
+      <DashboardPage
+        title={t.reports.title}
+        section="Usage"
+        description={scanId ? `Report for scan ${scanId}` : t.reports.noScanId}
+        data-screen-label="Reports (T087)"
+        actions={
+          scanId ? (
             <Link
               to={`/scan/${encodeURIComponent(scanId)}/findings`}
-              style={{ textDecoration: 'none' }}
+              className="hack-button"
+              data-slot="button"
             >
-              <Btn kind="secondary">← {t.reports.backToFindings}</Btn>
+              {t.reports.backToFindings}
             </Link>
-          )}
-        </div>
+          ) : undefined
+        }
+      >
 
         {!scanId && (
           <Mono size={12} color="var(--fg-3)">
@@ -282,7 +270,7 @@ export default function Reports(): ReactElement {
             toast={toast}
           />
         )}
-      </div>
+      </DashboardPage>
     </AppShell>
   );
 }

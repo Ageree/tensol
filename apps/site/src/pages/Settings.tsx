@@ -13,9 +13,10 @@
 
 import { useEffect, useState, type ReactElement } from 'react';
 import { AppShell } from '../components/AppShell';
+import { DashboardPage } from '../components/dashboard-ui.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Btn, Card, Eyebrow, Mono, StatusChip } from '../components/primitives';
-import { useTensol } from '../context.tsx';
+import { TENSOL_I18N } from '../i18n.ts';
 import {
   ApiError,
   agentTokens,
@@ -49,7 +50,7 @@ const INITIAL_STATE: SettingsState = {
 };
 
 export default function Settings(): ReactElement {
-  const { lang, t } = useTensol();
+  const t = TENSOL_I18N.en;
   const [state, setState] = useState<SettingsState>(INITIAL_STATE);
   const [tokenName, setTokenName] = useState<string>('Codex MCP');
   const [creatingToken, setCreatingToken] = useState<boolean>(false);
@@ -155,27 +156,17 @@ export default function Settings(): ReactElement {
       role="security_lead"
       density="comfortable"
       brand="sthrip"
-      language={lang}
+      language="en"
       showLanguageSwitcher={false}
-      surface="white-mono"
+      surface="hacktron-light"
     >
       <RouteHead title="Settings — Sthrip" />
-      <div data-screen-label="T118 — settings (mvp)">
-        <div style={{ marginBottom: 32 }}>
-          <h1
-            style={{
-              fontFamily: "'Space Grotesk', sans-serif",
-              fontWeight: 500,
-              fontSize: 44,
-              lineHeight: 1.05,
-              letterSpacing: '-0.02em',
-              margin: 0,
-            }}
-          >
-            {t.sTitle}
-          </h1>
-        </div>
-
+      <DashboardPage
+        title={t.sTitle}
+        section="Settings"
+        description="Manage account access, included usage, and local agent tokens."
+        data-screen-label="T118 — settings (mvp)"
+      >
         {state.loading && (
           <Card>
             <div style={{ padding: '32px 28px' }} data-testid="settings-loading">
@@ -439,7 +430,7 @@ export default function Settings(): ReactElement {
             </section>
           </Card>
         )}
-      </div>
+      </DashboardPage>
     </AppShell>
   );
 }

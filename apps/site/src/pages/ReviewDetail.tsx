@@ -14,10 +14,11 @@
 import { useCallback, useState, type ReactElement } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AppShell } from '../components/AppShell.tsx';
+import { DashboardPage } from '../components/dashboard-ui.tsx';
 import { MarkdownRenderer } from '../components/MarkdownRenderer.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Eyebrow, Mono, SeverityChip, StatusChip } from '../components/primitives.tsx';
-import { useTensol } from '../context.tsx';
+import { TENSOL_I18N } from '../i18n.ts';
 import {
   ApiError,
   type ExploitStatus,
@@ -217,7 +218,7 @@ function Collapsible({ label, children }: CollapsibleProps): ReactElement {
 // ─── Verification status badge ────────────────────────────────────────────────
 
 interface VerificationBadgeProps {
-  /** Chip label prefix (e.g. "Verified" / "Подтверждение") from i18n. */
+  /** Chip label prefix from i18n. */
   prefix: string;
   /** Human-readable status value in the current locale. */
   value: string;
@@ -272,7 +273,7 @@ function VerificationBadge({ prefix, value, status }: VerificationBadgeProps): R
 // ─── Exploit verdict badge (F2) ───────────────────────────────────────────────
 
 interface ExploitBadgeProps {
-  /** Chip label prefix (e.g. "Exploit" / "Эксплойт") from i18n. */
+  /** Chip label prefix from i18n. */
   prefix: string;
   /** Human-readable status value in the current locale. */
   value: string;
@@ -326,7 +327,7 @@ function ExploitBadge({ prefix, value, status }: ExploitBadgeProps): ReactElemen
 /** Maps an exploit status to its localized human-readable value. */
 function exploitStatusValue(
   status: ExploitStatus,
-  tr: ReturnType<typeof useTensol>['t']['reviews'],
+  tr: typeof TENSOL_I18N.en.reviews,
 ): string {
   switch (status) {
     case 'proven':
@@ -347,8 +348,7 @@ function exploitStatusValue(
 // ─── Finding card ─────────────────────────────────────────────────────────────
 
 function FindingCard({ f }: { f: ReviewFindingWire }): ReactElement {
-  const { t } = useTensol();
-  const tr = t.reviews;
+  const tr = TENSOL_I18N.en.reviews;
 
   const location =
     f.start_line != null ? `${f.file_path}:${f.start_line}` : f.file_path;
@@ -475,8 +475,7 @@ function FindingCard({ f }: { f: ReviewFindingWire }): ReactElement {
 // ─── Findings grouped by severity ────────────────────────────────────────────
 
 function FindingsSection({ findings }: { findings: ReviewFindingWire[] }): ReactElement {
-  const { t } = useTensol();
-  const tr = t.reviews;
+  const tr = TENSOL_I18N.en.reviews;
 
   if (findings.length === 0) {
     return (
@@ -542,8 +541,7 @@ function FindingsSection({ findings }: { findings: ReviewFindingWire[] }): React
 
 export default function ReviewDetail(): ReactElement {
   const { id } = useParams<{ id: string }>();
-  const { lang, t } = useTensol();
-  const tr = t.reviews;
+  const tr = TENSOL_I18N.en.reviews;
 
   const [networkErr, setNetworkErr] = useState<string | null>(null);
 
@@ -582,12 +580,17 @@ export default function ReviewDetail(): ReactElement {
       role="security_lead"
       density="comfortable"
       brand="sthrip"
-      language={lang}
+      language="en"
       showLanguageSwitcher={false}
-      surface="white-mono"
+      surface="hacktron-light"
     >
       <RouteHead title={`Sthrip · Review ${id ?? ''}`} />
-      <div data-screen-label="Review detail">
+      <DashboardPage
+        title="Review detail"
+        section="PR Reviews"
+        description={repoLabel}
+        data-screen-label="Review detail"
+      >
         {/* Back link */}
         <div style={{ marginBottom: 16 }}>
           <Link
@@ -687,7 +690,7 @@ export default function ReviewDetail(): ReactElement {
             <FindingsSection findings={data.findings} />
           </article>
         )}
-      </div>
+      </DashboardPage>
     </AppShell>
   );
 }

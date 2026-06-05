@@ -21,9 +21,10 @@
 import { useEffect, type ReactElement } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { AppShell } from '../../components/AppShell.tsx';
+import { DashboardPage } from '../../components/dashboard-ui.tsx';
 import { RouteHead } from '../../components/RouteHead.tsx';
 import { Btn, Mono } from '../../components/primitives.tsx';
-import { useTensol } from '../../context.tsx';
+import { TENSOL_I18N } from '../../i18n.ts';
 import {
   ApiError,
   scanOrders,
@@ -89,7 +90,7 @@ const parseStep = (raw: string | undefined): WizardStep | null => {
   return null;
 };
 
-const stepLabels = (t: ReturnType<typeof useTensol>['t']): string[] => [
+const stepLabels = (t: typeof TENSOL_I18N.en): string[] => [
   t.wizard.step1Title,
   t.wizard.step2Title,
   t.wizard.step3Title,
@@ -160,7 +161,7 @@ const Stepper = ({ active, labels }: StepperProps): ReactElement => (
 export const ScanWizardContainer = ({
   mode,
 }: ScanWizardContainerProps): ReactElement => {
-  const { t } = useTensol();
+  const t = TENSOL_I18N.en;
   const navigate = useNavigate();
   const params = useParams<{ orderId?: string; step?: string }>();
   const api = useScanWizardState();
@@ -454,63 +455,76 @@ export const ScanWizardContainer = ({
   return (
     <AppShell
       breadcrumb={['wizard', params.orderId, `step-${state.step}`]}
-      actions={
-        <Btn kind="ghost" size="sm" onClick={() => void onCancel()}>
-          {t.wizard.cancel}
-        </Btn>
-      }
+      role="security_lead"
+      density="compact"
+      brand="sthrip"
+      language="en"
+      showLanguageSwitcher={false}
+      surface="hacktron-light"
     >
       <RouteHead title={`Sthrip · ${labels[state.step - 1]}`} />
-      <Stepper active={state.step} labels={labels} />
+      <DashboardPage
+        title={labels[state.step - 1]}
+        section="Blackbox Scans"
+        description={params.orderId ? `Draft scan ${params.orderId}` : 'Create a new authorized blackbox scan.'}
+        data-screen-label="Scan wizard"
+        actions={
+          <button type="button" className="hack-button" data-slot="button" onClick={() => void onCancel()}>
+            {t.wizard.cancel}
+          </button>
+        }
+      >
+        <Stepper active={state.step} labels={labels} />
 
-      {state.error ? (
+        {state.error ? (
+          <div
+            style={{
+              padding: '12px 24px',
+              borderBottom: '1px solid var(--line-soft)',
+            }}
+          >
+            <Mono size={11} color="var(--red)">
+              {`${t.wizard.errGeneric}: ${state.error}`}
+            </Mono>
+          </div>
+        ) : null}
+
+        {renderStep()}
+
         <div
           style={{
-            padding: '12px 24px',
-            borderBottom: '1px solid var(--line-soft)',
+            display: 'flex',
+            gap: 12,
+            justifyContent: 'space-between',
+            padding: '20px 24px',
+            borderTop: '1px solid var(--line-soft)',
           }}
         >
-          <Mono size={11} color="var(--red)">
-            {`${t.wizard.errGeneric}: ${state.error}`}
-          </Mono>
-        </div>
-      ) : null}
-
-      {renderStep()}
-
-      <div
-        style={{
-          display: 'flex',
-          gap: 12,
-          justifyContent: 'space-between',
-          padding: '20px 24px',
-          borderTop: '1px solid var(--line-soft)',
-        }}
-      >
-        <Btn
-          kind="ghost"
-          size="md"
-          onClick={onBack}
-          disabled={state.step <= 1 || state.loading}
-        >
-          {t.wizard.back}
-        </Btn>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Btn kind="ghost" size="md" onClick={() => void onCancel()}>
-            {t.wizard.cancel}
+          <Btn
+            kind="ghost"
+            size="md"
+            onClick={onBack}
+            disabled={state.step <= 1 || state.loading}
+          >
+            {t.wizard.back}
           </Btn>
-          {state.step < STEP_COUNT ? (
-            <Btn
-              kind="primary"
-              size="md"
-              onClick={() => void onNext()}
-              disabled={state.loading || !nextEnabled(state.step, state)}
-            >
-              {t.wizard.next}
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Btn kind="ghost" size="md" onClick={() => void onCancel()}>
+              {t.wizard.cancel}
             </Btn>
-          ) : null}
+            {state.step < STEP_COUNT ? (
+              <Btn
+                kind="primary"
+                size="md"
+                onClick={() => void onNext()}
+                disabled={state.loading || !nextEnabled(state.step, state)}
+              >
+                {t.wizard.next}
+              </Btn>
+            ) : null}
+          </div>
         </div>
-      </div>
+      </DashboardPage>
     </AppShell>
   );
 };

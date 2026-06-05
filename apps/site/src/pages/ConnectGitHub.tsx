@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { AppShell } from '../components/AppShell.tsx';
+import { DashboardPage } from '../components/dashboard-ui.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Btn, Card, Eyebrow, Mono, StatusChip } from '../components/primitives.tsx';
 import { TENSOL_I18N } from '../i18n.ts';
@@ -206,33 +207,15 @@ export default function ConnectGitHub(): ReactElement {
       brand="sthrip"
       language="en"
       showLanguageSwitcher={false}
-      surface="white-mono"
+      surface="hacktron-light"
     >
       <RouteHead title={t.pageTitle} />
-      <div data-screen-label="T018 — connect-github">
-        {/* ── Page header ─────────────────────────────────────────────── */}
-        <div style={{ marginBottom: 8 }}>
-          <h1
-            style={{
-              fontFamily: "'Space Grotesk', sans-serif",
-              fontWeight: 500,
-              fontSize: 44,
-              lineHeight: 1.05,
-              letterSpacing: '-0.02em',
-              margin: 0,
-            }}
-          >
-            {t.title}
-          </h1>
-        </div>
-        <Mono
-          size={13}
-          color="var(--fg-3)"
-          style={{ display: 'block', marginBottom: 36 }}
-        >
-          {t.subtitle}
-        </Mono>
-
+      <DashboardPage
+        title={t.title}
+        section="Integrations"
+        description={t.subtitle}
+        data-screen-label="T018 — connect-github"
+      >
         {/* ── Connection status card ───────────────────────────────────── */}
         <Card>
           {/* Status section */}
@@ -354,7 +337,7 @@ export default function ConnectGitHub(): ReactElement {
             </section>
           )}
         </Card>
-      </div>
+      </DashboardPage>
     </AppShell>
   );
 }

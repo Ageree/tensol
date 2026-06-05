@@ -15,6 +15,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AppShell } from '../components/AppShell.tsx';
+import { DashboardPage } from '../components/dashboard-ui.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
 import { Eyebrow, Mono, SeverityChip } from '../components/primitives.tsx';
 import { MarkdownRenderer } from '../components/MarkdownRenderer.tsx';
@@ -120,10 +121,15 @@ export default function FindingDetail(): ReactElement {
       brand="sthrip"
       language="en"
       showLanguageSwitcher={false}
-      surface="white-mono"
+      surface="hacktron-light"
     >
       <RouteHead title={`Sthrip · ${t.findingDetail.title}`} />
-      <div data-screen-label="Finding detail (T086)">
+      <DashboardPage
+        title={t.findingDetail.title}
+        section="Findings"
+        description={data?.title ?? findingId ?? t.findingDetail.missingParams}
+        data-screen-label="Finding detail (T086)"
+      >
         <div style={{ marginBottom: 16 }}>
           <Link
             to={backHref}
@@ -309,7 +315,7 @@ export default function FindingDetail(): ReactElement {
             </section>
           </article>
         )}
-      </div>
+      </DashboardPage>
     </AppShell>
   );
 }
