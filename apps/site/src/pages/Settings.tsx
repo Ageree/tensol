@@ -1,7 +1,6 @@
 import { useUser } from '@clerk/react';
 import { useMutation, useQuery } from 'convex/react';
 import { useEffect, useState, type ReactElement } from 'react';
-import { api } from '../../../../convex/_generated/api';
 import { AppShell } from '../components/AppShell';
 import { DashboardPage } from '../components/dashboard-ui.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
@@ -16,6 +15,7 @@ import {
   type AuthMe,
 } from '../lib/api-client.ts';
 import { isE2EAuthBypass } from '../lib/clerk.ts';
+import { api } from '../lib/convex-api.ts';
 import { isConvexConfigured } from '../lib/convex.ts';
 import {
   deriveFreeQuotaStatus,
