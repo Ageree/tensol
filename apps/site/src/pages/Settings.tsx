@@ -87,6 +87,7 @@ const DEFAULT_SLA_THRESHOLDS: SlaThresholds = {
 };
 
 const ACCOUNT_LOAD_TIMEOUT_MS = 6000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const INITIAL_STATE: SettingsState = {
   restMe: null,
@@ -135,6 +136,27 @@ function profileFromClerk(user: ReturnType<typeof useUser>['user']): Profile | n
 function profileFromAuthMe(me: AuthMe | null | undefined): Profile | null {
   if (!me) return null;
   return { id: me.id, email: me.email };
+}
+
+function quotaFromAuthMe(
+  me: AuthMe | null | undefined,
+  nowMs: number,
+  requireInitialized = false,
+): FreeQuotaStatus | null {
+  if (!me || me.free_quick_available === undefined) return null;
+  if (requireInitialized && me.convex_user_initialized !== true) return null;
+  if (me.free_quick_available) {
+    return { state: 'available', resetsAtMs: null, daysUntilReset: null };
+  }
+  const resetsAtMs = me.free_quick_resets_at ?? null;
+  return {
+    state: 'consumed',
+    resetsAtMs,
+    daysUntilReset:
+      resetsAtMs == null
+        ? null
+        : Math.ceil(Math.max(0, resetsAtMs - nowMs) / DAY_MS),
+  };
 }
 
 function SettingsWithConvex(): ReactElement {
@@ -282,6 +304,10 @@ function SettingsContent({
 
   const resolvedProfile =
     profileFromAuthMe(convexMe) ?? profileFromAuthMe(state.restMe) ?? clerkProfile;
+  const resolvedQuota =
+    quotaFromAuthMe(convexMe, Date.now(), true) ??
+    state.quota ??
+    quotaFromAuthMe(state.restMe, Date.now());
 
   useEffect(() => {
     if (resolvedProfile) {
@@ -723,15 +749,15 @@ function SettingsContent({
                 <Eyebrow style={{ marginBottom: 12 }} color="var(--fg)">
                   {t.settingsMvp.quotaTitle}
                 </Eyebrow>
-                {state.quota ? (
+                {resolvedQuota ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    {state.quota.state === 'available' ? (
+                    {resolvedQuota.state === 'available' ? (
                       <StatusChip status={t.settingsMvp.quotaAvailable} tone="ok" size="md" />
                     ) : (
                       <StatusChip
                         status={t.settingsMvp.quotaUsed.replace(
                           '{days}',
-                          String(state.quota.daysUntilReset ?? 0),
+                          String(resolvedQuota.daysUntilReset ?? 0),
                         )}
                         tone="warn"
                         size="md"
@@ -743,7 +769,7 @@ function SettingsContent({
                     {state.loading ? t.settingsMvp.loading : 'Usage data unavailable.'}
                   </Mono>
                 )}
-                {state.quotaError && (
+                {!resolvedQuota && state.quotaError && (
                   <Mono size={11} color="var(--red)" style={{ display: 'block', marginTop: 10 }}>
                     Usage: {state.quotaError}
                   </Mono>

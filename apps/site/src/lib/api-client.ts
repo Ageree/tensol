@@ -17,19 +17,47 @@ import {
 	isE2EAuthBypass,
 } from "./clerk.ts";
 
+export const PRODUCTION_API_BASE_URL = "https://api.sthrip.dev";
+
+const LEGACY_API_BASE_URLS = new Set(["https://api.tensol.ru"]);
+
+export function normalizeApiBaseUrl(rawUrl: string): string {
+	const url = rawUrl.trim().replace(/\/+$/, "");
+	if (LEGACY_API_BASE_URLS.has(url)) return PRODUCTION_API_BASE_URL;
+	return url;
+}
+
+export function resolveApiBaseUrl(env: {
+	readonly VITE_API_BASE_URL?: string;
+	readonly VITE_VERCEL_ENV?: string;
+}): string {
+	const viteUrl = normalizeApiBaseUrl(env.VITE_API_BASE_URL ?? "");
+	if (viteUrl) return viteUrl;
+	if (env.VITE_VERCEL_ENV === "production") return PRODUCTION_API_BASE_URL;
+	return "";
+}
+
 function readApiBaseUrl(): string {
-	const viteUrl =
+	const viteEnv =
 		(
-			import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } }
-		).env?.VITE_API_BASE_URL?.trim() ?? "";
+			import.meta as unknown as {
+				env?: {
+					VITE_API_BASE_URL?: string;
+					VITE_VERCEL_ENV?: string;
+				};
+			}
+		).env ?? {};
+	const viteUrl = resolveApiBaseUrl(viteEnv);
 	if (viteUrl) return viteUrl.replace(/\/+$/, "");
-	return (
+	const processUrl = normalizeApiBaseUrl(
 		(
 			globalThis as typeof globalThis & {
 				process?: { env?: { VITE_API_BASE_URL?: string } };
 			}
 		).process?.env?.VITE_API_BASE_URL?.trim() ?? ""
-	).replace(/\/+$/, "");
+	);
+	if (processUrl) return processUrl;
+	return "";
 }
 
 // ─── Error envelope ────────────────────────────────────────────────────────
@@ -259,6 +287,7 @@ export interface AuthMe {
 	email: string;
 	free_quick_available?: boolean;
 	free_quick_resets_at?: number | null;
+	convex_user_initialized?: boolean;
 }
 
 // Deep inquiry (POST /v1/deep-inquiries) — US2 lead-gen funnel.

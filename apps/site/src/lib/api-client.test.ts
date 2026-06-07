@@ -114,6 +114,35 @@ beforeEach(() => {
 });
 
 describe("protected REST calls", () => {
+	test("normalizes legacy production API origin to canonical Sthrip API", () => {
+		expect(
+			apiClientModule.normalizeApiBaseUrl("https://api.tensol.ru/"),
+		).toBe("https://api.sthrip.dev");
+		expect(
+			apiClientModule.normalizeApiBaseUrl("https://api.sthrip.dev/"),
+		).toBe("https://api.sthrip.dev");
+	});
+
+	test("resolves API origin without sending preview builds to production", () => {
+		expect(apiClientModule.resolveApiBaseUrl({})).toBe("");
+		expect(
+			apiClientModule.resolveApiBaseUrl({
+				VITE_VERCEL_ENV: "preview",
+			}),
+		).toBe("");
+		expect(
+			apiClientModule.resolveApiBaseUrl({
+				VITE_VERCEL_ENV: "production",
+			}),
+		).toBe("https://api.sthrip.dev");
+		expect(
+			apiClientModule.resolveApiBaseUrl({
+				VITE_API_BASE_URL: "https://api.tensol.ru",
+				VITE_VERCEL_ENV: "production",
+			}),
+		).toBe("https://api.sthrip.dev");
+	});
+
 	test("scanOrders.list calls /v1/scan-orders with Clerk bearer auth", async () => {
 		const fixture: ScanOrder[] = [
 			{

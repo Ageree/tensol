@@ -18,6 +18,7 @@ export const me = query({
     return {
       id: user?._id ?? identity.tokenIdentifier,
       email: user?.email || identity.email || "",
+      convex_user_initialized: user != null,
       free_quick_available: resetAt === null || resetAt <= now,
       free_quick_resets_at: resetAt,
     };
