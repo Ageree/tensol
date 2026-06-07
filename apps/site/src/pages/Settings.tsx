@@ -86,6 +86,8 @@ const DEFAULT_SLA_THRESHOLDS: SlaThresholds = {
   low_target: 90,
 };
 
+const ACCOUNT_LOAD_TIMEOUT_MS = 6000;
+
 const INITIAL_STATE: SettingsState = {
   restMe: null,
   quota: null,
@@ -216,6 +218,7 @@ function SettingsContent({
   const [savingScore, setSavingScore] = useState<boolean>(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSaved, setSettingsSaved] = useState<string | null>(null);
+  const [accountLoadTimedOut, setAccountLoadTimedOut] = useState<boolean>(false);
 
   useEffect(() => {
     if (!orgSettings) return;
@@ -277,13 +280,34 @@ function SettingsContent({
     };
   }, [t.settingsMvp.agentTokensLoadError]);
 
-  const profile =
+  const resolvedProfile =
     profileFromAuthMe(convexMe) ?? profileFromAuthMe(state.restMe) ?? clerkProfile;
-  const identityLoading = convexMeLoading || !clerkLoaded;
+
+  useEffect(() => {
+    if (resolvedProfile) {
+      setAccountLoadTimedOut(false);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setAccountLoadTimedOut(true),
+      ACCOUNT_LOAD_TIMEOUT_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [resolvedProfile]);
+
+  const profile =
+    resolvedProfile ??
+    (accountLoadTimedOut
+      ? { id: 'authenticated-session', email: 'Signed in' }
+      : null);
+  const identityLoading =
+    !accountLoadTimedOut && (convexMeLoading || !clerkLoaded);
   const accountStillLoading =
-    !profile && (state.loading || identityLoading);
+    !profile && !accountLoadTimedOut && (state.loading || identityLoading);
   const accountError =
-    !accountStillLoading && !profile ? state.accountError ?? 'unauthorized' : null;
+    !accountStillLoading && !profile
+      ? state.accountError ?? 'unauthorized'
+      : null;
 
   const saveGeneral = async (): Promise<void> => {
     if (!updateGeneral || savingGeneral) return;
