@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx } from "./_generated/server";
-import { requireIdentity, requireUser } from "./lib/auth";
+import { requireUser } from "./lib/auth";
 
 const DEFAULT_SLA_THRESHOLDS = {
   critical_days: 7,
@@ -130,13 +130,15 @@ async function upsertSettings(
 export const get = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await requireIdentity(ctx);
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_tokenIdentifier", (q) =>
-        q.eq("tokenIdentifier", identity.tokenIdentifier),
-      )
-      .unique();
+    const identity = await ctx.auth.getUserIdentity();
+    const user = identity
+      ? await ctx.db
+          .query("users")
+          .withIndex("by_tokenIdentifier", (q) =>
+            q.eq("tokenIdentifier", identity.tokenIdentifier),
+          )
+          .unique()
+      : null;
     const row = user
       ? await ctx.db
           .query("userSettings")
@@ -145,9 +147,9 @@ export const get = query({
       : null;
     const fallbackName =
       row?.organization_name ??
-      identity.name ??
-      identity.nickname ??
-      identity.email?.split("@")[0] ??
+      identity?.name ??
+      identity?.nickname ??
+      identity?.email?.split("@")[0] ??
       "sthrip";
     return {
       organization_name: fallbackName,

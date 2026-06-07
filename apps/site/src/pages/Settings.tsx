@@ -1,6 +1,14 @@
 import { useUser } from '@clerk/react';
-import { useMutation, useQuery } from 'convex/react';
-import { useEffect, useState, type ReactElement } from 'react';
+import {
+  useConvexAuth,
+  useMutation,
+  useQuery_experimental as useQueryState,
+} from 'convex/react';
+import {
+  useEffect,
+  useState,
+  type ReactElement,
+} from 'react';
 import { AppShell } from '../components/AppShell';
 import { DashboardPage } from '../components/dashboard-ui.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
@@ -71,6 +79,7 @@ interface SettingsContentProps {
   readonly updateSecurityScore?: (args: {
     security_score_min: number;
   }) => Promise<unknown>;
+  readonly settingsPersistenceMessage?: string | null;
   readonly clerkProfile: Profile | null;
   readonly clerkLoaded: boolean;
 }
@@ -161,21 +170,54 @@ function quotaFromAuthMe(
 
 function SettingsWithConvex(): ReactElement {
   const { user, isLoaded } = useUser();
-  const convexMe = useQuery(api.auth.me);
-  const orgSettings = useQuery(api.settings.get);
+  const convexAuth = useConvexAuth();
+  const canUseConvexSettings = convexAuth.isAuthenticated;
+  const convexMeState = useQueryState({
+    query: api.auth.me,
+    args: canUseConvexSettings ? {} : 'skip',
+  });
+  const orgSettingsState = useQueryState({
+    query: api.settings.get,
+    args: canUseConvexSettings ? {} : 'skip',
+  });
   const updateGeneral = useMutation(api.settings.updateGeneral);
   const updateSlaThresholds = useMutation(api.settings.updateSlaThresholds);
   const updateSecurityScore = useMutation(api.settings.updateSecurityScore);
+  const convexQueryError =
+    convexMeState.status === 'error' || orgSettingsState.status === 'error';
+  const convexSettingsReady = canUseConvexSettings && !convexQueryError;
+  const convexMe =
+    convexMeState.status === 'success' ? convexMeState.data : undefined;
+  const orgSettings =
+    orgSettingsState.status === 'success'
+      ? (orgSettingsState.data as OrgSettings | null)
+      : null;
+  const settingsPersistenceMessage =
+    convexAuth.isLoading
+      ? 'Loading profile settings...'
+      : convexQueryError
+        ? 'Profile settings are temporarily unavailable.'
+        : !canUseConvexSettings
+          ? 'Profile settings are waiting for Convex authentication.'
+          : null;
 
   return (
     <SettingsContent
       convexMe={convexMe}
-      convexMeLoading={convexMe === undefined}
-      orgSettings={orgSettings as OrgSettings | null | undefined}
-      orgSettingsLoading={orgSettings === undefined}
-      updateGeneral={updateGeneral}
-      updateSlaThresholds={updateSlaThresholds}
-      updateSecurityScore={updateSecurityScore}
+      convexMeLoading={canUseConvexSettings && convexMeState.status === 'pending'}
+      orgSettings={orgSettings}
+      orgSettingsLoading={
+        convexAuth.isLoading ||
+        (canUseConvexSettings && orgSettingsState.status === 'pending')
+      }
+      updateGeneral={convexSettingsReady ? updateGeneral : undefined}
+      updateSlaThresholds={
+        convexSettingsReady ? updateSlaThresholds : undefined
+      }
+      updateSecurityScore={
+        convexSettingsReady ? updateSecurityScore : undefined
+      }
+      settingsPersistenceMessage={settingsPersistenceMessage}
       clerkProfile={profileFromClerk(user)}
       clerkLoaded={isLoaded}
     />
@@ -190,6 +232,7 @@ function SettingsWithClerk(): ReactElement {
       convexMeLoading={false}
       orgSettings={null}
       orgSettingsLoading={false}
+      settingsPersistenceMessage="Profile settings persistence requires Convex configuration."
       clerkProfile={profileFromClerk(user)}
       clerkLoaded={isLoaded}
     />
@@ -209,7 +252,9 @@ export default function Settings(): ReactElement {
       />
     );
   }
-  if (isConvexConfigured) return <SettingsWithConvex />;
+  if (isConvexConfigured) {
+    return <SettingsWithConvex />;
+  }
   return <SettingsWithClerk />;
 }
 
@@ -221,6 +266,7 @@ function SettingsContent({
   updateGeneral,
   updateSlaThresholds,
   updateSecurityScore,
+  settingsPersistenceMessage,
   clerkProfile,
   clerkLoaded,
 }: SettingsContentProps): ReactElement {
@@ -474,11 +520,11 @@ function SettingsContent({
               </Card>
             )}
 
-            {!updateGeneral && (
+            {settingsPersistenceMessage && (
               <Card>
                 <div style={{ padding: '14px 18px' }}>
                   <Mono size={12} color="var(--fg-3)">
-                    Profile settings persistence requires Convex configuration.
+                    {settingsPersistenceMessage}
                   </Mono>
                 </div>
               </Card>
@@ -533,7 +579,7 @@ function SettingsContent({
                       if (urlSlug === slugFrom(organizationName)) setUrlSlug(slugFrom(next));
                     }}
                     style={inputStyle}
-                    disabled={orgSettingsLoading}
+                    disabled={!updateGeneral || orgSettingsLoading}
                     data-testid="settings-org-name"
                   />
                 </label>
@@ -570,7 +616,7 @@ function SettingsContent({
                     value={urlSlug}
                     onChange={(e) => setUrlSlug(e.currentTarget.value.toLowerCase())}
                     style={inputStyle}
-                    disabled={orgSettingsLoading}
+                    disabled={!updateGeneral || orgSettingsLoading}
                     data-testid="settings-url-slug"
                   />
                   <Mono size={11} color="var(--fg-3)">
@@ -652,6 +698,7 @@ function SettingsContent({
                         }
                         style={inputStyle}
                         aria-label={`${label} SLA days`}
+                        disabled={!updateSlaThresholds || orgSettingsLoading}
                       />
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <input
@@ -670,6 +717,7 @@ function SettingsContent({
                           }
                           style={inputStyle}
                           aria-label={`${label} SLA target`}
+                          disabled={!updateSlaThresholds || orgSettingsLoading}
                         />
                         <Mono size={12} color="var(--fg-3)">
                           %
@@ -725,6 +773,7 @@ function SettingsContent({
                       }
                       style={inputStyle}
                       data-testid="settings-security-score"
+                      disabled={!updateSecurityScore || orgSettingsLoading}
                     />
                     <Mono size={12} color="var(--fg-3)">
                       /100
