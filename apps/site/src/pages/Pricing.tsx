@@ -10,7 +10,7 @@ import { RouteHead } from '../components/RouteHead.tsx';
 import { TENSOL_I18N } from '../i18n.ts';
 
 const t = TENSOL_I18N.en;
-const brandText = (value: string): string => value.replaceAll('Tensol', 'Sthrip');
+const brandText = (value: string): string => value;
 
 function PricingHero() {
   return (

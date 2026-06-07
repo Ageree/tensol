@@ -53,7 +53,7 @@ export interface AppShellProps {
 	children: ReactNode;
 	role?: AppRole;
 	density?: "comfortable" | "compact";
-	brand?: "tensol" | "sthrip";
+	brand?: "sthrip";
 	language?: TensolLang;
 	showLanguageSwitcher?: boolean;
 	surface?: "default" | "white-mono" | "hacktron-light";
@@ -299,7 +299,7 @@ export function AppShell({
 	children,
 	role,
 	density = "comfortable",
-	brand = "tensol",
+	brand = "sthrip",
 	language,
 	showLanguageSwitcher = true,
 	surface = "default",
@@ -491,7 +491,7 @@ export function AppShell({
 							}}
 						>
 							<img
-								src="/assets/tensol-logo-mark-white.png"
+								src="/assets/sthrip-logo-mark-white.png"
 								alt=""
 								aria-hidden="true"
 								style={{

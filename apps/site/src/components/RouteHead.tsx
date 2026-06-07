@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 
-const FAVICON_ICO = '/favicon.ico?v=tensol-logo-2';
-const FAVICON_PNG = '/assets/tensol-logo-mark-favicon.png?v=tensol-logo-2';
+const FAVICON_ICO = '/favicon.ico?v=sthrip-logo-1';
+const FAVICON_PNG = '/assets/sthrip-logo-mark-favicon.png?v=sthrip-logo-1';
 
 interface RouteHeadProps {
   title: string;
@@ -23,7 +23,7 @@ export function RouteHead({ title, description, ogTitle, ogDescription, ogImage 
     setFavicons();
 
     return () => {
-      document.title = 'Tensol';
+      document.title = 'Sthrip';
       removeMeta('name', 'description');
       removeOg('og:title');
       removeOg('og:description');

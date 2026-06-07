@@ -1,4 +1,4 @@
-// Shared split-panel shell for the three Tensol auth screens.
+// Shared split-panel shell for the three Sthrip auth screens.
 import type { ReactNode } from 'react';
 import { useTensol } from '../context.tsx';
 import { TENSOL_I18N, type TensolLang } from '../i18n.ts';
@@ -13,7 +13,7 @@ type AuthShellProps = {
   sub?: ReactNode;
   onBack?: () => void;
   language?: TensolLang;
-  brand?: 'tensol' | 'sthrip';
+  brand?: 'sthrip';
 };
 
 export function AuthShell({
@@ -23,7 +23,7 @@ export function AuthShell({
   sub,
   onBack,
   language,
-  brand = 'tensol',
+  brand = 'sthrip',
 }: AuthShellProps) {
   const { t: contextT } = useTensol();
   const t = language ? TENSOL_I18N[language] : contextT;
@@ -84,7 +84,7 @@ export function AuthShell({
             {isSthrip ? (
               <>
                 <img
-                  src="/assets/tensol-logo-mark-white.png"
+                  src="/assets/sthrip-logo-mark-white.png"
                   alt=""
                   aria-hidden="true"
                   style={{

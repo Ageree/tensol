@@ -20,7 +20,7 @@ import {
 export function HorseMark({
   size = 40,
   color = 'currentColor',
-  src = '/assets/tensol-horse.svg',
+  src = '/assets/sthrip-horse.svg',
 }: {
   size?: number;
   color?: string;
@@ -61,7 +61,7 @@ export function Wordmark({ size = 18, color = 'currentColor' }: { size?: number;
         whiteSpace: 'nowrap',
       }}
     >
-      TENSOL
+      STHRIP
       <sup style={{ fontSize: size * 0.4, letterSpacing: 0, fontWeight: 400 }}>®</sup>
     </span>
   );

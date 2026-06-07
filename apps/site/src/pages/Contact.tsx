@@ -295,7 +295,7 @@ export default function Contact() {
               }}
             >
               <img
-                src="/assets/tensol-logo-mark-white.png"
+                src="/assets/sthrip-logo-mark-white.png"
                 alt=""
                 aria-hidden="true"
                 style={{
@@ -484,7 +484,7 @@ function SuccessPanel({ onBack }: { onBack: () => void }) {
         style={{
           display: 'flex',
           justifyContent: 'flex-start',
-          animation: 'tensol-horse-bounce 1.6s cubic-bezier(.22,1,.36,1) infinite',
+          animation: 'sthrip-horse-bounce 1.6s cubic-bezier(.22,1,.36,1) infinite',
         }}
       >
         <img
@@ -502,7 +502,7 @@ function SuccessPanel({ onBack }: { onBack: () => void }) {
         />
       </div>
       <style>{`
-        @keyframes tensol-horse-bounce {
+        @keyframes sthrip-horse-bounce {
           0%, 100% { transform: translateY(0); }
           50%      { transform: translateY(-6px); }
         }

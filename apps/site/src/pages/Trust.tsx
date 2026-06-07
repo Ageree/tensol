@@ -27,7 +27,7 @@ function AboutSignalPanel({ signals }: { readonly signals: readonly AboutSignal[
       <FrameCorners />
       <div className="about-logo-lockup">
         <img
-          src="/assets/tensol-logo-mark-white.png"
+          src="/assets/sthrip-logo-mark-white.png"
           alt=""
           aria-hidden="true"
         />

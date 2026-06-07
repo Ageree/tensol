@@ -196,7 +196,7 @@ export function MarketingNav({ onSignIn, onSignUp }: MarketingNavProps) {
       <Link to="/" className="minimal-wordmark minimal-wordmark-with-mark" aria-label="STHRIP">
         <img
           className="minimal-wordmark-mark"
-          src="/assets/tensol-logo-mark-white.png"
+          src="/assets/sthrip-logo-mark-white.png"
           alt=""
           aria-hidden="true"
         />
