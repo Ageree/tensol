@@ -17,6 +17,30 @@ Read it before relying on older specs, runbooks, or drafts.
   identity, this file wins: treat **Sthrip / `sthrip.dev` /
   `api.sthrip.dev`** as authoritative for new work.
 
+## Latest Verified Production Snapshot
+
+- As of 2026-06-07, `main` / `origin/main` is at commit `de4d1d9`
+  (`Keep production shell aligned with Sthrip`), after fast-forwarding the
+  production GCP/domain cleanup commit `220dde3`.
+- The current Vercel production deployment is
+  `dpl_H2fNfE5fNdZ4TcSDQ76oMxkHLjhD`, aliased to
+  `https://sthrip.dev`, with `readyState=READY`.
+- External HTTP verification of `https://sthrip.dev` returned `200` and the
+  production HTML shell now uses the Sthrip title plus `sthrip-logo-*` favicon
+  URLs.
+- Real production Playwright smoke via
+  `apps/site/playwright.real-prod.config.ts` passed 6 tests; the Telegram
+  webhook round trip was skipped because `TENSOL_TELEGRAM_WEBHOOK_SECRET` was
+  not set.
+- The GitHub App registration was completed for slug `sthrip`, app id
+  `3987622`, owner `Ageree`, URL `https://github.com/apps/sthrip`. Observed
+  permissions: `metadata: read`, `contents: read`, `pull_requests: write`,
+  `checks: write`, `issues: write`. Subscribed events: `pull_request` and
+  `issue_comment`.
+- GitHub App credentials and webhook/OAuth secrets are local operational
+  secrets only. Never commit them to source, docs, specs, agent files, or
+  project memory.
+
 ## Product Posture
 
 - The product has pivoted from a Russia-first pentest product to an
