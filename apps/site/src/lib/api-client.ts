@@ -305,6 +305,8 @@ export interface UpdateSafetyBody {
 
 // ─── REST transport wrapper ────────────────────────────────────────────────
 
+const REST_REQUEST_TIMEOUT_MS = 15_000;
+
 interface RestRequestOptions {
 	readonly method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 	readonly body?: unknown;
@@ -355,6 +357,11 @@ async function request<T>(
 	const authMode = opts.auth ?? true;
 	const baseUrl = readApiBaseUrl();
 	const headers = await requestHeaders(opts.body !== undefined, authMode);
+	const controller = new AbortController();
+	const timeout = setTimeout(
+		() => controller.abort(),
+		REST_REQUEST_TIMEOUT_MS,
+	);
 
 	let res: Response;
 	try {
@@ -362,6 +369,7 @@ async function request<T>(
 			method,
 			credentials: "include",
 			headers,
+			signal: controller.signal,
 			body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
 		});
 	} catch {
@@ -369,6 +377,8 @@ async function request<T>(
 			error: "network_error",
 			message: "Network request failed",
 		});
+	} finally {
+		clearTimeout(timeout);
 	}
 
 	if (res.status === 204) return undefined as T;
