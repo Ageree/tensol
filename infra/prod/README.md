@@ -146,8 +146,15 @@ Server-only change:
 
 ```bash
 cd /opt/tensol/repo/infra/prod
-git -C /opt/tensol/repo pull
-docker compose -f docker-compose.prod.yml up -d --build
+sudo REPO_REF=<reviewed-tag-or-commit-sha> /opt/tensol/repo/infra/prod/deploy.sh
+```
+
+The deploy script intentionally requires a reviewed `REPO_REF` for normal
+production runs. For an emergency moving-branch deploy, set both values
+explicitly:
+
+```bash
+sudo REPO_BRANCH=main ALLOW_MOVING_PROD_REF=true /opt/tensol/repo/infra/prod/deploy.sh
 ```
 
 ## Legacy rollback
@@ -192,6 +199,7 @@ this script; see Timeweb's snapshot feature for a no-effort option.)
 | Caddy can't fetch a cert                                | `journalctl -u caddy` — DNS not propagated, or port 80 blocked. For current API prod, confirm `dig +short api.sthrip.dev A` returns `34.156.105.67` and GCP firewall rule `allow-sthrip-api-web` allows `tcp:80,tcp:443`. |
 | Server boot panics with `Invalid environment configuration` | A required env var in `/opt/tensol/.env.prod` is missing/empty. Re-check against `.env.prod.example`. |
 | SPA renders but API calls 404 from the browser          | Confirm the frontend points at `https://api.sthrip.dev` (not localhost). Check `apps/site/src` API base config. |
+| Signed-in dashboard API calls return `401 unauthenticated` | Check `/opt/tensol/.env.prod`: `CLERK_SECRET_KEY` must be the live Clerk secret for `clerk.sthrip.dev`, and `CLERK_AUTHORIZED_PARTIES` should include `https://sthrip.dev,https://www.sthrip.dev`. Recreate the server container after changing env. |
 | `db:migrate` step fails on first deploy                 | `/opt/tensol/data` not writable. `ls -ld /opt/tensol/data` should be `drwxr-xr-x root root`. |
 | 50 MB+ PDF render hangs                                 | `@sparticuz/chromium-min` cache extraction failed. `docker exec tensol-server ls /home/bun/.cache/puppeteer` should show a chromium build. |
 

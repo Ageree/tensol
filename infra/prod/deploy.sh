@@ -17,7 +17,7 @@
 #
 # Or, once the repo is already cloned at /opt/tensol/repo:
 #
-#   sudo /opt/tensol/repo/infra/prod/deploy.sh
+#   sudo REPO_REF=<reviewed-tag-or-commit-sha> /opt/tensol/repo/infra/prod/deploy.sh
 #
 # Required env file: /opt/tensol/.env.prod  (template: .env.prod.example).
 # The script aborts if it is missing or unfilled.
@@ -25,7 +25,9 @@
 set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/Ageree/tensol.git}"
-REPO_BRANCH="${REPO_BRANCH:-002-blackbox-mvp}"
+REPO_BRANCH="${REPO_BRANCH:-main}"
+REPO_REF="${REPO_REF:-}"
+ALLOW_MOVING_PROD_REF="${ALLOW_MOVING_PROD_REF:-false}"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/tensol}"
 REPO_DIR="$DEPLOY_DIR/repo"
 ENV_FILE="$DEPLOY_DIR/.env.prod"
@@ -75,15 +77,23 @@ if ! command -v caddy >/dev/null; then
 fi
 
 # -------------------------------------------------------------
-log "2/8  Repo sync ($REPO_URL @ $REPO_BRANCH -> $REPO_DIR)"
+DEPLOY_REF_LABEL="${REPO_REF:-origin/$REPO_BRANCH}"
+log "2/8  Repo sync ($REPO_URL @ $DEPLOY_REF_LABEL -> $REPO_DIR)"
 # -------------------------------------------------------------
 mkdir -p "$DEPLOY_DIR"
 if [[ ! -d $REPO_DIR/.git ]]; then
-    git clone --branch "$REPO_BRANCH" "$REPO_URL" "$REPO_DIR"
+    git clone "$REPO_URL" "$REPO_DIR"
 else
     git -C "$REPO_DIR" fetch origin "$REPO_BRANCH"
+fi
+git -C "$REPO_DIR" fetch --tags origin "$REPO_BRANCH"
+if [[ -n $REPO_REF ]]; then
+    git -C "$REPO_DIR" checkout --detach "$REPO_REF"
+elif [[ $ALLOW_MOVING_PROD_REF == "true" ]]; then
     git -C "$REPO_DIR" checkout "$REPO_BRANCH"
     git -C "$REPO_DIR" reset --hard "origin/$REPO_BRANCH"
+else
+    die "Set REPO_REF to a reviewed tag/commit SHA. For an emergency moving-branch deploy, set ALLOW_MOVING_PROD_REF=true."
 fi
 
 # -------------------------------------------------------------
@@ -98,6 +108,37 @@ if grep -q 'REPLACE_ME' "$ENV_FILE"; then
     die "$ENV_FILE still contains REPLACE_ME placeholders. Fill them and re-run."
 fi
 chmod 600 "$ENV_FILE"
+
+read_env_value() {
+    local key="$1"
+    awk -F= -v key="$key" '
+        $1 == key {
+            value = substr($0, length(key) + 2)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+            sub(/^"/, "", value)
+            sub(/"$/, "", value)
+            print value
+            exit
+        }
+    ' "$ENV_FILE"
+}
+
+CLERK_SECRET_KEY_VALUE="$(read_env_value CLERK_SECRET_KEY)"
+CLERK_AUTHORIZED_PARTIES_VALUE="$(read_env_value CLERK_AUTHORIZED_PARTIES)"
+CLERK_TEST_PREFIX="sk""_test"
+CLERK_LIVE_PREFIX="sk""_live"
+if [[ -z $CLERK_SECRET_KEY_VALUE ]]; then
+    die "CLERK_SECRET_KEY is required in $ENV_FILE for production dashboard API auth."
+fi
+if [[ $CLERK_SECRET_KEY_VALUE == "${CLERK_TEST_PREFIX}_"* ]]; then
+    die "CLERK_SECRET_KEY is a Clerk test secret. Use the live Clerk secret that matches sthrip.dev."
+fi
+if [[ $CLERK_SECRET_KEY_VALUE != "${CLERK_LIVE_PREFIX}_"* ]]; then
+    die "CLERK_SECRET_KEY must be a live Clerk secret for production."
+fi
+if [[ $CLERK_AUTHORIZED_PARTIES_VALUE != *"https://sthrip.dev"* ]]; then
+    die "CLERK_AUTHORIZED_PARTIES must include https://sthrip.dev."
+fi
 
 # -------------------------------------------------------------
 log "4/9  GCP service-account credential perms"
