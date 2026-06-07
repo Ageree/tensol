@@ -151,15 +151,18 @@ describe("protected REST calls", () => {
 		enqueueJson([]);
 		enqueueJson([]);
 		enqueueJson([]);
+		enqueueJson([]);
 
 		await apiClientModule.scanOrders.list({ limit: 12 });
 		await apiClientModule.review.list({ limit: 13 });
+		await apiClientModule.review.list({ limit: 14, kind: "whitebox" });
 		await apiClientModule.review.listRepos({ limit: 14 });
 		await apiClientModule.github.installationRepos("inst_1", { limit: 15 });
 
 		expect(calls.map((call) => call.url)).toEqual([
 			"https://api.test/v1/scan-orders?limit=12",
 			"https://api.test/v1/review?limit=13",
+			"https://api.test/v1/review?limit=14&kind=whitebox",
 			"https://api.test/v1/review/repos?limit=14",
 			"https://api.test/v1/github/installations/inst_1/repos?limit=15",
 		]);

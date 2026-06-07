@@ -41,6 +41,9 @@ const Reviews = lazy(() => safeImport(() => import('./pages/Reviews.tsx'), 'revi
 const ReviewDetail = lazy(() =>
   safeImport(() => import('./pages/ReviewDetail.tsx'), 'review-detail'),
 );
+const WhiteboxScans = lazy(() =>
+  safeImport(() => import('./pages/WhiteboxScans.tsx'), 'whitebox-scans'),
+);
 // T021 — PR Review connect + repository selection (feature 004).
 const ConnectGitHub = lazy(() =>
   safeImport(() => import('./pages/ConnectGitHub.tsx'), 'connect-github'),
@@ -132,6 +135,7 @@ export const App = () => (
         {/* Reviews — PR Review + Whitebox Pentest (003-whitebox). */}
         <Route path="/reviews" element={authed(<Reviews />)} />
         <Route path="/reviews/:id" element={authed(<ReviewDetail />)} />
+        <Route path="/whitebox" element={authed(<WhiteboxScans />)} />
         {/* T021 — Connect GitHub + Repositories (feature 004). */}
         <Route path="/connect" element={authed(<ConnectGitHub />)} />
         <Route path="/repositories" element={authed(<Repositories />)} />

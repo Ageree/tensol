@@ -60,6 +60,41 @@ describe("applyMigrationsOnce", () => {
 });
 
 describe("createApp GitHub webhook wiring", () => {
+  test("CORS preflight allows PATCH for repository settings", async () => {
+    const db = createDb(":memory:");
+    const app = createApp({
+      db,
+      signingKey: "test-key-cors-0123456789abcdef0123456789abcdef",
+      sessionCookieSecret: "session-secret-0123456789abcdef",
+      baseUrl: "http://localhost",
+      emailMode: "stdout",
+      isProd: false,
+      webhookSecret: "scan-webhook-secret",
+      telegramWebhookSecret: "telegram-webhook-secret",
+      operatorEmails: [],
+      reviewLlm: null,
+      githubAppWebhookSecret: "github-webhook-secret",
+      githubAppSlug: "sthrip-app",
+    });
+
+    const res = await app.fetch(
+      new Request("http://localhost/v1/review/repos/repo_1/settings", {
+        method: "OPTIONS",
+        headers: {
+          origin: "https://sthrip.dev",
+          "access-control-request-method": "PATCH",
+          "access-control-request-headers": "Authorization, Content-Type",
+        },
+      }),
+    );
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "https://sthrip.dev",
+    );
+    expect(res.headers.get("access-control-allow-methods")).toContain("PATCH");
+  });
+
   test("passes the configured GitHub client to the comment-trigger webhook", async () => {
     const db = createDb(":memory:");
     applyMigrationsOnce(db, MIGRATIONS_DIR);

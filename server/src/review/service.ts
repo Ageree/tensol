@@ -161,7 +161,7 @@ export interface ReviewService {
 	): Promise<Review[]>;
 	listReviewsByUser(
 		userId: string,
-		opts?: { readonly limit?: number },
+		opts?: { readonly limit?: number; readonly kind?: Review["kind"] },
 	): Promise<Review[]>;
 	getReviewFindings(reviewId: string): Promise<ReviewFindingRow[]>;
 	countFindingsByReviewIds(
@@ -626,10 +626,14 @@ export function createReviewService(
 		},
 
 		async listReviewsByUser(userId, opts) {
+			const where =
+				opts?.kind === undefined
+					? eq(reviewsTable.userId, userId)
+					: and(eq(reviewsTable.userId, userId), eq(reviewsTable.kind, opts.kind));
 			return db
 				.select()
 				.from(reviewsTable)
-				.where(eq(reviewsTable.userId, userId))
+				.where(where)
 				.orderBy(desc(reviewsTable.createdAt), desc(reviewsTable.id))
 				.limit(normalizeListLimit(opts?.limit))
 				.all() as Review[];

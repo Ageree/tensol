@@ -441,8 +441,22 @@ export function createReviewRouter(
 	// -------------------------------------------------------------------------
 	app.get("/", async (c) => {
 		const user = c.get("user");
+		const rawKind = c.req.query("kind");
+		const kind =
+			rawKind === undefined || rawKind === ""
+				? undefined
+				: rawKind === "pr" || rawKind === "whitebox"
+					? rawKind
+					: null;
+		if (kind === null) {
+			return c.json(
+				{ error: "validation_failed", message: "kind must be pr or whitebox" },
+				400,
+			);
+		}
 		const reviews = await service.listReviewsByUser(user.id, {
 			limit: parseLimit(c.req.query("limit")),
+			...(kind !== undefined ? { kind } : {}),
 		});
 		const counts = await service.countFindingsByReviewIds(
 			reviews.map((r) => r.id),

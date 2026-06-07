@@ -367,7 +367,7 @@ export function createApp(deps: CreateAppDeps): Hono {
   app.use("*", cors({
     origin: (origin) => (origin && ALLOWED_ORIGINS.has(origin) ? origin : ""),
     credentials: true,
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: [
       "Authorization",
       "Content-Type",

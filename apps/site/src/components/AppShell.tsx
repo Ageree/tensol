@@ -34,6 +34,7 @@ export type AppRoute =
 	| "findings"
 	| "reports"
 	| "reviews"
+	| "whitebox"
 	| "connect"
 	| "repositories"
 	| "settings";
@@ -65,6 +66,7 @@ const ROUTE_PATHS: Record<AppRoute, string> = {
 	findings: "/findings",
 	reports: "/reports",
 	reviews: "/reviews",
+	whitebox: "/whitebox",
 	connect: "/connect",
 	repositories: "/repositories",
 	settings: "/settings",
@@ -593,6 +595,14 @@ export function AppShell({
 						active={assessmentsActive}
 						onClick={() => navigate("/scan/new")}
 						badge={isHacktronLight ? undefined : "2"}
+						collapsed={sidebarCollapsed}
+						tone={navTone}
+					/>
+					<NavItem
+						icon={<Code2 {...navIconProps} />}
+						label="Whitebox Scans"
+						active={route === "whitebox"}
+						onClick={() => go("whitebox")}
 						collapsed={sidebarCollapsed}
 						tone={navTone}
 					/>

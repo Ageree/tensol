@@ -412,6 +412,7 @@ function queryString(
 
 interface ListOptions {
 	readonly limit?: number;
+	readonly kind?: ReviewKind;
 }
 
 // ─── Scan Orders (9 endpoints) ─────────────────────────────────────────────
@@ -849,7 +850,7 @@ export const review = {
 
 	/** GET /v1/review — list the caller's recent reviews (list-item shape). */
 	list: (opts?: ListOptions): Promise<ReviewListItemWire[]> =>
-		request(`/v1/review${queryString({ limit: opts?.limit })}`),
+		request(`/v1/review${queryString({ limit: opts?.limit, kind: opts?.kind })}`),
 
 	/** GET /v1/review/repos — list connected source repos. */
 	listRepos: (opts?: ListOptions): Promise<ReviewRepoWire[]> =>

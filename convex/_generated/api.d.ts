@@ -24,6 +24,7 @@ import type * as review from "../review.js";
 import type * as scanOrders from "../scanOrders.js";
 import type * as scanOrdersInternal from "../scanOrdersInternal.js";
 import type * as scans from "../scans.js";
+import type * as settings from "../settings.js";
 
 import type {
   ApiFromModules,
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   scanOrders: typeof scanOrders;
   scanOrdersInternal: typeof scanOrdersInternal;
   scans: typeof scans;
+  settings: typeof settings;
 }>;
 
 /**

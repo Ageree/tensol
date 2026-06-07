@@ -207,6 +207,27 @@ export default defineSchema({
     updated_at: v.number(),
   }).index("by_userId_and_created_at", ["userId", "created_at"]),
 
+  userSettings: defineTable({
+    userId: v.id("users"),
+    organization_name: v.string(),
+    url_slug: v.string(),
+    sla_thresholds: v.object({
+      critical_days: v.number(),
+      critical_target: v.number(),
+      high_days: v.number(),
+      high_target: v.number(),
+      medium_days: v.number(),
+      medium_target: v.number(),
+      low_days: v.number(),
+      low_target: v.number(),
+    }),
+    security_score_min: v.number(),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_url_slug", ["url_slug"]),
+
   agentTokens: defineTable({
     userId: v.id("users"),
     name: v.string(),

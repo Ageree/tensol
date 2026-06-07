@@ -313,6 +313,36 @@ describe("GET /v1/review/:id + list + repos", () => {
 		expect(repos.map((r) => r.name)).toEqual(["repo-4", "repo-3", "repo-2"]);
 	});
 
+	test("list endpoint filters by review kind", async () => {
+		const db = freshMemDb();
+		const { app, service } = makeReviewApp(db);
+		const repo = await service.upsertRepo({
+			userId: "user_1",
+			owner: "acme",
+			name: "api",
+		});
+		await service.createReview({
+			repoId: repo.id,
+			userId: "user_1",
+			kind: "pr",
+			prNumber: 12,
+		});
+		await service.createReview({
+			repoId: repo.id,
+			userId: "user_1",
+			kind: "whitebox",
+			mode: "fast",
+		});
+
+		const filteredRes = await app.request("/?kind=whitebox");
+		expect(filteredRes.status).toBe(200);
+		const filtered = (await filteredRes.json()) as Array<{ kind: string }>;
+		expect(filtered.map((r) => r.kind)).toEqual(["whitebox"]);
+
+		const invalidRes = await app.request("/?kind=all");
+		expect(invalidRes.status).toBe(400);
+	});
+
 	test("404 for an unknown review id", async () => {
 		const db = freshMemDb();
 		const { app } = makeReviewApp(db);

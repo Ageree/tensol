@@ -10,6 +10,7 @@ import {
 	isClerkConfigured,
 	isE2EAuthBypass,
 } from "./lib/clerk.ts";
+import { convexUrl, isConvexConfigured } from "./lib/convex.ts";
 import "./styles.css";
 import { startTensolReveal } from "./tns-anim.ts";
 
@@ -22,11 +23,7 @@ const app = (
 	</BrowserRouter>
 );
 
-const convexUrl =
-	(
-		import.meta as unknown as { env?: { VITE_CONVEX_URL?: string } }
-	).env?.VITE_CONVEX_URL?.trim() ?? "";
-const convex = convexUrl ? new ConvexReactClient(convexUrl) : null;
+const convex = isConvexConfigured ? new ConvexReactClient(convexUrl) : null;
 
 ReactDOM.createRoot(root).render(
 	<React.StrictMode>
