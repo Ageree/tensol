@@ -10,6 +10,14 @@
 
 Полная карта всех экранов (включая будущие) лежит в `SCREENS-FOR-CLAUDE-DESIGN.md` — этот файл является её MVP-срезом.
 
+Актуальный контекст продукта берётся из `docs/project-current-context.md`:
+международный продукт по умолчанию, без YooKassa/RUB/RU-first позиционирования
+для новых экранов. Текущий публичный бренд и домены: **Sthrip**,
+`sthrip.dev`, `api.sthrip.dev`. Упоминания Tensol / `tensol.ru` в этом файле
+или соседних исторических материалах не означают текущий production brand.
+Российские юридические/инфраструктурные блоки допустимы только как
+опциональный customer-specific вариант.
+
 Терминология продукта берётся как есть: assessment, scope, finding, evidence, OPPLAN, RoE, attack graph, validator, kill chain, browser-first, deterministic validation, ownership verification, HITL approval, audit log, framework mapping (MITRE ATT&CK, NIST CSF, MITRE ATLAS, MITRE D3FEND, NIST AI RMF).
 
 ---
@@ -26,7 +34,7 @@
 - три ключевых обещания: автономное прохождение kill chain, browser-first проверка реальных web-приложений, публикация только подтверждённых findings;
 - короткое объяснение, почему это не «ещё один сканер» и не «red-team-as-a-service без правил», а authorized pentest с дисциплиной engagement (OPPLAN, RoE, scope, ownership verification);
 - демонстрация результата: образ confirmed finding с evidence, attack graph, отчёт с framework mappings;
-- блок про российскую инфраструктурную базу (Yandex Cloud), 152-FZ совместимость, GOST R / FSTEC шаблоны отчётов;
+- блок про региональную инфраструктуру, customer-selected data residency, DPA/privacy controls и локализуемые шаблоны отчётов;
 - блок про supply-chain дисциплину: pinned mirrors, audit logs, ownership-verified offensive capabilities;
 - честная демаркация: что Tensol делает и чего не делает (не malware tooling, не phishing platform, не unauthorized C2, не stealth tooling);
 - целевые роли пользователей: Security Lead, Pentest Operator, Compliance Reviewer, Developer / App Owner;
@@ -222,7 +230,7 @@ Safety UX обязательно показывает: маркировку high
 
 ### E6. Локализация
 
-Все тексты живут в двух локалях: английский и русский. Часть отчётов требует русской локализации (russian-language report, GOST R / FSTEC).
+Все тексты живут минимум в двух локалях: английский и русский. Английский — основной международный baseline; русская локализация и GOST/FSTEC-ориентированные приложения включаются только для подходящих customer-specific сценариев.
 
 ---
 

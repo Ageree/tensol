@@ -104,8 +104,10 @@ export const ScanOrderTierEnum = z.enum(["quick", "deep"]);
 export type ScanOrderTier = z.infer<typeof ScanOrderTierEnum>;
 
 /**
- * Payment-kind enum per data-model E2. `free_quick` is the default for MVP;
- * `yookassa` is reserved for the future paid path.
+ * Legacy payment-kind enum per data-model E2. `free_quick` is the default for
+ * MVP; `yookassa` remains only for pre-2026-06-05 compatibility. New
+ * international billing work should use provider-agnostic entitlements/credits
+ * instead of this enum.
  */
 export const PaymentKindEnum = z.enum(["free_quick", "yookassa"]);
 

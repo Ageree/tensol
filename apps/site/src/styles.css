@@ -2329,27 +2329,25 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
 }
 
 .about-main {
-  width: min(100%, 1344px);
+  width: min(100%, 1280px);
   margin: 0 auto;
-  padding: 112px 28px 72px;
+  padding: 108px 28px 76px;
 }
 
 .about-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 430px;
-  gap: 32px;
+  grid-template-columns: minmax(0, 1fr) 390px;
+  gap: 30px;
   align-items: stretch;
-  min-height: calc(100svh - 220px);
+  min-height: clamp(540px, calc(100svh - 220px), 760px);
 }
 
 .about-hero-copy {
   position: relative;
   display: grid;
   align-content: center;
-  min-height: 540px;
-  padding: 42px 36px;
-  border: 1px solid rgba(18, 12, 13, 0.46);
-  background: rgba(251, 244, 226, 0.24);
+  min-height: 520px;
+  padding: 44px 12px 44px 0;
 }
 
 .about-hero h1,
@@ -2363,9 +2361,10 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
 }
 
 .about-hero h1 {
-  max-width: 900px;
+  max-width: 840px;
   margin-top: 24px;
-  font-size: 58px;
+  font-size: clamp(52px, 6vw, 76px);
+  text-transform: none;
 }
 
 .about-hero p,
@@ -2375,12 +2374,12 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
 .about-brand-panel p {
   color: var(--minimal-muted);
   font-family: var(--font-mono);
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.5;
 }
 
 .about-hero-copy > p {
-  max-width: 760px;
+  max-width: 780px;
   margin-top: 26px;
   font-size: 18px;
 }
@@ -2389,12 +2388,11 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   position: relative;
   display: grid;
   align-content: space-between;
-  min-height: 540px;
-  padding: 34px 30px;
-  border: 1px solid rgba(18, 12, 13, 0.42);
-  background:
-    linear-gradient(135deg, rgba(18, 12, 13, 0.06), transparent 58%),
-    rgba(251, 244, 226, 0.34);
+  min-height: 520px;
+  padding: 32px;
+  border: 1px solid var(--minimal-fg);
+  background: var(--minimal-fg);
+  color: var(--minimal-bg);
 }
 
 .about-logo-lockup {
@@ -2405,36 +2403,44 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
 
 .about-logo-lockup img:first-child {
   width: 44px;
-  filter: invert(1) brightness(0.12);
+  filter: none;
 }
 
 .about-logo-lockup img:last-child {
   width: 152px;
-  filter: invert(1) brightness(0.12);
+  filter: none;
 }
 
 .about-signal-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  border: 1px solid rgba(18, 12, 13, 0.22);
+  gap: 0;
+  border-top: 1px solid rgba(251, 244, 226, 0.28);
+  border-left: 1px solid rgba(251, 244, 226, 0.28);
+}
+
+.about-signal-grid article {
+  display: grid;
+  gap: 10px;
+  min-height: 94px;
+  padding: 18px;
+  border-right: 1px solid rgba(251, 244, 226, 0.28);
+  border-bottom: 1px solid rgba(251, 244, 226, 0.28);
 }
 
 .about-signal-grid span {
-  min-height: 92px;
-  padding: 16px;
-  border-right: 1px solid rgba(18, 12, 13, 0.18);
-  border-bottom: 1px solid rgba(18, 12, 13, 0.18);
-  color: rgba(18, 12, 13, 0.5);
+  color: rgba(251, 244, 226, 0.58);
   font-family: var(--font-mono);
   font-size: 12px;
+  text-transform: uppercase;
 }
 
-.about-signal-grid span:nth-child(2n) {
-  border-right: 0;
-}
-
-.about-signal-grid span:nth-last-child(-n + 2) {
-  border-bottom: 0;
+.about-signal-grid strong {
+  color: var(--minimal-bg);
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.08;
+  text-transform: uppercase;
 }
 
 .about-metric-rail {
@@ -2445,8 +2451,8 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
 }
 
 .about-metric-rail article {
-  min-height: 126px;
-  padding: 24px;
+  min-height: 118px;
+  padding: 22px 24px;
   border-right: 1px solid rgba(18, 12, 13, 0.22);
 }
 
@@ -2465,10 +2471,10 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
 
 .about-metric-rail strong {
   display: block;
-  margin-top: 20px;
+  margin-top: 18px;
   color: var(--minimal-fg);
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: 21px;
   font-weight: 500;
   line-height: 1.12;
   text-transform: uppercase;
@@ -2487,9 +2493,13 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   margin-bottom: 34px;
 }
 
+.about-section-heading p {
+  max-width: 760px;
+}
+
 .about-section h2,
 .about-cta h2 {
-  font-size: 42px;
+  font-size: 44px;
 }
 
 .about-card-grid {
@@ -2497,11 +2507,13 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   border: 1px solid rgba(18, 12, 13, 0.34);
 }
 
-.about-card-grid-two {
+.about-card-grid-two,
+.about-team-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.about-card-grid-three {
+.about-card-grid-three,
+.about-principle-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -2511,16 +2523,20 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   padding: 30px 28px;
   border-right: 1px solid rgba(18, 12, 13, 0.2);
   border-bottom: 1px solid rgba(18, 12, 13, 0.2);
-  background: rgba(251, 244, 226, 0.28);
+  background: rgba(251, 244, 226, 0.16);
 }
 
 .about-card-grid-two .about-card:nth-child(2n),
-.about-card-grid-three .about-card:nth-child(3n) {
+.about-card-grid-three .about-card:nth-child(3n),
+.about-team-grid .about-card:nth-child(2n),
+.about-principle-grid .about-card:nth-child(3n) {
   border-right: 0;
 }
 
 .about-card-grid-two .about-card:nth-last-child(-n + 2),
-.about-card-grid-three .about-card:nth-last-child(-n + 3) {
+.about-card-grid-three .about-card:nth-last-child(-n + 3),
+.about-team-grid .about-card:nth-last-child(-n + 2),
+.about-principle-grid .about-card:nth-last-child(-n + 3) {
   border-bottom: 0;
 }
 
@@ -2535,7 +2551,7 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
 .about-boundary h3 {
   color: var(--minimal-fg);
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1.12;
 }
@@ -2551,6 +2567,8 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   color: rgba(18, 12, 13, 0.46);
   font-family: var(--font-mono);
   font-size: 12px;
+  line-height: 1.4;
+  text-transform: uppercase;
 }
 
 .about-card-compact {
@@ -2559,6 +2577,33 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
 
 .about-card-compact h3 {
   margin-top: 16px;
+}
+
+.about-person-card {
+  min-height: 330px;
+}
+
+.about-person-card h3 {
+  margin-top: 18px;
+  font-size: 30px;
+}
+
+.about-person-card > strong {
+  display: block;
+  margin-top: 10px;
+  color: rgba(18, 12, 13, 0.72);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.about-person-card small {
+  margin-top: 26px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(18, 12, 13, 0.18);
+  color: rgba(18, 12, 13, 0.58);
 }
 
 .about-boundary {
@@ -2617,9 +2662,14 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   justify-items: start;
   gap: 22px;
   margin-top: 72px;
-  padding: 44px 36px;
-  border: 1px solid rgba(18, 12, 13, 0.46);
-  background: rgba(251, 244, 226, 0.38);
+  padding: 46px 40px;
+  border: 1px solid #120c0d;
+  background: #120c0d;
+  color: #fbf4e2;
+  --minimal-fg: #fbf4e2;
+  --minimal-bg: #120c0d;
+  --minimal-muted: rgba(251, 244, 226, 0.72);
+  --minimal-accent-soft: rgba(251, 244, 226, 0.46);
 }
 
 .about-cta p {
@@ -2989,6 +3039,8 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   .resources-grid,
   .about-card-grid-two,
   .about-card-grid-three,
+  .about-team-grid,
+  .about-principle-grid,
   .about-metric-rail,
   .about-boundary-grid {
     grid-template-columns: 1fr;
@@ -3008,7 +3060,9 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   }
 
   .about-card-grid-two .about-card:nth-last-child(-n + 2),
-  .about-card-grid-three .about-card:nth-last-child(-n + 3) {
+  .about-card-grid-three .about-card:nth-last-child(-n + 3),
+  .about-team-grid .about-card:nth-last-child(-n + 2),
+  .about-principle-grid .about-card:nth-last-child(-n + 3) {
     border-bottom: 1px solid rgba(18, 12, 13, 0.2);
   }
 

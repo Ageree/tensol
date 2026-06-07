@@ -235,7 +235,7 @@ CREATE TABLE audit_log (
 CREATE TABLE vps_instances (
   id TEXT PRIMARY KEY,
   scan_id TEXT NOT NULL REFERENCES scans(id),
-  provider TEXT NOT NULL,     -- 'hetzner' | 'do' | 'yandex'
+  provider TEXT NOT NULL,     -- 'hetzner' | 'do' | 'gcp'
   provider_id TEXT NOT NULL,  -- ID в провайдерском API
   ip TEXT,
   status TEXT NOT NULL,       -- 'provisioning' | 'alive' | 'tearing_down' | 'destroyed'
@@ -339,7 +339,7 @@ package.json / bun.lock       ← пересоберём, но репо оста
 
 ## Open questions для `/specify` и `/plan`
 
-1. **VPS-провайдер**: Hetzner / DigitalOcean / Yandex Cloud? Memory упоминает Yandex (RU egress зоны), но 2026-05-09 решение было Hetzner/DO для self-serve MVP. Уточнить в /plan.
+1. **VPS-провайдер**: Hetzner / DigitalOcean / GCP? Memory упоминает GCP (RU egress зоны), но 2026-05-09 решение было Hetzner/DO для self-serve MVP. Уточнить в /plan.
 2. **Magic-link emailer**: Resend / Postmark / SES / smtp? Из RU доступности — вопрос.
 3. **Webhook reachability**: backend должен быть на публичном URL чтобы VPS-agent мог дозвониться. Для local dev — ngrok / cloudflared tunnel.
 4. **Reuse audit signing key**: тот же `AUDIT_SIGNING_KEY` из старой EE-2? Или ротируем при clean-slate?

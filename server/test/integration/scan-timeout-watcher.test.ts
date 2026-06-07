@@ -7,7 +7,7 @@
  *        - flips `scans.status` to `failed` with `failure_reason='scan_timeout'`
  *        - flips `scan_orders.status` to `failed` with the same reason
  *        - refunds the user's free-tier quota
- *        - enqueues a `teardown_yandex_vm` job (via existing CloudProvider
+ *        - enqueues a `teardown_scan_vm` job (via existing CloudProvider
  *          teardown infrastructure) carrying the scan_order's
  *          `vps_instance_id` + `vps_zone`
  *        - emits a `scan_failed` signed-audit row with
@@ -37,17 +37,17 @@
  *
  * Why `scan_failed` (not `scan_timeout`):
  *   BLACKBOX_AUDIT_EVENTS in audit/emit.ts:72-114 does NOT contain
- *   `scan_timeout`. Same substitution rationale as spawn-yandex-vm.ts:
+ *   `scan_timeout`. Same substitution rationale as spawn-scan-vm.ts:
  *   we carry the discriminator in `metadata.reason='scan_timeout'`.
  *
- * Why `teardown_yandex_vm` is enqueued (not invoked directly):
- *   Teardown is an out-of-band side effect that can take minutes (Yandex
+ * Why `teardown_scan_vm` is enqueued (not invoked directly):
+ *   Teardown is an out-of-band side effect that can take minutes (GCP
  *   long-running ops, polling). The watcher must remain fast and atomic
  *   per its 5-minute tick cadence. Enqueueing matches the pattern used
  *   by scan-orders/service.cancelOrder (T036).
  *
  * Migrations: bundles all `*.sql` files in server/migrations/ in lex order
- * (mirrors the spawn-yandex-vm.test.ts and teardown-yandex-vm.test.ts
+ * (mirrors the spawn-scan-vm.test.ts and teardown-scan-vm.test.ts
  * harness for parity).
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -160,7 +160,7 @@ function seedRunningScan(db: DB, opts: SeedOpts, now: number): void {
       dnsVerifyToken: `tensol-verify-${"x".repeat(26)}`,
       dnsVerifiedAt: startedAt,
       dnsCheckAttempts: 1,
-      vpsProvider: "yandex",
+      vpsProvider: "gcp",
       vpsInstanceId,
       vpsZone,
       paymentKind: "free_quick",
@@ -251,11 +251,11 @@ test("happy path: one expired scan → scan+order failed, quota refunded, teardo
   expect(userAfter!.freeQuickConsumedAt).toBeNull();
   expect(userAfter!.freeQuickConsumedCount).toBe(0);
 
-  // teardown_yandex_vm job enqueued with vps_instance_id + vps_zone.
+  // teardown_scan_vm job enqueued with vps_instance_id + vps_zone.
   const teardownJobs = db
     .select()
     .from(jobs)
-    .where(eq(jobs.type, "teardown_yandex_vm"))
+    .where(eq(jobs.type, "teardown_scan_vm"))
     .all();
   expect(teardownJobs).toHaveLength(1);
   expect(teardownJobs[0]!.status).toBe("pending");
@@ -339,7 +339,7 @@ test("multiple expired scans: 3 timed out → all 3 processed, 3 teardown jobs, 
   const teardownJobs = db
     .select()
     .from(jobs)
-    .where(eq(jobs.type, "teardown_yandex_vm"))
+    .where(eq(jobs.type, "teardown_scan_vm"))
     .all();
   expect(teardownJobs).toHaveLength(3);
 
@@ -403,7 +403,7 @@ test("within timeout window: scan started 30 min ago is NOT processed", async ()
   const teardownJobs = db
     .select()
     .from(jobs)
-    .where(eq(jobs.type, "teardown_yandex_vm"))
+    .where(eq(jobs.type, "teardown_scan_vm"))
     .all();
   expect(teardownJobs).toHaveLength(0);
 
@@ -471,7 +471,7 @@ test("already-failed scan: skipped even when started_at is older than 90 min", a
   const teardownJobs = db
     .select()
     .from(jobs)
-    .where(eq(jobs.type, "teardown_yandex_vm"))
+    .where(eq(jobs.type, "teardown_scan_vm"))
     .all();
   expect(teardownJobs).toHaveLength(0);
 
@@ -567,7 +567,7 @@ test("idempotency: running tick() twice processes once, then yields 0; no duplic
   const teardownJobs = db
     .select()
     .from(jobs)
-    .where(eq(jobs.type, "teardown_yandex_vm"))
+    .where(eq(jobs.type, "teardown_scan_vm"))
     .all();
   expect(teardownJobs).toHaveLength(1);
 
@@ -643,7 +643,7 @@ test("mixed population: only running+expired rows are processed", async () => {
   const teardownJobs = db
     .select()
     .from(jobs)
-    .where(eq(jobs.type, "teardown_yandex_vm"))
+    .where(eq(jobs.type, "teardown_scan_vm"))
     .all();
   expect(teardownJobs).toHaveLength(1);
 });

@@ -164,7 +164,7 @@ forensics speculative.
 - **Database**: SQLite (file-backed in prod, in-memory in tests); upgrade path to PostgreSQL preserved by avoiding SQLite-only SQL constructs
 - **Auth**: email + magic-link only; no passwords, no OAuth
 - **Job runner**: in-process, SQLite-backed polling queue
-- **VPS provisioning**: pluggable provider interface (`hetzner`, `do`, `yandex` impls
+- **VPS provisioning**: pluggable provider interface (`hetzner`, `do`, `google-cloud` impls
   permitted; first impl chosen during `/speckit-plan`)
 - **Decepticon contract**: HTTP POST + final HMAC-signed webhook callback. No SSE, no
   SSH, no docker-exec from the API.

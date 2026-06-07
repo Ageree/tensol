@@ -1,5 +1,5 @@
 /**
- * T059 — Integration test for `teardown_yandex_vm` job handler (T058).
+ * T059 — Integration test for `teardown_scan_vm` job handler (T058).
  *
  * What this pins down (per task brief):
  *   1. HAPPY PATH — handler calls provider.teardownVm(vpsInstanceId), polls
@@ -9,7 +9,7 @@
  *      (cancelled/completed/failed). The jobs row stays as-is (the runner
  *      flips status='done' on handler success).
  *   2. IDEMPOTENT 404 — provider.teardownVm returns `{operationId: undefined}`
- *      (per yandex.ts:160-162, 404 is treated as "already-gone"). The handler
+ *      (per gcp.ts:160-162, 404 is treated as "already-gone"). The handler
  *      still emits the `vm_teardown` audit (with metadata flagging the
  *      already-gone case) and returns normally. No throw.
  *   3. RE-RUN NO-OP — invoking the handler a second time, when an earlier
@@ -57,9 +57,9 @@ import {
 import { verifyChain } from "../../src/audit/verify-chain.ts";
 import { FakeCloudProvider } from "../../src/vps/fake-provider.ts";
 import {
-  createTeardownYandexVmHandler,
-  type TeardownYandexVmJobPayload,
-} from "../../src/jobs/handlers/teardown-yandex-vm.ts";
+  createTeardownScanVmHandler,
+  type TeardownScanVmJobPayload,
+} from "../../src/jobs/handlers/teardown-scan-vm.ts";
 import type { CloudProvider } from "../../src/vps/provider.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "migrations");
@@ -82,7 +82,7 @@ function applyMigrations(db: DB): void {
   (db.$client as Database).exec(migrationSql());
 }
 
-const TEST_AUDIT_KEY = "test-audit-signing-key-teardown-yandex-vm";
+const TEST_AUDIT_KEY = "test-audit-signing-key-teardown-scan-vm";
 
 const FIXED_USER_ID = "01H0USER00000000000000000T";
 const FIXED_ORDER_ID = "01H0ORD000000000000000000T";
@@ -120,7 +120,7 @@ function seedTerminalOrderWithVm(db: DB, now: number): void {
       dnsVerifyToken: `tensol-verify-${"x".repeat(26)}`,
       dnsVerifiedAt: now,
       dnsCheckAttempts: 1,
-      vpsProvider: "yandex",
+      vpsProvider: "gcp",
       vpsInstanceId: VPS_INSTANCE_ID,
       vpsZone: VPS_ZONE,
       paymentKind: "free_quick",
@@ -147,9 +147,9 @@ function seedTerminalOrderWithVm(db: DB, now: number): void {
   db.insert(jobs)
     .values({
       id: FIXED_JOB_ID,
-      type: "teardown_yandex_vm",
+      type: "teardown_scan_vm",
       payloadJson: JSON.stringify({
-        type: "teardown_yandex_vm",
+        type: "teardown_scan_vm",
         scan_id: FIXED_SCAN_ID,
         scan_order_id: FIXED_ORDER_ID,
         vps_instance_id: VPS_INSTANCE_ID,
@@ -165,7 +165,7 @@ function seedTerminalOrderWithVm(db: DB, now: number): void {
     .run();
 }
 
-const BASE_PAYLOAD: TeardownYandexVmJobPayload = {
+const BASE_PAYLOAD: TeardownScanVmJobPayload = {
   scanOrderId: FIXED_ORDER_ID,
   scanId: FIXED_SCAN_ID,
   vpsInstanceId: VPS_INSTANCE_ID,
@@ -175,7 +175,7 @@ const BASE_PAYLOAD: TeardownYandexVmJobPayload = {
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "tensol-teardown-yandex-test-"));
+  tmpDir = mkdtempSync(join(tmpdir(), "tensol-teardown-gcp-test-"));
 });
 
 afterEach(() => {
@@ -211,7 +211,7 @@ test("happy path: teardownVm called → vm_teardown audit emitted, order status 
   };
 
   let clock = ts + 1;
-  const handler = createTeardownYandexVmHandler({
+  const handler = createTeardownScanVmHandler({
     db,
     provider: wrappedProvider,
     auditKey: TEST_AUDIT_KEY,
@@ -271,7 +271,7 @@ test("idempotent 404: provider.teardownVm returns {} (already gone) → vm_teard
     },
     async teardownVm() {
       teardownCalls += 1;
-      // Yandex provider's documented 404 contract — returns empty object.
+      // GCP provider's documented 404 contract — returns empty object.
       return {};
     },
     async getStatus() {
@@ -284,7 +284,7 @@ test("idempotent 404: provider.teardownVm returns {} (already gone) → vm_teard
   };
 
   let clock = ts + 1;
-  const handler = createTeardownYandexVmHandler({
+  const handler = createTeardownScanVmHandler({
     db,
     provider,
     auditKey: TEST_AUDIT_KEY,
@@ -340,7 +340,7 @@ test("re-run no-op: second invocation with existing vm_teardown audit → no pro
   };
 
   let clock = ts + 1;
-  const handler = createTeardownYandexVmHandler({
+  const handler = createTeardownScanVmHandler({
     db,
     provider,
     auditKey: TEST_AUDIT_KEY,
@@ -400,7 +400,7 @@ test("transient retry: teardownVm throws RATE_LIMIT twice then succeeds → exac
   };
 
   let clock = ts + 1;
-  const handler = createTeardownYandexVmHandler({
+  const handler = createTeardownScanVmHandler({
     db,
     provider,
     auditKey: TEST_AUDIT_KEY,
@@ -442,7 +442,7 @@ test("permanent failure: teardownVm always throws non-transient → no vm_teardo
     },
     async teardownVm() {
       attempts += 1;
-      throw new Error("yandex teardownVm: HTTP 403 forbidden");
+      throw new Error("gcp teardownVm: HTTP 403 forbidden");
     },
     async getStatus() {
       throw new Error("unreachable");
@@ -453,7 +453,7 @@ test("permanent failure: teardownVm always throws non-transient → no vm_teardo
   };
 
   let clock = ts + 1;
-  const handler = createTeardownYandexVmHandler({
+  const handler = createTeardownScanVmHandler({
     db,
     provider,
     auditKey: TEST_AUDIT_KEY,

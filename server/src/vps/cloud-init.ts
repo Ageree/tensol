@@ -1,17 +1,17 @@
 /**
- * T044 — cloud-init userdata generator for per-scan ephemeral Yandex VM.
+ * T044 — cloud-init userdata generator for per-scan ephemeral GCP VM.
  *
  * Per `specs/002-blackbox-mvp/plan.md` §"vps-agent contract" and the
  * canonical env list in `vps-agent/.env.example`, this module renders a
- * single bash script that the cloud-init agent on a freshly-spawned Yandex
+ * single bash script that the cloud-init agent on a freshly-spawned GCP
  * Compute VM executes once on first boot. The output is base64-free plain
- * text — Yandex Compute passes it through verbatim via the VM metadata
- * key `user-data` (see `server/src/vps/yandex.ts`).
+ * text — GCE passes it through verbatim via the VM metadata
+ * key `user-data` (see `server/src/vps/gcp.ts`).
  *
  * Responsibilities of the script:
  *   1. Install Docker (idempotent — no-op if present in the base image).
- *   2. Pull the vps-agent image (and the Decepticon image, if separately
- *      pulled — current Decepticon stack pulls itself on first compose-up).
+ *   2. Pull the vps-agent image and all Decepticon compose images before the
+ *      agent starts, so first compose-up does not block inside vps-agent.
  *   3. Export the full TENSOL_* + AWS_* env contract that vps-agent reads
  *      at startup (`vps-agent/src/agent.ts → readRequiredEnv`) and during
  *      Decepticon dispatch (`decepticon-runner.ts → buildEnv`).
@@ -20,8 +20,8 @@
  *      LiteLLM override routing every model through OpenRouter
  *      qwen3.7-max, the Rule 4b KG_PERSISTENCE recon-prompt override,
  *      and a sibling `.env` carrying OPENROUTER_API_KEY +
- *      DB passwords. Symlink to `/opt/tensol/docker-compose.yml` (where
- *      vps-agent's runner expects it).
+ *      DB passwords. Symlink compose + env files into `/opt/tensol/` (where
+ *      vps-agent's runner expects them).
  *   5. Run vps-agent with `/var/run/docker.sock` mounted so that
  *      `docker compose up` inside the agent can spawn Decepticon's stack.
  *   6. Publish the agent port for inbound `/scan` from the backend.
@@ -59,25 +59,25 @@
 export interface BuildCloudInitArgs {
   /** ULID-shaped scan identifier (single scan per VM). */
   scanId: string;
-  /** Backend webhook receiver, e.g. `https://api.tensol.run/v1`. */
+  /** Backend webhook receiver, e.g. `https://api.sthrip.dev/v1`. */
   backendUrl: string;
   /** 32-byte hex/base64 HMAC secret shared with the backend (per-scan). */
   webhookSecret: string;
-  /** Yandex Object Storage bucket name for evidence uploads. */
+  /** Google Cloud Storage bucket name for evidence uploads. */
   evidenceBucket: string;
   /** Per-scan S3 key prefix, e.g. `evidence/`. */
   evidencePrefix: string;
-  /** Yandex static-access-key ID, scoped to the per-scan SA. */
+  /** GCP static-access-key ID, scoped to the per-scan SA. */
   awsAccessKeyId: string;
-  /** Yandex static-access-key secret. */
+  /** GCP static-access-key secret. */
   awsSecretAccessKey: string;
   /**
-   * S3-compatible endpoint URL, e.g. `https://storage.yandexcloud.net`.
+   * S3-compatible endpoint URL, e.g. `https://storage.googleapis.com`.
    * Named `AWS_ENDPOINT` per `vps-agent/.env.example` (not
    * `AWS_ENDPOINT_URL` — the contract picks the shorter form).
    */
   awsEndpoint: string;
-  /** Yandex region, e.g. `ru-central1`. */
+  /** GCP region, e.g. `ru-central1`. */
   awsRegion: string;
   /** 32-byte HMAC sign key for vps-agent → backend webhook signing. */
   signKey: string;
@@ -97,7 +97,7 @@ export interface BuildCloudInitArgs {
   postgresPassword: string;
   /** Neo4j auth password (KG that the verifier reads). */
   neo4jPassword: string;
-  /** vps-agent image reference. Defaults to `ghcr.io/tensol/vps-agent:latest`. */
+  /** vps-agent image reference. Defaults to the public GHCR image built by this repo. */
   vpsAgentImage?: string;
   /** Port the vps-agent Hono server binds to. Defaults to 8080. */
   agentPort?: number;
@@ -129,8 +129,15 @@ function shEsc(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
-const DEFAULT_AGENT_IMAGE = "ghcr.io/tensol/vps-agent:latest";
+const DEFAULT_AGENT_IMAGE = "ghcr.io/ageree/tensol-vps-agent:002-blackbox-mvp-latest";
 const DEFAULT_AGENT_PORT = 8080;
+const DECEPTICON_COMPOSE_PREPULL_IMAGES = [
+  "postgres:17-alpine",
+  "neo4j:5.24-community",
+  "ghcr.io/purpleailab/decepticon-litellm:latest",
+  "ghcr.io/purpleailab/decepticon-sandbox:latest",
+  "ghcr.io/purpleailab/decepticon-langgraph:latest",
+];
 
 /** The qwen target the embedded litellm.yaml hijacks every model name to. */
 const QWEN_HIJACK_TARGET = "openrouter/qwen/qwen3.7-max";
@@ -209,6 +216,13 @@ assertNoDelimiterCollision(RECON_EOF, DECEPTICON_RECON_MD, "recon.md");
 export function buildCloudInit(args: BuildCloudInitArgs): string {
   const vpsAgentImage = args.vpsAgentImage ?? DEFAULT_AGENT_IMAGE;
   const agentPort = args.agentPort ?? DEFAULT_AGENT_PORT;
+  const imagesToPull = Array.from(
+    new Set([
+      vpsAgentImage,
+      args.decepticonImage,
+      ...DECEPTICON_COMPOSE_PREPULL_IMAGES,
+    ]),
+  );
 
   // P1 — when a blackbox agent model is set, repoint the openai/* LiteLLM routes
   // to real gpt-5.5 and pin Decepticon to the openai auth path; otherwise keep
@@ -286,9 +300,8 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
     "command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh",
     "systemctl enable --now docker",
     "",
-    "# ─── Pull images explicitly (avoids racing the run step) ─────────────",
-    `docker pull ${shEsc(vpsAgentImage)}`,
-    `docker pull ${shEsc(args.decepticonImage)}`,
+    "# ─── Pull images explicitly (avoids first compose-up doing it) ───────",
+    ...imagesToPull.map((image) => `docker pull ${shEsc(image)}`),
     "",
     "# ─── Lay down Decepticon stack at /opt/decepticon ────────────────────",
     "# [T128 Bug #7] vps-agent's runner does `docker compose -f /opt/tensol/",
@@ -322,7 +335,9 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
     "chmod 600 /opt/decepticon/.env",
     "",
     "# vps-agent expects compose at /opt/tensol/docker-compose.yml.",
+    "# Docker Compose also resolves .env from that project directory.",
     "ln -sf /opt/decepticon/docker-compose.yml /opt/tensol/docker-compose.yml",
+    "ln -sf /opt/decepticon/.env /opt/tensol/.env",
     "",
     "# ─── Open agent port on the local firewall (best-effort) ─────────────",
     "if command -v ufw >/dev/null 2>&1; then",

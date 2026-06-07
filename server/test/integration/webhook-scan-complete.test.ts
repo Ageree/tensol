@@ -50,6 +50,7 @@ import {
   scans as scansTable,
   findings as findingsTable,
   jobs as jobsTable,
+  reports as reportsTable,
   auditLog as auditLogTable,
   webhookDedup as webhookDedupTable,
 } from "../../src/db/schema.ts";
@@ -95,7 +96,12 @@ function freshMemDb(): DB {
 function seedRunningOrder(
   db: DB,
   scanOrderId: string,
-  opts?: { nowMs?: number; status?: "running" | "vm_provisioning" | "completed" | "cancelled" | "draft" },
+  opts?: {
+    nowMs?: number;
+    status?: "running" | "vm_provisioning" | "completed" | "cancelled" | "draft";
+    vpsInstanceId?: string | null;
+    vpsZone?: string | null;
+  },
 ): { userId: string; scanId: string } {
   const now = opts?.nowMs ?? 1_716_113_000_000;
   const userId = "01JTESTUSER000000000000001"; // synthetic 26-char ULIDish
@@ -116,7 +122,9 @@ function seedRunningOrder(
       safetyRps: 50,
       dnsVerifyToken: "dns-token-stub",
       dnsCheckAttempts: 0,
-      vpsProvider: "yandex",
+      vpsInstanceId: opts?.vpsInstanceId ?? "fake-vm-webhook-complete-1",
+      vpsProvider: "gcp",
+      vpsZone: opts?.vpsZone ?? "europe-west1-b",
       paymentKind: "free_quick",
       scanId,
       createdAt: now,
@@ -263,8 +271,44 @@ describe("POST /v1/webhooks/scan-complete — happy path", () => {
     const jobRows = db.select().from(jobsTable).all();
     const jobKinds = jobRows.map((j) => j.type).sort();
     expect(jobKinds).toEqual(
-      ["render_pdf", "send_scan_complete_telegram", "teardown_yandex_vm"].sort(),
+      ["render_pdf", "send_scan_complete_telegram", "teardown_scan_vm"].sort(),
     );
+    const reports = db
+      .select()
+      .from(reportsTable)
+      .where(eq(reportsTable.scanId, "01JTESTSCAN0000000000000001"))
+      .all();
+    expect(reports.length).toBe(1);
+    expect(reports[0]?.status).toBe("pending");
+    const reportId = reports[0]!.id;
+
+    const renderJob = jobRows.find((j) => j.type === "render_pdf");
+    expect(renderJob).toBeDefined();
+    expect(JSON.parse(renderJob!.payloadJson)).toMatchObject({
+      type: "render_pdf",
+      scanId: "01JTESTSCAN0000000000000001",
+      reportId,
+    });
+
+    const telegramJob = jobRows.find((j) => j.type === "send_scan_complete_telegram");
+    expect(telegramJob).toBeDefined();
+    expect(JSON.parse(telegramJob!.payloadJson)).toMatchObject({
+      type: "send_scan_complete_telegram",
+      scanId: "01JTESTSCAN0000000000000001",
+      scanOrderId: JUICE_SHOP_FIXTURE.scan_order_id,
+      reportId,
+      userId: "01JTESTUSER000000000000001",
+    });
+
+    const teardownJob = jobRows.find((j) => j.type === "teardown_scan_vm");
+    expect(teardownJob).toBeDefined();
+    expect(JSON.parse(teardownJob!.payloadJson)).toMatchObject({
+      type: "teardown_scan_vm",
+      scanId: "01JTESTSCAN0000000000000001",
+      scanOrderId: JUICE_SHOP_FIXTURE.scan_order_id,
+      vpsInstanceId: "fake-vm-webhook-complete-1",
+      vpsZone: "europe-west1-b",
+    });
 
     // webhook_received audit emitted exactly once for this scan_order_id
     const audits = db.select().from(auditLogTable).all();
@@ -477,6 +521,8 @@ describe("POST /v1/webhooks/scan-complete — idempotency", () => {
     // Still 3 jobs, not 6.
     const jobRows = db.select().from(jobsTable).all();
     expect(jobRows.length).toBe(3);
+    const reportRows = db.select().from(reportsTable).all();
+    expect(reportRows.length).toBe(1);
 
     // Still exactly one webhook_received audit.
     const audits = db
@@ -568,7 +614,9 @@ describe("POST /v1/webhooks/scan-complete — idempotency", () => {
         safetyRps: 50,
         dnsVerifyToken: "dns-token-stub-b",
         dnsCheckAttempts: 0,
-        vpsProvider: "yandex",
+        vpsInstanceId: "fake-vm-webhook-complete-2",
+        vpsProvider: "gcp",
+        vpsZone: "europe-west1-b",
         paymentKind: "free_quick",
         scanId: scanIdB,
         createdAt: fixedNow,

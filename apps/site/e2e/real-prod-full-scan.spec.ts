@@ -1,7 +1,7 @@
 /**
- * T128 — Real-Yandex full scan-lifecycle E2E against prod (Option B).
+ * T128 — Real-prod full scan-lifecycle E2E against prod (Option B).
  *
- * Drives the full scan pipeline as an HTTP client against https://api.tensol.ru:
+ * Drives the full scan pipeline as an HTTP client against https://api.sthrip.dev:
  *   1. Telegram-auth webhook simulation → obtain session cookie
  *   2. POST /v1/scan-orders (draft, tier=quick)
  *   3. PUT  /v1/scan-orders/:id/attack-surface
@@ -15,7 +15,7 @@
  *  10. GET /v1/scans/:scan_id/report    → log status
  *
  * This is the operator-bound counterpart to the original
- * server/test/integration/scan-lifecycle-real-yandex.test.ts (T128) which
+ * server/test/integration/scan-lifecycle-real-provider.test.ts (T128) which
  * couldn't be run as written because its `createDb` opens a LOCAL SQLite
  * disjoint from the production server's database. This Option B driver
  * instead exercises the live prod backend via the public HTTP contract.
@@ -29,7 +29,7 @@
  */
 import { test, expect, request as apiRequest } from "@playwright/test";
 
-const API_URL = "https://api.tensol.ru";
+const API_URL = "https://api.sthrip.dev";
 const TG_WEBHOOK_SECRET = process.env.TENSOL_TELEGRAM_WEBHOOK_SECRET;
 const TARGET_DOMAIN = process.env.TENSOL_REAL_TARGET ?? "example.com";
 const SCAN_POLL_INTERVAL_MS = 30_000;
@@ -86,7 +86,7 @@ test.describe("T128 real-prod full-scan lifecycle", () => {
         text: `/start ${issueData.token}`,
       },
     };
-    // KNOWN BLOCKER (T128): Yandex Cloud egress to api.telegram.org is
+    // KNOWN BLOCKER (T128): production cloud egress to api.telegram.org is
     // throttled (SYN_SENT to 149.154.166.110:443 stalls indefinitely), so
     // the webhook handler hangs on `notifier.sendMessage(...)` even though
     // `consumeLink(...)` (the auth side-effect we actually need) already

@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Tensol production one-shot deploy for Timeweb VM (5.42.106.25).
+# Sthrip production one-shot deploy for the GCP API VM.
+#
+# Current prod target: GCP project tensol-scanners, VM sthrip-api-prod,
+# zone europe-west1-b, api.sthrip.dev -> 34.156.105.67.
+# The older Timeweb/GCP deployment is legacy only.
 #
 # Idempotent — safe to re-run. First invocation provisions packages, repo,
 # build artefacts, env-file scaffold, and Caddy. Subsequent runs pull the
@@ -7,8 +11,9 @@
 #
 # Usage (on the VM, as root or with sudo):
 #
-#   curl -fsSL https://raw.githubusercontent.com/Ageree/tensol/002-blackbox-mvp/infra/prod/deploy.sh \
-#     | sudo bash
+#   gcloud compute ssh sthrip-api-prod \
+#     --project=tensol-scanners \
+#     --zone=europe-west1-b
 #
 # Or, once the repo is already cloned at /opt/tensol/repo:
 #
@@ -176,14 +181,13 @@ log "Done."
 cat <<EOF
 
   Public endpoints:
-    https://tensol.ru
-    https://www.tensol.ru      (redirects to apex)
-    https://app.tensol.ru
-    https://api.tensol.ru/healthz
+    https://sthrip.dev
+    https://www.sthrip.dev      (redirects to apex)
+    https://api.sthrip.dev/healthz
 
   Verify (from this VM):
     curl -fsS http://127.0.0.1:3000/healthz
-    curl -fsS https://api.tensol.ru/healthz
+    curl -fsS https://api.sthrip.dev/healthz
 
   Logs:
     docker logs -f tensol-server

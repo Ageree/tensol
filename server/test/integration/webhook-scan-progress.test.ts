@@ -10,7 +10,7 @@
  * raw_yaml_json; CHECK severity IN ('critical','high','medium','low',
  * 'informational') — note `informational`, not `info`).
  *
- * The agent kept calling the V1 endpoint (see `spawn-yandex-vm.ts` line
+ * The agent kept calling the V1 endpoint (see `spawn-scan-vm.ts` line
  * 426 — `${backendUrl}/api/webhooks/scan-progress`) and every callback
  * 500'd because:
  *   1. `storeFindings` inserted into columns `dedup_key` and
@@ -89,7 +89,7 @@ function seedRunningScan(db: DB, nowMs: number): void {
       safetyRps: 50,
       dnsVerifyToken: "dns-token-stub",
       dnsCheckAttempts: 0,
-      vpsProvider: "yandex",
+      vpsProvider: "gcp",
       paymentKind: "free_quick",
       scanId: SCAN_ID,
       createdAt: nowMs,
@@ -116,7 +116,7 @@ function seedRunningScan(db: DB, nowMs: number): void {
     .values({
       id: VPS_INSTANCE_ID,
       scanId: SCAN_ID,
-      provider: "yandex",
+      provider: "gcp",
       providerServerId: "fhm0test0000000000000",
       ipv4: "203.0.113.42",
       status: "alive",
@@ -127,11 +127,22 @@ function seedRunningScan(db: DB, nowMs: number): void {
     .run();
 }
 
-function buildApp(db: DB, nowMs: number): Hono {
+function buildApp(
+  db: DB,
+  nowMs: number,
+  opts: { readonly preserveFailedScanVm?: boolean } = {},
+): Hono {
   const app = new Hono();
   app.route(
     "/api/webhooks",
-    createWebhookRoutes({ db, signingKey: SIGNING_KEY, now: () => nowMs }),
+    createWebhookRoutes({
+      db,
+      signingKey: SIGNING_KEY,
+      ...(opts.preserveFailedScanVm === undefined
+        ? {}
+        : { preserveFailedScanVm: opts.preserveFailedScanVm }),
+      now: () => nowMs,
+    }),
   );
   return app;
 }
@@ -223,7 +234,7 @@ describe("V1 webhook /api/webhooks/scan-progress — diag-finding payload", () =
       expect(r.evidenceKeysJson).toBe("[]");
     }
 
-    // Scan + teardown job: scan flipped to `failed`, one teardown_yandex_vm
+    // Scan + teardown job: scan flipped to `failed`, one teardown_scan_vm
     // job queued (GCP-aware teardown — see fix B 2026-05-25). The legacy
     // `teardown_vps` kind routed to the Hetzner provider and never deleted
     // the GCP VM, yet still emitted vps_destroyed → orphan leak.
@@ -235,15 +246,65 @@ describe("V1 webhook /api/webhooks/scan-progress — diag-finding payload", () =
     expect(scan?.status).toBe("failed");
     expect(scan?.failureReason).toBe("decepticon_crash");
 
+    const order = db
+      .select()
+      .from(scanOrdersTable)
+      .where(eq(scanOrdersTable.id, SCAN_ORDER_ID))
+      .get();
+    expect(order?.status).toBe("failed");
+    expect(order?.failureReason).toBe("decepticon_crash");
+
     const jobs = db.select().from(jobsTable).all();
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]!.type).toBe("teardown_yandex_vm");
+    expect(jobs[0]!.type).toBe("teardown_scan_vm");
     const tdPayload = JSON.parse(jobs[0]!.payloadJson) as Record<string, unknown>;
     // vpsInstanceId MUST be the GCP provider name (providerServerId), which
     // gcp.teardownVm() uses as the instance name — NOT the vps_instances PK.
     expect(tdPayload.vpsInstanceId).toBe("fhm0test0000000000000");
     expect(tdPayload.scanId).toBe(SCAN_ID);
     expect(tdPayload.scanOrderId).toBe(SCAN_ORDER_ID);
+  });
+
+  test("diagnostic preserve mode skips teardown for failed scans", async () => {
+    const now = 1_716_400_000_000;
+    const db = freshMemDb();
+    seedRunningScan(db, now);
+    const app = buildApp(db, now, { preserveFailedScanVm: true });
+
+    const body = JSON.stringify({
+      scan_id: SCAN_ID,
+      status: "failed",
+      failure_reason: "docker_exit_1",
+      usage: null,
+      findings: [],
+    });
+    const { sig } = signed(body);
+
+    const res = await app.fetch(
+      new Request("http://test/api/webhooks/scan-progress", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Tensol-Scan-Id": SCAN_ID,
+          "X-Tensol-Signature": sig,
+        },
+        body,
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(
+      db.select().from(scansTable).where(eq(scansTable.id, SCAN_ID)).get()
+        ?.status,
+    ).toBe("failed");
+    expect(
+      db
+        .select()
+        .from(scanOrdersTable)
+        .where(eq(scanOrdersTable.id, SCAN_ORDER_ID))
+        .get()?.status,
+    ).toBe("failed");
+    expect(db.select().from(jobsTable).all()).toHaveLength(0);
   });
 
   test("status=done → completed + reports row + render_pdf & telegram & teardown enqueued (fix C)", async () => {
@@ -281,6 +342,14 @@ describe("V1 webhook /api/webhooks/scan-progress — diag-finding payload", () =
       .get();
     expect(scan?.status).toBe("completed");
 
+    const order = db
+      .select()
+      .from(scanOrdersTable)
+      .where(eq(scanOrdersTable.id, SCAN_ORDER_ID))
+      .get();
+    expect(order?.status).toBe("completed");
+    expect(order?.failureReason).toBeNull();
+
     // A reports row was created (pending) so GET /:id/report won't 404.
     const report = db
       .select()
@@ -295,7 +364,7 @@ describe("V1 webhook /api/webhooks/scan-progress — diag-finding payload", () =
     const byType = new Map(jobs.map((j) => [j.type, j]));
     expect(byType.has("render_pdf")).toBe(true);
     expect(byType.has("send_scan_complete_telegram")).toBe(true);
-    expect(byType.has("teardown_yandex_vm")).toBe(true);
+    expect(byType.has("teardown_scan_vm")).toBe(true);
 
     // render_pdf MUST carry the reportId of the row we just created
     // (render-pdf.ts throws on a missing reportId).

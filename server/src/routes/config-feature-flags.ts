@@ -3,9 +3,12 @@
  *
  * Public surface (mounted at `/v1/config/feature-flags` from `server.ts`):
  *
- *   GET / → { yookassa_live: boolean }
+ *   GET / → { yookassa_live: boolean, research_enabled, exploit_enabled }
  *
  * Per openapi.yaml §/v1/config/feature-flags + components.schemas.FeatureFlags.
+ * `yookassa_live` is legacy compatibility after the 2026-06-05 international
+ * pivot. Do not add new YooKassa behavior; future billing flags should be
+ * provider-agnostic.
  *
  * Constitution IX: this route has no request body, so no Zod validator is
  * required. The single flag value is read at request time via the T019

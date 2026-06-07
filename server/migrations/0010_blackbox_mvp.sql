@@ -48,7 +48,7 @@ CREATE TABLE `scan_orders` (
 	`dns_verified_at` integer,
 	`dns_check_attempts` integer DEFAULT 0 NOT NULL,
 	`vps_instance_id` text,
-	`vps_provider` text DEFAULT 'yandex' NOT NULL,
+	`vps_provider` text DEFAULT 'gcp' NOT NULL,
 	`vps_zone` text,
 	`scan_id` text,
 	`failure_reason` text,
@@ -61,7 +61,7 @@ CREATE TABLE `scan_orders` (
 	CHECK (`status` IN ('draft','dns_pending','dns_verified','vm_provisioning','running','completed','failed','cancelled')),
 	CHECK (`tier` IN ('quick','deep')),
 	CHECK (`safety_rps` BETWEEN 1 AND 500),
-	CHECK (`vps_provider` IN ('yandex')),
+	CHECK (`vps_provider` IN ('gcp')),
 	CHECK (`payment_kind` IN ('free_quick','yookassa'))
 );--> statement-breakpoint
 CREATE INDEX `scan_orders_user_created_idx` ON `scan_orders` (`user_id`,`created_at`);--> statement-breakpoint

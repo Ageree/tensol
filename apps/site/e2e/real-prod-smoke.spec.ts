@@ -1,11 +1,11 @@
 import { test, expect, request as apiRequest } from "@playwright/test";
 
-const APP_URL = "https://app.tensol.ru";
-const API_URL = "https://api.tensol.ru";
-const ROOT_URL = "https://tensol.ru";
+const APP_URL = "https://sthrip.dev";
+const API_URL = "https://api.sthrip.dev";
+const ROOT_URL = "https://sthrip.dev";
 const TG_WEBHOOK_SECRET = process.env.TENSOL_TELEGRAM_WEBHOOK_SECRET;
 
-test.describe("Real-prod smoke against https://tensol.ru", () => {
+test.describe("Real-prod smoke against https://sthrip.dev", () => {
   test("landing page initial HTML response returns 200", async ({ page }) => {
     // NOTE 2026-05-21: /assets/index-*.js streams slowly in prod (only ~23 KiB
     // returned in 10 s via curl). To avoid a browser-hang on the SPA bundle, we
@@ -26,7 +26,7 @@ test.describe("Real-prod smoke against https://tensol.ru", () => {
     const html = await resp.text();
     expect(html.length).toBeGreaterThan(500);
     expect(html).toMatch(/<div\s+id="root"/i);
-    expect(html.toLowerCase()).toContain("tensol");
+    expect(html.toLowerCase()).toContain("sthrip");
   });
 
   test("API /healthz responds", async () => {
@@ -130,7 +130,7 @@ test.describe("Real-prod smoke against https://tensol.ru", () => {
 
   test("Public asset responses look healthy via raw HTTP", async () => {
     const ctx = await apiRequest.newContext();
-    for (const host of ["https://tensol.ru", "https://www.tensol.ru", "https://app.tensol.ru"]) {
+    for (const host of ["https://sthrip.dev", "https://www.sthrip.dev", APP_URL]) {
       const resp = await ctx.get(host);
       expect(resp.status()).toBe(200);
       const headers = resp.headers();

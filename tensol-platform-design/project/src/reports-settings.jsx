@@ -151,7 +151,7 @@ function SettingsScreen({ onRoute, role }) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, maxWidth: 760 }}>
                 <Field label={t.sTenantName}><Input value="Acme Bank — Production" onChange={() => {}} /></Field>
                 <Field label={t.sTenantSlug}><Input value="acme-prod" onChange={() => {}} /></Field>
-                <Field label={t.sTenantRegion}><Select value="ru-yandex" onChange={() => {}} options={[{ value: 'ru-yandex', label: 'ru · Yandex Cloud · ru-central1' }, { value: 'eu-fra', label: 'eu · fra1' }]} /></Field>
+                <Field label={t.sTenantRegion}><Select value="eu-gcp" onChange={() => {}} options={[{ value: 'eu-gcp', label: 'gcp · europe-west1' }, { value: 'eu-fra', label: 'eu · fra1' }]} /></Field>
                 <Field label={t.sTenantRetention}><Select value="365d" onChange={() => {}} options={['90d','180d','365d','730d']} /></Field>
                 <div style={{ gridColumn: '1 / -1' }}>
                   <Eyebrow style={{ marginBottom: 10 }}>// {t.sTenantUsers}</Eyebrow>

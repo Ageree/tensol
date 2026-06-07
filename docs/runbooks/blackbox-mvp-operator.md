@@ -1,5 +1,12 @@
 # Blackbox MVP — Operator Handbook
 
+> 2026-06-07 current state: production runs on GCP Compute Engine. Timeweb,
+> unapproved object-storage defaults, and Russia-first residency assumptions in
+> older sections are legacy context only. Current API prod is
+> `api.sthrip.dev` on GCP Compute Engine VM `sthrip-api-prod` in project
+> `tensol-scanners`; evidence/report object storage still needs an explicit
+> GCP/GCS-compatible migration before those rails are production-complete.
+
 > Day-to-day operator runbook for the Tensol Blackbox MVP (002-blackbox-mvp).
 > This is **operational** knowledge, not legal or marketing content — every
 > procedure here cites real CLI commands and file paths in this repo.
@@ -37,38 +44,48 @@ own `.env` must include:
 | `TENSOL_WEBHOOK_SECRET` | HMAC between server ↔ vps-agent | server env + cloud-init |
 | `TENSOL_TELEGRAM_BOT_TOKEN` | Outbound DMs + magic-link auth | server env |
 | `TENSOL_TELEGRAM_WEBHOOK_SECRET` | Validates inbound Telegram updates | server env |
-| `YANDEX_SA_KEY_JSON` | IAM exchange for compute/S3 calls | server env (base64) |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Yandex S3 evidence bucket | server env |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Service-account JSON for GCP VM lifecycle | server env / mounted secret file |
+| `GCP_PROJECT_ID` / `GCP_ZONE` | GCP project and zone for ephemeral scan VMs | server env |
+| `TENSOL_WEBHOOK_BASE_URL` | Public HTTPS callback base URL reachable from scan VMs | server env |
+| `TENSOL_VPS_AGENT_IMAGE` | Pullable vps-agent image for each scan VM | server env |
+| `DECEPTICON_IMAGE` | Pullable Decepticon prefetch image / mirror marker | server env |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3-compatible evidence bucket | server env |
 | `TENSOL_EVIDENCE_BUCKET` | Bucket name | server env |
-| `TENSOL_YOOKASSA_LIVE` | YooKassa payments | server env |
+| `TENSOL_BILLING_LIVE` / `TENSOL_BILLING_PROVIDER` | Future international billing toggle/provider; off in MVP | server env |
+| `TENSOL_YOOKASSA_LIVE` | Legacy pre-pivot compatibility flag; keep unset/false | server env |
 | `DATABASE_URL` | SQLite path or Postgres URI | server env |
 
 Rotation procedures live in `docs/runbooks/secret-rotation.md`.
 
-### 1.2 Deploy steps (Yandex Cloud, ru-central1)
+### 1.2 Deploy steps (GCP Compute Engine)
 
 ```bash
-# 1. Provision the long-lived server VM (one-time)
-yc compute instance create \
-  --name tensol-server-prod \
-  --zone ru-central1-a \
-  --network-interface subnet-name=default-subnet,nat-ip-version=ipv4 \
-  --create-boot-disk image-family=ubuntu-2204-lts,size=40 \
-  --service-account-name tensol-prod-sa \
-  --ssh-key ~/.ssh/tensol-prod.pub
+# 1. Confirm GCP can create ephemeral scan VMs
+gcloud auth application-default print-access-token >/dev/null
+gcloud compute instances list --project="$GCP_PROJECT_ID"
 
-# 2. Build & ship the server binary
+# 2. Ensure backend -> vps-agent ingress exists
+gcloud compute firewall-rules describe allow-tensol-agent-8080 \
+  --project="$GCP_PROJECT_ID" >/dev/null || \
+gcloud compute firewall-rules create allow-tensol-agent-8080 \
+  --project="$GCP_PROJECT_ID" \
+  --network="${GCP_NETWORK_NAME:-default}" \
+  --direction=INGRESS --action=ALLOW \
+  --rules=tcp:8080 \
+  --source-ranges=0.0.0.0/0
+
+# 3. Build & ship the server binary
 cd server
 bun build --target=bun ./src/server.ts --outfile=dist/server.js
 scp -r dist/ migrations/ tensol-server-prod:/opt/tensol/
 
-# 3. Run migrations (one-time)
+# 4. Run migrations (one-time)
 ssh tensol-server-prod 'cd /opt/tensol && bun run db:migrate'
 
-# 4. Start under systemd (operator owns the unit file — example template):
+# 5. Start under systemd (operator owns the unit file — example template):
 ssh tensol-server-prod 'sudo systemctl enable --now tensol-server'
 
-# 5. Verify
+# 6. Verify
 curl -s https://<host>/healthz | jq
 ```
 
@@ -79,14 +96,31 @@ curl -s https://<host>/healthz | jq
 ssh tensol-server-prod 'cd /opt/tensol && bun run verify-chain'
 # Expected: "CHAIN OK rows=N last_hash=..."
 
-# 5b. Yandex IAM exchange working
-ssh tensol-server-prod 'journalctl -u tensol-server --since="5min ago" | grep yandex_iam_token_minted'
-# Expected: at least one line per ~12h period
+# 5b. GCP credentials + live-scan prerequisites
+ssh tensol-server-prod 'cd /opt/tensol/server && bun run preflight:live-scan'
+# Expected: every check is PASS before attempting a real scan.
 
 # 5c. Telegram outbound
 curl -X POST https://<host>/v1/auth/telegram/start \
   -d '{"telegramHandle":"@kapital0"}'
 # Expected: magic-link DM lands in operator chat within 5s
+```
+
+### 1.4 Real blackbox live-smoke prerequisites
+
+A real GCP scan is only valid when all of these are true:
+
+- `TENSOL_WEBHOOK_BASE_URL` is public HTTPS and points at the running backend.
+- `TENSOL_VPS_AGENT_IMAGE` is pullable by a fresh GCP VM.
+- The Decepticon images referenced by `infra/decepticon-overrides/decepticon-vm-compose.yml` are pullable, or mirrored to a registry the VM can access.
+- `TENSOL_OPENROUTER_API_KEY` is set; otherwise LiteLLM returns 401 and recon stalls.
+- The scan target is a public domain you control. `TENSOL_DEV_DNS_BYPASS=true` only bypasses ownership proof in dev; it does not make localhost/private targets acceptable.
+
+Run this before any live smoke:
+
+```bash
+cd server
+bun run preflight:live-scan
 ```
 
 ---
@@ -167,8 +201,9 @@ exist in repo — operator owns it externally on their workstation).
 
 ### 3.4 Conversion flow
 
-- **converted** → manually issue a scan via admin endpoint OR provision a
-  custom subscription tier in YooKassa
+- **converted** → manually issue a scan via admin endpoint OR create a
+  manual entitlement/credit record once the provider-agnostic billing model
+  exists
 - **declined** → polite "thanks, not the right fit" message; preserve row
   for analytics
 - **dropped** → no response after 7 days; auto-eligible for cleanup
@@ -176,7 +211,7 @@ exist in repo — operator owns it externally on their workstation).
 ```bash
 # Mark conversion
 sqlite3 /opt/tensol/data/tensol.db \
-  "UPDATE deep_inquiries SET status='converted', operator_notes='Plus, paid via YooKassa intent <id>' WHERE id='<id>';"
+  "UPDATE deep_inquiries SET status='converted', operator_notes='manual entitlement pending' WHERE id='<id>';"
 ```
 
 ---
@@ -197,7 +232,7 @@ sqlite3 /opt/tensol/data/tensol.db \
   "SELECT id, status, completed_at, report_artifact_key FROM scans WHERE id='<scan_id>';"
 
 # 2. Confirm the source evidence still exists in S3
-aws --endpoint-url=https://storage.yandexcloud.net \
+aws --endpoint-url=https://storage.googleapis.com \
   s3 ls s3://${TENSOL_EVIDENCE_BUCKET}/scans/<scan_id>/
 
 # 3. Manually enqueue a regen job (server-side, via Bun REPL or admin script)
@@ -256,9 +291,9 @@ ssh tensol-server-prod 'cd /opt/tensol && bun -e "
   });
 "'
 
-# 3. Teardown the orphan VM (whether or not it actually exists in Yandex)
+# 3. Teardown the orphan VM (whether or not it actually exists in GCP)
 ssh tensol-server-prod 'cd /opt/tensol && bun run cleanup-orphan-vms'
-# This script: lists Yandex VMs with name prefix "tensol-scan-",
+# This script: lists GCP VMs with name prefix "tensol-scan-",
 # cross-references against scans table for in_progress/vm_provisioning rows,
 # tears down anything orphaned.
 
@@ -281,13 +316,14 @@ All alerts are emitted to the operator channel via `server/src/notify/telegram.t
 
 ### 6.1 `operator_alert_vm_spawn_failed`
 
-**Source**: `server/src/jobs/handlers/spawn-yandex-vm.ts` — Yandex compute
+**Source**: `server/src/jobs/handlers/spawn-vm.ts` — GCP compute
 instance create returned an error or timed out.
 
-**Payload**: `{ scanId, yandexError, retryCount }`.
+**Payload**: `{ scanId, cloudError, retryCount }`.
 
 **Response**:
-1. Check Yandex status page (status.yandex.cloud) for ru-central1 incidents.
+1. Check Google Cloud status (status.cloud.google.com) for the active region
+   and Compute Engine incidents.
 2. Check IAM token validity — `journalctl -u tensol-server | grep iam_token`.
 3. If transient, the job runner retries up to 3× before alerting. If you see
    this alert, retries are exhausted.
@@ -295,15 +331,16 @@ instance create returned an error or timed out.
 
 ### 6.2 `operator_alert_vm_teardown_failed`
 
-**Source**: `server/src/jobs/handlers/teardown-yandex-vm.ts` — failed to
+**Source**: `server/src/jobs/handlers/teardown-vm.ts` — failed to
 delete a per-scan VM after scan completion.
 
-**Payload**: `{ scanId, vmInstanceId, yandexError }`.
+**Payload**: `{ scanId, vmInstanceId, cloudError }`.
 
 **Response**:
 1. **THIS IS A BUDGET LEAK** — orphan VM accrues compute cost.
 2. Run `bun run cleanup-orphan-vms` immediately.
-3. If that fails, manually delete via `yc compute instance delete <vmInstanceId>`.
+3. If that fails, manually delete via
+   `gcloud compute instances delete <vmInstanceId> --zone="$GCP_ZONE"`.
 4. Investigate root cause from server logs.
 
 ### 6.3 `operator_alert_pdf_render_failed`
@@ -334,7 +371,7 @@ missed them (likely a §6.2 silent failure).
 | `webhook_invalid_signature` | vps-agent → server | check secret rotation, possible attack |
 | `scope_violation_attempt` | attacker agent | scan halted; review payload for false positive |
 | `dns_verify_failed` | scan launch | DNS check timed out; ask customer to verify zone |
-| `payment_intent_failed` | YooKassa webhook | help customer retry payment |
+| `payment_intent_failed` | Billing provider webhook | help customer retry payment |
 
 ---
 
@@ -367,18 +404,18 @@ sqlite3 /opt/tensol/data/tensol.db \
 ### 7.2 S3 quota exceeded
 
 **Symptom**: `operator_alert_vm_spawn_failed` with `s3_quota_exceeded` in
-the yandexError field, or PDF jobs failing on upload.
+the cloudError field, or PDF jobs failing on upload.
 
-**Fix**: Yandex Object Storage default quota is 1 TB per bucket; if hit,
-request quota increase via Yandex Cloud console support. Short-term: run
+**Fix**: GCS-compatible object storage default quota is 1 TB per bucket; if hit,
+request quota increase via GCP console support. Short-term: run
 the manual purge of artifacts older than 30 days (lifecycle should handle
 this, but if it lagged):
 
 ```bash
-aws --endpoint-url=https://storage.yandexcloud.net \
+aws --endpoint-url=https://storage.googleapis.com \
   s3api list-objects-v2 --bucket ${TENSOL_EVIDENCE_BUCKET} \
   --query "Contents[?LastModified<='$(date -u -d '30 days ago' +%Y-%m-%d)'].[Key]" \
-  --output text | xargs -I {} aws --endpoint-url=https://storage.yandexcloud.net \
+  --output text | xargs -I {} aws --endpoint-url=https://storage.googleapis.com \
   s3 rm s3://${TENSOL_EVIDENCE_BUCKET}/{}
 ```
 
@@ -396,19 +433,22 @@ curl -s "https://api.telegram.org/bot${TENSOL_TELEGRAM_BOT_TOKEN}/getMe"
 **Fix**: rotate per `docs/runbooks/secret-rotation.md` §2. If BotFather
 itself is unreachable (rare), wait for Telegram-side recovery.
 
-### 7.4 Yandex IAM exchange failures
+### 7.4 cloud IAM exchange failures
 
-**Symptom**: server logs show `yandex_iam_exchange_failed` repeatedly;
+**Symptom**: server logs show `cloud_iam_exchange_failed` repeatedly;
 all compute/S3 calls return `401`.
 
 **Diagnosis**: SA key expired or service account permissions changed.
 
-**Fix**: rotate per `docs/runbooks/secret-rotation.md` §4. Confirm SA still
-has roles `compute.editor`, `storage.editor`, `iam.serviceAccounts.user`:
+**Fix**: rotate per `docs/runbooks/secret-rotation.md` §4. Confirm the
+service account still has the required Compute Engine and service-account-user
+roles:
 
 ```bash
-yc resource-manager folder list-access-bindings tensol-prod-folder \
-  | grep tensol-prod-sa
+gcloud projects get-iam-policy "$GCP_PROJECT_ID" \
+  --flatten="bindings[].members" \
+  --format="table(bindings.role,bindings.members)" \
+  | grep "$GCP_VM_SPAWNER_SERVICE_ACCOUNT"
 ```
 
 ### 7.5 Stuck job queue
@@ -437,9 +477,9 @@ heartbeat lease expires (typically 60s).
 | Founder / @kapital0 | Telegram @kapital0 | Customer disputes, prod down |
 | Ops on-call | TBD | After-hours alerts |
 | Security on-call | TBD | Suspected breach, leaked secret |
-| Legal counsel | TBD | 152-ФЗ inquiries, NDA disputes |
-| Yandex Cloud support | https://cloud.yandex.com/support | Region-wide outage |
-| YooKassa support | merchant dashboard | Payment processor down |
+| Legal counsel | TBD | DPA/privacy inquiries, NDA disputes |
+| Google Cloud support | https://cloud.google.com/support | Region-wide outage |
+| Billing provider support | provider dashboard | Payment processor down |
 
 ---
 
@@ -457,7 +497,7 @@ ssh tensol-server-prod 'sudo systemctl stop tensol-server'
 # 2. Locate the latest known-good backup
 ls -lh /var/backups/tensol/  # local
 # or fetch from S3:
-aws --endpoint-url=https://storage.yandexcloud.net \
+aws --endpoint-url=https://storage.googleapis.com \
   s3 ls s3://tensol-backups/db/ | sort | tail -5
 
 # 3. Restore
@@ -515,18 +555,18 @@ ssh tensol-server-prod 'cd /opt/tensol && bun -e "
 "'
 ```
 
-### 9.4 Full disaster recovery (region-wide Yandex outage)
+### 9.4 Full disaster recovery (region-wide GCP outage)
 
 This is out of scope for the MVP. The architectural reality is:
 
-- Server VM in ru-central1-a — single zone, no multi-AZ
+- Server VM in `europe-west1-b` — single zone, no multi-AZ
 - DB on same VM disk — no replica
-- S3 in ru-central1 — Yandex's own multi-AZ guarantee is implicit
+- Evidence/report object storage is not yet production-complete on a verified
+  GCP/GCS-compatible rail
 
-If ru-central1 is fully down (rare; ~1× in 2 years historically), Tensol is
-down until Yandex restores. Customer expectation in Terms (§7 of T140
-draft) should explicitly disclaim 99.99% — promise no more than 99.5%
-monthly.
+If the active region is fully down, Sthrip is down until GCP restores or a
+cross-region restore plan exists. Customer expectation in Terms (§7 of T140
+draft) should explicitly disclaim 99.99% — promise no more than 99.5% monthly.
 
 ---
 

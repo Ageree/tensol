@@ -12,6 +12,14 @@
 
 Терминология продукта берется как есть: assessment, scope, finding, evidence, OPPLAN, RoE, attack graph, validator, Decepticon, kill chain, browser-first, deterministic validation, ownership verification, HITL approval, audit log, framework mapping (MITRE ATT&CK, NIST CSF, MITRE ATLAS, MITRE D3FEND, NIST AI RMF).
 
+Актуальный контекст продукта берётся из `docs/project-current-context.md`:
+международный продукт по умолчанию, без YooKassa/RUB/RU-first позиционирования
+для новых экранов. Текущий публичный бренд и домены: **Sthrip**,
+`sthrip.dev`, `api.sthrip.dev`. Упоминания Tensol / `tensol.ru` или
+CyberStrike в этом файле считаются историческими, если задача не про legacy.
+Российские юридические/инфраструктурные блоки допустимы только как
+опциональный customer-specific вариант.
+
 ---
 
 ## Часть A. Публичный сайт (маркетинг и доверие)
@@ -27,7 +35,7 @@
 - три ключевых обещания: автономное прохождение kill chain, browser-first проверка реальных web-приложений, публикация только подтвержденных findings;
 - демонстрация того, как выглядит результат: образ confirmed finding с evidence, attack graph, отчет с framework mappings;
 - блок про hybrid LLM routing по ролям агентов (без раскрытия конкретных моделей, на уровне принципа);
-- блок про российскую инфраструктурную базу (Yandex Cloud), 152-FZ совместимость, GOST R / FSTEC шаблоны отчетов;
+- блок про региональную инфраструктуру, customer-selected data residency, DPA/privacy controls и локализуемые шаблоны отчетов;
 - блок про supply-chain дисциплину: pinned mirrors, audit logs, ownership-verified offensive capabilities;
 - социальное доказательство: целевые роли пользователей (Security Lead, Pentest Operator, Compliance Reviewer, Developer / App Owner);
 - честная демаркация: что продукт делает и чего не делает (не malware tooling, не phishing platform, не unauthorized C2, не stealth tooling);
@@ -72,10 +80,10 @@
 
 - модель multi-tenancy: tenant isolation, project-level access, ownership-verified offensive capabilities;
 - secrets management: encryption at rest, scoped к tenant и assessment, masked values, retention period, никаких plaintext в логах;
-- supply chain controls: pinned Decepticon commit, pinned cyberstrike-runner commit, pinned skill library commit, mirrored images в Yandex Container Registry, deployment по digest, quarterly upstream review, SBOM где это возможно, отказ от auto-pull из upstream main;
+- supply chain controls: pinned Decepticon commit, pinned cyberstrike-runner commit, pinned skill library commit, mirrored images в выбранном container registry, deployment по digest, quarterly upstream review, SBOM где это возможно, отказ от auto-pull из upstream main;
 - network controls: K8s network policies, private namespaces, egress firewall, deny PRC endpoints для CyberStrike defaults без явного разрешения, deny arbitrary internet из sandbox кроме target scope и required services;
 - audit logging: что именно аудируется (login, assessment approval, start / pause / resume / cancel, scope changes, tool policy changes, high-impact tool authorization, finding status changes, report generation, denied tool calls, LLM provider fallback, secret access);
-- 152-FZ posture: persona и customer data в Yandex Cloud managed services по умолчанию;
+- data residency posture: persona и customer data в выбранном регионе/провайдере по условиям engagement;
 - внешние LLM: документирование provider, отправляемых данных, retention, redaction, enterprise exception path;
 - data retention: hot 90 дней / cold 1 год / truncation после retention / audit per legal policy.
 
@@ -85,7 +93,7 @@
 
 ### A6. Страница «Отчеты»
 
-Маркетинговая страница про отчетность. Показывает шесть типов отчетов и состав технического отчета (engagement metadata, RoE summary, scope, exclusions, testing window, methodology, tool policy summary, Decepticon OPPLAN summary, findings summary, confirmed findings detail, evidence per finding, attack graph, Offensive Vaccine recommendations, remediation roadmap, framework mappings, appendix с tool versions и audit metadata). Отдельный блок про русские шаблоны (russian-language report, GOST R oriented, FSTEC-oriented mapping appendix, customer-ready PDF с evidence appendix). Отдельный блок про правила: только confirmed findings в основном теле, candidate findings в приложении только по запросу, redaction секретов, immutable snapshot после генерации.
+Маркетинговая страница про отчетность. Показывает шесть типов отчетов и состав технического отчета (engagement metadata, RoE summary, scope, exclusions, testing window, methodology, tool policy summary, Decepticon OPPLAN summary, findings summary, confirmed findings detail, evidence per finding, attack graph, Offensive Vaccine recommendations, remediation roadmap, framework mappings, appendix с tool versions и audit metadata). Отдельный блок про локализуемые шаблоны (regional language report, NIST/ATT&CK/ATLAS/D3FEND mapping, customer-ready PDF с evidence appendix; GOST/FSTEC только для customer-specific RU сценариев). Отдельный блок про правила: только confirmed findings в основном теле, candidate findings в приложении только по запросу, redaction секретов, immutable snapshot после генерации.
 
 ### A7. Страница «Цены / тарифы»
 
@@ -663,7 +671,7 @@ Security Lead может утвердить отчет перед передач
 
 ### O10. Локализация
 
-Все тексты живут в двух локалях: английский и русский. Часть отчетов и страниц требует русской локализации (russian-language report, GOST R / FSTEC).
+Все тексты живут минимум в двух локалях: английский и русский. Английский — основной международный baseline; русская локализация и GOST/FSTEC-ориентированные приложения включаются только для подходящих customer-specific сценариев.
 
 ---
 

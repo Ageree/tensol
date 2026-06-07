@@ -85,7 +85,7 @@ Implications:
    * disable Cloudflare's orange-cloud proxy for these hostnames (set "DNS only"), then re-resolve DNS to `5.42.106.25` directly; or
    * switch Caddy to ACME **DNS-01** challenge with a Cloudflare API token (`acme_dns cloudflare ...`), keep the orange cloud.
 
-2. Cloudflare account credentials & nameserver control are **not in the operator-side artifact set** (`/tmp/tensol.env.prod` has Telegram, Yandex, audit secrets — no Cloudflare API token). Cannot do this autonomously.
+2. Cloudflare account credentials & nameserver control are **not in the operator-side artifact set** (`/tmp/tensol.env.prod` has Telegram, GCP, audit secrets — no Cloudflare API token). Cannot do this autonomously.
 
 ---
 

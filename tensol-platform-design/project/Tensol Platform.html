@@ -362,7 +362,7 @@ window.TENSOL_I18N = {
     heroBlurb: 'Tensol runs the full kill chain — recon, exploit, validate, report — inside scope you authorized. Findings only ship after a deterministic validator says yes.',
     ctaPrimary: 'Request demo', ctaGhost: 'How it works',
     trustEyebrow: '// IN PROD AT',
-    trust: ['Tier-1 Russian bank', 'Mid-cap broker', 'EU SaaS', 'Yandex Cloud native'],
+    trust: ['Tier-1 Russian bank', 'Mid-cap broker', 'EU SaaS', 'GCP production'],
     pillarsEyebrow: '// THREE PROMISES',
     pillars: [
       { n: '01', t: 'Full kill chain.',         d: 'An agent moves from recon through foothold, post-exploit, lateral, and persistence — autonomously, against the scope you defined. No babysitting.' },
@@ -385,8 +385,8 @@ window.TENSOL_I18N = {
     proofTitle: 'Every finding ships with replay.',
     proofBlurb: 'A confirmed Tensol finding includes the request, the response, the screenshot, the OOB callback, the validator log, and a hash. Replay it on your side. Match the hash. Done.',
     russiaEyebrow: '// REGION · RU',
-    russiaTitle: 'Yandex Cloud native. 152-FZ aligned. GOST R / FSTEC report templates.',
-    russiaBlurb: 'Hosted in your Yandex Cloud folder if you need data residency. Reports ship with russian-language localization and FSTEC mapping appendices when the engagement requires it. Compliant retention by default.',
+    russiaTitle: 'GCP production. 152-FZ aligned. GOST R / FSTEC report templates.',
+    russiaBlurb: 'Hosted in your customer-designated cloud project if you need data residency. Reports ship with russian-language localization and FSTEC mapping appendices when the engagement requires it. Compliant retention by default.',
     supplyEyebrow: '// SUPPLY CHAIN',
     supplyTitle: 'Pinned mirrors. Audit logs. Ownership-verified offensive capability.',
     supplyBlurb: 'Tools come from a verified catalog with pinned versions and pinned mirrors. Every action — every prompt, every payload, every callback — is recorded into an immutable audit log. Capabilities flagged high-impact require explicit per-target authorization.',
@@ -588,7 +588,7 @@ window.TENSOL_I18N = {
     heroBlurb: 'Tensol проходит kill chain целиком — recon, exploit, validate, report — внутри scope, который вы авторизовали. Findings уходят только после подтверждения детерминированным валидатором.',
     ctaPrimary: 'Запросить демо', ctaGhost: 'Как это работает',
     trustEyebrow: '// В ПРОДЕ У',
-    trust: ['Tier-1 банк РФ', 'Брокер mid-cap', 'EU SaaS', 'Yandex Cloud native'],
+    trust: ['Tier-1 банк РФ', 'Брокер mid-cap', 'EU SaaS', 'GCP production'],
     pillarsEyebrow: '// ТРИ ОБЕЩАНИЯ',
     pillars: [
       { n: '01', t: 'Полный kill chain.',     d: 'Агент проходит recon, foothold, post-exploit, lateral, persistence — автономно, в пределах вашего scope. Без бэбиситтинга.' },
@@ -611,8 +611,8 @@ window.TENSOL_I18N = {
     proofTitle: 'Каждый finding отгружается с replay.',
     proofBlurb: 'Подтверждённый Tensol finding содержит request, response, скриншот, OOB callback, лог валидатора и hash. Воспроизведите у себя. Сравните hash. Готово.',
     russiaEyebrow: '// РЕГИОН · РФ',
-    russiaTitle: 'Yandex Cloud native. Совместимо с 152-ФЗ. Шаблоны отчётов ГОСТ Р / ФСТЭК.',
-    russiaBlurb: 'Хостинг в вашем Yandex Cloud folder, если нужна data residency. Отчёты с русской локализацией и FSTEC-маппингом, когда того требует engagement. Compliant retention по умолчанию.',
+    russiaTitle: 'GCP production. Совместимо с 152-ФЗ. Шаблоны отчётов ГОСТ Р / ФСТЭК.',
+    russiaBlurb: 'Хостинг в вашем customer-designated cloud project, если нужна data residency. Отчёты с русской локализацией и FSTEC-маппингом, когда того требует engagement. Compliant retention по умолчанию.',
     supplyEyebrow: '// SUPPLY CHAIN',
     supplyTitle: 'Pinned mirrors. Audit logs. Ownership-verified offensive capability.',
     supplyBlurb: 'Инструменты — из verified catalog, с зафиксированными версиями и зеркалами. Каждое действие — каждый prompt, каждый payload, каждый callback — пишется в неизменяемый audit log. Capabilities, помеченные high-impact, требуют явной авторизации на target.',
@@ -825,7 +825,7 @@ window.TENSOL_DATA = {
     { id: 't2',  type: 'web',           ident: 'admin.acme-bank.ru',              ownership: 'verified', method: 'header', last: '2026-05-04 11:50', findings: 4, project: 'p1' },
     { id: 't3',  type: 'api',           ident: 'api.acme-bank.ru/v3/openapi.json',ownership: 'verified', method: 'file',   last: '2026-05-04 11:42', findings: 0, project: 'p1' },
     { id: 't4',  type: 'host',          ident: '10.42.18.101',                    ownership: 'verified', method: 'cloud',  last: '2026-05-03 22:19', findings: 0, project: 'p1' },
-    { id: 't5',  type: 'cloud',         ident: 'yc-folder/b1g7t…/prod-net',       ownership: 'verified', method: 'cloud',  last: '2026-05-03 20:08', findings: 0, project: 'p1' },
+    { id: 't5',  type: 'cloud',         ident: 'gcp-project/tensol-scanners/prod-net',       ownership: 'verified', method: 'cloud',  last: '2026-05-03 20:08', findings: 0, project: 'p1' },
     { id: 't6',  type: 'web',           ident: 'broker-staging.acme-bank.ru',     ownership: 'verified', method: 'dns',    last: '2026-05-04 08:51', findings: 4, project: 'p2' },
     { id: 't7',  type: 'web',           ident: 'beta.broker-staging.acme-bank.ru',ownership: 'pending',  method: 'dns',    last: '—',                findings: 0, project: 'p2' },
     { id: 't8',  type: 'repository',    ident: 'github.com/acme/broker-portal',   ownership: 'verified', method: 'header', last: '2026-05-02 18:14', findings: 0, project: 'p2' },
@@ -4261,7 +4261,7 @@ function SettingsScreen({ onRoute, role }) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, maxWidth: 760 }}>
                 <Field label={t.sTenantName}><Input value="Acme Bank — Production" onChange={() => {}} /></Field>
                 <Field label={t.sTenantSlug}><Input value="acme-prod" onChange={() => {}} /></Field>
-                <Field label={t.sTenantRegion}><Select value="ru-yandex" onChange={() => {}} options={[{ value: 'ru-yandex', label: 'ru · Yandex Cloud · ru-central1' }, { value: 'eu-fra', label: 'eu · fra1' }]} /></Field>
+                <Field label={t.sTenantRegion}><Select value="eu-gcp" onChange={() => {}} options={[{ value: 'eu-gcp', label: 'gcp · europe-west1' }, { value: 'eu-fra', label: 'eu · fra1' }]} /></Field>
                 <Field label={t.sTenantRetention}><Select value="365d" onChange={() => {}} options={['90d','180d','365d','730d']} /></Field>
                 <div style={{ gridColumn: '1 / -1' }}>
                   <Eyebrow style={{ marginBottom: 10 }}>// {t.sTenantUsers}</Eyebrow>

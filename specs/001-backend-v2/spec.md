@@ -233,7 +233,7 @@ The operator can cancel a scan that is queued or running. The system stops it gr
 - The Decepticon engine remains the pentest implementation and is not modified by this work; the system treats it as a black box invoked over its container interface.
 - One operator equals one organization for v2; multi-tenant collaboration is explicitly out of scope.
 - The product runs as a single process on a single machine; high availability and horizontal scaling are out of scope.
-- A single VPS provider is sufficient for v2; the choice (Hetzner, DigitalOcean, or Yandex Cloud) is made during planning and locked.
+- A single VPS provider is sufficient for v2; the choice (Hetzner, DigitalOcean, or GCP) is made during planning and locked.
 - Outbound email delivery (for magic links) is via a managed provider; the specific provider choice is made during planning.
 - The operator is technically competent enough to place a DNS TXT record, a file, or a meta tag on their target.
 - Real-time progress streaming (server-sent events, WebSocket) is not required for v2; the operator polls the scan record.

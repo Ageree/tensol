@@ -116,6 +116,7 @@ export function Btn({
   disabled,
   fullWidth,
   title,
+  'data-testid': dataTestId,
 }: {
   children: ReactNode;
   kind?: BtnKind;
@@ -125,6 +126,7 @@ export function Btn({
   disabled?: boolean;
   fullWidth?: boolean;
   title?: string;
+  'data-testid'?: string;
 }) {
   const padY = size === 'sm' ? 5 : size === 'lg' ? 14 : 9;
   const padX = size === 'sm' ? 10 : size === 'lg' ? 22 : 14;
@@ -185,6 +187,7 @@ export function Btn({
         href={href}
         onClick={disabled ? undefined : onClick}
         title={title}
+        data-testid={dataTestId}
         style={style}
         onMouseEnter={() => setHov(true)}
         onMouseLeave={() => setHov(false)}
@@ -198,6 +201,7 @@ export function Btn({
       type="button"
       onClick={disabled ? undefined : onClick}
       title={title}
+      data-testid={dataTestId}
       style={style}
       disabled={disabled}
       onMouseEnter={() => setHov(true)}
@@ -249,14 +253,17 @@ export function Mono({
   size = 12,
   color,
   style,
+  'data-testid': dataTestId,
 }: {
   children: ReactNode;
   size?: number;
   color?: string;
   style?: CSSProperties;
+  'data-testid'?: string;
 }) {
   return (
     <span
+      data-testid={dataTestId}
       style={{
         fontFamily: "'JetBrains Mono', monospace",
         fontSize: size,

@@ -36,6 +36,9 @@
  *           (T120) Flips `reports.download_expires_at` to a past
  *           timestamp so the report client treats the URL as expired
  *           and the regenerate affordance must surface on next poll.
+ *       POST /__test/v2/seed-review-repo { user_id, owner?, name?, installation_id? }
+ *           Fabricates the GitHub App installation + review repo rows needed
+ *           for repositories, whitebox, and PR-review E2E coverage.
  *
  * Constitution V (NON-NEGOTIABLE): polling only, no SSE.
  * Constitution VII: server-side Zod is canonical; this mirrors the
@@ -66,6 +69,9 @@ export const BACKEND_BASE_URL =
  * deterministic value for the spec to sign against.
  */
 export const E2E_WEBHOOK_SECRET = 'e2e-webhook-test-secret';
+
+/** Synthetic GitHub App webhook secret used by e2e-test-server. */
+export const E2E_GITHUB_WEBHOOK_SECRET = 'e2e-github-webhook-secret';
 
 /** Juice Shop fixture (T060) — 9 findings, signed and replayed. */
 export const JUICESHOP_FIXTURE_PATH = join(
@@ -174,6 +180,11 @@ export function signWebhookBody(
   return `t=${nowSec}, v1=${mac}`;
 }
 
+export function signGitHubWebhookBody(secret: string, body: string): string {
+  const mac = createHmac('sha256', secret).update(body).digest('hex');
+  return `sha256=${mac}`;
+}
+
 /**
  * Replay the Juice Shop fixture into the webhook endpoint with the
  * scan_order_id rewritten to the live order. Returns the parsed response.
@@ -206,7 +217,16 @@ export async function simulateScanComplete(
       `webhook POST failed: ${res.status()} ${await res.text()}`,
     );
   }
-  return (await res.json()) as { ok: boolean; inserted_findings: number };
+  const json = (await res.json()) as {
+    status?: string;
+    findings_ingested?: number;
+    ok?: boolean;
+    inserted_findings?: number;
+  };
+  return {
+    ok: json.ok ?? json.status === 'ok',
+    inserted_findings: json.inserted_findings ?? json.findings_ingested ?? 0,
+  };
 }
 
 // ── T092 / T093 test-only endpoints ────────────────────────────────────────
@@ -409,4 +429,50 @@ export async function expireReport(
     );
   }
   return (await res.json()) as { ok: true; expires_at: number };
+}
+
+// ── Review / repository fixture endpoints ───────────────────────────────────
+
+export interface SeedReviewRepoInput {
+  readonly userId: string;
+  readonly owner?: string;
+  readonly name?: string;
+  readonly installationId?: string;
+  readonly enabled?: boolean;
+  readonly coveredBranches?: string[];
+  readonly statusCheckEnabled?: boolean;
+  readonly mergeBlockOnCritical?: boolean;
+}
+
+export interface SeedReviewRepoResult {
+  readonly installation_row_id: string;
+  readonly installation_id: string;
+  readonly repo_id: string;
+  readonly owner: string;
+  readonly name: string;
+}
+
+export async function seedReviewRepo(
+  api: APIRequestContext,
+  input: SeedReviewRepoInput,
+): Promise<SeedReviewRepoResult> {
+  const res = await api.post('/__test/v2/seed-review-repo', {
+    headers: { 'content-type': 'application/json' },
+    data: {
+      user_id: input.userId,
+      owner: input.owner,
+      name: input.name,
+      installation_id: input.installationId,
+      enabled: input.enabled,
+      covered_branches: input.coveredBranches,
+      status_check_enabled: input.statusCheckEnabled,
+      merge_block_on_critical: input.mergeBlockOnCritical,
+    },
+  });
+  if (!res.ok()) {
+    throw new Error(
+      `seedReviewRepo failed: ${res.status()} ${await res.text()}`,
+    );
+  }
+  return (await res.json()) as SeedReviewRepoResult;
 }

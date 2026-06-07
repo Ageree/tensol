@@ -1,5 +1,5 @@
 /**
- * T057 — Integration test for `spawn_yandex_vm` job handler (T056).
+ * T057 — Integration test for `spawn_scan_vm` job handler (T056).
  *
  * What this pins down (per task brief):
  *   1. HAPPY PATH — handler builds cloud-init, calls provider.spawnVm, polls
@@ -72,9 +72,9 @@ import { verifyChain } from "../../src/audit/verify-chain.ts";
 import { FakeCloudProvider } from "../../src/vps/fake-provider.ts";
 import { refundFreeQuickQuota } from "../../src/free-tier/service.ts";
 import {
-  createSpawnYandexVmHandler,
-  type SpawnYandexVmJobPayload,
-} from "../../src/jobs/handlers/spawn-yandex-vm.ts";
+  createSpawnScanVmHandler,
+  type SpawnScanVmJobPayload,
+} from "../../src/jobs/handlers/spawn-scan-vm.ts";
 import type { CloudProvider } from "../../src/vps/provider.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "migrations");
@@ -97,7 +97,7 @@ function applyMigrations(db: DB): void {
   (db.$client as Database).exec(migrationSql());
 }
 
-const TEST_AUDIT_KEY = "test-audit-signing-key-spawn-yandex-vm";
+const TEST_AUDIT_KEY = "test-audit-signing-key-spawn-scan-vm";
 
 const FIXED_USER_ID = "01H0USER00000000000000000B";
 const FIXED_ORDER_ID = "01H0ORD000000000000000000B";
@@ -107,18 +107,18 @@ const FIXED_JOB_ID = "01H0JOB000000000000000000B";
 const DOMAIN = "example.test";
 
 const CLOUD_INIT_DEPS = {
-  backendUrl: "https://api.tensol.run/v1",
+  backendUrl: "https://api.sthrip.dev/v1",
   webhookSecret: "test-webhook-secret-32-bytes-hexxx",
   evidenceBucket: "tensol-evidence-test",
   evidencePrefix: "evidence/",
   awsAccessKeyId: "YCAJxxxxxxxxxxxx",
   awsSecretAccessKey: "YCxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-  awsEndpoint: "https://storage.yandexcloud.net",
+  awsEndpoint: "https://storage.googleapis.com",
   awsRegion: "ru-central1",
   signKey: "a".repeat(64),
   decepticonImage: "ghcr.io/tensol/decepticon@sha256:deadbeef",
   vpsZone: "ru-central1-a",
-  openrouterApiKey: "sk-or-v1-test-fake-key-spawn-yandex-vm",
+  openrouterApiKey: "sk-or-v1-test-fake-key-spawn-scan-vm",
   litellmMasterKey: "sk-test-litellm-internal",
   postgresPassword: "test-postgres-pw",
   neo4jPassword: "test-neo4j-pw",
@@ -157,7 +157,7 @@ function seedQuickQueuedOrder(db: DB, now: number): void {
       dnsVerifyToken: `tensol-verify-${"x".repeat(26)}`,
       dnsVerifiedAt: now,
       dnsCheckAttempts: 1,
-      vpsProvider: "yandex",
+      vpsProvider: "gcp",
       paymentKind: "free_quick",
       scanId: FIXED_SCAN_ID,
       createdAt: now,
@@ -179,9 +179,9 @@ function seedQuickQueuedOrder(db: DB, now: number): void {
   db.insert(jobs)
     .values({
       id: FIXED_JOB_ID,
-      type: "spawn_yandex_vm",
+      type: "spawn_scan_vm",
       payloadJson: JSON.stringify({
-        type: "spawn_yandex_vm",
+        type: "spawn_scan_vm",
         scan_id: FIXED_SCAN_ID,
         scan_order_id: FIXED_ORDER_ID,
         primary_domain: DOMAIN,
@@ -196,7 +196,7 @@ function seedQuickQueuedOrder(db: DB, now: number): void {
     .run();
 }
 
-const BASE_PAYLOAD: SpawnYandexVmJobPayload = {
+const BASE_PAYLOAD: SpawnScanVmJobPayload = {
   scanOrderId: FIXED_ORDER_ID,
   scanId: FIXED_SCAN_ID,
 };
@@ -204,7 +204,7 @@ const BASE_PAYLOAD: SpawnYandexVmJobPayload = {
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "tensol-spawn-yandex-test-"));
+  tmpDir = mkdtempSync(join(tmpdir(), "tensol-spawn-gcp-test-"));
 });
 
 afterEach(() => {
@@ -223,7 +223,7 @@ test("happy path: spawnVm + poll → vps_instance_id/vps_zone persisted, order�
   const provider = new FakeCloudProvider();
 
   let clock = ts + 1;
-  const handler = createSpawnYandexVmHandler({
+  const handler = createSpawnScanVmHandler({
     db,
     provider,
     auditKey: TEST_AUDIT_KEY,
@@ -311,7 +311,7 @@ test("transient retry: spawnVm throws RATE_LIMIT twice then succeeds → order e
   };
 
   let clock = ts + 1;
-  const handler = createSpawnYandexVmHandler({
+  const handler = createSpawnScanVmHandler({
     db,
     provider,
     auditKey: TEST_AUDIT_KEY,
@@ -375,7 +375,7 @@ test("permanent failure: spawnVm always throws → order=failed, quota refunded,
   };
 
   let clock = ts + 1;
-  const handler = createSpawnYandexVmHandler({
+  const handler = createSpawnScanVmHandler({
     db,
     provider,
     auditKey: TEST_AUDIT_KEY,
@@ -489,7 +489,7 @@ test("idempotency: handler is a no-op when order is no longer in vm_provisioning
     },
   };
 
-  const handler = createSpawnYandexVmHandler({
+  const handler = createSpawnScanVmHandler({
     db,
     provider,
     auditKey: TEST_AUDIT_KEY,
@@ -525,7 +525,7 @@ test("idempotency: handler is a no-op when order is no longer in vm_provisioning
 // VM spawns fine but its agent never binds within the wait budget. The
 // handler must NOT throw (which would let the runner retry the whole job
 // against the dead VM and leak it until the 35-min reaper). Instead it
-// enqueues a `teardown_yandex_vm` job for the instance, marks the
+// enqueues a `teardown_scan_vm` job for the instance, marks the
 // order/scan terminally failed (reason='agent_dispatch_failed'), refunds the
 // free-tier quota, and enqueues an operator alert.
 // ───────────────────────────────────────────────────────────────────────────
@@ -538,7 +538,7 @@ test("agent-dispatch timeout: enqueues teardown + order=failed(agent_dispatch_fa
   const provider = new FakeCloudProvider();
   let clock = ts + 1;
 
-  const handler = createSpawnYandexVmHandler({
+  const handler = createSpawnScanVmHandler({
     db,
     provider,
     auditKey: TEST_AUDIT_KEY,
@@ -575,11 +575,11 @@ test("agent-dispatch timeout: enqueues teardown + order=failed(agent_dispatch_fa
   expect(scanRow!.status).toBe("failed");
   expect(scanRow!.failureReason).toBe("agent_dispatch_failed");
 
-  // A teardown_yandex_vm job was enqueued for the spawned instance.
+  // A teardown_scan_vm job was enqueued for the spawned instance.
   const teardownJobs = db
     .select()
     .from(jobs)
-    .where(eq(jobs.type, "teardown_yandex_vm"))
+    .where(eq(jobs.type, "teardown_scan_vm"))
     .all();
   expect(teardownJobs).toHaveLength(1);
   expect(teardownJobs[0]!.status).toBe("pending");
@@ -639,7 +639,7 @@ test("agent-dispatch HTTP 500: enqueues teardown + order=failed, no throw", asyn
   const provider = new FakeCloudProvider();
   let clock = ts + 1;
 
-  const handler = createSpawnYandexVmHandler({
+  const handler = createSpawnScanVmHandler({
     db,
     provider,
     auditKey: TEST_AUDIT_KEY,
@@ -668,7 +668,7 @@ test("agent-dispatch HTTP 500: enqueues teardown + order=failed, no throw", asyn
   const teardownJobs = db
     .select()
     .from(jobs)
-    .where(eq(jobs.type, "teardown_yandex_vm"))
+    .where(eq(jobs.type, "teardown_scan_vm"))
     .all();
   expect(teardownJobs).toHaveLength(1);
   const tdPayload = JSON.parse(teardownJobs[0]!.payloadJson) as Record<string, unknown>;

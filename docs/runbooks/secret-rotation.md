@@ -1,5 +1,11 @@
 # Secret Rotation Runbook
 
+> 2026-06-07 current state: production has moved to GCP. GCP service-account
+> and GCS-compatible object storage procedures below are legacy-only unless a task
+> explicitly targets historical compatibility. Current API prod uses GCP
+> Compute Engine and GCP service-account JSON; evidence/report object storage
+> still needs a verified GCP/GCS-compatible rotation procedure.
+
 > Operator handbook for rotating sensitive credentials used by the Tensol
 > Blackbox MVP backend (002-blackbox-mvp). Closes T145 finding LOW
 > ("no documented rotation procedure"). Owner: security on-call.
@@ -15,10 +21,10 @@
 | `TENSOL_WEBHOOK_SECRET`         | `webhooks-scan-complete.ts` ↔ `vps-agent/src/webhook-sign.ts`        | §1      |
 | `TENSOL_TELEGRAM_BOT_TOKEN`     | `server/src/notify/telegram.ts` (notifications + magic-link auth)    | §2      |
 | `TENSOL_TELEGRAM_WEBHOOK_SECRET`| `POST /v1/webhooks/telegram-update` (`X-Telegram-Bot-Api-Secret-Token`) | §3   |
-| `YANDEX_SA_KEY_JSON`            | IAM token exchange for compute/storage SDK calls                     | §4      |
-| `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | Yandex Object Storage S3 (evidence bucket)             | §5      |
+| `GOOGLE_APPLICATION_CREDENTIALS` | GCP service-account JSON for Compute Engine scan VM lifecycle       | §4      |
+| `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | Explicit GCP/GCS-compatible object storage for evidence bucket | §5 |
 | `TENSOL_AUDIT_SIGNING_KEY`      | Append-only signed audit chain (`audit/emit.ts`, `verify-chain.ts`)  | §6      |
-| `TENSOL_YOOKASSA_LIVE`          | YooKassa payments                                                    | §7      |
+| Billing provider secrets        | Future international billing provider (manual/MoR/Stripe later)      | §7      |
 
 > Note: `server/.env.example` also lists `TENSOL_HMAC_SECRET` — this is a
 > legacy placeholder name. The live code binds the audit-signing key to
@@ -127,53 +133,57 @@ rotating the other.
 
 ---
 
-## §4 `YANDEX_SA_KEY_JSON` rotation
+## §4 GCP service-account JSON rotation
 
-Yandex service-account key (JSON). Used at boot to mint short-lived IAM
-tokens (~12h TTL) for compute + storage API calls.
+Current production uses `GOOGLE_APPLICATION_CREDENTIALS`, mounted from
+`/opt/tensol/.gcp/tensol-vm-spawner.json` into the server container. Rotate it
+through Google Cloud IAM, update the file on `sthrip-api-prod`, then restart
+the server container and verify a GCP API call succeeds.
 
 ### Procedure
 
 ```bash
-# 1. Mint a new key
-yc iam key create \
-  --service-account-name tensol-prod-sa \
-  --description "rotation $(date -u +%Y-%m-%d)" \
-  --output ~/tensol-sa-new.json
+# 1. Create a replacement service-account key in Google Cloud IAM.
+gcloud iam service-accounts keys create ~/sthrip-vm-spawner-new.json \
+  --iam-account="$GCP_VM_SPAWNER_SERVICE_ACCOUNT"
 
-# 2. Update the env var (base64 the JSON OR drop the file on the host)
-base64 -w0 ~/tensol-sa-new.json   # → YANDEX_SA_KEY_JSON
+# 2. Copy it to the production API VM.
+scp ~/sthrip-vm-spawner-new.json \
+  sthrip-api-prod:/opt/tensol/.gcp/tensol-vm-spawner.json
 
-# 3. Redeploy server; verify IAM exchange succeeds
-#    (boot log: "yandex_iam_token_minted_at=..." emitted)
+# 3. Normalize permissions and restart the server container.
+ssh sthrip-api-prod 'chmod 0755 /opt/tensol/.gcp && chmod 0644 /opt/tensol/.gcp/*.json'
+ssh sthrip-api-prod 'cd /opt/tensol && docker compose -f docker-compose.prod.yml up -d --force-recreate server'
 
-# 4. Delete the OLD key (list, find by id, delete)
-yc iam key list --service-account-name tensol-prod-sa
-yc iam key delete <OLD_KEY_ID>
+# 4. Verify Compute access, then delete the old key from Google Cloud IAM.
+ssh sthrip-api-prod 'docker exec tensol-server node -e "console.log(process.env.GOOGLE_APPLICATION_CREDENTIALS)"'
+gcloud iam service-accounts keys list --iam-account="$GCP_VM_SPAWNER_SERVICE_ACCOUNT"
+gcloud iam service-accounts keys delete "$OLD_KEY_ID" \
+  --iam-account="$GCP_VM_SPAWNER_SERVICE_ACCOUNT"
 ```
 
-Docs: https://cloud.yandex.com/docs/iam/operations/sa/create-access-key
-
-Operator note: the working SA key currently lives in
-`server/.env.yandex` (gitignored, on operator workstation only). Keep
-this file out of any backup target that ships off-host.
+Docs: https://cloud.google.com/iam/docs/keys-create-delete
 
 ---
 
-## §5 `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` rotation
+## §5 object-storage access-key rotation
 
-Yandex Object Storage S3 creds for the evidence bucket
-(`TENSOL_EVIDENCE_BUCKET`). The variable names follow AWS convention
-because the Yandex S3 endpoint is AWS-compatible.
+Current production must use an explicit GCP/GCS-compatible object-storage
+configuration or a native GCS adapter. Do not rotate generic S3 keys into
+production until that storage rail has been explicitly approved.
+
+If the approved storage rail uses S3-compatible HMAC credentials, rotate
+`AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` at the selected provider and
+update both the server env and the vps-agent cloud-init/env surface in the
+same maintenance window. If the approved rail uses native GCS, rotate the
+service-account key or workload identity binding according to Google Cloud IAM
+policy instead.
 
 ### Procedure
 
 ```bash
-# 1. Mint a new pair on the same SA that the server uses
-yc iam access-key create \
-  --service-account-name tensol-prod-sa \
-  --description "evidence-rotation $(date -u +%Y-%m-%d)"
-# → returns key_id + secret (one-shot)
+# 1. Create the replacement credential in the approved storage provider.
+# Provider-specific command intentionally omitted; use the approved provider runbook.
 
 # 2. Update env on the server AND on the vps-agent cloud-init template
 #    (the agent uploads evidence directly to the bucket)
@@ -181,9 +191,7 @@ yc iam access-key create \
 # 3. Redeploy server. Trigger a no-op evidence upload (e.g. resend the
 #    last scan-complete payload) to verify both surfaces.
 
-# 4. Delete the OLD key
-yc iam access-key list --service-account-name tensol-prod-sa
-yc iam access-key delete <OLD_KEY_ID>
+# 4. Delete or disable the OLD key in the approved provider console/CLI.
 ```
 
 > The agent + server use the same SA, so a single rotation covers both
@@ -231,20 +239,25 @@ rotation.
 
 ---
 
-## §7 `TENSOL_YOOKASSA_LIVE` rotation
+## §7 Billing provider secret rotation
 
-YooKassa live API token. Used for payment intents.
+2026-06-05 update: YooKassa is obsolete after the international product pivot.
+There is no live YooKassa secret to rotate for new work.
+
+When international paid billing is implemented, this section must be replaced
+with the selected provider's rotation flow. As of 2026-06-05, the operator has
+no Stripe account; direct Stripe and Clerk Billing are not production defaults.
+Provider candidates such as Paddle, Lemon Squeezy, or Polar require their own
+eligibility and webhook/API checks. Billing code should keep provider secrets
+behind a provider-agnostic adapter and use webhook event idempotency keys.
 
 ### Procedure
 
-1. In the YooKassa merchant dashboard, generate a new live key.
-2. Update env on the server; redeploy.
-3. Trigger a `0.01 ₽` test charge against an operator-owned card to
-   verify the new key works.
-4. Revoke the old key in the dashboard.
-
-YooKassa supports multiple active keys, so rotation is a clean
-new-then-revoke flow with zero downtime.
+1. Confirm `TENSOL_BILLING_LIVE=false` before rotating or swapping providers.
+2. Add the new provider secret to the deployment environment.
+3. Redeploy and run provider-specific test-mode checkout/webhook verification.
+4. Flip traffic only after idempotency and refund paths are verified.
+5. Revoke the old provider secret in the provider dashboard.
 
 ---
 

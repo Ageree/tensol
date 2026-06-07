@@ -892,6 +892,43 @@ describe("review-webhook: @sthrip review trigger (T037)", () => {
     // getPullRequest should not be called — concurrency check aborts before fetch
     expect(github.getPullRequestCalls).toHaveLength(0);
   });
+
+  test("@sthrip review on disabled repo → 202 ignored without fetching PR info", async () => {
+    const numericInstId = 30003;
+    const strInstId = String(numericInstId);
+
+    await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: strInstId,
+      accountLogin: "corp",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "corp",
+      name: "disabled",
+      installationId: strInstId,
+    });
+    db.update(reviewReposTable)
+      .set({ enabled: 0 })
+      .where(eq(reviewReposTable.id, repo.id))
+      .run();
+
+    const res = await postWebhook(
+      app,
+      buildCommentPayload({ prNumber: 6, installationId: numericInstId, repoFullName: "corp/disabled" }),
+      { eventName: "issue_comment" },
+    );
+
+    expect(res.status).toBe(202);
+    const body = await res.json() as { status: string; reason?: string };
+    expect(body.status).toBe("ignored");
+    expect(body.reason).toBe("repo_disabled");
+    expect(github.getPullRequestCalls).toHaveLength(0);
+  });
 });
 
 describe("review-webhook: covered-branch gating (T023)", () => {
@@ -996,6 +1033,41 @@ describe("review-webhook: covered-branch gating (T023)", () => {
     const body = await res.json() as { status: string; reason: string };
     expect(body.status).toBe("ignored");
     expect(body.reason).toBe("not_covered");
+  });
+
+  test("PR on disabled repo → 202 repo_disabled", async () => {
+    const numericInstId = 40005;
+    await svc.upsertInstallation({
+      userId: "user_1",
+      scm: "github",
+      installationId: String(numericInstId),
+      accountLogin: "org",
+      accountType: "Organization",
+      repositorySelection: "all",
+    });
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      scm: "github",
+      owner: "org",
+      name: "disabled-pr",
+      installationId: String(numericInstId),
+      coveredBranches: ["main"],
+    });
+    db.update(reviewReposTable)
+      .set({ enabled: 0 })
+      .where(eq(reviewReposTable.id, repo.id))
+      .run();
+
+    const res = await postWebhook(
+      app,
+      buildPrPayload({ installationId: numericInstId, repoFullName: "org/disabled-pr", prNumber: 4, baseRef: "main" }),
+      { eventName: "pull_request" },
+    );
+
+    expect(res.status).toBe(202);
+    const body = await res.json() as { status: string; reason: string };
+    expect(body.status).toBe("ignored");
+    expect(body.reason).toBe("repo_disabled");
   });
 
   test("PR on repo with empty coveredBranches (all branches covered) → 202 queued", async () => {

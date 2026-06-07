@@ -1,5 +1,8 @@
 # Step 3 — Local Server Smoke (2026-05-20)
 
+> Historical smoke evidence from the pre-international-pivot implementation.
+> Legacy `yookassa_live` observations below are not target billing guidance.
+
 ## Verdict: **RED — server fails to boot**
 
 Smoke halted before any endpoint probe. Push to remote NOT executed
@@ -187,12 +190,12 @@ HETZNER_API_TOKEN=smoke-fake-token
 HETZNER_SSH_KEY_NAME=smoke-fake-key
 TENSOL_VPS_AGENT_IMAGE=ghcr.io/example/smoke-agent:latest
 TENSOL_WEBHOOK_BASE_URL=http://localhost:38080
-YANDEX_PROD_FOLDER_ID=smoke-folder-id
-YANDEX_PROD_NETWORK_ID=smoke-network-id
-YANDEX_PROD_SUBNET_ID=smoke-subnet-id
-YANDEX_PROD_SUBNET_ZONE=ru-central1-a
-YANDEX_BOOT_DISK_IMAGE_ID=smoke-image-id
-YANDEX_PROD_SSH_PUBLIC_KEY="ssh-ed25519 AAAA smoke"
+GCP_PROJECT_ID=smoke-project-id
+GCP_NETWORK_NAME=smoke-network-name
+GCP_SUBNET_NAME=smoke-subnet-name
+GCP_ZONE=europe-west1-b
+GCP_BOOT_DISK_IMAGE_ID=smoke-image-id
+GCP_SSH_PUBLIC_KEY="ssh-ed25519 AAAA smoke"
 ```
 
 The original smoke (above) under-specified the env set. The full

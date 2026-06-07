@@ -71,8 +71,8 @@ services:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
       interval: 5s
       timeout: 5s
-      retries: 12
-      start_period: 90s
+      retries: 60
+      start_period: 300s
     networks:
       - decepticon-net
       - sandbox-net

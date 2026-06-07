@@ -37,10 +37,10 @@ const RESOURCE_ITEMS: readonly DropdownItem[] = [
     icon: '//',
   },
   {
-    label: 'Trust Center',
-    href: '/trust',
-    description: 'Controls, data handling, and deployment posture',
-    icon: 'TC',
+    label: 'Team',
+    href: '/about',
+    description: 'Meet the operators behind Sthrip',
+    icon: 'TM',
   },
   {
     label: 'Legal',
@@ -209,7 +209,7 @@ export function MarketingNav({ onSignIn, onSignUp }: MarketingNavProps) {
         </Link>
         <NavDropdown label="Solutions" items={SOLUTION_ITEMS} />
         <Link to="/pricing">Pricing</Link>
-        <Link to="/trust">About</Link>
+        <Link to="/about">About</Link>
         <NavDropdown label="Resources" items={RESOURCE_ITEMS} align="right" />
       </nav>
       <div className="minimal-nav-actions">

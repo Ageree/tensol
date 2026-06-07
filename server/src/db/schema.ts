@@ -137,9 +137,9 @@ export const scanOrders = sqliteTable(
     dnsCheckAttempts: integer("dns_check_attempts").notNull().default(0),
     vpsInstanceId: text("vps_instance_id"),
     vpsProvider: text("vps_provider")
-      .$type<"yandex">()
+      .$type<"gcp">()
       .notNull()
-      .default("yandex"),
+      .default("gcp"),
     vpsZone: text("vps_zone"),
     // NOTE: `scan_id` is a soft pointer; the migration does NOT declare a FK
     // because the scans row is created at launch time (after the order). The
@@ -147,6 +147,8 @@ export const scanOrders = sqliteTable(
     scanId: text("scan_id"),
     failureReason: text("failure_reason"),
     cancelledAt: integer("cancelled_at"),
+    // Legacy pre-international-pivot payment marker. New billing should be
+    // provider-agnostic and entitlement-based; do not add new YooKassa logic.
     paymentKind: text("payment_kind")
       .$type<"free_quick" | "yookassa">()
       .notNull()
@@ -476,7 +478,7 @@ export const vpsInstances = sqliteTable(
     scanId: text("scan_id")
       .notNull()
       .references(() => scans.id, { onDelete: "cascade" }),
-    provider: text("provider").$type<"hetzner" | "yandex">().notNull(),
+    provider: text("provider").$type<"hetzner" | "gcp">().notNull(),
     providerServerId: text("provider_server_id").notNull(),
     ipv4: text("ipv4"),
     status: text("status")
@@ -508,8 +510,8 @@ export const jobs = sqliteTable(
         | "watchdog_scan"
         | "teardown_vps"
         // 002 additions (E7)
-        | "spawn_yandex_vm"
-        | "teardown_yandex_vm"
+        | "spawn_scan_vm"
+        | "teardown_scan_vm"
         | "render_pdf"
         | "send_scan_complete_telegram"
         | "poll_dns_verify"

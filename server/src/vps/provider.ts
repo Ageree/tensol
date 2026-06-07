@@ -8,7 +8,7 @@
  *      backend (Constitution «УДАЛИ + СОЗДАЙ»).
  *
  *   2. `CloudProvider` (T021 — 002-blackbox-mvp). Async-operation-aware
- *      surface for Yandex Cloud Compute (per research.md §R4). Yandex's REST
+ *      surface for Google Cloud Compute (per research.md §R4). GCP's REST
  *      API returns long-running `Operation` objects that must be polled until
  *      `done: true` — hence the explicit `pollOperation` method and the
  *      richer status enum (`provisioning` / `running` / `stopping` /
@@ -56,9 +56,9 @@ export type VpsProvider = {
 };
 
 // ---------------------------------------------------------------------------
-// T021 — CloudProvider (002-blackbox-mvp, Yandex-shaped async ops).
-// Per research.md §R4: Yandex compute returns `Operation` objects; callers
-// poll `GET /operations/{id}` until `done: true`. Status enum mirrors Yandex
+// T021 — CloudProvider (002-blackbox-mvp, GCP-shaped async ops).
+// Per research.md §R4: GCP compute returns `Operation` objects; callers
+// poll `GET /operations/{id}` until `done: true`. Status enum mirrors GCP
 // instance lifecycle (`PROVISIONING` / `RUNNING` / `STOPPING` / `STOPPED` /
 // `ERROR`), lowercased to match repository convention.
 // ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ export type VpsProvider = {
 /** Argument bag for `CloudProvider.spawnVm`. */
 export type SpawnVmInput = {
   /**
-   * Scan-order ULID. Used both as the idempotency-key value (Yandex
+   * Scan-order ULID. Used both as the idempotency-key value (GCP
    * dedupes within a 24h window) and as the VM name suffix.
    */
   scanId: string;
@@ -78,7 +78,7 @@ export type SpawnVmInput = {
    */
   userData: string;
   /**
-   * Optional vendor-side labels / metadata. Yandex accepts up to 64
+   * Optional vendor-side labels / metadata. GCP accepts up to 64
    * key/value pairs per instance. Used by the orphan-cleanup cron
    * (research R10) to locate Tensol-owned VMs.
    */
@@ -91,7 +91,7 @@ export type SpawnVmInput = {
  * `publicIp` may be undefined until the operation resolves.
  */
 export type SpawnVmResult = {
-  /** Provider-side instance identifier (Yandex compute UUID). */
+  /** Provider-side instance identifier (GCP compute UUID). */
   instanceId: string;
   /**
    * Async operation handle. Caller polls via `pollOperation(operationId)`
@@ -128,7 +128,7 @@ export type VmStatus = {
 export type OperationResult = {
   operationId: string;
   done: boolean;
-  /** Set only when `done && error` — structured Yandex error message. */
+  /** Set only when `done && error` — structured GCP error message. */
   error?: string;
   /**
    * Set only when `done && !error`. Discriminated by op kind:
@@ -144,7 +144,7 @@ export type OperationResult = {
  * Only the fields the cleanup task strictly needs: id (for teardown call),
  * name (for prefix matching), and createdAt (for grace-window comparison)
  * — expressed as unix millis to match the rest of the codebase's time
- * convention. Yandex returns RFC3339 strings on the wire; the Yandex
+ * convention. GCP returns RFC3339 strings on the wire; the GCP
  * `listInstances` implementation does the conversion.
  */
 export type VmInstanceSummary = {
@@ -165,7 +165,7 @@ export type VmInstanceSummary = {
 export type CloudProvider = {
   /**
    * Provision a new VM. Returns immediately with the instance id + an
-   * operation handle to poll. Yandex-side idempotency is keyed on
+   * operation handle to poll. GCP-side idempotency is keyed on
    * `input.scanId` (24h dedup window per R4).
    */
   spawnVm(input: SpawnVmInput): Promise<SpawnVmResult>;

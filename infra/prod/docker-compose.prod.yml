@@ -1,9 +1,9 @@
-# Tensol production stack — single-node Timeweb VM (5.42.106.25).
+# Sthrip production stack — single-node VM.
 #
 # Only the server runs here. The SPA (apps/site) is built to static files and
 # served directly by Caddy on the host from /opt/tensol/site-dist (see
-# infra/prod/Caddyfile). Caddy also terminates TLS for all 4 hostnames and
-# reverse-proxies api.tensol.ru -> 127.0.0.1:3000.
+# infra/prod/Caddyfile). Caddy also terminates TLS for Sthrip hostnames and
+# reverse-proxies api.sthrip.dev -> 127.0.0.1:3000.
 #
 # Usage (from repo root, after `infra/prod/deploy.sh` provisions the host):
 #
@@ -44,7 +44,7 @@ services:
       - /opt/tensol/.gcp:/opt/tensol/.gcp:ro
     ports:
       # Bind to loopback only — Caddy on the host reverse-proxies the public
-      # api.tensol.ru endpoint to this port. Nothing from the internet hits
+      # api.sthrip.dev endpoint to this port. Nothing from the internet hits
       # :3000 directly.
       - "127.0.0.1:3000:3000"
     healthcheck:

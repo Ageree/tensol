@@ -4,7 +4,7 @@
 **Operator:** Claude (Opus 4.7) on branch `002-blackbox-mvp`
 **Purpose:** Document that the container image
 `ghcr.io/ageree/tensol-vps-agent` is publicly pullable without GHCR auth, so
-ephemeral Yandex Cloud VMs spawned by `spawnVm()` can `docker pull` it during
+ephemeral GCP VMs spawned by `spawnVm()` can `docker pull` it during
 each blackbox scan.
 
 ---
@@ -112,7 +112,7 @@ credentials — only the public anonymous-pull token. This is exactly what
 
 ### What this means for `spawnVm()`
 
-When a fresh Yandex VM runs its cloud-init script with:
+When a fresh GCP VM runs its cloud-init script with:
 
 ```
 docker pull ghcr.io/ageree/tensol-vps-agent:002-blackbox-mvp-09c10e8

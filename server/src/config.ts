@@ -76,6 +76,7 @@ const ConfigSchema = z
     // with empty default so dev boot doesn't halt when the key is absent;
     // production deployments MUST set it or the spawned VM's LiteLLM
     // returns 401 on the first agent call and the scan hangs at recon.
+    OPENROUTER_API_KEY: z.string().default(""),
     TENSOL_OPENROUTER_API_KEY: z.string().default(""),
 
     // LiteLLM master key (proxy-side auth between langgraph and litellm
@@ -242,6 +243,9 @@ const ConfigSchema = z
     // — leave OFF unless you've accepted that. LIVE VM verification required
     // before production (the route rewrite is unit-tested, not E2E here).
     TENSOL_BLACKBOX_AGENT_ENABLED: envBool(false),
+    // Operator diagnostics: keep failed blackbox scan VMs around long enough to
+    // inspect compose logs. Default OFF so production teardown remains prompt.
+    TENSOL_DIAGNOSTIC_PRESERVE_FAILED_VM: envBool(false),
 
     // 005-whitebox-mdash — MDASH-style multi-model agentic harness for whitebox
     // DEEP mode. Default OFF: when off, whitebox deep falls back byte-for-byte to
@@ -279,15 +283,22 @@ const ConfigSchema = z
       });
     }
   })
-  // 003-whitebox — resolve the review LLM key fallback at load time. When the
-  // review-specific key is unset, reuse the shared OpenRouter key so whitebox
-  // scans + PR review activate without a duplicate credential. Returns a new
-  // object (no mutation); the shape is unchanged, so `Config` is unaffected.
-  .transform((cfg) => ({
-    ...cfg,
-    TENSOL_REVIEW_LLM_API_KEY:
-      cfg.TENSOL_REVIEW_LLM_API_KEY || cfg.TENSOL_OPENROUTER_API_KEY,
-  }));
+  // Resolve OpenRouter aliases at load time. Prefer the product-specific env
+  // name, but accept the provider-standard OPENROUTER_API_KEY so local and
+  // production environments do not boot with an accidentally blank VM key.
+  .transform((cfg) => {
+    const sharedOpenRouterKey =
+      cfg.TENSOL_OPENROUTER_API_KEY || cfg.OPENROUTER_API_KEY;
+    return {
+      ...cfg,
+      TENSOL_OPENROUTER_API_KEY: sharedOpenRouterKey,
+      // 003-whitebox — when the review-specific key is unset, reuse the shared
+      // OpenRouter key so whitebox scans + PR review activate without a
+      // duplicate credential.
+      TENSOL_REVIEW_LLM_API_KEY:
+        cfg.TENSOL_REVIEW_LLM_API_KEY || sharedOpenRouterKey,
+    };
+  });
 
 export type Config = z.infer<typeof ConfigSchema>;
 

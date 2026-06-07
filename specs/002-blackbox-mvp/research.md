@@ -78,28 +78,35 @@ enum.
 
 ---
 
-## R3 — Exact ₽ pricing values per tier
+## R3 — Exact international pricing values per tier
 
-**Status**: **DEFERRED — operator decision, not technical research.**
+**Status**: **SUPERSEDED / DEFERRED — operator decision, not technical research.**
 
-The operator (project owner) will finalize prices once the cost model
-spreadsheet is filled in (LLM cost × profile × margin × infra overhead).
-This is a business decision, not a research question. The MVP ships with:
+The original RU/RUB pricing assumption is obsolete after the 2026-06-05
+international pivot. The operator (project owner) will finalize prices once
+the cost model spreadsheet is filled in (LLM cost × profile × margin × infra
+overhead, plus tax/Merchant-of-Record considerations). The operator has no
+Stripe account as of 2026-06-05, so Stripe-dependent production billing
+options, including Clerk Billing, are not available today. This is a business
+decision, not a research question. The MVP ships with:
 - Quick = **free** (interim, feature-flagged)
-- Deep = **"from ₽X, см. форма заявки"** (no specific price, contact-based)
+- Deep = **contact-based** (no specific public price)
 
-Once paid checkout activates (`TENSOL_YOOKASSA_LIVE=true`), the operator
-will provide the exact numbers and they will be stored in a single config
-file `server/config/pricing.ts` (or env vars), not hard-coded in routes.
+If paid access is needed before self-serve billing, use manual/offline credits
+and operator-granted entitlements. Once paid checkout activates, the operator
+will provide exact prices and the billing design will store them in
+provider-agnostic configuration or billing tables. Do not use YooKassa-specific
+config, ruble-only fields, direct Stripe, or Clerk Billing as production
+defaults unless Stripe availability is explicitly re-established.
 
 **No further research action.**
 
 ---
 
-## R4 — Yandex Cloud REST API integration pattern
+## R4 — GCP REST API integration pattern
 
-**Question**: Yandex Cloud's API design guide
-(https://yandex.cloud/ru/docs/api-design-guide/concepts/general) is
+**Question**: GCP's API design guide
+(https://gcp.cloud/ru/docs/api-design-guide/concepts/general) is
 gRPC-first with REST via gRPC-JSON transcoder. What's the integration
 pattern from TypeScript/Bun?
 
@@ -107,16 +114,16 @@ pattern from TypeScript/Bun?
 shared helpers (`getIamToken`, `pollOperation`, `idempotencyKey`).
 
 Endpoints used (MVP scope):
-- `POST https://compute.api.cloud.yandex.net/compute/v1/instances` — spawn VM
-- `GET  https://operation.api.cloud.yandex.net/operations/{operationId}` — poll async op
-- `GET  https://compute.api.cloud.yandex.net/compute/v1/instances/{instanceId}` — status
-- `DELETE https://compute.api.cloud.yandex.net/compute/v1/instances/{instanceId}` — teardown
-- `POST https://iam.api.cloud.yandex.net/iam/v1/tokens` — IAM token refresh
-- `POST https://storage.yandexcloud.net/{bucket}/{key}` — Object Storage upload
+- `POST https://compute.googleapis.com/compute/v1/instances` — spawn VM
+- `GET  https://compute.googleapis.com/operations/{operationId}` — poll async op
+- `GET  https://compute.googleapis.com/compute/v1/instances/{instanceId}` — status
+- `DELETE https://compute.googleapis.com/compute/v1/instances/{instanceId}` — teardown
+- `POST https://iamcredentials.googleapis.com/iam/v1/tokens` — IAM token refresh
+- `POST https://storage.googleapis.com/{bucket}/{key}` — Object Storage upload
   (or via aws-sdk-style signing)
 
 **Rationale**:
-- The official Yandex Cloud SDK for Node is heavyweight (depends on
+- The official GCP SDK for Node is heavyweight (depends on
   full gRPC + protobuf stack). The handful of endpoints we touch (4 compute
   endpoints + IAM + Object Storage) is much lighter as a hand-rolled REST
   client at ~250 LOC.
@@ -132,15 +139,15 @@ max 8s) up to 10 minutes total before timing out. On `done: true`, the
 contains a structured error.
 
 **Idempotency**:
-Every spawn includes `Idempotency-Key: <scan_order_id>` header. Yandex
+Every spawn includes `Idempotency-Key: <scan_order_id>` header. GCP
 deduplicates within a 24-hour window. Safe to retry on transient failures.
 
 **Alternatives considered**:
-- *Official Yandex Cloud SDK*: bloated, gRPC dep, slow build.
+- *Official GCP SDK*: bloated, gRPC dep, slow build.
 - *Terraform-as-a-runtime via API*: overkill, indirect, slow.
 - *cdktf or pulumi*: same problem.
 
-**Implementation note**: All Yandex REST in `server/src/vps/yandex.ts`.
+**Implementation note**: All GCP REST in `server/src/vps/gcp.ts`.
 Mock at the `fetch`-call level for default tests (per Constitution VI:
 fake provider, real provider on PR-merge + nightly).
 
@@ -148,17 +155,17 @@ fake provider, real provider on PR-merge + nightly).
 
 ## R5 — IAM token lifecycle
 
-**Question**: Yandex IAM tokens are short-lived (12 hours). How does the
+**Question**: cloud IAM tokens are short-lived (12 hours). How does the
 backend refresh them safely?
 
-**Decision**: **Refresh-on-demand with cached singleton.** The Yandex
+**Decision**: **Refresh-on-demand with cached singleton.** The GCP
 client module exposes `getIamToken()` which:
 1. Returns the cached token if `now < expiresAt - 5min`.
 2. Otherwise calls `POST /iam/v1/tokens` with the service-account JSON
    key (signed JWT per spec), updates the cache, returns.
 
-The service-account key lives in env `YANDEX_SA_KEY_JSON` (base64-encoded
-JSON). Backend never writes it to disk.
+The service-account key is referenced by `GOOGLE_APPLICATION_CREDENTIALS` and
+mounted into the server container as a file. Backend never logs or rewrites it.
 
 **Rationale**: 5-minute safety margin avoids race conditions during
 long-running polling loops. Singleton cache makes the refresh O(1)
@@ -264,19 +271,19 @@ via Telegram alert when retries succeed (or after 24h fail).
 
 ---
 
-## R9 — Yandex Object Storage upload from VM
+## R9 — GCS-compatible object storage upload from VM
 
 **Question**: How does `vps-agent` upload `evidence.tar.gz` to Object
 Storage? The VM has a service-account-scoped IAM key.
 
 **Decision**: **AWS S3-compatible signing** via the `aws-sdk-v3` S3
-client (Yandex Object Storage is S3-compatible). The VM receives a
+client (GCS-compatible object storage is S3-compatible). The VM receives a
 write-only IAM access-key + secret scoped to one bucket prefix
 (`s3://tensol-evidence/scans/<scan_order_id>/*`). Key issued at VM
 spawn time, ephemeral.
 
 **Rationale**:
-- Yandex Object Storage advertises S3 wire-compatibility, so the AWS
+- GCS-compatible object storage advertises S3 wire-compatibility, so the AWS
   SDK works out of the box.
 - Per-scan scoped keys prevent one compromised VM from reading
   cross-tenant evidence.
@@ -285,11 +292,11 @@ spawn time, ephemeral.
 **Alternatives considered**:
 - *Server-mediated upload (VM POSTs to our backend, backend stores)*:
   doubles bandwidth + backend RAM pressure under concurrent scans.
-- *VM uses MinIO SDK*: irrelevant — Yandex isn't MinIO.
+- *VM uses MinIO SDK*: irrelevant — GCP isn't MinIO.
 
 **Implementation note**: VM cloud-init writes
-`/etc/tensol/yandex-s3-key.json`. `vps-agent` reads this, configures
-S3 client at `https://storage.yandexcloud.net`, uploads.
+`/etc/tensol/gcp-s3-key.json`. `vps-agent` reads this, configures
+S3 client at `https://storage.googleapis.com`, uploads.
 
 ---
 
@@ -314,7 +321,7 @@ bug to fix).
   impossible.
 
 **Alternatives considered**:
-- *Yandex-side lifecycle policy*: not exposed for Compute instances.
+- *GCP-side lifecycle policy*: not exposed for Compute instances.
 - *Trust the teardown job alone*: too brittle; one crash leaks money.
 
 ---
@@ -327,7 +334,7 @@ confidence in the bootstrap script?
 **Decision**: **Three layers of confidence.**
 1. **Unit-tested template rendering** — `cloud-init.test.ts` verifies the
    bash output matches expected fixtures for representative inputs.
-2. **Real-VM integration test in `vps/yandex-real.test.ts`** — runs on
+2. **Real-VM integration test in `vps/gcp-real.test.ts`** — runs on
    PR-merge + nightly, spawns a real VM with a minimal Decepticon-less
    payload that writes a marker file `/tmp/cloud-init-marker`. Test polls
    for marker via SSH (or via backend webhook), confirms cloud-init
@@ -358,14 +365,14 @@ for both magic-link (already existing) and scan-complete notifications.
 **Rationale**:
 - Resend has a clean API (single `POST /emails`), supports attachments
   via base64 payload.
-- Deliverability to RU mailboxes (mail.ru, yandex.ru, gmail.com) is
+- Deliverability to RU mailboxes (mail.ru, regional mailbox, gmail.com) is
   validated by the existing magic-link flow.
 - Same provider for two email paths reduces operational surface.
 
 **Alternatives considered**:
 - *SendGrid*: more enterprise, expensive on low volume.
-- *AWS SES*: requires AWS account (operator may not have); region
-  ru-central1 not natively supported.
+- *AWS SES*: requires AWS account (operator may not have); regional coverage
+  and compliance posture would need separate review.
 - *Self-hosted SMTP*: deliverability nightmare.
 
 **Implementation note**: `RESEND_API_KEY` env var. `server/src/notify/
@@ -375,16 +382,16 @@ email.ts` wraps the API with retry-on-5xx.
 
 ## R13 — Feature-flag mechanism for paid checkout toggle
 
-**Question**: How is `TENSOL_YOOKASSA_LIVE` consumed? Compile-time or
+**Question**: How is the paid-checkout toggle consumed? Compile-time or
 runtime?
 
-**Decision**: **Runtime env var read on each request that branches
-behavior.** No compile-time DI, no feature-flag service.
+**Decision**: **Runtime env var read on each request that branches behavior.**
+No compile-time DI, no feature-flag service.
 
-- Backend: `process.env.TENSOL_YOOKASSA_LIVE === 'true'` checked in three
-  places (1) `scan-orders/service.ts::launchScan` to gate `quick` free
-  vs paid path, (2) `routes/scan-orders.ts` to surface tier availability
-  to frontend, (3) `pricing` API endpoint to advertise tier prices.
+- Backend: pre-pivot code may still expose `yookassa_live` for compatibility.
+  New code should expose provider-agnostic billing flags such as
+  `billing_live` and `billing_provider`, then delegate checkout/refunds to a
+  billing adapter.
 - Frontend: reads `/v1/config/feature-flags` (new tiny endpoint) on
   app boot, caches in React context for session.
 
@@ -405,14 +412,14 @@ in flight stay free; new Quick scans after the flip require payment.
 | R1 Subdomain discovery | Decided: CT logs only | `data-model.md`, `contracts/openapi.yaml` |
 | R2 Audit chain unification | Decided: single chain | `data-model.md` |
 | R3 Pricing values | Deferred (operator decision) | `server/config/pricing.ts` (TBD) |
-| R4 Yandex REST integration | Decided: hand-rolled fetch + helpers | `server/src/vps/yandex.ts` |
-| R5 IAM token lifecycle | Decided: on-demand cached singleton | `server/src/vps/yandex.ts` |
+| R4 GCP REST integration | Decided: hand-rolled fetch + helpers | `server/src/vps/gcp.ts` |
+| R5 IAM token lifecycle | Decided: on-demand cached singleton | `server/src/vps/gcp.ts` |
 | R6 DNS resolver bypass | Decided: dual-resolver agreement | `server/src/dns-verify/resolver.ts` |
 | R7 PDF reliability | Decided: 3-retry + email-link fallback | `server/src/jobs/handlers/render-pdf.ts` |
 | R8 Telegram retry | Decided: 5-attempt backoff + 24h cron | `server/src/notify/telegram.ts` |
 | R9 Object Storage upload | Decided: AWS-SDK v3 S3 client | `vps-agent/src/evidence-upload.ts` |
 | R10 Orphan cleanup | Decided: cron + Telegram alert | `server/scripts/cleanup-orphan-vms.ts` |
-| R11 Cloud-init reliability | Decided: 3-layer test confidence | `server/src/vps/cloud-init.test.ts` + real-Yandex IT + nightly |
+| R11 Cloud-init reliability | Decided: 3-layer test confidence | `server/src/vps/cloud-init.test.ts` + live cloud IT + nightly |
 | R12 Email provider | Decided: Resend | `server/src/notify/email.ts` |
 | R13 Feature flag toggle | Decided: runtime env var | `server/src/scan-orders/service.ts` |
 

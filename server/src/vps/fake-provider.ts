@@ -108,7 +108,7 @@ export class FakeCloudProvider implements CloudProvider {
 
     // For seeded instances (which carry a folder), remove from folder index
     // immediately so `listInstances` reflects the teardown intent. Production
-    // Yandex behaves the same — a DELETE call removes the row from the
+    // GCP behaves the same — a DELETE call removes the row from the
     // list endpoint even though the operation is still in flight.
     if (current.folderId) {
       const ids = this.#folderIndex.get(current.folderId);

@@ -4,7 +4,7 @@
 from scratch and run the happy-path E2E.
 
 **Pre-reqs**: Bun ≥ 1.1, Docker Desktop, Playwright deps installed, a
-valid Yandex Cloud test folder (or skip the real-Yandex tests with the
+valid GCP test folder (or skip the live cloud tests with the
 flag in §6).
 
 ---
@@ -31,7 +31,14 @@ TENSOL_DB_URL=file:./local.db
 TENSOL_HMAC_SECRET=dev-only-not-real
 TENSOL_WEBHOOK_SECRET=dev-only-not-real
 TENSOL_PORT=3001
-TENSOL_YOOKASSA_LIVE=false
+
+# Billing is disabled in the MVP. New work should use provider-agnostic
+# billing/entitlements, not YooKassa. Legacy pre-pivot code may still read
+# TENSOL_YOOKASSA_LIVE; keep it unset or false while that compatibility path
+# exists.
+TENSOL_BILLING_LIVE=false
+TENSOL_BILLING_PROVIDER=none
+# TENSOL_YOOKASSA_LIVE=false
 
 # Resend (transactional email)
 RESEND_API_KEY=re_dev_...
@@ -40,12 +47,13 @@ RESEND_API_KEY=re_dev_...
 TENSOL_TELEGRAM_BOT_TOKEN=...
 TENSOL_TELEGRAM_CHAT_ID=496866748
 
-# Yandex Cloud (real spawn — leave blank for tests with fake provider)
-YANDEX_SA_KEY_JSON=base64-encoded-service-account-key
-YANDEX_TEST_FOLDER_ID=b1g...
-YANDEX_TEST_NETWORK_ID=enp...
-YANDEX_TEST_SUBNET_ID=e9b...
-YANDEX_TEST_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..."
+# GCP (real spawn — leave blank for tests with fake provider)
+GOOGLE_APPLICATION_CREDENTIALS=.gcp/tensol-vm-spawner.json
+GCP_PROJECT_ID=tensol-scanners
+GCP_ZONE=europe-west1-b
+GCP_NETWORK_NAME=default
+GCP_SUBNET_NAME=default
+GCP_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..."
 ```
 
 `apps/site/.env`:
@@ -73,7 +81,7 @@ cd server && tmux new-session -d -s be 'bun run dev'
 # T2 — frontend
 cd apps/site && tmux new-session -d -s fe 'bun run dev'
 
-# T3 — vps-agent (only needed if running the real-Yandex IT)
+# T3 — vps-agent (only needed if running the live cloud IT)
 cd vps-agent && tmux new-session -d -s va 'bun run dev:fake-target'
 ```
 
@@ -107,19 +115,19 @@ which makes DNS verification always succeed after 5 seconds.
 
 ## 6. Test suites
 
-Per-push (mocked Yandex, fast):
+Per-push (mocked cloud provider, fast):
 ```bash
 cd server && bun test
 cd apps/site && bun test
 cd vps-agent && bun test
 ```
 
-PR-merge / nightly (real Yandex):
+PR-merge / nightly (live cloud):
 ```bash
-cd server && TENSOL_TEST_REAL_YANDEX=1 bun test
+cd server && TENSOL_TEST_REAL_GCP=1 bun test
 ```
 
-Real-Yandex tests spawn VMs in your test folder. Cleanup is automatic,
+live cloud tests spawn VMs in your test folder. Cleanup is automatic,
 but if a test crashes mid-flight, run `bun run cleanup-orphan-vms` to
 remove leftovers.
 
@@ -153,11 +161,11 @@ bun run db:migrate
 - **DNS verification stays "Not found"**: many DNS providers have TTL
   of 5–60 minutes for new TXT records. Use `dig +short TXT <yourdomain>
   @1.1.1.1` to confirm propagation outside the platform.
-- **Yandex spawn fails with `quotaExceeded`**: your test folder quota
+- **GCP spawn fails with `quotaExceeded`**: your test folder quota
   (5 VMs default) is full. Run cleanup-orphan-vms.
 - **PDF render fails locally**: Puppeteer needs `@sparticuz/chromium-min`
   binary. Re-run `bun install` if the postinstall failed.
 - **Webhook signature verification fails**: clock skew between
-  vps-agent's VM and the backend. Real Yandex VMs sync NTP at boot, so
+  vps-agent's VM and the backend. live cloud VMs sync NTP at boot, so
   this typically self-resolves after ~10s; in local dev, run
   `sudo sntp -sS time.cloudflare.com` if needed.

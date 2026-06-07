@@ -5,7 +5,7 @@ info:
   description: |
     REST contract between the Tensol backend (`server/`), the apps/site
     frontend, and (for the scan-complete webhook) the vps-agent running
-    inside ephemeral Yandex VMs.
+    inside ephemeral GCP VMs.
 
     All routes versioned under `/v1`. All bodies validated with Zod on
     the server side per Constitution IX. All state-changing operations
@@ -70,6 +70,11 @@ components:
 
     ScanOrder:
       type: object
+      description: |
+        Current pre-Convex REST shape. `payment_kind` and `amount_kopecks` are
+        legacy pre-international-pivot fields; new billing should use
+        provider-agnostic entitlements/credits rather than YooKassa-specific
+        values.
       required: [id, user_id, status, tier, primary_domain, attack_surface,
                  safety_rps, payment_kind, created_at, updated_at]
       properties:
@@ -98,8 +103,14 @@ components:
         failure_reason: { type: string, nullable: true }
         payment_kind:
           type: string
+          deprecated: true
+          description: Legacy compatibility value. New clients should use future entitlement/billing records.
           enum: [free_quick, yookassa]
-        amount_kopecks: { type: integer, nullable: true }
+        amount_kopecks:
+          type: integer
+          nullable: true
+          deprecated: true
+          description: Legacy RUB minor-unit value. New billing records should use amount_minor + ISO currency.
         created_at: { type: integer }
         updated_at: { type: integer }
 
@@ -195,7 +206,21 @@ components:
       type: object
       required: [yookassa_live]
       properties:
-        yookassa_live: { type: boolean }
+        yookassa_live:
+          type: boolean
+          deprecated: true
+          description: Legacy pre-international-pivot paid-toggle. Do not build new YooKassa behavior on it.
+        billing_live:
+          type: boolean
+          description: Future provider-agnostic billing toggle.
+        billing_provider:
+          type: string
+          enum: [none, manual, paddle, lemonsqueezy, polar, stripe, clerk_billing]
+          description: |
+            Future billing provider hint for UI and operator tooling. `manual`
+            is the current near-term paid-access posture. `stripe` and
+            `clerk_billing` are not production assumptions while the operator
+            has no Stripe account.
 
 paths:
   /v1/auth/magic-link:
@@ -256,7 +281,7 @@ paths:
 
   /v1/config/feature-flags:
     get:
-      summary: Runtime feature-flag values (e.g. yookassa_live)
+      summary: Runtime feature-flag values (legacy yookassa_live plus future billing flags)
       tags: [config]
       responses:
         '200':

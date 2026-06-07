@@ -2,7 +2,7 @@
  * T069 — `POST /v1/webhooks/scan-complete` receiver (US1 final-callback).
  *
  * This is the **inbound HTTP endpoint** that `vps-agent` running on the
- * per-scan Yandex VM calls when a Decepticon scan terminates.
+ * per-scan GCP VM calls when a Decepticon scan terminates.
  *
  * Source of truth:
  *   - `specs/002-blackbox-mvp/contracts/webhook.md`
@@ -44,8 +44,8 @@
  *        → 409 "scan_order_not_running" otherwise
  *   8. Findings ingest via createFindingsIngest().insertFinding (one per
  *      finding); UPDATE scans.status=completed, scan_orders.status=completed
- *   9. Enqueue `render_pdf`, `send_scan_complete_telegram`,
- *      `teardown_yandex_vm` jobs
+ *   9. Create a `reports` row and enqueue `render_pdf`,
+ *      `send_scan_complete_telegram`, `teardown_scan_vm` jobs
  *  10. Emit `webhook_received` signed audit AFTER all state changes commit
  *
  * Constitution invariants honoured here:
@@ -86,7 +86,7 @@
  *
  * What this module deliberately does NOT do:
  *   - Touch `vps_instances` — V2 contract has no per-VPS sign_key (single
- *     fleet secret instead). The teardown_yandex_vm job handler is the
+ *     fleet secret instead). The teardown_scan_vm job handler is the
  *     one that flips the vps_instances row to `tearing_down`.
  *   - Render PDFs / send Telegram — those happen via the enqueued jobs.
  *   - Verify the evidence_archive_url bucket name policy — contract
@@ -103,6 +103,7 @@ import {
   scanOrders as scanOrdersTable,
   scans as scansTable,
   jobs as jobsTable,
+  reports as reportsTable,
   webhookDedup as webhookDedupTable,
 } from "../db/schema.ts";
 import { emitSignedAudit } from "../audit/emit.ts";
@@ -114,6 +115,11 @@ import {
   WebhookScanCompleteBodySchema,
   type WebhookScanCompleteBody,
 } from "../schemas/webhook-scan-complete.ts";
+import type {
+  RenderPdfJob,
+  SendScanCompleteTelegramJob,
+  TeardownScanVmJob,
+} from "../jobs/types.ts";
 
 /** Five-minute drift window per webhook.md §"Signature header". */
 const SIGNATURE_DRIFT_SECONDS = 5 * 60;
@@ -124,7 +130,7 @@ const SIGNATURE_DRIFT_SECONDS = 5 * 60;
 const FOLLOWUP_JOB_KINDS = [
   "render_pdf",
   "send_scan_complete_telegram",
-  "teardown_yandex_vm",
+  "teardown_scan_vm",
 ] as const;
 
 export interface CreateWebhookScanCompleteRouterDeps {
@@ -460,9 +466,14 @@ export function createWebhookScanCompleteRouter(
     }
 
     // ───────────────────────────────────────────────────────────────────
-    // 9. State transition + job enqueue in ONE transaction.
+    // 9. State transition + report row + job enqueue in ONE transaction.
+    //
+    // render_pdf requires an existing reports row and a reportId in the
+    // payload. Keep this aligned with legacy `/api/webhooks/scan-progress`
+    // so both completion callbacks produce a downloadable report.
     // ───────────────────────────────────────────────────────────────────
     const jobIds: Record<string, string> = {};
+    const reportId = newId();
     await withTx(db, async (tx) => {
       tx.update(scansTable)
         .set({
@@ -480,24 +491,54 @@ export function createWebhookScanCompleteRouter(
         .where(eq(scanOrdersTable.id, body.scan_order_id))
         .run();
 
+      tx.insert(reportsTable)
+        .values({
+          id: reportId,
+          scanId: scanRow.id,
+          status: "pending",
+          bucket: null,
+          key: null,
+          byteSize: null,
+          renderAttempts: 0,
+          lastError: null,
+          expiresAt: null,
+          createdAt: nowMs,
+          updatedAt: nowMs,
+        })
+        .run();
+
       for (const kind of FOLLOWUP_JOB_KINDS) {
+        let payload:
+          | RenderPdfJob
+          | SendScanCompleteTelegramJob
+          | TeardownScanVmJob;
+        if (kind === "render_pdf") {
+          payload = {
+            type: kind,
+            scanId: scanRow.id,
+            reportId,
+          };
+        } else if (kind === "send_scan_complete_telegram") {
+          payload = {
+            type: kind,
+            scanId: scanRow.id,
+            scanOrderId: body.scan_order_id,
+            reportId,
+            userId: scanRow.userId,
+          };
+        } else {
+          const vpsInstanceId = order.vpsInstanceId;
+          if (!vpsInstanceId) continue;
+          payload = {
+            type: kind,
+            scanOrderId: body.scan_order_id,
+            scanId: scanRow.id,
+            vpsInstanceId,
+            ...(order.vpsZone ? { vpsZone: order.vpsZone } : {}),
+          };
+        }
         const jobId = newId();
         jobIds[kind] = jobId;
-        const payload =
-          kind === "render_pdf"
-            ? { type: kind, scan_id: scanRow.id }
-            : kind === "send_scan_complete_telegram"
-              ? {
-                  type: kind,
-                  scan_id: scanRow.id,
-                  scan_order_id: body.scan_order_id,
-                  user_id: scanRow.userId,
-                }
-              : {
-                  type: kind,
-                  scan_id: scanRow.id,
-                  scan_order_id: body.scan_order_id,
-                };
         tx.insert(jobsTable)
           .values({
             id: jobId,

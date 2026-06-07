@@ -1,5 +1,5 @@
 /**
- * T056 — `spawn_yandex_vm` job handler.
+ * T056 — `spawn_scan_vm` job handler.
  *
  * Lifecycle (per task brief):
  *   1. Idempotency gate: re-read the `scan_orders` row; if status is no
@@ -95,7 +95,7 @@ import type { CloudProvider } from "../../vps/provider.ts";
  * both the camelCase (briefs) and snake_case (DB-emitted) forms to stay
  * decoupled from JSON-key style.
  */
-export interface SpawnYandexVmJobPayload {
+export interface SpawnScanVmJobPayload {
   readonly scanOrderId: string;
   readonly scanId: string;
 }
@@ -108,7 +108,7 @@ interface NormalizedPayload {
 
 function normalizePayload(raw: unknown): NormalizedPayload {
   if (!raw || typeof raw !== "object") {
-    throw new Error("spawn_yandex_vm: payload is not an object");
+    throw new Error("spawn_scan_vm: payload is not an object");
   }
   const r = raw as Record<string, unknown>;
   const scanOrderId =
@@ -121,13 +121,13 @@ function normalizePayload(raw: unknown): NormalizedPayload {
     "";
   if (!scanOrderId || !scanId) {
     throw new Error(
-      `spawn_yandex_vm: payload missing scanOrderId/scanId (got ${JSON.stringify(raw)})`,
+      `spawn_scan_vm: payload missing scanOrderId/scanId (got ${JSON.stringify(raw)})`,
     );
   }
   return { scanOrderId, scanId };
 }
 
-export interface SpawnYandexVmHandlerDeps {
+export interface SpawnScanVmHandlerDeps {
   readonly db: DB;
   readonly provider: CloudProvider;
   /** Audit-log signing key. */
@@ -144,7 +144,7 @@ export interface SpawnYandexVmHandlerDeps {
   readonly pollTimeoutMs?: number;
   /** Sleep between provider-retry attempts. Tests override to 1ms. */
   readonly retryBackoffMs?: number;
-  /** Yandex zone label (e.g. "ru-central1-a"). Persisted on the order. */
+  /** GCP zone label (e.g. "ru-central1-a"). Persisted on the order. */
   readonly vpsZone: string;
 
   // ── cloud-init env contract (see vps-agent/.env.example) ──────────────
@@ -193,7 +193,7 @@ const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_POLL_TIMEOUT_MS = 5 * 60 * 1_000;
 const DEFAULT_RETRY_BACKOFF_MS = 1_000;
-const DEFAULT_AGENT_WAIT_BUDGET_MS = 8 * 60 * 1_000; // cloud-init 3-5 min
+const DEFAULT_AGENT_WAIT_BUDGET_MS = 20 * 60 * 1_000; // Docker + GHCR pulls can be slow
 const DEFAULT_AGENT_PROBE_INTERVAL_MS = 10_000;
 const DEFAULT_AGENT_PROBE_TIMEOUT_MS = 5_000;
 
@@ -223,8 +223,8 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Build a `spawn_yandex_vm` handler closing over the injected deps. */
-export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
+/** Build a `spawn_scan_vm` handler closing over the injected deps. */
+export function createSpawnScanVmHandler(deps: SpawnScanVmHandlerDeps) {
   const {
     db,
     provider,
@@ -280,7 +280,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
       .get();
     if (!orderRow) {
       throw new Error(
-        `spawn_yandex_vm: scan_order not found (id=${scanOrderId}). Job will retry / fail at the runner level.`,
+        `spawn_scan_vm: scan_order not found (id=${scanOrderId}). Job will retry / fail at the runner level.`,
       );
     }
     if (orderRow.status !== "vm_provisioning") {
@@ -313,7 +313,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
     });
 
     // 3. Provider call with transient retry. We pass the scan id as the
-    //    Yandex idempotency key value (see CloudProvider.spawnVm contract).
+    //    GCP idempotency key value (see CloudProvider.spawnVm contract).
     let spawnResult: Awaited<ReturnType<CloudProvider["spawnVm"]>> | null = null;
     let lastErr: Error | null = null;
     for (let attempt = 1; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
@@ -346,7 +346,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
         scanOrderId,
         scanId,
         userId: orderRow.userId,
-        error: lastErr ?? new Error("spawn_yandex_vm: unknown failure"),
+        error: lastErr ?? new Error("spawn_scan_vm: unknown failure"),
         auditKey,
         refundFreeQuickQuota,
         now,
@@ -356,7 +356,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
     }
 
     // 4a. If the provider returned a long-running operation handle, poll it.
-    //     The fake provider always returns an operationId; the real Yandex
+    //     The fake provider always returns an operationId; the real GCP
     //     adapter does too. If `operationId` is absent the result is already
     //     terminal — skip polling.
     let finalInstanceId = spawnResult.instanceId;
@@ -372,7 +372,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
               scanOrderId,
               scanId,
               userId: orderRow.userId,
-              error: new Error(`spawn_yandex_vm: operation errored: ${res.error}`),
+              error: new Error(`spawn_scan_vm: operation errored: ${res.error}`),
               auditKey,
               refundFreeQuickQuota,
               now,
@@ -393,7 +393,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
             scanId,
             userId: orderRow.userId,
             error: new Error(
-              `spawn_yandex_vm: operation poll TIMEOUT (op=${opId})`,
+              `spawn_scan_vm: operation poll TIMEOUT (op=${opId})`,
             ),
             auditKey,
             refundFreeQuickQuota,
@@ -408,7 +408,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
 
     // 4b. Wait for vps-agent on the new VM to come up, then dispatch.
     //
-    // Yandex's create-instance operation resolves once the VM exists, but
+    // GCP's create-instance operation resolves once the VM exists, but
     // cloud-init (apt install docker, docker pull tensol-vps-agent, docker
     // run -d …) keeps running in the background and typically takes 3-5
     // minutes to actually bind :8080. So we cannot just `fetch /scan` and
@@ -418,7 +418,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
     // exceed the wait budget.
     //
     // This wait happens BEFORE the vm_ready persistence below so that a
-    // runner retry of the whole spawn_yandex_vm job (idempotency gate at
+    // runner retry of the whole spawn_scan_vm job (idempotency gate at
     // step 1 keys off `scan_orders.status`, which is still
     // `vm_provisioning` until 4c) can re-enter and try dispatch again.
     // Only after a successful dispatch do we commit vm_ready + audit
@@ -427,7 +427,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
     const publicIp = vmStatus.publicIp;
     if (!publicIp) {
       throw new Error(
-        `spawn_yandex_vm: getStatus(${finalInstanceId}) returned no publicIp`,
+        `spawn_scan_vm: getStatus(${finalInstanceId}) returned no publicIp`,
       );
     }
     const scanRow = db
@@ -437,7 +437,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
       .get();
     if (!scanRow) {
       throw new Error(
-        `spawn_yandex_vm: scans row vanished mid-handler (id=${scanId})`,
+        `spawn_scan_vm: scans row vanished mid-handler (id=${scanId})`,
       );
     }
     const port = agentPort ?? 8080;
@@ -490,7 +490,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
       // `vm_provisioning`), wasting ~8 min/attempt while the VM runs until the
       // 35-min orphan reaper. Instead: enqueue a teardown, mark the order/scan
       // terminally failed, refund, alert — then return (no retry).
-      const msg = `spawn_yandex_vm: vps-agent at ${dispatchUrl} did not respond within ${agentWaitBudgetMs}ms (last error: ${lastProbeErr ?? "-"})`;
+      const msg = `spawn_scan_vm: vps-agent at ${dispatchUrl} did not respond within ${agentWaitBudgetMs}ms (last error: ${lastProbeErr ?? "-"})`;
       await emitSignedAudit(
         db,
         {
@@ -527,7 +527,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
     }
     if (!dispatchRes.ok) {
       const errText = await dispatchRes.text().catch(() => "<no body>");
-      const msg = `spawn_yandex_vm: agent dispatch HTTP ${dispatchRes.status} ${dispatchRes.statusText}: ${errText.slice(0, 200)}`;
+      const msg = `spawn_scan_vm: agent dispatch HTTP ${dispatchRes.status} ${dispatchRes.statusText}: ${errText.slice(0, 200)}`;
       await emitSignedAudit(
         db,
         {
@@ -631,7 +631,7 @@ export function createSpawnYandexVmHandler(deps: SpawnYandexVmHandlerDeps) {
         .values({
           id: vpsInstanceRowId,
           scanId,
-          provider: "yandex",
+          provider: "gcp",
           providerServerId: finalInstanceId,
           ipv4: publicIp,
           status: "alive",
@@ -690,7 +690,7 @@ interface MarkFailureArgs {
   readonly reason?: string;
   /**
    * When the VM was already provisioned before the failure (agent-dispatch
-   * branch), enqueue a `teardown_yandex_vm` job in the SAME tx so the orphan
+   * branch), enqueue a `teardown_scan_vm` job in the SAME tx so the orphan
    * is reaped promptly instead of waiting for the 35-minute cron (follow-up
    * #3). Omitted for the pre-spawn failure branches (no VM to tear down).
    */
@@ -728,7 +728,7 @@ async function markFailure(args: MarkFailureArgs): Promise<void> {
   const teardownJobId = teardown ? newId() : null;
   const teardownPayload = teardown
     ? JSON.stringify({
-        type: "teardown_yandex_vm",
+        type: "teardown_scan_vm",
         scanOrderId,
         scanId,
         vpsInstanceId: teardown.vpsInstanceId,
@@ -775,7 +775,7 @@ async function markFailure(args: MarkFailureArgs): Promise<void> {
       tx.insert(jobsTable)
         .values({
           id: teardownJobId,
-          type: "teardown_yandex_vm",
+          type: "teardown_scan_vm",
           payloadJson: teardownPayload,
           status: "pending",
           scheduledAt: ts,

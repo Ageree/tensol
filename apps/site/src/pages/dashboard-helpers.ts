@@ -131,13 +131,13 @@ export interface FreeQuotaStatus {
 /**
  * Derive the free-quota slot state from the user's recent scan-orders.
  *
- * We treat a `tier='quick'` order with `created_at >= now - 168h` AND
- * `payment_kind === 'free_quick'` as the slot-consuming event. The server
- * also tracks `users.free_quick_consumed_at` directly; both should agree
- * within a single request window. If `/v1/auth/me` ever starts returning
- * `free_quick_consumed_at`, we can switch to that source verbatim — but
- * today the live endpoint returns only `{user:{id,email}}`, so we derive
- * from scans.
+ * We treat a `tier='quick'` order with `created_at >= now - 168h` and the
+ * legacy `payment_kind === 'free_quick'` marker as the slot-consuming event.
+ * Future international billing should replace this with entitlements/credits.
+ * The server also tracks `users.free_quick_consumed_at` directly; both should
+ * agree within a single request window. If `/v1/auth/me` ever starts returning
+ * `free_quick_consumed_at`, we can switch to that source verbatim — but today
+ * the live endpoint returns only `{user:{id,email}}`, so we derive from scans.
  *
  * Cancelled orders DO refund the slot server-side (per free-tier/service.ts
  * doc), but the client can't see that delta directly. Conservative

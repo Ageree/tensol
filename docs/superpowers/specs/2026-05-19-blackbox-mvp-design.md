@@ -8,6 +8,13 @@ proposed approaches + 5 design sections, all user-approved). Next step:
 `speckit-specify` to author the implementation spec (per user explicit
 instruction overriding skill default of `writing-plans`).
 
+**2026-06-05 update**: this design is now a historical input. The current
+product direction is international by default; see
+`docs/project-current-context.md`. Current production identity is **Sthrip**
+on `sthrip.dev` with `api.sthrip.dev` as the public API domain. YooKassa,
+RUB/RU-first assumptions, and Tensol / `tensol.ru` naming below are
+superseded historical context and must not guide new implementation.
+
 ---
 
 ## 0. Pivot context
@@ -55,7 +62,7 @@ pattern.
                          │  - deep-inquiries   │
                          │  - notify/telegram  │
                          │  - notify/email     │
-                         │  - yandex provisn   │
+                         │  - gcp provisn   │
                          │  - findings ingest  │
                          │  - reports/pdf      │
                          │  + SQLite + audit   │
@@ -63,10 +70,10 @@ pattern.
                            │              │ Telegram Bot API   ┌─────────────┐
                            │              └───────────────────▶│ @tensol_lead│
                            │                                   │ schat 496…  │
-                           │ Yandex API + SSH                  └─────────────┘
+                           │ cloud provider API + SSH                  └─────────────┘
               ┌────────────▼────────────┐
-              │  Yandex Cloud           │
-              │  ru-central1-{a,b,d}    │
+              │  GCP           │
+              │  selected cloud region  │
               │                         │
               │  ephemeral VM/scan      │
               │  ┌───────────────────┐  │
@@ -115,7 +122,7 @@ cleaner end-state.
 
 5–6 weeks total, single developer:
 - Wizard + state machine: 1 week
-- Yandex provider impl + cloud-init + ops cron: 1.5 weeks
+- cloud provider impl + cloud-init + ops cron: 1.5 weeks
 - DNS verify + free-tier quota + scan-orders flow: 1 week
 - Reports PDF + email + Telegram notify: 0.5 week
 - Test suite (~200 tests): ~2 weeks
@@ -134,8 +141,8 @@ cleaner end-state.
 | 3 | Ownership verify | DNS TXT before launch (same as Vector) |
 | 4 | UX | 5-step wizard initially → revised to **4-step Quick wizard** after Deep moved to lead-gen flow |
 | 5 | Auth gate | Full signup before wizard (magic-link, existing) |
-| 6 | Payment gw | YooKassa (RU-first) — **deferred**: user has ИП but YooKassa registration in progress. Interim = Free Quick only, NO YooKassa code path in MVP launch. Feature flag `TENSOL_YOOKASSA_LIVE` gates payment UI |
-| 7 | Dispatch | Yandex Cloud ephemeral VM per scan — day 1, no `local-dispatch` rail |
+| 6 | Payment gw | **Superseded 2026-06-05**: no YooKassa path. Interim = Free Quick only. Operator currently has no Stripe account, so direct Stripe/Clerk Billing are not production defaults. Near-term paid access = manual/offline credits; future self-serve billing must be international and provider-agnostic, with MoR providers evaluated before implementation |
+| 7 | Dispatch | GCP ephemeral VM per scan — day 1, no `local-dispatch` rail |
 | 8 | Output | Dashboard live progress + Findings detail + downloadable PDF + email notification |
 | 9 | Test Accounts feature | Originally "full encrypted storage". **Revised**: Deep moved to lead-gen, Test Accounts collected via inquiry form/personal contact off-platform. NO encrypted storage in MVP |
 
@@ -153,7 +160,7 @@ User-verbatim §2 pivot:
 | Positioning | Free quick surface scan | Mythos-level AI hacking (full kill chain) |
 | UX | 4-step wizard on site | Pricing CTA → form → Telegram-to-operator |
 | Pipeline | Auto: VM spawn → Decepticon recon → findings → PDF | Manual: operator receives Telegram → contacts client → off-platform scope/price/schedule → manual scan trigger off-MVP |
-| Billing | Free (post-MVP: YooKassa via feature flag) | 100% manual, outside MVP system |
+| Billing | Free (post-MVP: international provider-agnostic checkout + entitlements) | 100% manual, outside MVP system |
 | Decepticon assistant_id | `d18311c3-263f-5ee8-ab45-fe337084e45e` (`recon`) | N/A in MVP. Future: `b4beb031-…` (`decepticon` orchestrator) |
 | Default rate limit | 1 per 7 days per user | N/A |
 
@@ -168,7 +175,7 @@ User-verbatim §2 pivot:
 | `server/src/notify/telegram.ts` | Thin wrapper around `@tensol_leadsbot` Bot API. ENV: `TENSOL_TELEGRAM_BOT_TOKEN`, `TENSOL_TELEGRAM_CHAT_ID` (= 496866748 from prior session) | ~80 |
 | `server/src/notify/email.ts` | Resend API wrapper, `sendScanCompleteEmail(orderId, pdfBuffer?)` with attachment-or-link fallback | ~100 |
 | `server/src/vps/provider.ts` | `CloudProvider` TS interface: `spawnVm`, `teardownVm`, `getStatus`, `pollOperation`. Drops the Hetzner-only name | ~60 |
-| `server/src/vps/yandex.ts` | Concrete Yandex Cloud implementation. **Async operation pattern** per Yandex API design guide (every state-change returns `Operation`, must poll). Idempotency-Key on every spawn | ~250 |
+| `server/src/vps/gcp.ts` | Concrete GCP implementation. **Async operation pattern** per cloud provider API design guide (every state-change returns `Operation`, must poll). Idempotency-Key on every spawn | ~250 |
 | `server/src/vps/cloud-init.ts` | Shared cloud-init builder. Renders bash script with `TENSOL_*` env vars, SSH key, webhook secret | ~120 |
 | `server/src/findings/ingest.ts` | Parse YAML frontmatter from `/workspace/findings/*.md`, INSERT findings rows, emit audit-per-finding. Reuses the proven format from 2026-05-19 Juice Shop run | ~150 |
 | `server/src/reports/pdf.ts` | Puppeteer-headless renders HTML template (handlebars) → Buffer. Cover + executive summary + per-finding detail with CVSS/CWE/MITRE/PoC | ~180 |
@@ -196,8 +203,8 @@ apps/site/src/pages/
                                        Contact Support fallback button
     Step4Launch.tsx                 — summary card + green "Запустить
                                        бесплатный Quick" CTA. When
-                                       TENSOL_YOOKASSA_LIVE=true:
-                                       Pay-via-YooKassa CTA instead
+                                       billing_live=true:
+                                       provider-agnostic paid checkout CTA
   DeepInquiry.tsx                    — hybrid form (anonymous OR
                                        pre-filled if logged in). Fields:
                                        company, contact_name, position,
@@ -304,7 +311,7 @@ TENSOL_SAFETY_RPS            — passed to Decepticon system prompt as
                                 "respect rate limit ≤ X req/sec"
 TENSOL_WEBHOOK_URL           — https://api.tensol.com/v1/webhooks/scan-complete
 TENSOL_WEBHOOK_SECRET        — HMAC key for signed callback
-TENSOL_EVIDENCE_S3_BUCKET    — Yandex Object Storage bucket name
+TENSOL_EVIDENCE_S3_BUCKET    — GCS-compatible object storage bucket name
 TENSOL_EVIDENCE_S3_KEY_ID    — IAM access key (scoped: write-only,
                                 limited to scan-specific prefix)
 TENSOL_EVIDENCE_S3_SECRET    — IAM secret
@@ -335,7 +342,7 @@ On completion, vps-agent:
    }
    ```
 5. Triggers self-shutdown via `sudo shutdown -h +1`
-6. Backend's teardown job removes the VM afterward (Yandex Operation
+6. Backend's teardown job removes the VM afterward (GCP Operation
    delete)
 
 ---
@@ -360,9 +367,9 @@ the live design draft. Summary:
    - free-tier check (atomic)
    - consume quota
    - INSERT scans row
-   - INSERT jobs(`spawn_yandex_vm`)
+   - INSERT jobs(`spawn_vm`)
    - audit `scan_started`
-7. Worker picks job → Yandex API `POST compute/v1/instances`
+7. Worker picks job → cloud provider API `POST compute/v1/instances`
    with `Idempotency-Key: <scan_order_id>` → returns `Operation`
 8. Worker polls `GET /operation/:id` every 2s until `done: true`
 9. Once VM RUNNING, cloud-init bootstraps Decepticon + vps-agent
@@ -464,7 +471,7 @@ the live design draft. Summary:
    `BEGIN IMMEDIATE`; atomic check + update.
 5. **SSE reconnect** — `scan_events` table holds full history.
    On reconnect, dump events since last seen + tail new ones.
-6. **Idempotent VM spawn** — Yandex `Idempotency-Key: <scan_order_id>`.
+6. **Idempotent VM spawn** — GCP `Idempotency-Key: <scan_order_id>`.
    Retries don't double-spawn.
 7. **PDF render fallback** — if Puppeteer fails, status stays
    `completed`, email sent without attachment + dashboard link, retry
@@ -480,14 +487,14 @@ the live design draft. Summary:
 |---|---|---|---|
 | DNS TXT not found in 30 min | "Не удалось найти запись. [Retry] [Contact support]" | status=`failed` reason=`dns_timeout`. Quota NOT consumed | audit `dns_verify_failed`, `dns_check_attempts` log |
 | Free-quota exhausted | "Ваш бесплатный Quick доступен через X дней. Запросить Deep?" CTA → /deep-inquiry | 429 with `retry_after_seconds` | audit `free_quota_blocked` |
-| Yandex API unreachable (provision fails) | "Не удалось запустить VM. Бесплатный Quick автоматически возвращён." | Retry 3× → status=`failed` reason=`vm_spawn_failed`. **Revert** `consumed_at` to null. Telegram alert to operator | audit `vm_spawn_failed` + Telegram |
+| cloud provider API unreachable (provision fails) | "Не удалось запустить VM. Бесплатный Quick автоматически возвращён." | Retry 3× → status=`failed` reason=`vm_spawn_failed`. **Revert** `consumed_at` to null. Telegram alert to operator | audit `vm_spawn_failed` + Telegram |
 | VM crashes mid-scan | "Скан прервался. Бесплатный Quick возвращён." | Cron timeout 90 min → mark failed, force-teardown, refund quota | audit `scan_timeout` + Telegram |
 | Decepticon returns 0 findings | "Сканирование завершено, уязвимостей не обнаружено. Запросите Deep для углубленного анализа." | status=`completed`, empty findings. PDF + email still sent | normal completion audit |
 | Webhook with invalid HMAC | (silent) | 401, reject. Telegram alert | audit `webhook_invalid_signature` |
 | PDF render fails | "Готово, PDF недоступен — [View online]" | status remains `completed`. Background retry 3×. Email without attachment | audit `pdf_render_failed` |
 | Email send fails | (not visible, dashboard works) | Retry 3×, then 1-hour cron retry, then give up | audit `email_send_failed` |
 | Browser disconnects during scan | On reconnect, sees current state | Order state persistent in DB | — |
-| YooKassa webhook late/dup (post-MVP) | Idempotency dedup | (post-MVP) | (post-MVP) |
+| Billing webhook late/dup (post-MVP) | Provider-agnostic idempotency dedup keyed by provider + event id | (post-MVP) | (post-MVP) |
 | Client revokes TXT after verified | Scan continues, verification is snapshot-in-time | No revoke logic in MVP | — |
 | Client cancels < 3 min after start | "Скан отменён. Quick возвращён" | DELETE /scans/:id → cancelled. Force-teardown. Refund quota | audit `scan_cancelled` |
 | Client cancels ≥ 3 min | "Скан отменён, квота не возвращается" | DELETE /scans/:id → cancelled. Force-teardown. NO refund | audit `scan_cancelled` |
@@ -498,10 +505,10 @@ the live design draft. Summary:
 |---|---|
 | Scanning sites you don't own | DNS TXT verification — protects ~95% of cases. Shared-hosting subdomain abuse blocked (TXT must be on the exact entered domain). DNS poisoning mitigated by using `dns.cloudflare.com` / `dns.google` directly, not system resolver |
 | Multi-account quota abuse | 1 free / 7 days per user_id (not email). Single email = single magic-link verified account. CAPTCHA / phone verification deferred unless abuse spikes |
-| DDoS via our scanner | Safety RPS slider client-set. Decepticon respects rate limit in system prompt. Yandex VM has egress throttling. Actual RPS logged in evidence. Client confirmed DNS ownership = client authorized = ToS-covered |
+| DDoS via our scanner | Safety RPS slider client-set. Decepticon respects rate limit in system prompt. GCP VM has egress throttling. Actual RPS logged in evidence. Client confirmed DNS ownership = client authorized = ToS-covered |
 | Account takeover | Magic-link auth (existing). HTTPS-only session cookies. CSRF middleware. Rate-limit 1 magic-link/60s |
 | Credentials leak via Telegram (Deep) | Deep inquiry form does NOT collect credentials in MVP. Credentials negotiated off-platform via secure channel (Signal/PGP/in-person) |
-| Webhook spoofing | HMAC-signed, secret only in backend + cloud-init env. Additional: IP allowlist for Yandex ru-central1 ranges |
+| Webhook spoofing | HMAC-signed, secret only in backend + cloud-init env. Additional: IP allowlist for the selected cloud provider ranges |
 
 ### 4.3 Refund / quota-revert rules
 
@@ -516,16 +523,17 @@ the live design draft. Summary:
 | Decepticon returned 0 findings | ❌ no (valid result) |
 | PDF render failed, findings exist | ❌ no |
 
-When YooKassa goes live: same rules but `POST /v3/refunds` instead of
-quota-revert.
+When international paid billing goes live: same refund rules, but the effect
+is a provider-specific refund/credit action behind a provider-agnostic billing
+adapter rather than a direct YooKassa call.
 
 ### 4.4 Data safety
 
 - **Evidence archives** (HTTP responses, JWT decoded, nmap output) in
-  Yandex Object Storage, private bucket, per-scan keypath. Signed URLs
+  GCS-compatible object storage, private bucket, per-scan keypath. Signed URLs
   with 7-day TTL. Lifecycle policy auto-deletes after 30 days
 - **Findings.md** in SQLite. May contain client session tokens from
-  their site. Mitigation: VM-level FDE on Yandex VM hosting backend
+  their site. Mitigation: VM-level FDE on GCP VM hosting backend
 - **PII** in `deep_inquiries`: company name + ИНН + phone + email +
   contact name. РФ 152-ФЗ compliance:
   - Consent checkbox in form (required, audited)
@@ -541,20 +549,20 @@ quota-revert.
 ### 5.1 Approach
 
 - **Unit + IT (mocked)** = run on every push, fast (~3 sec)
-- **PR-merge to main** = full suite incl. real Yandex (~15 min)
+- **PR-merge to main** = full suite incl. live cloud (~15 min)
 - **Nightly cron** = smoke test against operator-controlled
   `juice-shop.tensol.dev` instance, real path end-to-end
 
-Budget: ~₽5-15k/month CI Yandex spend, justified by catching cloud-init
-bugs + Yandex API drift before clients see them.
+Budget: provider-specific CI spend, justified by catching cloud-init
+bugs + cloud provider API drift before clients see them.
 
 ### 5.2 Test counts
 
 | Tier | Count | Hours |
 |---|---|---|
 | Unit (Bun test) | ~125 | ~25h |
-| Integration (mocked Yandex) | ~55 | ~25h |
-| Integration (real Yandex) | ~15 | ~5h |
+| Integration (mocked cloud provider) | ~55 | ~25h |
+| Integration (live cloud) | ~15 | ~5h |
 | E2E (Playwright) | 4 | ~12h |
 | Contract (webhook) | 2 | ~3h |
 | Fixtures | — | ~4h |
@@ -566,13 +574,13 @@ Coverage targets: line ≥ 90%, funcs ≥ 92%, branch ≥ 80%.
 
 `scan-orders/service.ts`, `free-tier/service.ts`, `dns-verify/service.ts`,
 `deep-inquiries/service.ts`, `notify/telegram.ts`, `vps/provider.ts`,
-`vps/yandex.ts` (mocked), `vps/cloud-init.ts`, `findings/ingest.ts`,
+`vps/gcp.ts` (mocked), `vps/cloud-init.ts`, `findings/ingest.ts`,
 `reports/pdf.ts`, `notify/email.ts`, all schemas.
 
 ### 5.4 Integration level
 
 Every HTTP endpoint, full request-response cycle, real SQLite, mocked
-external services (Yandex/Telegram/Resend/Puppeteer). 70 tests cover:
+external services (GCP/Telegram/Resend/Puppeteer). 70 tests cover:
 
 - `POST /v1/auth/magic-link` (existing)
 - `POST /v1/scan-orders` + `PATCH .../attack-surface, /safety`
@@ -584,14 +592,14 @@ external services (Yandex/Telegram/Resend/Puppeteer). 70 tests cover:
 - `POST /v1/webhooks/scan-complete` (HMAC validation)
 - `POST /v1/deep-inquiries` + `GET .../:id/thank-you`
 
-### 5.5 Real-Yandex integration (15 tests)
+### 5.5 live cloud integration (15 tests)
 
 Run only on PR-merge + nightly. Each spawns a real `tensol-test-<uuid>`
 VM in dedicated test folder. `beforeAll`/`afterAll` enforce teardown.
 Tests:
 - spawnVm + pollOperation happy path
 - spawnVm + Idempotency-Key dedup (same key returns same instance)
-- spawnVm + Yandex 429 → backoff retry
+- spawnVm + GCP 429 → backoff retry
 - teardownVm idempotent
 - getStatus through full lifecycle (provisioning → running → stopped)
 - IAM token refresh on 401
@@ -603,7 +611,7 @@ Tests:
 ### 5.6 E2E (Playwright)
 
 4 tests covering:
-1. **Quick happy path** (real Yandex if PR-merge, mocked otherwise) —
+1. **Quick happy path** (live cloud if PR-merge, mocked otherwise) —
    signup → wizard → DNS → launch → SSE → findings → PDF download
 2. **Deep inquiry happy path** — anonymous form → Telegram mock called
 3. **Free quota blocked** — fixtured user, expect 429 + CTA
@@ -620,15 +628,15 @@ Tests:
 
 Catches drift between vps-agent and backend.
 
-### 5.8 Yandex Cloud test infra (one-time setup)
+### 5.8 GCP test infra (one-time setup)
 
 - Dedicated folder `tensol-tests`
 - Quota: 5 VMs concurrent, 10 vCPU total, 20 GB RAM total
 - Service account `tensol-test-runner` with roles `compute.editor` +
   `vpc.user` + `storage.viewer`
-- SA JSON key in GitHub Secrets (`YANDEX_TEST_SA_KEY_JSON`)
-- Pre-provisioned: VPC + subnet in `ru-central1-a`, SSH key pair
-- Yandex Cloud Budget alert at ₽5k/month → Telegram
+- SA JSON key in GitHub Secrets (`GCP_TEST_SA_KEY_JSON`)
+- Pre-provisioned: VPC + subnet in the selected cloud region, SSH key pair
+- GCP Budget alert at ₽5k/month → Telegram
 
 ### 5.9 Cleanup cron
 
@@ -643,7 +651,8 @@ VM naming: `tensol-test-<run-id>-<test-name>-<uuid8>`.
 ### 5.10 Out of scope for MVP
 
 - k6 load testing
-- Real YooKassa (deferred until live)
+- Real paid checkout provider integration (deferred until international
+  billing design is approved)
 - Real Decepticon stack inside IT tests (smoke covers it)
 - PDF visual regression
 - Safari/Edge browser compat
@@ -656,10 +665,10 @@ VM naming: `tensol-test-<run-id>-<test-name>-<uuid8>`.
    экономика билась» — exact ₽ values TBD. Spec must include
    cost-model worksheet (LLM cost per scan × profile × margin) so user
    can finalize on real numbers.
-2. **YooKassa go-live trigger**: `TENSOL_YOOKASSA_LIVE=true` env flip
-   activates Pay button. What's the exact migration story for any
-   in-flight `scan_orders` at that moment? (probably trivial — Quick
-   continues free, new Deep orders gain payment path)
+2. **International billing go-live trigger**: exact provider and entitlement
+   migration story TBD. Do not use `TENSOL_YOOKASSA_LIVE` for new work; model
+   the transition around billing accounts, credits/entitlements, and checkout
+   sessions.
 3. **Subdomain auto-discovery in Step 1**: how aggressive? Cert
    transparency logs? Brute-force wordlist? Or just `www.<domain>` +
    user-added entries? Vector seems to do CT-log lookup
@@ -677,7 +686,7 @@ VM naming: `tensol-test-<run-id>-<test-name>-<uuid8>`.
   in-flight state across multiple stop-hook checkpoints
 - `[[tensol-oauth-local-smoke-phase-A-complete-2026-05-19]]` — proved
   Decepticon engine works on OAuth, 9 findings on Juice Shop
-- `[[tensol-deployment-topology-2026-05-19]]` — Hetzner OUT, Yandex
+- `[[tensol-deployment-topology-2026-05-19]]` — Hetzner OUT, GCP
   for RU, foreign-TBD
 - `[[claude-oauth-creds-keychain-only-2026-05-19]]` — keychain
   extraction (used only for local dev, not for prod cloud VMs)
@@ -694,8 +703,8 @@ VM naming: `tensol-test-<run-id>-<test-name>-<uuid8>`.
   pivots): «Да, переходим к секции 3»
 - Section 3 data flow: «да»
 - Section 4 error handling + abuse + refunds: «принимаю»
-- Section 5 testing strategy with real Yandex: «реальный yandex…
-  Real Yandex только на PR-merge + nightly»
+- Section 5 testing strategy with live cloud: «реальный gcp…
+  live cloud только на PR-merge + nightly»
 
 ---
 

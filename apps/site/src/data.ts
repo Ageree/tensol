@@ -140,7 +140,7 @@ export const TENSOL_DATA: TensolData = {
     { id: 't2',  type: 'web',           ident: 'admin.acme-bank.ru',              ownership: 'verified', method: 'header', last: '2026-05-04 11:50', findings: 4, project: 'p1' },
     { id: 't3',  type: 'api',           ident: 'api.acme-bank.ru/v3/openapi.json',ownership: 'verified', method: 'file',   last: '2026-05-04 11:42', findings: 0, project: 'p1' },
     { id: 't4',  type: 'host',          ident: '10.42.18.101',                    ownership: 'verified', method: 'cloud',  last: '2026-05-03 22:19', findings: 0, project: 'p1' },
-    { id: 't5',  type: 'cloud',         ident: 'yc-folder/b1g7t…/prod-net',       ownership: 'verified', method: 'cloud',  last: '2026-05-03 20:08', findings: 0, project: 'p1' },
+    { id: 't5',  type: 'cloud',         ident: 'gcp-project/tensol-scanners/prod-net',       ownership: 'verified', method: 'cloud',  last: '2026-05-03 20:08', findings: 0, project: 'p1' },
     { id: 't6',  type: 'web',           ident: 'broker-staging.acme-bank.ru',     ownership: 'verified', method: 'dns',    last: '2026-05-04 08:51', findings: 4, project: 'p2' },
     { id: 't7',  type: 'web',           ident: 'beta.broker-staging.acme-bank.ru',ownership: 'pending',  method: 'dns',    last: '—',                findings: 0, project: 'p2' },
     { id: 't8',  type: 'repository',    ident: 'github.com/acme/broker-portal',   ownership: 'verified', method: 'header', last: '2026-05-02 18:14', findings: 0, project: 'p2' },

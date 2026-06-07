@@ -9,6 +9,8 @@ interface ImportMetaEnv {
   readonly VITE_CONTACT_MAILTO?: string;
   /** Clerk publishable key for Vite builds. */
   readonly VITE_CLERK_PUBLISHABLE_KEY?: string;
+  /** Playwright-only auth shortcut; omitted in production builds. */
+  readonly VITE_E2E_AUTH_BYPASS?: string;
 }
 
 interface ImportMeta {

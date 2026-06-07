@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useAuth } from '@clerk/react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { isClerkConfigured } from '../lib/clerk.ts';
+import { isClerkConfigured, isE2EAuthBypass } from '../lib/clerk.ts';
 import { Placeholder } from './Placeholder.tsx';
 
 function returnTo(pathname: string, search: string): string {
@@ -17,6 +17,8 @@ function loginPath(pathname: string, search: string, reason?: string): string {
 
 export function ProtectedRoute({ children }: { readonly children: ReactNode }) {
   const location = useLocation();
+
+  if (isE2EAuthBypass) return <>{children}</>;
 
   if (!isClerkConfigured) {
     return (

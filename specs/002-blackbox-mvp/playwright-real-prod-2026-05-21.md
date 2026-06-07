@@ -1,5 +1,8 @@
 # Playwright real-prod smoke — `https://tensol.ru`
 
+> Historical evidence from the Russia-first deployment. `yookassa_live` values
+> below are compatibility observations, not current product direction.
+
 **Date:** 2026-05-21
 **Runner:** Playwright 1.49 / Chromium-1223
 **Target:** production (`tensol.ru` / `app.tensol.ru` / `www.tensol.ru` / `api.tensol.ru`)
@@ -86,7 +89,7 @@ The rate-limit headers prove the request reached the Tensol server and traversed
 
 ## Server-side log access
 
-Attempted `ssh root@5.42.106.25` and several common usernames with `~/.ssh/tensol_yandex` — all returned `Permission denied (publickey,password)` or `Connection timed out during banner exchange`. `/tmp/tensol.env.prod` does not expose VM SSH credentials. Server-side log capture is therefore blocked from this driver session; the operator should `docker logs --since 5m tensol-server-1` from the VM console to identify the stack trace behind the three 500 responses.
+Attempted `ssh root@5.42.106.25` and several common usernames with `~/.ssh/tensol_gcp` — all returned `Permission denied (publickey,password)` or `Connection timed out during banner exchange`. `/tmp/tensol.env.prod` does not expose VM SSH credentials. Server-side log capture is therefore blocked from this driver session; the operator should `docker logs --since 5m tensol-server-1` from the VM console to identify the stack trace behind the three 500 responses.
 
 ## BLOCKER list
 
@@ -96,7 +99,7 @@ Two prod regressions detected by this smoke run, blocking the user mandate "play
 |---|--------|---------|----------------------|
 | B1 | `POST /api/auth/issue-link`, `POST /v1/webhooks/telegram-update` | HTTP 500, rate-limit middleware passes through | Check server logs; likely DB schema/migration drift or env-var mis-set (e.g. magic-link signer key) |
 | B2 | `POST /v1/deep-inquiries` | HTTP 500 with `{"error":"internal_error","message":"request could not be processed"}` | Same root-cause hypothesis as B1; verify schema is at-head and `bun run db:migrate:apply` was executed during deploy |
-| B3 (NON-FATAL) | SPA bundle stream `/assets/index-<hash>.js` | TTFB fast, body never completes within 10 s | Check Caddy `file_server` config + Yandex Object Storage egress; if assets were uploaded but origin chunking misbehaves, redeploy with `--force` |
+| B3 (NON-FATAL) | SPA bundle stream `/assets/index-<hash>.js` | TTFB fast, body never completes within 10 s | Check Caddy `file_server` config + GCS-compatible object storage egress; if assets were uploaded but origin chunking misbehaves, redeploy with `--force` |
 | B4 (NON-FATAL) | Cloudflare Insights beacon | `ERR_CONNECTION_CLOSED` | Remove or reconfigure `beacon.min.js` script tag |
 
 ## Files touched in this run
@@ -164,4 +167,3 @@ Original spec asserted `expect(orders).toHaveProperty("orders")` — but `GET /v
 - **B4 (NON-FATAL):** Cloudflare Insights beacon still `ERR_CONNECTION_CLOSED`.
 
 Both B1 and B2 are now closed by Sub-G's migration fix. The Tensol prod smoke is fully GREEN end-to-end.
-

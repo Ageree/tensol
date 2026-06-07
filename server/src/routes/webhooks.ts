@@ -46,7 +46,7 @@
  *                          completed_at = now(),
  *                          failure_reason = body.failure_reason (if failed),
  *                          usage_tokens / usage_usd_cents (if body.usage).
- *        - INSERT teardown_yandex_vm job (GCP-aware; fix B 2026-05-25).
+ *        - INSERT teardown_scan_vm job (GCP-aware; fix B 2026-05-25).
  *   9. AFTER commit: emit `scan_completed` (done) or `scan_failed` (failed)
  *      audit. `emitSignedAudit` owns its own BEGIN IMMEDIATE, so we cannot
  *      nest it inside the withTx above (bun:sqlite forbids nested BEGINs;
@@ -87,7 +87,7 @@ import {
 import type {
   RenderPdfJob,
   SendScanCompleteTelegramJob,
-  TeardownYandexVmJob,
+  TeardownScanVmJob,
 } from "../jobs/types.ts";
 
 export interface CreateWebhookRoutesDeps {
@@ -95,11 +95,14 @@ export interface CreateWebhookRoutesDeps {
   /** Audit-log signing key (NOT the per-VPS sign_key — that's per-row in
    *  vps_instances.sign_key, looked up by scan_id). */
   readonly signingKey: string;
+  /** Diagnostic-only: do not enqueue teardown when a scan fails. */
+  readonly preserveFailedScanVm?: boolean;
   readonly now?: () => number;
 }
 
 export function createWebhookRoutes(deps: CreateWebhookRoutesDeps): Hono {
   const { db, signingKey } = deps;
+  const preserveFailedScanVm = deps.preserveFailedScanVm ?? false;
   const clock = deps.now ?? defaultNow;
 
   const app = new Hono();
@@ -223,7 +226,7 @@ export function createWebhookRoutes(deps: CreateWebhookRoutesDeps): Hono {
 
     // -------------------------------------------------------------------
     // 8. Mutate state in a single transaction:
-    //    findings → scan.status → teardown_yandex_vm job.
+    //    findings → scan.status → teardown_scan_vm job.
     // -------------------------------------------------------------------
     const ts = clock();
     const targetStatus = parsed.status === "done" ? "completed" : "failed";
@@ -268,33 +271,45 @@ export function createWebhookRoutes(deps: CreateWebhookRoutesDeps): Hono {
         .where(eq(scansTable.id, scanRow.id))
         .run();
 
-      // Enqueue a GCP-aware teardown. The legacy `teardown_vps` kind routed
-      // to the Hetzner provider and never deleted the GCP VM (yet still
-      // emitted vps_destroyed → orphan leak until the 35-min reaper). The
-      // `teardown_yandex_vm` handler calls the injected CloudProvider
-      // (=GCP in prod). `vpsInstanceId` MUST be the GCP instance NAME =
-      // vps_instances.providerServerId (what gcp.teardownVm uses), NOT the
-      // vps_instances PK. Fix B, 2026-05-25.
-      const teardownPayload: TeardownYandexVmJob = {
-        type: "teardown_yandex_vm",
-        scanOrderId: scanRow.scanOrderId,
-        scanId: scanRow.id,
-        vpsInstanceId: vps.providerServerId,
-        ...(orderRow?.vpsZone ? { vpsZone: orderRow.vpsZone } : {}),
-      };
-      tx.insert(jobsTable)
-        .values({
-          id: ulid(ts),
-          type: "teardown_yandex_vm",
-          payloadJson: JSON.stringify(teardownPayload),
-          status: "pending",
-          scheduledAt: ts,
-          attempts: 0,
-          lastError: null,
-          createdAt: ts,
+      tx.update(scanOrdersTable)
+        .set({
+          status: targetStatus,
           updatedAt: ts,
+          failureReason:
+            targetStatus === "failed" ? parsed.failure_reason : null,
         })
+        .where(eq(scanOrdersTable.id, scanRow.scanOrderId))
         .run();
+
+      if (!(preserveFailedScanVm && targetStatus === "failed")) {
+        // Enqueue a GCP-aware teardown. The legacy `teardown_vps` kind routed
+        // to the Hetzner provider and never deleted the GCP VM (yet still
+        // emitted vps_destroyed → orphan leak until the 35-min reaper). The
+        // `teardown_scan_vm` handler calls the injected CloudProvider
+        // (=GCP in prod). `vpsInstanceId` MUST be the GCP instance NAME =
+        // vps_instances.providerServerId (what gcp.teardownVm uses), NOT the
+        // vps_instances PK. Fix B, 2026-05-25.
+        const teardownPayload: TeardownScanVmJob = {
+          type: "teardown_scan_vm",
+          scanOrderId: scanRow.scanOrderId,
+          scanId: scanRow.id,
+          vpsInstanceId: vps.providerServerId,
+          ...(orderRow?.vpsZone ? { vpsZone: orderRow.vpsZone } : {}),
+        };
+        tx.insert(jobsTable)
+          .values({
+            id: ulid(ts),
+            type: "teardown_scan_vm",
+            payloadJson: JSON.stringify(teardownPayload),
+            status: "pending",
+            scheduledAt: ts,
+            attempts: 0,
+            lastError: null,
+            createdAt: ts,
+            updatedAt: ts,
+          })
+          .run();
+      }
 
       // On COMPLETED only: create the report row + enqueue render_pdf and the
       // user scan-complete Telegram. The agent hits this legacy handler (NOT

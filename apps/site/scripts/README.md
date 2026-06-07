@@ -1,10 +1,10 @@
-# Tensol — Telegram lead relay
+# Sthrip — Telegram lead relay
 
 Tiny Bun HTTP server that receives JSON lead submissions from `/contact` and
 forwards them as Markdown messages to a Telegram chat via the bot API.
 
 This script is **standalone** — it is not part of the Vite bundle. Deploy it
-on a small VPS, a serverless function (Yandex Cloud Function, Vercel, fly.io),
+on a small VPS, a serverless function (Cloud Run Functions, Vercel, fly.io),
 or run it next to the static site behind nginx.
 
 ---
@@ -29,7 +29,7 @@ or run it next to the static site behind nginx.
 | `TELEGRAM_BOT_TOKEN`  | yes      | —       | `123456:ABC-DEF…` — keep this secret, never commit it.        |
 | `TELEGRAM_CHAT_ID`    | yes      | —       | Numeric. For supergroups it looks like `-100123456789`.       |
 | `PORT`                | no       | `8787`  | TCP port the relay listens on.                                |
-| `ALLOWED_ORIGIN`      | no       | `*`     | Comma-separated list, e.g. `https://tensol.dev,http://localhost:5175`. |
+| `ALLOWED_ORIGIN`      | no       | `*`     | Comma-separated list, e.g. `https://sthrip.dev,http://localhost:5175`. |
 
 Put them in `apps/site/scripts/.env` (gitignored) when developing locally.
 
@@ -85,7 +85,7 @@ opening `https://t.me/<handle>?text=…` in a new tab and surfaces a
 
 ```ini
 [Unit]
-Description=Tensol Telegram lead relay
+Description=Sthrip Telegram lead relay
 After=network-online.target
 
 [Service]
@@ -105,10 +105,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now tensol-relay
 ```
 
-Front it with nginx + TLS (Let's Encrypt) at `https://relay.tensol.dev/api/contact`
+Front it with nginx + TLS (Let's Encrypt) at `https://api.sthrip.dev/api/contact`
 and point `VITE_CONTACT_ENDPOINT` there.
 
-### Yandex Cloud Function
+### Serverless function
 
 The relay is small enough to run as a single Bun function. Wrap the request
 handler exported by `Bun.serve` and re-export it as the function entrypoint,

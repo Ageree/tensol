@@ -3,7 +3,7 @@
  *
  * Coverage:
  *   1. Default response: all gates unset → every flag false.
- *   2. yookassa enabled → yookassa_live:true (others still false).
+ *   2. legacy paid flag enabled → yookassa_live:true (others still false).
  *   3. F1/F2 enabled → research_enabled / exploit_enabled true.
  *
  * Env var management: each test snapshots & restores the env vars so the
@@ -55,7 +55,7 @@ test("GET / returns all flags false by default", async () => {
   });
 });
 
-test("GET / returns yookassa_live:true when env=true (others false)", async () => {
+test("GET / returns legacy yookassa_live:true when env=true (others false)", async () => {
   await withEnv({ TENSOL_YOOKASSA_LIVE: "true" }, async () => {
     expect(await getFlags()).toEqual({
       yookassa_live: true,

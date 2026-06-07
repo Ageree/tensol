@@ -29,8 +29,11 @@
  *     and retry per research §R7 (3-retry policy with 30s gap).
  */
 
-import puppeteer, { type Browser, type LaunchOptions } from "puppeteer-core";
+import { existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import chromium from "@sparticuz/chromium-min";
+import puppeteer, { type Browser, type LaunchOptions } from "puppeteer-core";
 
 /**
  * Error class for any PDF render failure.
@@ -113,6 +116,102 @@ export interface RenderReportOpts {
   readonly timeoutMs?: number;
 }
 
+type ChromiumPathProbe = {
+  readonly env?: NodeJS.ProcessEnv;
+  readonly platform?: NodeJS.Platform;
+  readonly arch?: NodeJS.Architecture;
+  readonly homeDir?: string;
+  readonly exists?: (path: string) => boolean;
+  readonly readdir?: (path: string) => string[];
+};
+
+function defaultPlaywrightCacheRoot(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  homeDir: string,
+): string | null {
+  const configured = env.PLAYWRIGHT_BROWSERS_PATH;
+  if (configured !== undefined && configured !== "" && configured !== "0") {
+    return configured;
+  }
+  if (platform === "darwin") {
+    return join(homeDir, "Library", "Caches", "ms-playwright");
+  }
+  if (platform === "linux") {
+    return join(homeDir, ".cache", "ms-playwright");
+  }
+  return null;
+}
+
+export function resolvePlaywrightChromiumExecutablePath(
+  probe: ChromiumPathProbe = {},
+): string | null {
+  const env = probe.env ?? process.env;
+  const platform = probe.platform ?? process.platform;
+  const arch = probe.arch ?? process.arch;
+  const home = probe.homeDir ?? homedir();
+  const exists = probe.exists ?? existsSync;
+  const readdir = probe.readdir ?? ((path: string) => readdirSync(path));
+  const root = defaultPlaywrightCacheRoot(env, platform, home);
+  if (!root) return null;
+
+  let entries: string[];
+  try {
+    entries = readdir(root);
+  } catch {
+    return null;
+  }
+
+  const suffix =
+    platform === "darwin"
+      ? `mac-${arch === "arm64" ? "arm64" : "x64"}`
+      : platform === "linux"
+        ? `linux-${arch === "arm64" ? "arm64" : "x64"}`
+        : "";
+  if (!suffix) return null;
+
+  const newestRevisionFirst = (prefix: string) => (left: string, right: string) => {
+    const leftRevision = Number.parseInt(left.slice(prefix.length), 10);
+    const rightRevision = Number.parseInt(right.slice(prefix.length), 10);
+    return rightRevision - leftRevision;
+  };
+
+  const shellPrefix = "chromium_headless_shell-";
+  const shellDirs = entries
+    .filter((entry) => entry.startsWith(shellPrefix))
+    .sort(newestRevisionFirst(shellPrefix));
+  for (const entry of shellDirs) {
+    const candidate = join(
+      root,
+      entry,
+      `chrome-headless-shell-${suffix}`,
+      platform === "win32" ? "chrome-headless-shell.exe" : "chrome-headless-shell",
+    );
+    if (exists(candidate)) return candidate;
+  }
+
+  if (platform === "darwin") {
+    const chromePrefix = "chromium-";
+    const chromeDirs = entries
+      .filter((entry) => entry.startsWith(chromePrefix))
+      .sort(newestRevisionFirst(chromePrefix));
+    for (const entry of chromeDirs) {
+      const candidate = join(
+        root,
+        entry,
+        `chrome-${suffix}`,
+        "Google Chrome for Testing.app",
+        "Contents",
+        "MacOS",
+        "Google Chrome for Testing",
+      );
+      if (exists(candidate)) return candidate;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Render `html` into a PDF buffer. Throws `PDFRenderError` on any failure.
  *
@@ -125,14 +224,16 @@ export async function renderReport(
   opts: RenderReportOpts = {},
 ): Promise<Buffer> {
   const launcher: PuppeteerLauncher = opts.puppeteerLauncher ?? puppeteer.launch;
+  const localExecutablePath =
+    CHROMIUM_EXECUTABLE_PATH ?? resolvePlaywrightChromiumExecutablePath();
   const execPathResolver =
     opts.chromiumExecutablePath ??
-    (CHROMIUM_EXECUTABLE_PATH
-      ? () => Promise.resolve(CHROMIUM_EXECUTABLE_PATH)
+    (localExecutablePath
+      ? () => Promise.resolve(localExecutablePath)
       : () => chromium.executablePath(CHROMIUM_PACK_URL));
-  // System chromium needs the minimal container-safe flags; the downloadable
-  // pack uses @sparticuz's tuned args.
-  const launchArgs = CHROMIUM_EXECUTABLE_PATH
+  // System/local Chromium needs the minimal container-safe flags; the
+  // downloadable pack uses @sparticuz's tuned args.
+  const launchArgs = localExecutablePath || opts.chromiumExecutablePath
     ? SYSTEM_CHROMIUM_ARGS
     : chromium.args;
   const timeoutMs = opts.timeoutMs ?? RENDER_TIMEOUT_MS;

@@ -112,7 +112,7 @@ contract test (`192e48a`) gives strong regression guarantees.
 ### Concerns
 
 1. **MEDIUM — No rate-limit middleware exists anywhere in `server/src/`.**
-   Confirmed by `grep -rn "throttle\|RateLimit\|rate.limit\|rateLimit" server/src/` — zero hits in route handlers or middleware. The only hits are (i) a developer comment in `middleware.ts:32` calling rate-limit explicitly out-of-scope for T023, (ii) handler heuristics for upstream Yandex 429s in `jobs/handlers/spawn-yandex-vm.ts`. **This means**:
+   Confirmed by `grep -rn "throttle\|RateLimit\|rate.limit\|rateLimit" server/src/` — zero hits in route handlers or middleware. The only hits are (i) a developer comment in `middleware.ts:32` calling rate-limit explicitly out-of-scope for T023, (ii) handler heuristics for upstream cloud-provider 429s in VM spawn jobs. **This means**:
    - POST `/request-link` can be flooded by an attacker to (a) spam any email address with magic-link mail (reputation/abuse vector against Resend account, and harassment vector against arbitrary users), (b) burn DB rows in `magic_link_tokens`.
    - GET `/verify?token=…` can be brute-forced. With 256-bit token entropy the probability of guessing is negligible (~$2^{-256}$ per request), so this is operationally moot, but a flood of `/verify` requests can still DoS the SQLite write path.
    - POST `/logout`, GET `/me` — authenticated routes; abuse limited to authenticated users but still uncapped.
@@ -159,7 +159,7 @@ contract test (`192e48a`) gives strong regression guarantees.
 ### Concerns
 
 1. **LOW — Default `node:dns` Resolver, no IPv4-only override.**
-   `resolver.ts:91` uses `new dnsPromises.Resolver()` with default options. `resolveTxt` does not actually do A/AAAA work (TXT is a different RR type) so there is no IPv6-address-family concern at the data level. However: `Resolver.setServers(['1.1.1.1'])` (line 96) means we always query the resolver over IPv4. On an IPv6-only host, the UDP/TCP queries would fail with `EREFUSED`/`ENETUNREACH`. **Recommendation:** for the production VM we always have IPv4 (Yandex defaults). For driver dev hosts, this could surface as flaky verification on an IPv6-only network — document in `quickstart.md` as a known gotcha.
+   `resolver.ts:91` uses `new dnsPromises.Resolver()` with default options. `resolveTxt` does not actually do A/AAAA work (TXT is a different RR type) so there is no IPv6-address-family concern at the data level. However: `Resolver.setServers(['1.1.1.1'])` (line 96) means we always query the resolver over IPv4. On an IPv6-only host, the UDP/TCP queries would fail with `EREFUSED`/`ENETUNREACH`. **Recommendation:** production must have IPv4 egress. For driver dev hosts, this could surface as flaky verification on an IPv6-only network — document in `quickstart.md` as a known gotcha.
 
 2. **LOW — Slow-resolver DoS surface.**
    The 5s timeout is per-resolver, all 4 run concurrently → worst case ~5s wall time per call. The route layer polls every N seconds (UI flow); if four resolvers all hang to timeout repeatedly, the server's event loop is fine but a single client polling holds open connections. **Recommendation:** cap concurrent verification polls per user (covered by the rate-limit task in surface (b)).
@@ -229,7 +229,7 @@ contract test (`192e48a`) gives strong regression guarantees.
    - GCP API keys: `AIza[0-9A-Za-z\-_]{35}`
    - Stripe live keys: `sk_live_[0-9a-zA-Z]{24,}`
    - Stripe restricted: `rk_live_…`, `pk_live_…`
-   These are well-known shapes worth adding for ecosystem parity with rules 4–7. Low priority for MVP scope (Russian-market customers less likely to paste GCP/Stripe), but easy to add.
+   These are well-known shapes worth adding for ecosystem parity with rules 4–7. After the international pivot, Stripe/GCP-style secret detection is more important and should be included in the next sanitizer/secret-scan pass.
 
 6. **LOW — Replacement does not preserve quote characters.**
    Input `password = "secret-value"` becomes `password = [REDACTED]` (quotes dropped — test `15–19`). Cosmetic; some operators may prefer `password = "[REDACTED]"` for readability. No security impact.

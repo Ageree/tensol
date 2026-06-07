@@ -1,5 +1,5 @@
 /**
- * T058 — `teardown_yandex_vm` job handler.
+ * T058 — `teardown_scan_vm` job handler.
  *
  * Lifecycle (per task brief):
  *   1. Idempotency gate: check audit_log for a prior `vm_teardown` row that
@@ -11,7 +11,7 @@
  *      around `provider.teardownVm(vpsInstanceId)`. Transient errors
  *      (rate limit, 5xx, timeout, network) trigger a small backoff and a
  *      retry. Permanent errors break out immediately to the failure branch.
- *   3. The provider's contract (see vps/yandex.ts:151-174):
+ *   3. The provider's contract (see vps/gcp.ts:151-174):
  *        - 404 → returns `{}` (operationId omitted) — instance was already
  *          reaped. Treat as "already-gone" success.
  *        - 200 → returns `{ operationId }` — long-running delete op. Poll
@@ -30,12 +30,12 @@
  *
  * Why audit is post-commit and not inside `withTx`:
  *   `emitSignedAudit` opens its own `BEGIN IMMEDIATE`. bun:sqlite does not
- *   support nested transactions. Same pattern as spawn-yandex-vm.ts (T056)
+ *   support nested transactions. Same pattern as spawn-scan-vm.ts (T056)
  *   / teardown-vps.ts (T045). Per Constitution X, audit always emits AFTER
  *   the controlling tx commits.
  *
  * Why `vm_teardown` (no substitution needed):
- *   Unlike spawn-yandex-vm.ts which substitutes `scan_failed` for the
+ *   Unlike spawn-scan-vm.ts which substitutes `scan_failed` for the
  *   missing `vm_provisioning_failed`, `vm_teardown` IS a member of
  *   BLACKBOX_AUDIT_EVENTS (audit/emit.ts:88). We use it directly with
  *   `outcome='success'`.
@@ -46,7 +46,7 @@
  *   type that can carry a Telegram alert payload. We piggy-back on it and
  *   distinguish the alert kind via
  *   `payload.kind='operator_alert_vm_teardown_failed'`. Same convention as
- *   spawn-yandex-vm.ts (T056).
+ *   spawn-scan-vm.ts (T056).
  *
  * Return value: the handler never throws on a permanent provider failure —
  * the failure is captured in the alert job and the runner records the
@@ -73,7 +73,7 @@ import type { CloudProvider } from "../../vps/provider.ts";
  * `jobs.payload_json` column. Tolerant of both snake_case (DB-emitted) and
  * camelCase (briefs) keys.
  */
-export interface TeardownYandexVmJobPayload {
+export interface TeardownScanVmJobPayload {
   readonly scanOrderId: string;
   readonly scanId?: string;
   readonly vpsInstanceId: string;
@@ -89,7 +89,7 @@ interface NormalizedPayload {
 
 function normalizePayload(raw: unknown): NormalizedPayload {
   if (!raw || typeof raw !== "object") {
-    throw new Error("teardown_yandex_vm: payload is not an object");
+    throw new Error("teardown_scan_vm: payload is not an object");
   }
   const r = raw as Record<string, unknown>;
   const scanOrderId =
@@ -111,7 +111,7 @@ function normalizePayload(raw: unknown): NormalizedPayload {
 
   if (!scanOrderId || !vpsInstanceId) {
     throw new Error(
-      `teardown_yandex_vm: payload missing scanOrderId/vpsInstanceId (got ${JSON.stringify(raw)})`,
+      `teardown_scan_vm: payload missing scanOrderId/vpsInstanceId (got ${JSON.stringify(raw)})`,
     );
   }
   return {
@@ -122,7 +122,7 @@ function normalizePayload(raw: unknown): NormalizedPayload {
   };
 }
 
-export interface TeardownYandexVmHandlerDeps {
+export interface TeardownScanVmHandlerDeps {
   readonly db: DB;
   readonly provider: CloudProvider;
   /** Audit-log signing key. */
@@ -141,7 +141,7 @@ const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_POLL_TIMEOUT_MS = 5 * 60 * 1_000;
 const DEFAULT_RETRY_BACKOFF_MS = 1_000;
 
-/** Heuristic transient-error classifier — same set as spawn-yandex-vm. */
+/** Heuristic transient-error classifier — same set as spawn-scan-vm. */
 const TRANSIENT_PATTERNS: readonly RegExp[] = [
   /RATE[_ ]?LIMIT/i,
   /TOO[_ ]MANY[_ ]REQUESTS/i,
@@ -187,9 +187,9 @@ function alreadyTornDown(db: DB, vpsInstanceId: string): boolean {
   return Boolean(row);
 }
 
-/** Build a `teardown_yandex_vm` handler closing over the injected deps. */
-export function createTeardownYandexVmHandler(
-  deps: TeardownYandexVmHandlerDeps,
+/** Build a `teardown_scan_vm` handler closing over the injected deps. */
+export function createTeardownScanVmHandler(
+  deps: TeardownScanVmHandlerDeps,
 ) {
   const {
     db,
@@ -250,7 +250,7 @@ export function createTeardownYandexVmHandler(
         vpsInstanceId,
         vpsZone,
         attempts,
-        error: lastErr ?? new Error("teardown_yandex_vm: unknown failure"),
+        error: lastErr ?? new Error("teardown_scan_vm: unknown failure"),
         now,
         newId,
       });
@@ -258,7 +258,7 @@ export function createTeardownYandexVmHandler(
     }
 
     // 3. Detect "already gone" — provider returned an empty object (404
-    //    path per yandex.ts:160-162). We still emit a successful
+    //    path per gcp.ts:160-162). We still emit a successful
     //    `vm_teardown` audit but flag the case in metadata.
     const alreadyGone = !teardownResult.operationId;
 
@@ -278,7 +278,7 @@ export function createTeardownYandexVmHandler(
               vpsZone,
               attempts,
               error: new Error(
-                `teardown_yandex_vm: operation errored: ${res.error}`,
+                `teardown_scan_vm: operation errored: ${res.error}`,
               ),
               now,
               newId,
@@ -296,7 +296,7 @@ export function createTeardownYandexVmHandler(
             vpsZone,
             attempts,
             error: new Error(
-              `teardown_yandex_vm: operation poll TIMEOUT (op=${opId})`,
+              `teardown_scan_vm: operation poll TIMEOUT (op=${opId})`,
             ),
             now,
             newId,

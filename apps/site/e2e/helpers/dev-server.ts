@@ -17,8 +17,12 @@ export async function startDevServer(): Promise<void> {
   // E2E backend instead of the (possibly absent) default :3000. Quoted
   // for safety even though the value is always a plain http:// URL.
   const apiTarget = process.env.VITE_DEV_API_TARGET ?? '';
+  const authBypass = process.env.VITE_E2E_AUTH_BYPASS ?? '';
   const exportApi = apiTarget
     ? `export VITE_DEV_API_TARGET='${apiTarget.replace(/'/g, "'\\''")}'`
+    : '';
+  const exportAuthBypass = authBypass
+    ? `export VITE_E2E_AUTH_BYPASS='${authBypass.replace(/'/g, "'\\''")}'`
     : '';
   fs.writeFileSync(
     SCRIPT_PATH,
@@ -26,6 +30,7 @@ export async function startDevServer(): Promise<void> {
       '#!/usr/bin/env bash',
       `cd /Users/saveliy/Documents/пентест\\ ИИ/apps/site`,
       ...(exportApi ? [exportApi] : []),
+      ...(exportAuthBypass ? [exportAuthBypass] : []),
       'exec npx vite',
     ].join('\n'),
     { mode: 0o755 },

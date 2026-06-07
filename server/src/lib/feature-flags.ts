@@ -1,10 +1,10 @@
 /**
  * T019 — feature flags for MVP.
  *
- * Per research.md §R13: YooKassa is dark-coded in MVP. The
- * isYookassaLive() flag gates any payment code path; defaults
- * to false so payment routes return 503 unless explicitly
- * enabled at deploy via TENSOL_YOOKASSA_LIVE=true.
+ * 2026-06-05 pivot: YooKassa is no longer a product target. This helper is
+ * retained only for legacy pre-pivot compatibility while the REST surface still
+ * returns `yookassa_live`. New billing work must use provider-agnostic
+ * billing/entitlement flags instead.
  */
 export function isYookassaLive(): boolean {
   return process.env.TENSOL_YOOKASSA_LIVE === "true";

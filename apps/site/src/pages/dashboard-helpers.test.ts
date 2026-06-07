@@ -135,7 +135,7 @@ describe('deriveFreeQuotaStatus', () => {
     expect(q.state).toBe('available');
   });
 
-  it('paid yookassa order does not consume free quota', () => {
+  it('paid legacy order does not consume free quota', () => {
     const q = deriveFreeQuotaStatus(
       [order({ payment_kind: 'yookassa', status: 'running' })],
       now,

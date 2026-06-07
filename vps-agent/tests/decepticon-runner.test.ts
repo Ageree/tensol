@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DEFAULT_DOCKER_SPAWN_STDIO,
   diagDirFor,
+  defaultSpawn,
   runDecepticonScan,
   type FetcherImpl,
   type RunScanArgs,
@@ -157,6 +159,16 @@ function makeClock() {
 }
 
 describe("runDecepticonScan (LangGraph HTTP)", () => {
+  test("default spawn inherits docker output instead of leaving unread pipes", async () => {
+    expect(DEFAULT_DOCKER_SPAWN_STDIO).toBe("inherit");
+
+    const proc = defaultSpawn(["bun", "-e", "process.exit(process.env.TENSOL_SPAWN_TEST === 'ok' ? 0 : 7)"], {
+      env: { TENSOL_SPAWN_TEST: "ok" },
+    });
+
+    expect(await proc.exited).toBe(0);
+  });
+
   test("happy path: compose up → /ok 200 → thread+run → status=success → status=done", async () => {
     const spawnRec: SpawnRecord[] = [];
     const fetchRec: FetchCall[] = [];
@@ -286,6 +298,7 @@ describe("runDecepticonScan (LangGraph HTTP)", () => {
 
   test("compose up fails → status=failed, reason=docker_exit_<code>", async () => {
     const spawnRec: SpawnRecord[] = [];
+    let dumped = false;
     const result = await runDecepticonScan(
       {
         scanId: "s",
@@ -298,10 +311,14 @@ describe("runDecepticonScan (LangGraph HTTP)", () => {
         spawn: makeSpawn({ exitCodes: [1], record: spawnRec }),
         fetcher: makeFetcher({ record: [] }),
         collectFindings: makeCollectFindings(TWO_FINDINGS),
+        dumpComposeLogs: async () => {
+          dumped = true;
+        },
       }
     );
     expect(result.status).toBe("failed");
     expect(result.failure_reason).toBe("docker_exit_1");
+    expect(dumped).toBe(true);
     // No further compose calls (we never got past step 1)
     expect(spawnRec.length).toBe(1);
     // Findings still best-effort collected

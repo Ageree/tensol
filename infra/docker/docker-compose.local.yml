@@ -55,7 +55,7 @@ services:
       retries: 12
       start_period: 10s
 
-  # Placeholder for the future Yandex Message Queue emulator.
+  # Placeholder for the future Pub/Sub emulator.
   # Sprint 1 only validates orchestration; real adapter wiring lands in Sprint 7.
   cs-queue-emulator:
     image: alpine:3.20

@@ -4,13 +4,13 @@
 //   - Summary card recapping the wizard inputs (domain, subdomains count,
 //     headers count, safety RPS, DNS verified flag).
 //   - Free-quota status panel — derived from the latest GET /v1/scan-orders/
-//     :id payload (its `payment_kind` and presence of `amount_kopecks`
-//     indicate whether the user is on the free Quick tier or has to pay).
+//     :id payload. `payment_kind` / `amount_kopecks` are legacy pre-pivot
+//     fields; future billing should use provider-agnostic entitlements.
 //   - Feature-flag gate via GET /v1/config/feature-flags (T073):
-//       * `yookassa_live=false` (MVP default) → free Quick launch CTA
+//       * legacy `yookassa_live=false` (MVP default) → free Quick launch CTA
 //         (calls scanOrders.launch).
-//       * `yookassa_live=true` AND quota exhausted → paid checkout CTA
-//         (disabled in MVP — future feature copy).
+//       * paid billing flag true AND quota exhausted → paid checkout CTA
+//         (disabled in MVP — future provider-agnostic feature copy).
 //   - On launch success (POST /v1/scan-orders/:id/launch 202 → `{scan_id}`),
 //     navigates to `/scan/:scanId` (T087's Live page).
 //
@@ -119,16 +119,15 @@ export const Step4Review = ({ api }: Step4ReviewProps): ReactElement => {
   }, []);
 
   // ── Quota: in MVP, every authenticated user is allowed one free Quick.
-  // The server returns `payment_kind="free_quick"` and `amount_kopecks=null`
-  // when the free quota is still available. If the order was hydrated with
-  // a different payment_kind we treat the quota as exhausted.
+  // The current REST shape still exposes legacy `payment_kind` /
+  // `amount_kopecks`; the future billing model should use entitlements.
   const quotaAvailable = useMemo<boolean>(() => {
     return true; // MVP default — first scan is free.
   }, []);
 
-  const yookassaLive = flags?.yookassa_live === true;
+  const legacyPaidFlag = flags?.yookassa_live === true;
   // CTA mode: paid only when feature-flag is live AND quota exhausted.
-  const ctaMode: 'free' | 'paid' = yookassaLive && !quotaAvailable
+  const ctaMode: 'free' | 'paid' = legacyPaidFlag && !quotaAvailable
     ? 'paid'
     : 'free';
 

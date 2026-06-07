@@ -1,19 +1,20 @@
-# Tensol production Caddyfile — Timeweb VM 5.42.106.25.
+# Sthrip production Caddyfile.
 #
-# Caddy auto-provisions Let's Encrypt certificates for all four hostnames on
+# Caddy auto-provisions Let's Encrypt certificates for hostnames on
 # first boot (port 80 + 443 must be reachable from the public internet, which
-# Timeweb's default firewall already allows).
+# the GCP firewall rule allow-sthrip-api-web allows for api.sthrip.dev).
 #
 # Sites:
-#   tensol.ru, www.tensol.ru   -> marketing SPA from /opt/tensol/site-dist
-#   app.tensol.ru              -> same SPA (authed dashboard routes)
-#   api.tensol.ru              -> reverse-proxy to 127.0.0.1:3000 (Bun server)
+#   api.sthrip.dev -> reverse-proxy to 127.0.0.1:3000 (Bun server)
+#
+# The apex frontend currently remains on Vercel; do not point sthrip.dev at
+# this VM unless the frontend deployment plan changes.
 #
 # Place at /etc/caddy/Caddyfile and run `caddy reload` (or restart the
 # systemd unit).
 
 {
-	email ops@tensol.ru
+	email ops@sthrip.dev
 	# Uncomment to bring up the staging CA instead of production while testing:
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 
@@ -22,12 +23,12 @@
 }
 
 # ---- Apex + www redirect to canonical apex ----
-www.tensol.ru {
-	redir https://tensol.ru{uri} permanent
+www.sthrip.dev {
+	redir https://sthrip.dev{uri} permanent
 }
 
-# ---- Marketing SPA (apex) and app.tensol.ru (auth/dashboard SPA) ----
-tensol.ru, app.tensol.ru {
+# ---- Marketing + authenticated dashboard SPA (apex) ----
+sthrip.dev {
 	root * /opt/tensol/site-dist
 	encode gzip zstd
 
@@ -54,7 +55,7 @@ tensol.ru, app.tensol.ru {
 }
 
 # ---- API + webhooks ----
-api.tensol.ru {
+api.sthrip.dev {
 	encode gzip zstd
 
 	reverse_proxy 127.0.0.1:3000 {

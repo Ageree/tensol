@@ -1,5 +1,14 @@
 # T140 — Legal pages copy draft (LEGAL REVIEW REQUIRED)
 
+> **2026-06-05 international pivot update** — this draft was generated for the
+> old Russia-first posture. Treat 152-FZ, RU-residency, YooKassa, and
+> RU-jurisdiction language as historical draft material, not current legal
+> position. New legal work must start from `docs/project-current-context.md`
+> and counsel review for the relevant customer jurisdictions. Current
+> production identity is
+> **Sthrip** on `sthrip.dev` with `api.sthrip.dev` as the public API domain;
+> Tensol / `tensol.ru` mentions below are historical draft material only.
+
 > **⚠️ LEGAL REVIEW REQUIRED** — этот документ написан AI как стартовая точка
 > для будущих юридических текстов. Перед публикацией обязательно прохождение
 > через юриста, специализирующегося на 152-ФЗ и общих условиях SaaS.
@@ -87,7 +96,8 @@
 > **Сроки хранения артефактов сканирования**
 >
 > По завершении сканирования Tensol сохраняет следующие артефакты в шифрованном
-> хранилище Yandex Object Storage (регион ru-central1, серверное шифрование SSE):
+> хранилище S3/GCS-compatible object storage (region selected per engagement,
+> server-side encryption enabled):
 >
 > | Артефакт | Срок хранения |
 > | --- | --- |
@@ -110,7 +120,8 @@
 > **Evidence retention**
 >
 > Upon scan completion, Tensol stores the following artifacts in encrypted
-> Yandex Object Storage (region ru-central1, server-side encryption enabled):
+> S3/GCS-compatible object storage (region selected per engagement,
+> server-side encryption enabled):
 >
 > | Artifact | Retention |
 > | --- | --- |
@@ -179,12 +190,12 @@
 
 - [x] **Consent capture**: Deep-inquiry form has a consent checkbox (verify
       `apps/site/src/pages/DeepInquiry.tsx` and `t.deepInquiry.consent`)
-- [x] **Encryption at rest**: Yandex Object Storage SSE enabled per
-      `server/.env.yandex` and design §3.4
+- [x] **Encryption at rest**: object storage encryption enabled per the
+      selected storage adapter and design §3.4
 - [x] **Encryption in transit**: HTTPS-only via Caddy/nginx terminator (per
       quickstart.md deployment)
-- [x] **Data localization**: all processing in ru-central1 region (Yandex
-      Cloud, art. 18.1 152-FZ requirement for Russian-citizen data)
+- [ ] **Data localization**: determine per customer jurisdiction and selected
+      processing region; do not assume RU-only processing for new work
 - [x] **Right of access foundation**: audit chain provides full event trail
       per data subject (`server/src/audit/`)
 - [x] **Sanitization**: pre-LLM payload sanitization removes PII per design §5
@@ -268,7 +279,9 @@ expand it to three pages or three anchored sections. Suggested structure:
 ### DPA (/legal/dpa) — for B2B customers
 
 Standard SaaS DPA template. Operator pulls from counsel-supplied boilerplate.
-Anchor to 152-ФЗ-compliant sub-processor list (Yandex Cloud, Telegram, YooKassa).
+Anchor to the current provider list for the relevant customer region and
+engagement. YooKassa is obsolete after the international pivot; billing
+subprocessors must come from the selected international provider.
 
 ---
 

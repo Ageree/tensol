@@ -37,7 +37,7 @@
 
 - The spec mentions "DNS TXT record" and "PDF report" — these are user-facing artifacts (the user literally must add a TXT record themselves and download a PDF), not implementation details. Verified by reading FR-008/FR-012 (DNS) and FR-025 (PDF) against the spec rule "no language/framework/API leakage". ✓ pass.
 - The spec mentions Russian regulation 152-ФЗ — this is a regulatory dependency, not an implementation. ✓ pass.
-- No mention of React, Bun, SQLite, Yandex, Hetzner, Decepticon, LangGraph, HMAC, audit-chain implementation specifics, or other tech-stack leakage in the spec body (Assumptions section mentions Decepticon engine as a *dependency* — this is intentional context for stakeholders evaluating risk, not an implementation directive). ✓ pass.
+- No mention of React, Bun, SQLite, GCP, Hetzner, Decepticon, LangGraph, HMAC, audit-chain implementation specifics, or other tech-stack leakage in the spec body (Assumptions section mentions Decepticon engine as a *dependency* — this is intentional context for stakeholders evaluating risk, not an implementation directive). ✓ pass.
 
 ### Requirement Completeness review
 

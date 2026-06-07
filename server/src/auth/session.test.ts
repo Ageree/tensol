@@ -32,7 +32,7 @@ describe("setSessionCookie", () => {
     expect(setCookie).toContain(`${SESSION_COOKIE_NAME}=${SESSION_ID}`);
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("Secure");
-    // Prod is cross-origin (SPA on sthrip.dev / Vercel → api.tensol.ru), so
+    // Prod is cross-origin (SPA on sthrip.dev / Vercel -> api.sthrip.dev), so
     // the session cookie must be SameSite=None (with Secure) to ride along
     // on cross-site credentialed fetches. Non-prod stays Lax (see below).
     expect(setCookie).toMatch(/SameSite=None/i);

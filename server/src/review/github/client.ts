@@ -33,7 +33,7 @@ const TOKEN_TTL_SEC = 50 * 60;
 const BASE_HEADERS: Record<string, string> = {
   accept: "application/vnd.github+json",
   "x-github-api-version": "2022-11-28",
-  "user-agent": "tensol-review",
+  "user-agent": "sthrip-review",
 };
 
 /** A line-level inline comment attached to a batched review. */

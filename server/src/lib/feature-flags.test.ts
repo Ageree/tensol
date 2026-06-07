@@ -1,6 +1,8 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { isYookassaLive } from "./feature-flags.ts";
 
+// Legacy compatibility tests for the pre-2026-06-05 paid flag. New billing
+// work should add provider-agnostic flags instead of extending this helper.
 const ORIG = process.env.TENSOL_YOOKASSA_LIVE;
 
 beforeEach(() => {

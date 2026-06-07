@@ -4,7 +4,7 @@
  *
  * Tiny Bun HTTP server that accepts a JSON lead payload on POST /api/contact
  * and forwards it to a Telegram chat via the bot API. Designed to run on a
- * VPS, Yandex Cloud Function, or similar edge-runtime.
+ * VPS, serverless function, or similar edge runtime.
  *
  * Env:
  *   TELEGRAM_BOT_TOKEN  required — `123456:ABC...`

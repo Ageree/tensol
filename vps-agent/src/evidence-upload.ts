@@ -1,10 +1,10 @@
 /**
- * T133 — evidence upload to Yandex Object Storage (S3-compatible) for
+ * T133 — evidence upload to Google Cloud Storage (S3-compatible) for
  * vps-agent.
  *
  * After Decepticon finishes a scan inside the ephemeral VM, vps-agent
  * compresses HAR/screenshot/log artifacts into `evidence.tar.gz` and uploads
- * the bundle so the backend can reference it from the final report. Yandex
+ * the bundle so the backend can reference it from the final report. GCP
  * Object Storage speaks the S3 wire protocol, so we drive it with the AWS
  * SDK v3 (per research §R9). The credentials and bucket are scoped per-scan
  * by cloud-init, baked into the VM env at spawn time.
@@ -18,7 +18,7 @@
  *   - `uploadCtor` injection lets us assert which code path (single-shot
  *     PutObject vs. multipart Upload) was taken — the threshold matters
  *     for cost (multipart has per-part overhead) and for correctness
- *     (Yandex enforces a minimum part size).
+ *     (GCP enforces a minimum part size).
  *
  * Multipart threshold = 5 MiB:
  *   - S3 multipart spec requires every non-final part to be >= 5 MiB.
@@ -71,7 +71,7 @@ export interface UploadLike {
 export type UploadCtor = new (args: any) => UploadLike;
 
 export interface UploadEvidenceOpts {
-  /** Target bucket in Yandex Object Storage. Required. */
+  /** Target bucket in Google Cloud Storage. Required. */
   readonly bucket: string;
   /** Key prefix joined verbatim with `<scanId>/<filename>`. Default
    *  `"evidence/"`. Pass with a trailing slash if you want a slash. */
@@ -104,15 +104,15 @@ export interface EvidenceUploader {
 }
 
 /**
- * Build a default S3 client wired for Yandex Object Storage. Reads env at
+ * Build a default S3 client wired for Google Cloud Storage. Reads env at
  * call time so the factory captures whatever cloud-init exported into the
  * vps-agent process. We deliberately keep the defaults narrow: region +
- * endpoint are the Yandex defaults from `.env.example`.
+ * endpoint are the GCP defaults from `.env.example`.
  */
 function buildDefaultS3Client(): S3Client {
   return new S3Client({
     region: process.env.AWS_REGION ?? "ru-central1",
-    endpoint: process.env.AWS_ENDPOINT ?? "https://storage.yandexcloud.net",
+    endpoint: process.env.AWS_ENDPOINT ?? "https://storage.googleapis.com",
     credentials: {
       accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? "",
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? "",

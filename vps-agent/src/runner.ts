@@ -2,13 +2,13 @@
  * T135 — vps-agent scan orchestrator.
  *
  * `runScan` is the V2 (002-blackbox-mvp) orchestration entry point that runs
- * ON the ephemeral Yandex VM spawned per scan. Lifecycle:
+ * ON the ephemeral GCP VM spawned per scan. Lifecycle:
  *
  *   1. spawn Decepticon (`deps.decepticon.run`)
  *   2. collect findings/*.md from the findings dir
  *      (`deps.findingCollector.collect`)
  *   3. tar.gz the evidence dir (`deps.bundler.createTarGz`)
- *   4. upload the bundle to Yandex Object Storage
+ *   4. upload the bundle to Google Cloud Storage
  *      (`deps.evidenceUploader.uploadEvidence`)
  *   5. POST a signed `WebhookScanCompleteBody` to the backend
  *      (`deps.fetcher` + `signWebhook`) — retried on 5xx / network errors,
@@ -209,7 +209,7 @@ export async function runScan(deps: RunnerDeps): Promise<RunScanResult> {
     return { ok: false, error: `bundle_failed: ${describeError(err)}` };
   }
 
-  // 4. Upload to S3 / Yandex Object Storage.
+  // 4. Upload to S3 / Google Cloud Storage.
   let upload: UploadResult;
   try {
     upload = await deps.evidenceUploader.uploadEvidence({

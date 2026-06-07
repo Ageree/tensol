@@ -16,7 +16,7 @@ that touches state must be tenant-isolated, and several tables are
 append-only (`audit_events`, `llm_audit_events`, `finding_evidence`,
 `assessment_artifacts`).
 
-The product spec §1.2 mandates Postgres (managed Yandex in production, local
+The product spec §1.2 mandates Postgres (managed GCP in production, local
 Docker for development). It also names Kysely as the query builder. What it
 leaves slightly open is the migrator: §4.2 says
 "node-pg-migrate (or kysely's built-in migrator)". That ambiguity must be
@@ -67,7 +67,7 @@ locked here:
   compile time across the migration plus every repo that touches the table.
 - `bun run db:migrate:up` and `bun run db:migrate:rollback` run via Bun's
   TypeScript executor; no compile-emit step.
-- Yandex managed Postgres exposes only standard Postgres features. Kysely's
+- GCP managed Postgres exposes only standard Postgres features. Kysely's
   generic Postgres dialect targets exactly those features. We do not couple
   to a vendor-specific extension.
 - The append-only invariant is enforced at the Postgres level via triggers

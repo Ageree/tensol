@@ -1,5 +1,8 @@
 # T143 + T144 — Secret-Scan & .env.example Verification Evidence
 
+> Historical evidence from the pre-international-pivot implementation. Any
+> `TENSOL_YOOKASSA_LIVE` placeholders below are legacy compatibility markers.
+
 Date: 2026-05-20
 Branch: `002-blackbox-mvp`
 
@@ -63,11 +66,11 @@ No real-secret matches surfaced.
 | 18   | `TENSOL_TELEGRAM_BOT_USERNAME`   | `tensol_leadsbot`                             | public      | public bot handle, not secret           |
 | 21   | `TENSOL_TELEGRAM_WEBHOOK_SECRET` | `replace_with_32_byte_hex`                    | placeholder | explicit replace-me                     |
 | 23   | `TENSOL_TELEGRAM_LONGPOLL`       | `false`                                       | bool        | feature flag                            |
-| 27   | `YANDEX_SA_KEY_JSON`             | `JSON_KEY_BASE64_OR_PATH`                     | placeholder | explicit format hint                    |
-| 29   | `YANDEX_PROD_FOLDER_ID`          | `b1g*****************`                        | shape-hint  | masked Yandex ID                        |
-| 30   | `YANDEX_PROD_NETWORK_ID`         | `enp*****************`                        | shape-hint  | masked Yandex ID                        |
-| 31   | `YANDEX_PROD_SUBNET_ID`          | `e9b*****************`                        | shape-hint  | masked Yandex ID                        |
-| 33   | `YANDEX_PROD_SSH_PUBLIC_KEY`     | `ssh-ed25519 AAAA... tensol-prod`             | shape-hint  | truncated public key — public material  |
+| 27   | `GOOGLE_APPLICATION_CREDENTIALS` | `.gcp/tensol-vm-spawner.json`              | path hint   | service-account file path, not the secret value |
+| 29   | `GCP_PROJECT_ID`              | `tensol-scanners`                             | public-ish  | project identifier                      |
+| 30   | `GCP_ZONE`                    | `europe-west1-b`                              | public-ish  | zone identifier                         |
+| 31   | `GCP_NETWORK_NAME`            | `default`                                     | config      | network name                            |
+| 33   | `GCP_SSH_PUBLIC_KEY`          | `ssh-ed25519 AAAA... tensol-prod`             | shape-hint  | truncated public key — public material  |
 | 37   | `TENSOL_YOOKASSA_LIVE`           | `live_replace_with_yookassa_secret`           | placeholder | explicit replace-me                     |
 | 41   | `TENSOL_EVIDENCE_BUCKET`         | `tensol-evidence-prod`                        | public name | bucket name, not a credential           |
 | 45   | `TENSOL_WEBHOOK_SECRET`          | `replace_with_32_byte_hex`                    | placeholder | explicit replace-me                     |

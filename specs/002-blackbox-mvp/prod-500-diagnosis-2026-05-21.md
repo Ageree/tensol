@@ -2,7 +2,7 @@
 
 **Triggered by:** Playwright real-prod smoke (Sub-F, commit `87cf973`) — 2 / 7 tests failed with HTTP 500 on every POST write-path.
 
-**Scope:** `api.tensol.ru` on Yandex VM `5.42.106.25`, container `tensol-server:latest` (image `6064d0da7517`, built 2026-05-21 09:23 UTC).
+**Scope:** `api.tensol.ru` on GCP VM `5.42.106.25`, container `tensol-server:latest` (image `6064d0da7517`, built 2026-05-21 09:23 UTC).
 
 ---
 
@@ -114,7 +114,7 @@ HTTP=200 ✓
 When a webhook arrives with a valid `X-Telegram-Bot-Api-Secret-Token` AND a
 real `/start <token>` payload, the route consumes the token successfully
 (DB write OK) but then `await notifier.sendMessage(...)` blocks. The
-Yandex VM **cannot reach `api.telegram.org`** — `curl -m 10
+GCP VM **cannot reach `api.telegram.org`** — `curl -m 10
 https://api.telegram.org/...` from inside the VM returns `Connection timed
 out`. This is a pre-existing network policy (not introduced by today's
 changes) and the original 500 in the Playwright report was actually
@@ -127,7 +127,7 @@ in the bot-API call.
 The hang itself is harmless to Telegram (TG just retries on 5xx; we return
 202 within its 5 s budget once the API egress is unblocked) but blocks
 the auth round-trip end-to-end. **Operator action required**: open
-Yandex Cloud security-group / NAT egress to `api.telegram.org` (and
+GCP security-group / NAT egress to `api.telegram.org` (and
 verify TENSOL_TELEGRAM_LONGPOLL=true is not forcing a separate transport
 in production). Out of scope for this fix.
 
@@ -162,7 +162,7 @@ the body never reaches the client past ~24 KiB. Plausible causes
 
 - Cloudflare buffering + an origin TCP keepalive misconfig (Caddy
   default keepalive is generous; less likely);
-- CF→origin path MTU mismatch on the Yandex network egress (Tashkent
+- CF→origin path MTU mismatch on the GCP network egress (Tashkent
   ↔ Stockholm via Cloudflare's transit) — would explain the consistent
   ~24 KiB cutoff (≈ 16 segments of ~1500 B = a typical TCP window);
 - CF's `vary: Accept-Encoding` triggering a re-encode path that closes

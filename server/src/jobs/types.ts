@@ -84,16 +84,16 @@ export interface TeardownVpsJob {
 // permanent failure) handles unregistered kinds safely.
 // ---------------------------------------------------------------------------
 
-/** T056 — provision a Yandex Cloud Compute VM for a queued scan. */
-export interface SpawnYandexVmJob {
-  readonly type: "spawn_yandex_vm";
+/** T056 — provision a Google Cloud Compute VM for a queued scan. */
+export interface SpawnScanVmJob {
+  readonly type: "spawn_scan_vm";
   readonly scanOrderId: string;
   readonly scanId: string;
 }
 
-/** T058 — destroy a Yandex Cloud Compute VM. */
-export interface TeardownYandexVmJob {
-  readonly type: "teardown_yandex_vm";
+/** T058 — destroy a Google Cloud Compute VM. */
+export interface TeardownScanVmJob {
+  readonly type: "teardown_scan_vm";
   readonly scanOrderId: string;
   readonly scanId?: string;
   readonly vpsInstanceId: string;
@@ -167,8 +167,8 @@ export type Job =
   | DispatchScanJob
   | WatchdogJob
   | TeardownVpsJob
-  | SpawnYandexVmJob
-  | TeardownYandexVmJob
+  | SpawnScanVmJob
+  | TeardownScanVmJob
   | RenderPdfJob
   | SendScanCompleteTelegramJob
   | RetryTelegramNotificationJob

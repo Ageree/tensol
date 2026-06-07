@@ -94,14 +94,14 @@ export interface WebhookTelegramNotifier {
 // ---------------------------------------------------------------------------
 
 const REPLY_SUCCESS = (username: string) =>
-  `✓ Готово! Откройте https://app.tensol.ru — вы вошли как @${username}.`;
+  `✓ Готово! Откройте https://sthrip.dev — вы вошли как @${username}.`;
 const REPLY_EXPIRED =
-  "Ссылка устарела или уже использована. Запросите новую на https://app.tensol.ru.";
+  "Ссылка устарела или уже использована. Запросите новую на https://sthrip.dev.";
 const REPLY_USERNAME_MISMATCH =
   "Telegram-аккаунт не совпадает с тем, что вы указали на сайте. " +
   "Войдите в аккаунт, указанный при регистрации, и попробуйте снова.";
 const REPLY_INVALID =
-  "Неизвестная команда. Запросите новую ссылку на https://app.tensol.ru.";
+  "Неизвестная команда. Запросите новую ссылку на https://sthrip.dev.";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -193,7 +193,7 @@ export function createWebhookTelegramRouter(
 
     // 6. Reply via the bot — FIRE-AND-FORGET.
     //    Detached from the response because the VM's egress may be blackholed
-    //    to api.telegram.org (Yandex prod network policy). Awaiting here
+    //    to api.telegram.org (GCP prod network policy). Awaiting here
     //    pinned the webhook for the full Telegram 60s timeout → retry storm →
     //    cloudflare 504 surfaced to operator. The auth result is already
     //    persisted via consumeLink (Constitution X); the bot reply is purely

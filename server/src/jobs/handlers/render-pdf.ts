@@ -23,7 +23,7 @@
  *      `pdf_render_failed` audit row, enqueue a
  *      `retry_telegram_notification` operator-alert job carrying
  *      `kind='operator_alert_pdf_render_failed'`. Same convention as
- *      teardown-yandex-vm.ts (T058) and spawn-yandex-vm.ts (T056).
+ *      teardown-scan-vm.ts (T058) and spawn-scan-vm.ts (T056).
  *
  * Why audit is post-commit and not inside `withTx`:
  *   `emitSignedAudit` opens its own `BEGIN IMMEDIATE`. bun:sqlite does not

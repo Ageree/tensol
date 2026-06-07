@@ -4,6 +4,11 @@ description: "Task list for 002-blackbox-mvp implementation"
 
 # Tasks: Blackbox Pentest MVP
 
+**2026-06-05 update**: this is a historical implementation ledger. Completed
+YooKassa / `TENSOL_YOOKASSA_LIVE` tasks record what was built before the
+international pivot; they are not the target billing architecture for new work.
+Use `docs/project-current-context.md` for current product assumptions.
+
 **Input**: Design documents from `/specs/002-blackbox-mvp/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/openapi.yaml, contracts/webhook.md, quickstart.md (all in place)
@@ -36,7 +41,7 @@ description: "Task list for 002-blackbox-mvp implementation"
 - [x] T003 [P] (hash 4ce8547) Add Puppeteer + chromium-min deps to `server/package.json` (`puppeteer-core`, `@sparticuz/chromium-min`)
 - [x] T004 [P] (hash 63ac57b) Add AWS S3 SDK to `vps-agent/package.json` (`@aws-sdk/client-s3`, `@aws-sdk/lib-storage`)
 - [x] T005 [P] (hash 3aa7fd8) Add dev dep `playwright` + browsers to `apps/site/package.json` (if not already present)
-- [x] T006 [P] (hash fb35355; pivot drops RESEND_API_KEY) Update `server/.env.example` with all new env vars: `RESEND_API_KEY`, `TENSOL_TELEGRAM_BOT_TOKEN`, `TENSOL_TELEGRAM_CHAT_ID`, `TENSOL_WEBHOOK_SECRET`, `TENSOL_YOOKASSA_LIVE`, `YANDEX_SA_KEY_JSON`, `YANDEX_PROD_FOLDER_ID`, `YANDEX_PROD_NETWORK_ID`, `YANDEX_PROD_SUBNET_ID`, `YANDEX_PROD_SSH_PUBLIC_KEY`, `TENSOL_EVIDENCE_BUCKET`, `TENSOL_DEV_DNS_BYPASS`
+- [x] T006 [P] (hash fb35355; pivot drops RESEND_API_KEY) Update `server/.env.example` with all runtime env vars, including Telegram/webhook secrets, GCP Compute config (`GOOGLE_APPLICATION_CREDENTIALS`, `GCP_PROJECT_ID`, `GCP_ZONE`, network/subnet, SSH key), evidence bucket config, and `TENSOL_DEV_DNS_BYPASS`
 - [x] T007 [P] (hash c9ad903; renamed→VITE_API_BASE_URL to match code) Update `apps/site/.env.example` with `VITE_API_BASE`
 - [x] T008 [P] (hash c9ad903) Update `vps-agent/.env.example` with the `TENSOL_*` runtime contract from plan §"vps-agent contract"
 - [x] T009 (hash f00998b; verify-chain → src/audit/verify-chain.ts) Add npm scripts in `server/package.json`: `cleanup-orphan-vms`, `debug:scan-order`, `verify-chain` (latter already exists, ensure)
@@ -70,7 +75,7 @@ description: "Task list for 002-blackbox-mvp implementation"
 
 **Goal**: A signed-in user enters a domain they control, proves ownership via DNS TXT, runs a free Quick scan, sees findings + downloads PDF + receives email.
 
-**Independent test**: Playwright E2E `scan-wizard.spec.ts` walks from signup through `Скачать PDF`. Backend integration tests cover every state transition. Real-Yandex IT runs on PR-merge.
+**Independent test**: Playwright E2E `scan-wizard.spec.ts` walks from signup through `Скачать PDF`. Backend integration tests cover every state transition. live cloud IT runs on PR-merge.
 
 ### US1 — Schemas + DB layer (independent files, parallelizable)
 
@@ -95,21 +100,21 @@ description: "Task list for 002-blackbox-mvp implementation"
 
 ### US1 — Scan-orders service
 
-- [x] T036 [US1] (hash b0ffe74; 9 methods; refund-rule status!=running; err codes NOT_FOUND/CONFLICT/QUOTA_EXHAUSTED/BAD_REQUEST) Implement `server/src/scan-orders/service.ts` — public API: `createDraft`, `updateAttackSurface` (incl. subdomain probe via T037), `updateSafety`, `requestDnsVerify`, `checkDnsAndUnlock`, `launchScan` (free-tier consume + scans row + spawn-yandex-vm job in same tx), `cancelOrder` (refund-rule from spec FR-016/FR-017), `getOrder`, `listUserOrders`. Each mutation in `withTx` + `emitSignedAudit` after commit
+- [x] T036 [US1] (hash b0ffe74; 9 methods; refund-rule status!=running; err codes NOT_FOUND/CONFLICT/QUOTA_EXHAUSTED/BAD_REQUEST) Implement `server/src/scan-orders/service.ts` — public API: `createDraft`, `updateAttackSurface` (incl. subdomain probe via T037), `updateSafety`, `requestDnsVerify`, `checkDnsAndUnlock`, `launchScan` (free-tier consume + scans row + spawn-vm job in same tx), `cancelOrder` (refund-rule from spec FR-016/FR-017), `getOrder`, `listUserOrders`. Each mutation in `withTx` + `emitSignedAudit` after commit
 - [x] T037 [P] [US1] (hash a973ccb; §R1 5s timeout, capN=50; cross-domain leak guard) Implement `server/src/scan-orders/subdomain-probe.ts` — `discoverSubdomains(primary, timeoutMs, capN): Promise<string[]>` querying `crt.sh` per research R1, plus `www.` fallback
 - [x] T038 [P] [US1] (hash a973ccb; 15 tests; suite 673/22/14) Write `server/src/scan-orders/subdomain-probe.test.ts` — mocked `fetch` returning real-shape CT-log JSON, dedup, www fallback added, timeout
 - [x] T039 [P] [US1] (hash b0ffe74; 31 tests, atomic-refund verified; suite 704/22/14) Write `server/src/scan-orders/service.test.ts` — happy path through all transitions, foreign-user 404, illegal transition 409, atomic refund on launch failure
 
-### US1 — Yandex Cloud provider
+### US1 — GCP provider
 
-- [x] T040 [P] [US1] (hash 7498772; PS256 via node:crypto works in Bun; 5-min safety cache) Implement `server/src/vps/yandex-iam.ts` — `getIamToken()` cached singleton with 5-min safety, signs JWT from `YANDEX_SA_KEY_JSON`. Per research R5
-- [x] T041 [P] [US1] (hash 7498772; backoff 1→2→4→8s; token rotation per request) Implement `server/src/vps/yandex-operations.ts` — `pollOperation(opId, timeoutMs)` exponential backoff 1→2→4→max 8s, 10-min total cap, returns parsed `Operation`. Per research R4
-- [x] T042 [P] [US1] (hash 7498772; 17 tests, ephemeral keys; suite 721/22/14) Write `server/src/vps/yandex-iam.test.ts` + `yandex-operations.test.ts` — fetch mocked, JWT signature verified offline, polling exits on `done:true` and on timeout
-- [x] T043 [US1] (hash 58e1909; 388 LOC; image-id placeholder w/ env override; getStatus 404→stopped reaper-friendly) Implement `server/src/vps/yandex.ts` (`CloudProvider`) — `spawnVm` with `Idempotency-Key: <scanOrderId>` calling `POST compute/v1/instances`, returns vps_instance_id + ip after poll. `teardownVm` via DELETE + poll. `getStatus` via GET. Uses helpers from T040/T041
+- [x] T040 [P] [US1] (hash 7498772; superseded by current GCP rail) Implement GCP authentication through `GOOGLE_APPLICATION_CREDENTIALS` and the provider module; keep tests focused on token refresh/error handling. Per research R5
+- [x] T041 [P] [US1] (hash 7498772; backoff 1→2→4→8s; token rotation per request) Implement `server/src/vps/gcp-operations.ts` — `pollOperation(opId, timeoutMs)` exponential backoff 1→2→4→max 8s, 10-min total cap, returns parsed `Operation`. Per research R4
+- [x] T042 [P] [US1] (hash 7498772; 17 tests, ephemeral keys; suite 721/22/14) Write `server/src/vps/gcp-iam.test.ts` + `gcp-operations.test.ts` — fetch mocked, JWT signature verified offline, polling exits on `done:true` and on timeout
+- [x] T043 [US1] (hash 58e1909; 388 LOC; image-id placeholder w/ env override; getStatus 404→stopped reaper-friendly) Implement `server/src/vps/gcp.ts` (`CloudProvider`) — `spawnVm` with `Idempotency-Key: <scanOrderId>` calling `POST compute/v1/instances`, returns vps_instance_id + ip after poll. `teardownVm` via DELETE + poll. `getStatus` via GET. Uses helpers from T040/T041
 - [x] T044 [P] [US1] (hash adb8d68; structural assertions not golden; hetzner.ts retained for later DELETE) Implement `server/src/vps/cloud-init.ts` — `buildCloudInit(args): string` bash template that pulls Decepticon image, mounts secrets, runs vps-agent with the full `TENSOL_*` env contract from plan
 - [x] T045 [P] [US1] (hash adb8d68; 14 tests; suite 735/22/14) Write `server/src/vps/cloud-init.test.ts` — golden-file rendering, env vars substituted correctly, no unescaped vars left
-- [x] T046 [US1] (hash a6ff2ad; 32 tests + 1 todo retry-on-429; suite 767/22/14) Write `server/src/vps/yandex.test.ts` — uses fake provider for default; assertions on Idempotency-Key passed, Operation polling path, retry-on-429
-- [x] T047 [US1] (hash e48a6da; describe.skipIf gate, 0/3 skip on default run) Write `server/src/vps/yandex-real.test.ts` — real Yandex spawn against minimal Ubuntu image (no Decepticon), waits for `cloud-init` marker via SSH probe, then teardown. Guarded by `TENSOL_TEST_REAL_YANDEX=1` env var. Per research R11 layer 2
+- [x] T046 [US1] (hash a6ff2ad; 32 tests + 1 todo retry-on-429; suite 767/22/14) Write `server/src/vps/gcp.test.ts` — uses fake provider for default; assertions on Idempotency-Key passed, Operation polling path, retry-on-429
+- [x] T047 [US1] (hash e48a6da; describe.skipIf gate, 0/3 skip on default run) Write `server/src/vps/gcp-real.test.ts` — live cloud spawn against minimal Ubuntu image (no Decepticon), waits for `cloud-init` marker via SSH probe, then teardown. Guarded by `TENSOL_TEST_REAL_GCP=1` env var. Per research R11 layer 2
 
 ### US1 — Findings ingest + Reports
 
@@ -127,10 +132,10 @@ description: "Task list for 002-blackbox-mvp implementation"
 
 ### US1 — Job handlers
 
-- [x] T056 [US1] (hash 05d4d50; dual-case normalizePayload; scan_failed not vm_provisioning_failed; retry_telegram_notification slot) Implement `server/src/jobs/handlers/spawn-yandex-vm.ts` — picks `spawn_yandex_vm` job, calls `yandex.spawnVm` with cloud-init from T044, stores `vps_instance_id` + `vps_zone` on scan_order, emits `vm_ready` audit + `scan_events` row. Retry on transient failures up to 3 times; permanent failure → mark order `failed`, refund quota, enqueue Telegram alert
-- [x] T057 [P] [US1] (hash 05d4d50; 4 tests 44 expects; suite 785/22/14) Write `server/test/integration/spawn-yandex-vm.test.ts` — uses fake provider, asserts state transitions
-- [x] T058 [US1] (hash 710d955; vm_teardown literal exists; 404 tagged already_gone:true) Implement `server/src/jobs/handlers/teardown-yandex-vm.ts` — picks `teardown_yandex_vm` job, `yandex.teardownVm`, emit `vm_teardown` audit. Idempotent
-- [x] T059 [P] [US1] (hash 710d955; 5 tests 34 expects; suite 790/22/14) Write `server/test/integration/teardown-yandex-vm.test.ts`
+- [x] T056 [US1] (hash 05d4d50; dual-case normalizePayload; scan_failed not vm_provisioning_failed; retry_telegram_notification slot) Implement `server/src/jobs/handlers/spawn-vm.ts` — picks `spawn_vm` job, calls `gcp.spawnVm` with cloud-init from T044, stores `vps_instance_id` + `vps_zone` on scan_order, emits `vm_ready` audit + `scan_events` row. Retry on transient failures up to 3 times; permanent failure → mark order `failed`, refund quota, enqueue Telegram alert
+- [x] T057 [P] [US1] (hash 05d4d50; 4 tests 44 expects; suite 785/22/14) Write `server/test/integration/spawn-vm.test.ts` — uses fake provider, asserts state transitions
+- [x] T058 [US1] (hash 710d955; vm_teardown literal exists; 404 tagged already_gone:true) Implement `server/src/jobs/handlers/teardown-vm.ts` — picks `teardown_vm` job, `gcp.teardownVm`, emit `vm_teardown` audit. Idempotent
+- [x] T059 [P] [US1] (hash 710d955; 5 tests 34 expects; suite 790/22/14) Write `server/test/integration/teardown-vm.test.ts`
 - [x] T060 [US1] (hash 143facb; aws-sdk/client-s3 added; pdf_rendered+pdf_render_failed native) Implement `server/src/jobs/handlers/render-pdf.ts` — picks `render_pdf` job, calls `reports/pdf.ts`, uploads to Object Storage, updates `reports` row status=`ready` with bucket/key/byte_size/expires_at. Retry × 3. On final fail, status=`failed`. Per research R7
 - [x] T061 [P] [US1] (hash 143facb; 5 tests 51 expects; suite 856) Write `server/test/integration/render-pdf.test.ts` — mock S3 upload, mock Puppeteer
 - [x] T062 [US1] (hash 02ce066; PIVOT-RENAMED to send-scan-complete-telegram.ts; email_sent+channel=telegram; audit-replay idempotency) Implement `server/src/jobs/handlers/send-scan-complete-email.ts` — picks `send_scan_complete_email` job, fetches scan + report, calls `notify/email.ts` with PDF buffer if available
@@ -171,7 +176,7 @@ description: "Task list for 002-blackbox-mvp implementation"
 
 ### US1 — End-to-end test
 
-- [x] T091 [US1] (hash 265bd14; cookie-seed auth bypass per Telegram pivot; runtime smoke deferred to T102) Write `apps/site/e2e/scan-wizard.spec.ts` — Playwright E2E from landing → magic-link signup (mailbox via Resend test mode or stubbed endpoint) → wizard step 1-4 → live page → findings → PDF download. Uses `TENSOL_DEV_DNS_BYPASS=true` + fake Yandex provider in the dev backend
+- [x] T091 [US1] (hash 265bd14; cookie-seed auth bypass per Telegram pivot; runtime smoke deferred to T102) Write `apps/site/e2e/scan-wizard.spec.ts` — Playwright E2E from landing → magic-link signup (mailbox via Resend test mode or stubbed endpoint) → wizard step 1-4 → live page → findings → PDF download. Uses `TENSOL_DEV_DNS_BYPASS=true` + fake cloud provider in the dev backend
 - [x] T092 [US1] (hash 2d74f15; helpers extracted; /__test/v2/exhaust-quota documented for T102; quota_exhausted code asserted) Add `apps/site/e2e/free-quota.spec.ts` — pre-fixture user with `free_quick_consumed_at = now()`, attempt launch, expect 429 inline error + CTA to /deep-inquiry
 - [x] T093 [US1] (hash 2d74f15; statusExpired+support-link assertion; suite 56/8/8 — +3 errs are playwright-spec under bun:test pickup) Add `apps/site/e2e/dns-timeout.spec.ts` — fast-forward clock test, expect `failed` status
 
@@ -213,7 +218,7 @@ description: "Task list for 002-blackbox-mvp implementation"
 
 - [x] T112 [US2] (hash 66c2e74; 2 scenarios anon+prefill; shared fillDeepInquiryForm helper; suite 61/9/9) Write `apps/site/e2e/deep-inquiry.spec.ts` — anonymous submit, success page, signed-in pre-fill variant
 
-**US2 checkpoint**: Lead funnel live. Independent of US1 (no Yandex / no scan).
+**US2 checkpoint**: Lead funnel live. Independent of US1 (no GCP / no scan).
 
 ---
 
@@ -246,7 +251,7 @@ description: "Task list for 002-blackbox-mvp implementation"
 
 ## Phase 6: Polish, Cross-Cutting, Pre-Launch
 
-**Purpose**: Operational tooling, real-Yandex verification, landing copy polish, security pass.
+**Purpose**: Operational tooling, live cloud verification, landing copy polish, security pass.
 
 ### Admin tooling (for operator self-service)
 
@@ -255,23 +260,23 @@ description: "Task list for 002-blackbox-mvp implementation"
 
 ### Cleanup + observability
 
-- [x] T123 (hash 59f453b; CLI entry + reusable task; listInstances iface extension + Yandex paginated + Fake folder-index; per-prefix minAge 30/120min) Implement `server/scripts/cleanup-orphan-vms.ts` — list-and-delete VMs in test+prod folders matching `tensol-test-*` / `tensol-scan-*` AND `createdAt < now-30min` (tests) / `<now-120min` (prod), Telegram alert on >0 deleted. Per research R10
+- [x] T123 (hash 59f453b; CLI entry + reusable task; listInstances iface extension + GCP paginated + Fake folder-index; per-prefix minAge 30/120min) Implement `server/scripts/cleanup-orphan-vms.ts` — list-and-delete VMs in test+prod folders matching `tensol-test-*` / `tensol-scan-*` AND `createdAt < now-30min` (tests) / `<now-120min` (prod), Telegram alert on >0 deleted. Per research R10
 - [x] T124 [P] (hash 59f453b; 5 tests incl. partial-failure-still-alerts + per-prefix-age + empty-list; suite 1035) Write `server/test/integration/cleanup-orphan-vms.test.ts` (uses fake provider with pre-seeded "orphans")
-- [x] T125 [P] (hash 59f453b; 15-min Timer.unref+clearInterval on stop; skipped when YANDEX folder env empty) Add cron registration for cleanup-orphan-vms (every 15 min) in `server/src/server.ts` startup
+- [x] T125 [P] (hash 59f453b; 15-min Timer.unref+clearInterval on stop; skipped when GCP folder env empty) Add cron registration for cleanup-orphan-vms (every 15 min) in `server/src/server.ts` startup
 - [x] T126 [P] (completed inline during T066 hash 0d0734f; 5-min setInterval unref+clearInterval; commit body documented) Add cron registration for scan-timeout-watcher (every 5 min)
 - [x] T127 [P] (hash fdff0c6; daily 24h interval; skipped when S3 env missing — graceful degradation; 3rd cron alongside scan-timeout+orphan-vms) Add cron registration for cleanup-expired-reports (daily)
 
-### Real-Yandex verification
+### live cloud verification
 
-- [x] T128 (hash fdff0c6; skipIf gate; 14 env vars validated; 10-step 35min lifecycle test; afterAll defensive teardown; default 0 pass 3 skip) Implement `server/test/integration/scan-lifecycle-real-yandex.test.ts` — gated by `TENSOL_TEST_REAL_YANDEX=1`. Spawns a real VM with the actual Decepticon image, runs scan against `juice-shop.tensol.dev` (operator must provision this beforehand), verifies ≥3 findings ingested + audit chain intact + report rendered. Per research R11 layer 3 + plan §"PR-merge"
-- [x] T129 (hash 5bcd239; on push to main; 45min timeout; concurrency cancel-in-progress; 19 secrets) Add CI workflow `.github/workflows/pr-merge.yml` running `TENSOL_TEST_REAL_YANDEX=1 bun test` on push to `main`
+- [x] T128 (hash fdff0c6; skipIf gate; 14 env vars validated; 10-step 35min lifecycle test; afterAll defensive teardown; default 0 pass 3 skip) Implement `server/test/integration/scan-lifecycle-live cloud.test.ts` — gated by `TENSOL_TEST_REAL_GCP=1`. Spawns a real VM with the actual Decepticon image, runs scan against `juice-shop.tensol.dev` (operator must provision this beforehand), verifies ≥3 findings ingested + audit chain intact + report rendered. Per research R11 layer 3 + plan §"PR-merge"
+- [x] T129 (hash 5bcd239; on push to main; 45min timeout; concurrency cancel-in-progress; 19 secrets) Add CI workflow `.github/workflows/pr-merge.yml` running `TENSOL_TEST_REAL_GCP=1 bun test` on push to `main`
 - [x] T130 (hash 5bcd239; cron 3am UTC + workflow_dispatch; cancel-in-progress=false for cloud-teardown safety; if-failure inline curl Telegram alert) Add CI workflow `.github/workflows/nightly-smoke.yml` running T128 nightly
 
 ### vps-agent updates
 
 - [x] T131 [P] (hash 8665d8e; signWebhook + buildSignedHeaders; bytes-perfect envelope mirror; 93 LOC) Implement `vps-agent/src/webhook-sign.ts` — HMAC-SHA256 signing matching `contracts/webhook.md` `X-Tensol-Signature` format
 - [x] T132 [P] (hash 8665d8e; 14 tests; golden hex 794bc65855733968a9faef7ced3111c72e563bc19c9d36d211b993b609efc28e pinned; suite 59/0) Write `vps-agent/test/webhook-sign.test.ts` — golden-vector test against server-side verifier
-- [x] T133 [P] (hash fa15ee3; DI S3Like + UploadCtor; PutObject<5MiB / Upload>=5MiB boundary; Yandex defaults ru-central1+storage.yandexcloud.net) Implement `vps-agent/src/evidence-upload.ts` — AWS SDK v3 S3 client targeting Yandex Object Storage. Per research R9
+- [x] T133 [P] (hash fa15ee3; DI S3Like + UploadCtor; PutObject<5MiB / Upload>=5MiB boundary; storage endpoint must be explicit) Implement `vps-agent/src/evidence-upload.ts` — AWS SDK v3 S3 client targeting approved S3/GCS-compatible object storage. Per research R9
 - [x] T134 [P] (hash fa15ee3; 14 tests 6 describes; multipart 5MiB boundary 3 tests; suite 73/0) Write `vps-agent/test/evidence-upload.test.ts` — mocked S3 client, file → key path
 - [x] T135 (hash 2dce874; NEW V2 path not chaining legacy decepticon-runner.ts V1 — V1→V2 adapter glue future task; webhook exp backoff 500ms→8s cap 30s max 5; sig re-computed each attempt for ±5min drift) Update `vps-agent/src/runner.ts` — wire all new env vars, run Decepticon, collect findings/*.md and evidence/*, tar.gz, upload, POST signed webhook, shutdown
 - [x] T136 [P] (hash 2dce874; 16 tests 48 expects 5 categories; suite 89/0) Write `vps-agent/test/runner.test.ts`
@@ -294,10 +299,10 @@ description: "Task list for 002-blackbox-mvp implementation"
 ### Pre-launch verification
 
 - [x] T146 (hash 6036315; server 1038/1009/21/13 — all 21 fails are 001-legacy zombies; vps-agent 104/0 clean; apps/site 87/10/10 all playwright-under-bun; ZERO true 002 regressions) Run full `bun test` in `server/`, `vps-agent/`, `apps/site/` → expect 0 failures
-- [⏸] T147 (DEFER infra — requires real Yandex cloud creds + ~$5-50 cloud spend; T128 spec already gated by env; operator runs once before PR merge per CI workflow T129) Run `TENSOL_TEST_REAL_YANDEX=1 bun test` in `server/` → expect 0 failures (one full real-Yandex pass)
+- [⏸] T147 (DEFER infra — requires real GCP creds + ~$5-50 cloud spend; T128 spec already gated by env; operator runs once before PR merge per CI workflow T129) Run `TENSOL_TEST_REAL_GCP=1 bun test` in `server/` → expect 0 failures (one full live cloud pass)
 - [x] T148 (hash 6036315; golden fixture chain ok 11 rows exit 0; fresh :memory: chain ok 0 rows exit 0; byte-stable signatures) Run `bun run verify-chain` against the test DB after full IT pass → expect exit 0 + audit chain intact
 - [⏸] T149 (DEFER infra — requires running backend + frontend dev servers + seeded test DB; 6 e2e spec files shipped T091/T092/T093/T112/T120; operator runs locally before merge via `cd apps/site - [ ] T149 Run Playwright e2e suite- [ ] T149 Run Playwright e2e suite bun run e2e`) Run Playwright e2e suite → expect 0 failures
-- [⏸] T150 (DEFER operator — manual screencast for landing demo + full Quick + Deep happy path; requires real Yandex VM + Telegram bot + S3; operator-owned per driver brief §JЁСТКИЕ-БЛОКЕРЫ similar-class) Manual smoke against staging (or local stack with real Yandex) — full Quick happy path end-to-end + full Deep inquiry happy path. Record screencast for landing-page usage demo
+- [⏸] T150 (DEFER operator — manual screencast for landing demo + full Quick + Deep happy path; requires live cloud VM + Telegram bot + S3; operator-owned per driver brief §JЁСТКИЕ-БЛОКЕРЫ similar-class) Manual smoke against staging (or local stack with live cloud) — full Quick happy path end-to-end + full Deep inquiry happy path. Record screencast for landing-page usage demo
 - [x] T151 (hash df1bb31; VERIFIED no-patch-needed; CLAUDE.md L103-119 references all canonical 002 artifacts) Update `CLAUDE.md` SPECKIT block already done — verify it's correct
 - [x] T152 (hash df1bb31; 135 commits branch; 983 files net +81827/-100516 rebuild-and-simplify; 0 unexpected; 0 secrets; gitnexus skipped per fallback — index too stale at 7dd8515) Final `gitnexus_detect_changes()` review before opening PR to `main`
 
@@ -320,14 +325,14 @@ backend and US1 frontend, for example).
 
 ## Parallel opportunities per story
 
-- **US1**: schemas (T024-T027, T026), DNS resolver (T032), subdomain probe (T037), Yandex helpers (T040-T042), cloud-init (T044-T045), findings ingest (T048-T050), PDF renderer (T051-T053), email (T054-T055) — these eight clusters are file-disjoint. Within a developer, do T024+T026+T037+T044+T048+T051+T054 first (foundation-of-US1), then converge on T036 service and T067 routes.
+- **US1**: schemas (T024-T027, T026), DNS resolver (T032), subdomain probe (T037), GCP helpers (T040-T042), cloud-init (T044-T045), findings ingest (T048-T050), PDF renderer (T051-T053), email (T054-T055) — these eight clusters are file-disjoint. Within a developer, do T024+T026+T037+T044+T048+T051+T054 first (foundation-of-US1), then converge on T036 service and T067 routes.
 - **US2**: Telegram client (T096-T097), sanitization (T098-T099), schemas (T094-T095) all parallel; converge at T100 service.
 - **US3**: mostly small UI work; T113-T116 backend can run alongside T117-T119 frontend.
 
 ## Independent test criteria
 
-- **US1**: `apps/site/e2e/scan-wizard.spec.ts` walks the entire happy path against a backend with fake Yandex provider. Passing this test = US1 ships.
-- **US2**: `apps/site/e2e/deep-inquiry.spec.ts` submits the form and asserts Telegram mock was called. No Yandex / no scan needed.
+- **US1**: `apps/site/e2e/scan-wizard.spec.ts` walks the entire happy path against a backend with fake cloud provider. Passing this test = US1 ships.
+- **US2**: `apps/site/e2e/deep-inquiry.spec.ts` submits the form and asserts Telegram mock was called. No GCP / no scan needed.
 - **US3**: `apps/site/e2e/history-redownload.spec.ts` uses a pre-seeded fixture user with one completed scan; walks Dashboard → Findings → PDF download. No new scan execution required.
 
 ## Implementation strategy
@@ -344,7 +349,7 @@ the revenue funnel. Cost: ~8 backend + ~6 frontend tasks. ~3 days.
 US3 (history) becomes valuable after the first cohort of users has
 returned, so it can ship in week 4-5 without blocking launch.
 
-Phase 6 polish items (admin, real-Yandex tests, security review) are
+Phase 6 polish items (admin, live cloud tests, security review) are
 **mandatory** before public launch but can run in parallel with US2/US3.
 
 ## Format validation

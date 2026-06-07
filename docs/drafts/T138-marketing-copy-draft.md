@@ -1,5 +1,12 @@
 # T138 — Marketing.tsx final copy draft (OPERATOR REVIEW)
 
+> **2026-06-05 international pivot update** — this draft was written for the
+> old Russia-first positioning. Do not use YooKassa/RUB/RU-first copy from this
+> file for new product work. Current context:
+> `docs/project-current-context.md`. Current production identity is **Sthrip**
+> on `sthrip.dev` with `api.sthrip.dev` as the public API domain; Tensol /
+> `tensol.ru` mentions below are historical draft copy only.
+
 > **Status**: ⏸ AI-drafted starter material. Operator finalizes wording before
 > these strings land in `apps/site/src/i18n.ts`.
 >
@@ -89,9 +96,9 @@ referenced by a `MarketingMythos` component placed between
 
 ### M4 — vs XBOW (positioning differentiation)
 
-**RU**: XBOW работает с программами bug bounty крупных компаний США. Tensol работает с российским и СНГ-бизнесом: 152-ФЗ, договорные NDA на русском, оплата в рублях через ЮKassa, инфраструктура в ru-central1. Атакующий движок сравним; обвязка — нет.
+**RU**: XBOW работает с программами bug bounty крупных компаний США. Sthrip/Tensol работает с международными security-командами, которым нужен авторизованный AI-пентест с проверяемыми доказательствами, customer-selected data residency, DPA-ready процессом и интеграцией в инженерные workflow. Атакующий движок сравним; обвязка вокруг scope, evidence и remediation — нет.
 
-**EN**: XBOW serves US enterprise bug-bounty programs. Tensol serves Russian and CIS businesses: 152-FZ compliance, Russian-language NDAs, ruble billing via YooKassa, infrastructure in ru-central1. The attacker engine is comparable; the wrapper isn't.
+**EN**: XBOW serves US enterprise bug-bounty programs. Sthrip/Tensol serves international security teams that need authorized AI pentesting with verifiable evidence, customer-selected data residency, DPA-ready process, and engineering workflow integration. The attacker engine is comparable; the wrapper around scope, evidence, and remediation is not.
 
 ### M5 — vs other AI-pentest products (transparency)
 
@@ -153,7 +160,7 @@ mapping and patching any gaps. The table below is the operator's decision grid.
 ```ts
 {
   q: "Can we integrate Tensol into our CI/CD?",
-  a: "The MVP doesn't expose a programmatic CI API. Today, scans launch from the dashboard with YooKassa payment. If CI integration is critical, contact us via /contact — we can evaluate adding a webhook callback to your endpoint when a scan completes."
+  a: "The MVP doesn't expose a programmatic CI API. Today, scans launch from the dashboard and self-serve paid billing is disabled. If CI integration is critical, contact us via /contact — we can evaluate adding a webhook callback to your endpoint when a scan completes."
 },
 {
   q: "What if we have 50 subdomains?",

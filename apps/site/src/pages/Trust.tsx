@@ -9,12 +9,21 @@ import {
   MarketingNav,
   SignalBackground,
 } from '../components/MarketingChrome.tsx';
-import { StatusChip } from '../components/primitives.tsx';
 import { useTensol } from '../context.tsx';
 
-function AboutBrandPanel() {
+type AboutMetric = {
+  readonly value: string;
+  readonly label: string;
+};
+
+type AboutSignal = {
+  readonly label: string;
+  readonly value: string;
+};
+
+function AboutSignalPanel({ signals }: { readonly signals: readonly AboutSignal[] }) {
   return (
-    <aside className="about-brand-panel" aria-label="Sthrip trust posture">
+    <aside className="about-brand-panel" aria-label="Sthrip operating signals">
       <FrameCorners />
       <div className="about-logo-lockup">
         <img
@@ -24,31 +33,25 @@ function AboutBrandPanel() {
         />
         <img src="/assets/sthrip-wordmark-white.png" alt="STHRIP" />
       </div>
-      <div className="about-signal-grid" aria-hidden="true">
-        <span>AUTHZ</span>
-        <span>REGION</span>
-        <span>DPA</span>
-        <span>AUDIT</span>
+      <div className="about-signal-grid">
+        {signals.map((signal) => (
+          <article key={signal.label}>
+            <span>{signal.label}</span>
+            <strong>{signal.value}</strong>
+          </article>
+        ))}
       </div>
-      <p>
-        Authorized assessments, source-code boundaries, evidence retention,
-        and procurement-grade controls.
-      </p>
     </aside>
   );
 }
 
-function AboutMetricRail() {
+function AboutMetricRail({ metrics }: { readonly metrics: readonly AboutMetric[] }) {
   return (
-    <div className="about-metric-rail" aria-label="Trust operating model">
-      {[
-        ['01', 'authorized scope'],
-        ['02', 'audit-ready evidence'],
-        ['03', 'regional handling'],
-      ].map(([index, label]) => (
-        <article key={index}>
-          <span>{index}</span>
-          <strong>{label}</strong>
+    <div className="about-metric-rail" aria-label="Sthrip team model">
+      {metrics.map((metric) => (
+        <article key={metric.label}>
+          <span>{metric.value}</span>
+          <strong>{metric.label}</strong>
         </article>
       ))}
     </div>
@@ -58,15 +61,15 @@ function AboutMetricRail() {
 export default function Trust(): ReactNode {
   const navigate = useNavigate();
   const { t } = useTensol();
-  const trust = t.trustPage;
+  const about = t.trustPage;
 
   return (
-    <div className="minimal-marketing about-page" data-screen-label="About — trust">
+    <div className="minimal-marketing about-page" data-screen-label="About - team">
       <RouteHead
-        title="About Sthrip — Trust & Governance"
-        description={trust.sub}
-        ogTitle="About Sthrip — Trust & Governance"
-        ogDescription={trust.sub}
+        title="About Sthrip - Team"
+        description={about.sub}
+        ogTitle="About Sthrip - Team"
+        ogDescription={about.sub}
       />
       <SignalBackground />
       <HudOverlay />
@@ -76,139 +79,74 @@ export default function Trust(): ReactNode {
         <main className="about-main">
           <section className="about-hero" aria-labelledby="about-title">
             <div className="about-hero-copy">
-              <span className="minimal-kicker">ABOUT</span>
-              <h1 id="about-title">{trust.title}</h1>
-              <p>{trust.sub}</p>
+              <span className="minimal-kicker">{about.eyebrow}</span>
+              <h1 id="about-title">{about.title}</h1>
+              <p>{about.sub}</p>
               <div className="minimal-actions">
                 <button
                   type="button"
                   className="minimal-button minimal-button-primary"
                   onClick={() => navigate('/contact')}
                 >
-                  {trust.ctaBtn}
+                  {about.primaryCta}
                 </button>
                 <Link to="/solutions" className="minimal-button minimal-button-secondary">
-                  Solutions
+                  {about.secondaryCta}
                   <ArrowIcon />
                 </Link>
               </div>
             </div>
-            <AboutBrandPanel />
+            <AboutSignalPanel signals={about.signals} />
           </section>
 
-          <AboutMetricRail />
+          <AboutMetricRail metrics={about.metrics} />
 
-          <section className="about-section about-control-section" aria-labelledby="controls-title">
+          <section className="about-section about-team-section" aria-labelledby="team-title">
             <div className="about-section-heading">
-              <span className="minimal-kicker">{trust.complianceEyebrow}</span>
-              <h2 id="controls-title">{trust.complianceTitle}</h2>
+              <span className="minimal-kicker">{about.teamEyebrow}</span>
+              <h2 id="team-title">{about.teamTitle}</h2>
+              <p>{about.teamIntro}</p>
             </div>
-            <div className="about-card-grid about-card-grid-two">
-              {trust.compliance.map((control) => (
-                <article className="about-card" key={control.name}>
+            <div className="about-card-grid about-team-grid">
+              {about.team.map((member, index) => (
+                <article className="about-card about-person-card" key={member.name}>
                   <FrameCorners />
-                  <div className="about-card-title">
-                    <h3>{control.name}</h3>
-                    <StatusChip
-                      status={control.statusLabel}
-                      tone={control.statusTone as 'ok' | 'warn' | 'neutral'}
-                      size="sm"
-                    />
-                  </div>
-                  <p>{control.body}</p>
-                  {control.caption ? <small>{control.caption}</small> : null}
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <section className="about-section" aria-labelledby="authz-title">
-            <div className="about-section-heading">
-              <span className="minimal-kicker">{trust.authzEyebrow}</span>
-              <h2 id="authz-title">{trust.authzTitle}</h2>
-            </div>
-            <div className="about-card-grid about-card-grid-three">
-              {trust.authz.map((item, index) => (
-                <article className="about-card about-card-compact" key={item.t}>
                   <span className="about-index">{String(index + 1).padStart(2, '0')}</span>
-                  <h3>{item.t}</h3>
-                  <p>{item.d}</p>
+                  <h3>{member.name}</h3>
+                  <strong>{member.role}</strong>
+                  <p>{member.bio}</p>
+                  <small>{member.focus}</small>
                 </article>
               ))}
             </div>
           </section>
 
-          <section className="about-section" aria-labelledby="data-title">
+          <section className="about-section about-principles" aria-labelledby="principles-title">
             <div className="about-section-heading">
-              <span className="minimal-kicker">{trust.dataEyebrow}</span>
-              <h2 id="data-title">{trust.dataTitle}</h2>
+              <span className="minimal-kicker">{about.principlesEyebrow}</span>
+              <h2 id="principles-title">{about.principlesTitle}</h2>
             </div>
-            <div className="about-card-grid about-card-grid-two">
-              {trust.data.map((item, index) => (
-                <article className="about-card about-card-compact" key={item.t}>
+            <div className="about-card-grid about-principle-grid">
+              {about.principles.map((principle, index) => (
+                <article className="about-card about-card-compact" key={principle.title}>
                   <span className="about-index">{String(index + 1).padStart(2, '0')}</span>
-                  <h3>{item.t}</h3>
-                  <p>{item.d}</p>
+                  <h3>{principle.title}</h3>
+                  <p>{principle.body}</p>
                 </article>
-              ))}
-            </div>
-          </section>
-
-          <section className="about-section about-boundary" aria-labelledby="boundary-title">
-            <div>
-              <span className="minimal-kicker">{trust.boundaryEyebrow}</span>
-              <h2 id="boundary-title">{trust.boundaryTitle}</h2>
-            </div>
-            <div className="about-boundary-grid">
-              <article>
-                <h3>{trust.boundaryIs}</h3>
-                <ul>
-                  {trust.boundaryIsList.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </article>
-              <article>
-                <h3>{trust.boundaryIsNot}</h3>
-                <ul>
-                  {trust.boundaryIsNotList.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </article>
-            </div>
-          </section>
-
-          <section className="about-section about-documents" aria-labelledby="docs-title">
-            <div>
-              <span className="minimal-kicker">{trust.docsEyebrow}</span>
-              <h2 id="docs-title">{trust.docsTitle}</h2>
-              <p>{trust.docsBody}</p>
-            </div>
-            <div className="about-document-actions">
-              {trust.docsButtons.map((button) => (
-                <button
-                  type="button"
-                  className="minimal-button minimal-button-secondary"
-                  key={button.topic}
-                  onClick={() => navigate(`/contact?topic=${button.topic}`)}
-                >
-                  {button.label}
-                </button>
               ))}
             </div>
           </section>
 
           <section className="about-cta" aria-labelledby="about-cta-title">
-            <span className="minimal-kicker">{trust.ctaEyebrow}</span>
-            <h2 id="about-cta-title">{trust.ctaTitle}</h2>
-            <p>{trust.ctaBody}</p>
+            <span className="minimal-kicker">{about.ctaEyebrow}</span>
+            <h2 id="about-cta-title">{about.ctaTitle}</h2>
+            <p>{about.ctaBody}</p>
             <button
               type="button"
               className="minimal-button minimal-button-primary"
-              onClick={() => navigate('/contact')}
+              onClick={() => navigate('/contact?topic=careers')}
             >
-              {trust.ctaBtn}
+              {about.ctaBtn}
             </button>
           </section>
         </main>

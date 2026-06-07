@@ -61,8 +61,8 @@ import { createRunner, type Dispatcher } from "./jobs/runner.ts";
 import { createSpawnVpsHandler } from "./jobs/handlers/spawn-vps.ts";
 import { createDispatchScanHandler } from "./jobs/handlers/dispatch-scan.ts";
 import { createTeardownVpsHandler } from "./jobs/handlers/teardown-vps.ts";
-import { createSpawnYandexVmHandler } from "./jobs/handlers/spawn-yandex-vm.ts";
-import { createTeardownYandexVmHandler } from "./jobs/handlers/teardown-yandex-vm.ts";
+import { createSpawnScanVmHandler } from "./jobs/handlers/spawn-scan-vm.ts";
+import { createTeardownScanVmHandler } from "./jobs/handlers/teardown-scan-vm.ts";
 import { createRenderPdfHandler } from "./jobs/handlers/render-pdf.ts";
 import { createSendScanCompleteTelegramHandler } from "./jobs/handlers/send-scan-complete-telegram.ts";
 import { createScanTimeoutWatcher } from "./jobs/handlers/scan-timeout-watcher.ts";
@@ -128,6 +128,7 @@ import { createScanOrdersService } from "./scan-orders/service.ts";
 import { createDeepInquiriesService } from "./deep-inquiries/service.ts";
 import { createRequireAuth, type ClerkAuth } from "./auth/middleware.ts";
 import { readSessionCookie } from "./auth/session.ts";
+import { resolveEvidenceStorageEnv } from "./storage/evidence-env.ts";
 import { sessions as sessionsTable } from "./db/schema.ts";
 import { eq } from "drizzle-orm";
 import { now as defaultNow } from "./lib/time.ts";
@@ -321,6 +322,8 @@ export interface CreateAppDeps {
   readonly githubConnectClient?: GitHubClient | null;
   /** Optional Clerk bearer-token verifier for Vercel/Clerk auth sessions. */
   readonly clerkAuth?: ClerkAuth;
+  /** Diagnostic-only: keep failed blackbox VMs for operator log inspection. */
+  readonly preserveFailedScanVm?: boolean;
   readonly now?: () => number;
 }
 
@@ -341,6 +344,7 @@ export function createApp(deps: CreateAppDeps): Hono {
     telegramWebhookSecret,
     operatorEmails,
     clerkAuth,
+    preserveFailedScanVm,
     now,
   } = deps;
   // `baseUrl` is currently unused after the email magic-link removal but is
@@ -350,16 +354,13 @@ export function createApp(deps: CreateAppDeps): Hono {
 
   const app = new Hono();
 
-  // 2026-05-21 — CORS for cross-origin SPA on Vercel (sthrip.dev) talking
-  // to api.tensol.ru. Credentials required for tensol_session cookie.
+  // CORS for the production Sthrip SPA talking to api.sthrip.dev.
+  // Credentials required for tensol_session cookie.
   // Explicit origin (not *) because credentials + wildcard is forbidden
   // per Fetch spec. Add localhost:5173 + 5175 for vite dev.
   const ALLOWED_ORIGINS = new Set<string>([
     "https://sthrip.dev",
     "https://www.sthrip.dev",
-    "https://tensol.ru",
-    "https://www.tensol.ru",
-    "https://app.tensol.ru",
     "http://localhost:5173",
     "http://localhost:5175",
   ]);
@@ -411,7 +412,12 @@ export function createApp(deps: CreateAppDeps): Hono {
   // proof for the blackbox MVP arrives via `/v1/scan-orders/*` (T034+).
   app.route(
     "/api/webhooks",
-    createWebhookRoutes({ db, signingKey, ...maybeNow(now) }),
+    createWebhookRoutes({
+      db,
+      signingKey,
+      ...maybeProp("preserveFailedScanVm", preserveFailedScanVm),
+      ...maybeNow(now),
+    }),
   );
 
   // T071 — `/v1/scans/*` simplified read API (US1). Owner-scoped via
@@ -551,9 +557,9 @@ export function createApp(deps: CreateAppDeps): Hono {
     }),
   );
 
-  // T074 — `/v1/config/feature-flags` (T073). No DI; the route reads
-  // `TENSOL_YOOKASSA_LIVE` via the T019 isYookassaLive() helper at
-  // request time so flag flips take effect without a restart.
+  // T074 — `/v1/config/feature-flags` (T073). No DI. The route still exposes
+  // the legacy `TENSOL_YOOKASSA_LIVE` compatibility flag at request time, but
+  // new billing work should add provider-agnostic flags instead.
   app.route("/v1/config/feature-flags", createConfigFeatureFlagsRouter());
 
   // 003-whitebox — code-review engine surface.
@@ -580,6 +586,7 @@ export function createApp(deps: CreateAppDeps): Hono {
       db,
       service: reviewService,
       webhookSecret: deps.githubAppWebhookSecret ?? "",
+      ...(deps.githubConnectClient ? { github: deps.githubConnectClient } : {}),
       ...maybeNow(now),
     }),
   );
@@ -895,28 +902,29 @@ export async function main(): Promise<{
   // handler itself throws at invoke time so the runner's permanent-failure
   // branch captures it in the audit log.
   //
-  // 2026-05-22 pivot: cloud-provider switched from Yandex to GCP. See
+  // 2026-05-22 pivot: cloud-provider switched from GCP to GCP. See
   // memory project_tensol_gcp_pivot_2026-05-22.md. Env contract:
   // GCP_PROJECT_ID, GCP_ZONE (default europe-west1-b),
   // GOOGLE_APPLICATION_CREDENTIALS (path to SA JSON).
   const cloudProvider = createGcpCloudProvider();
-  const evidenceBucket = process.env.TENSOL_EVIDENCE_BUCKET ?? "";
-  const awsRegion = process.env.AWS_REGION ?? "ru-central1";
-  const awsEndpoint =
-    process.env.AWS_ENDPOINT_URL ?? "https://storage.yandexcloud.net";
-  const awsAccessKeyId = process.env.AWS_ACCESS_KEY_ID ?? "";
-  const awsSecretAccessKey = process.env.AWS_SECRET_ACCESS_KEY ?? "";
+  const evidenceStorage = resolveEvidenceStorageEnv();
+  const evidenceBucket = evidenceStorage.bucket;
+  const awsRegion = evidenceStorage.region;
+  const awsEndpoint = evidenceStorage.endpoint;
+  const awsAccessKeyId = evidenceStorage.accessKeyId;
+  const awsSecretAccessKey = evidenceStorage.secretAccessKey;
   const decepticonImage =
-    process.env.DECEPTICON_IMAGE ?? "ghcr.io/ageree/decepticon:latest";
+    process.env.DECEPTICON_IMAGE ??
+    "ghcr.io/purpleailab/decepticon-langgraph:latest";
   const vpsZone = process.env.GCP_ZONE ?? "europe-west1-b";
-  const evidencePrefix = process.env.TENSOL_EVIDENCE_PREFIX ?? "scans/";
+  const evidencePrefix = evidenceStorage.prefix;
 
-  if (!evidenceBucket || !awsAccessKeyId || !awsSecretAccessKey) {
+  if (!evidenceBucket || !awsAccessKeyId || !awsSecretAccessKey || !awsEndpoint) {
     // eslint-disable-next-line no-console
     console.warn(
       "[tensol] T066: S3/Object-Storage env vars missing — render_pdf + " +
-        "send_scan_complete_telegram + spawn_yandex_vm will fail at invoke time. " +
-        "Set TENSOL_EVIDENCE_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY.",
+        "send_scan_complete_telegram + scan VM evidence upload will fail at invoke time. " +
+        "Set TENSOL_EVIDENCE_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL.",
     );
   }
 
@@ -951,15 +959,16 @@ export async function main(): Promise<{
     );
   }
 
-  const spawnYandexVm = adaptNewStyle(
-    createSpawnYandexVmHandler({
+  const spawnScanVm = adaptNewStyle(
+    createSpawnScanVmHandler({
       db,
       provider: cloudProvider,
       auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
       refundFreeQuickQuota,
       vpsZone,
       backendUrl: config.TENSOL_WEBHOOK_BASE_URL,
-      webhookSecret: config.TENSOL_AUDIT_SIGNING_KEY,
+      webhookSecret:
+        config.TENSOL_WEBHOOK_SECRET || config.TENSOL_AUDIT_SIGNING_KEY,
       evidenceBucket,
       evidencePrefix,
       awsAccessKeyId,
@@ -980,8 +989,8 @@ export async function main(): Promise<{
         : {}),
     }),
   );
-  const teardownYandexVm = adaptNewStyle(
-    createTeardownYandexVmHandler({
+  const teardownScanVm = adaptNewStyle(
+    createTeardownScanVmHandler({
       db,
       provider: cloudProvider,
       auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
@@ -1275,8 +1284,8 @@ export async function main(): Promise<{
     }),
     // T066 — 002 additions (E7). Adapted to legacy `(payload, ctx)` shape
     // via `adaptNewStyle`.
-    spawn_yandex_vm: spawnYandexVm,
-    teardown_yandex_vm: teardownYandexVm,
+    spawn_scan_vm: spawnScanVm,
+    teardown_scan_vm: teardownScanVm,
     render_pdf: renderPdf,
     send_scan_complete_telegram: sendScanCompleteTelegram,
     // `retry_telegram_notification` is a no-op-acknowledged placeholder
@@ -1451,6 +1460,7 @@ export async function main(): Promise<{
     githubAppSlug: config.GITHUB_APP_SLUG,
     ...(githubReviewClient !== null ? { githubConnectClient: githubReviewClient } : {}),
     ...maybeProp("clerkAuth", clerkAuth ?? undefined),
+    preserveFailedScanVm: config.TENSOL_DIAGNOSTIC_PRESERVE_FAILED_VM,
   });
 
   const server = Bun.serve({

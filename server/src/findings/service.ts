@@ -10,7 +10,7 @@
  * The V1 webhook (`/api/webhooks/scan-progress`) still uses this module
  * because it is the only path the vps-agent actually hits today (the V2
  * webhook is wired but vps-agent never POSTs to it — see
- * `server/src/jobs/handlers/spawn-yandex-vm.ts` line 426). To keep the V1
+ * `server/src/jobs/handlers/spawn-scan-vm.ts` line 426). To keep the V1
  * path alive without losing data, `storeFindings` now writes into the
  * current 18-column schema while preserving its old call signature.
  *

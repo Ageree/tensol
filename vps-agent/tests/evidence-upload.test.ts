@@ -2,7 +2,7 @@
  * T134 — tests for evidence-upload.ts (T133).
  *
  * Verifies the S3 client wiring used by vps-agent to push `evidence.tar.gz`
- * bundles to Yandex Object Storage (S3-wire-compatible). Per research §R9
+ * bundles to Google Cloud Storage (S3-wire-compatible). Per research §R9
  * the wire protocol is S3, so we keep the contract test focused on:
  *   - the constructed object key  → `<prefix><scanId>/<filename>`
  *   - the command shape sent into the S3 client (Bucket, Key, ContentType)

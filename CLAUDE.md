@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **пентест ИИ** (5651 symbols, 11914 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **пентест ИИ** (5822 symbols, 12284 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -100,6 +100,16 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 
 <!-- gitnexus:end -->
 
+<!-- project-current-context:start -->
+# Project Current Context
+
+Before relying on older specs or runbooks, read
+`docs/project-current-context.md`. Current defaults: international product
+posture, Clerk auth target, provider-agnostic billing, Convex as the likely
+future control plane, and no new YooKassa/RUB/RU-first product assumptions.
+
+<!-- project-current-context:end -->
+
 <!-- gitbutler:start -->
 # GitButler — Virtual Branch Workflow
 
@@ -169,3 +179,17 @@ Prior features (still on disk, NOT active scope):
 - 002-blackbox-mvp plan: `specs/002-blackbox-mvp/plan.md`
 - 003-whitebox plan: `specs/003-whitebox/plan.md`
 <!-- SPECKIT END -->
+
+<!-- convex-ai-start -->
+
+This project uses [Convex](https://convex.dev) as its backend.
+
+When working on Convex code, **always read
+`convex/_generated/ai/guidelines.md` first** for important guidelines on
+how to correctly use Convex APIs and patterns. The file contains rules that
+override what you may have learned about Convex from training data.
+
+Convex agent skills for common tasks can be installed by running
+`npx convex ai-files install`.
+
+<!-- convex-ai-end -->

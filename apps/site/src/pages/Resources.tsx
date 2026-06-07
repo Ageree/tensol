@@ -9,10 +9,10 @@ import { RouteHead } from '../components/RouteHead.tsx';
 
 const RESOURCE_CARDS = [
   {
-    label: 'TRUST CENTER',
-    title: 'Controls and operating boundaries',
-    body: 'Authorization, data handling, evidence retention, and deployment posture.',
-    href: '/trust',
+    label: 'TEAM',
+    title: 'Meet the people behind Sthrip',
+    body: 'The operators, researchers, and agent engineers building proof-first security testing.',
+    href: '/about',
   },
   {
     label: 'PRIVACY',
@@ -35,9 +35,9 @@ export default function Resources() {
     <div className="minimal-marketing resources-page" data-screen-label="Resources">
       <RouteHead
         title="Resources — Sthrip"
-        description="Sthrip trust, privacy, legal, and product resources."
+        description="Sthrip team, privacy, legal, and product resources."
         ogTitle="Resources — Sthrip"
-        ogDescription="Sthrip trust, privacy, legal, and product resources."
+        ogDescription="Sthrip team, privacy, legal, and product resources."
       />
       <SignalBackground />
       <div className="minimal-content">
@@ -47,7 +47,7 @@ export default function Resources() {
             <span className="minimal-kicker">RESOURCES</span>
             <h1>Documents without the old-site detour.</h1>
             <p>
-              Product references, trust material, privacy terms, and the policies
+              Product references, team notes, privacy terms, and the policies
               your team needs before running an assessment.
             </p>
           </section>

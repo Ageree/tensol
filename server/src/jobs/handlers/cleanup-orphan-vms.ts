@@ -8,7 +8,7 @@
  *
  * Why it exists (research §R10):
  *   Belt-and-braces against teardown bugs. Even if `afterAll` / the
- *   teardown_yandex_vm job has a defect, no VM lives past its grace
+ *   teardown_scan_vm job has a defect, no VM lives past its grace
  *   window. The Telegram alert on every nonzero cleanup makes silent
  *   leakage impossible.
  *

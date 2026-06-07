@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **пентест ИИ** (5651 symbols, 11914 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **пентест ИИ** (5822 symbols, 12284 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -100,6 +100,22 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 
 <!-- gitnexus:end -->
 
+<!-- project-current-context:start -->
+# Project Current Context
+
+Before relying on older specs or runbooks, read
+`docs/project-current-context.md`. Current defaults: international product
+posture, current public brand **Sthrip**, current public domains
+`sthrip.dev` / `api.sthrip.dev`, production API on GCP Compute Engine
+(`tensol-scanners`, VM `sthrip-api-prod`, zone `europe-west1-b`, static IP
+`34.156.105.67`), Clerk auth target, provider-agnostic billing, Convex as the
+likely future control plane, and no new YooKassa/RUB/RU-first or GCP
+production assumptions. Legacy **Tensol** / `tensol.ru`, Timeweb, and GCP
+references are historical or compatibility-only unless a task is explicitly
+about that legacy context.
+
+<!-- project-current-context:end -->
+
 <!-- gitbutler:start -->
 # GitButler — Virtual Branch Workflow
 
@@ -150,3 +166,17 @@ A hunk in a file already rewritten by branch A **cannot** be committed to a para
 - Official agent-workflow skill: `~/.claude/skills/gitbutler-claude/SKILL.md` (its `setup-project.sh` (re)installs the `but` hooks + the canonical `but` agent skill).
 - Full CLI surface: `but --help` and `but <command> --help`. Docs: https://docs.gitbutler.com/cli-overview
 <!-- gitbutler:end -->
+
+<!-- convex-ai-start -->
+
+This project uses [Convex](https://convex.dev) as its backend.
+
+When working on Convex code, **always read
+`convex/_generated/ai/guidelines.md` first** for important guidelines on
+how to correctly use Convex APIs and patterns. The file contains rules that
+override what you may have learned about Convex from training data.
+
+Convex agent skills for common tasks can be installed by running
+`npx convex ai-files install`.
+
+<!-- convex-ai-end -->

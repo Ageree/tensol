@@ -3,7 +3,7 @@
 // Drives:
 //   - On mount, if no `dnsToken` yet, the container's commitStep3 already
 //     requested it via POST /v1/scan-orders/:id/dns-verify/request (T077).
-//   - Display the TXT record card (`_tensol.<domain>` + token value) with
+//   - Display the TXT record card (apex domain + token value) with
 //     copy-to-clipboard for both hostname and value.
 //   - Poll GET /v1/scan-orders/:id/dns-verify/check every 5s via usePolling
 //     (T075 primitive). Halts on verified=true OR remaining_window_seconds≤0.
@@ -175,14 +175,14 @@ export const Step3DnsVerify = ({
     if (polling.data?.verified && !state.dnsVerified) {
       dispatch({ type: 'dnsVerified' });
       if (orderId) {
-        navigate(`/wizard/${orderId}/step-4`);
+        navigate(`/scan/new/${orderId}/launch`);
       }
     }
   }, [polling.data, state.dnsVerified, orderId, dispatch, navigate]);
 
   // ── Derived view values ──
   const txtName = useMemo<string>(
-    () => (state.domain ? `_tensol.${state.domain}` : '_tensol.<domain>'),
+    () => (state.domain ? state.domain : '<domain>'),
     [state.domain],
   );
   const txtValue = state.dnsToken ?? '';

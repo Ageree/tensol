@@ -36,5 +36,5 @@ Spec passes validation on first iteration. Ready for `/speckit-plan`.
 Constitution v1.0.0 already governs implementation choices (TS/Bun + Hono + SQLite + Drizzle + magic-link). Spec deliberately avoids re-stating them — planning phase will reconcile.
 
 Two open decisions deferred to `/speckit-plan` per Assumptions section:
-- VPS provider choice (Hetzner / DO / Yandex)
+- VPS provider choice (Hetzner / DO / GCP)
 - Email provider for magic-link delivery

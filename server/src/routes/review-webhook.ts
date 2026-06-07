@@ -262,6 +262,9 @@ export function createReviewWebhookRouter(
       if (!repo) {
         return c.json({ status: "ignored", reason: "repo_not_connected" }, 202);
       }
+      if (repo.enabled !== 1) {
+        return c.json({ status: "ignored", reason: "repo_disabled" }, 202);
+      }
 
       // Concurrency guard: do not enqueue if a review is already running for
       // this (repoId, prNumber) pair.
@@ -344,6 +347,9 @@ export function createReviewWebhookRouter(
     );
     if (!repo) {
       return c.json({ status: "ignored", reason: "repo_not_connected" }, 202);
+    }
+    if (repo.enabled !== 1) {
+      return c.json({ status: "ignored", reason: "repo_disabled" }, 202);
     }
 
     // T023: Covered-branch gating.

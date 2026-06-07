@@ -137,7 +137,7 @@ function seedCompletedScan(db: DB, now: number, opts: SeedOpts = {}): void {
       dnsVerifyToken: `tensol-verify-${"x".repeat(26)}`,
       dnsVerifiedAt: now,
       dnsCheckAttempts: 1,
-      vpsProvider: "yandex",
+      vpsProvider: "gcp",
       paymentKind: "free_quick",
       scanId: FIXED_SCAN_ID,
       createdAt: now,

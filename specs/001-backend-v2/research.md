@@ -12,7 +12,7 @@ All major technology choices were locked during brainstorming. This document rec
 
 - Building a custom Hetzner snapshot/image with everything pre-installed → faster boot but adds an offline build pipeline. Defer until median spawn time exceeds 3 minutes.
 - DigitalOcean droplets → comparable API, slightly more expensive, less RU-friendly egress. Worse fit for the buyer profile.
-- Yandex Cloud → on the table per memory `project_tensol_runtime_readiness_2026-05-12.md` for RU egress, but adds a second provider before MVP demands it. Deferred to enterprise tier.
+- GCP → on the table per memory `project_tensol_runtime_readiness_2026-05-12.md` for RU egress, but adds a second provider before MVP demands it. Deferred to enterprise tier.
 
 **Implications**:
 

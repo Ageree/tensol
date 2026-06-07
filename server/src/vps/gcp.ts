@@ -5,22 +5,22 @@
  * Auth via `google-auth-library` reading the SA JSON at
  * `GOOGLE_APPLICATION_CREDENTIALS` (e.g. `server/.gcp/tensol-vm-spawner.json`).
  *
- * Lessons carried over from Yandex era (memory 2026-05-21):
- *  - sanitizeLabels: GCP labels match `[a-z0-9_-]*` like Yandex; ULIDs are
+ * Lessons carried over from GCP migration era (memory 2026-05-21):
+ *  - sanitizeLabels: GCP labels match `[a-z0-9_-]*` like GCP; ULIDs are
  *    uppercase Crockford-base32 and must be lowercased or `instances.insert`
  *    returns HTTP 400.
  *  - instance name regex: GCP requires lowercase letters, digits, hyphens,
- *    must start with a letter, max 63 chars — same shape as Yandex.
+ *    must start with a letter, max 63 chars — same shape as GCP.
  *  - Idempotency: GCP uses `requestId` query param (UUID v4) — we derive a
  *    deterministic UUID from scanId via SHA-256 truncation so retries dedup.
  *
- * GCP-specific differences from Yandex:
+ * GCP-specific differences from GCP:
  *  - Endpoint: https://compute.googleapis.com/compute/v1
  *  - URL is project+zone-scoped: /projects/{proj}/zones/{zone}/instances
  *  - Operations live on the zone too: /projects/{proj}/zones/{zone}/operations/{op}
  *  - Status enum: PROVISIONING / STAGING / RUNNING / STOPPING / TERMINATED
  *  - Public IPv4: networkInterfaces[0].accessConfigs[0].natIP
- *  - Auth: OAuth2 bearer from SA JSON (cleaner than Yandex's IAM JWT exchange)
+ *  - Auth: OAuth2 bearer from SA JSON (cleaner than GCP's IAM JWT exchange)
  */
 
 import { createHash } from "node:crypto";
@@ -43,7 +43,7 @@ const DEFAULT_OP_POLL_TIMEOUT_MS = 10 * 60 * 1_000;
 /**
  * GCP label keys/values must match `[a-z0-9_-]*` (and key must start with a
  * letter, but `_` prefix is fine for values). We lowercase and replace
- * invalid chars — same defensive sanitization the now-removed Yandex provider used.
+ * invalid chars — same defensive sanitization the now-removed GCP provider used.
  */
 export function sanitizeLabels(
   input: Record<string, string>,
@@ -62,7 +62,7 @@ export type GcpProviderConfig = {
   projectId: string;
   /** Zone, e.g. europe-west1-b. */
   zone: string;
-  /** Machine type id, e.g. e2-small (2 vCPU / 2 GiB). */
+  /** Machine type id, e.g. e2-standard-2 (2 vCPU / 8 GiB). */
   machineType: string;
   /** Full source-image URL or family path. */
   bootDiskImage: string;
@@ -235,7 +235,7 @@ export function createGcpCloudProvider(
     },
 
     async listInstances(_folderId: string): Promise<VmInstanceSummary[]> {
-      // GCP has no "folder" concept like Yandex — the closest analog is the
+      // GCP has no "folder" concept like GCP — the closest analog is the
       // project. We list all instances in the configured zone of our
       // project. The folderId param is ignored intentionally (kept for
       // interface compatibility with the orphan-cleanup cron).
@@ -502,7 +502,7 @@ function resolveConfig(
     projectId,
     zone,
     machineType:
-      override?.machineType ?? process.env.GCP_MACHINE_TYPE ?? "e2-small",
+      override?.machineType ?? process.env.GCP_MACHINE_TYPE ?? "e2-standard-2",
     bootDiskImage:
       override?.bootDiskImage ??
       process.env.GCP_BOOT_DISK_IMAGE ??

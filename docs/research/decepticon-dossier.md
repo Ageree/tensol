@@ -349,7 +349,7 @@ The following five decisions must be made before productionising the VPS-spawn f
    - Option B: Anthropic Opus + DeepSeek tier mix (eco profile — ~$30-40/scan)
    - **Option C (CHOSEN 2026-05-12): GPT-5.5 as primary** — single provider via OpenAI API. ~$300–800/scan at 50k actions. Drops the DeepSeek hack entirely.
    - Option D: OpenRouter unified (flexibility, one API key) — deferred.
-   - *Rationale (Option C):* XBOW's Mythos-like evaluation (Q1 2026) put GPT-5.5 in XBOW-zone for autonomous pentest reasoning — DeepSeek doesn't reach that bar even with aggressive prompting. Tensol's $1.5k–$3.5k pricing tiers absorb the cost: Premium ($3.5k) sees ~80% gross margin even at $500 LLM + $50 VPS per scan. RU-compliance angle (OpenAI processes data in US) is **explicitly deprioritised** until the first compliance-sensitive customer — at that point we'd add a regional model option (YandexGPT / hybrid) rather than fall back to DeepSeek.
+   - *Rationale (Option C):* XBOW's Mythos-like evaluation (Q1 2026) put GPT-5.5 in XBOW-zone for autonomous pentest reasoning — DeepSeek doesn't reach that bar even with aggressive prompting. Tensol's $1.5k–$3.5k pricing tiers absorb the cost: Premium ($3.5k) sees ~80% gross margin even at $500 LLM + $50 VPS per scan. RU-compliance angle (OpenAI processes data in US) is **explicitly deprioritised** until the first compliance-sensitive customer — at that point we'd add a regional model option (regional hosted model / hybrid) rather than fall back to DeepSeek.
    - *Operational change (2026-05-12 — OpenRouter chosen as gateway):*
      ```yaml
      OPENROUTER_API_KEY=sk-or-v1-...

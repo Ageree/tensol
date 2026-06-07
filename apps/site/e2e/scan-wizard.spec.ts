@@ -7,8 +7,9 @@
  *      (Per docs/pivot-2026-05-19-telegram-auth.md the magic-link channel
  *      is now Telegram, which is out-of-band; a pre-seeded cookie is the
  *      standard E2E shortcut for OOB auth.)
- *   2. Navigate to /scan/new → wizard creates draft order → step 1.
- *   3. Step 1 (Attack Surface) — enter primary domain → Next.
+ *   2. Navigate to /scan/new → Step 1 renders without a backend draft.
+ *   3. Step 1 (Attack Surface) — enter primary domain → Next creates
+ *      the scan order and navigates to Step 2.
  *   4. Step 2 (Safety) — pick the "Safe" preset (RPS=10) → Next.
  *   5. Step 3 (DNS Verify) — `TENSOL_DEV_DNS_BYPASS=true` auto-verifies
  *      after ≥5s elapsed; we let the 5s poll loop tick once, then assert
@@ -28,7 +29,7 @@
  * Backend env requirements (set by T102 smoke runner):
  *   - TENSOL_DEV_DNS_BYPASS=true   — auto-verifies DNS after ~5s
  *   - TENSOL_WEBHOOK_SECRET=<hex>  — must match `E2E_WEBHOOK_SECRET` below
- *   - Fake CloudProvider wired    — no real Yandex calls
+ *   - Fake CloudProvider wired    — no real cloud-provider calls
  *   - Test-only endpoints exposed under `/__test/v2/...`:
  *       POST /__test/v2/seed-session   { email } → { session_id, user_id }
  *       GET  /__test/v2/scan-order/:id/vps-secret → { webhook_secret }
@@ -80,21 +81,14 @@ test.describe('T091 — scan wizard happy path (US1)', () => {
       await attachSessionCookie(context, seed.session_id, FRONTEND_BASE_URL);
 
       // ───────────────────────────────────────────────────────────────
-      // 2. Navigate to /scan/new — the wizard auto-creates a draft
-      //    order and redirects to /scan/new/:orderId/surface.
+      // 2. Navigate to /scan/new — Step 1 renders before creating a
+      //    backend order, because POST /v1/scan-orders requires the
+      //    primary_domain chosen by the user.
       // ───────────────────────────────────────────────────────────────
       await page.goto('/scan/new');
-      await page.waitForURL(/\/scan\/new\/[0-9A-HJKMNP-TV-Z]{26}\/surface/i, {
-        timeout: 15_000,
-      });
-
-      // Capture the orderId from the URL — we need it for the webhook step.
-      const wizardUrl = new URL(page.url());
-      const orderIdMatch = wizardUrl.pathname.match(
-        /\/scan\/new\/([0-9A-HJKMNP-TV-Z]{26})\/surface/i,
-      );
-      expect(orderIdMatch).not.toBeNull();
-      const scanOrderId = orderIdMatch![1]!;
+      await expect(
+        page.locator('[data-testid="wizard-step1-domain"]'),
+      ).toBeVisible({ timeout: 15_000 });
 
       // ───────────────────────────────────────────────────────────────
       // 3. Step 1 — Attack Surface: enter domain.
@@ -102,10 +96,17 @@ test.describe('T091 — scan wizard happy path (US1)', () => {
       await page.locator('[data-testid="wizard-step1-domain"]').fill('example.com');
       await page.locator('button:has-text("Next")').click();
 
-      // Wait for step-2 URL slug.
+      // Wait for Step 2 and capture the orderId created by the Step 1
+      // commit. We need the order ID for the webhook-complete step.
       await page.waitForURL(/\/scan\/new\/[0-9A-HJKMNP-TV-Z]{26}\/safety/i, {
         timeout: 10_000,
       });
+      const wizardUrl = new URL(page.url());
+      const orderIdMatch = wizardUrl.pathname.match(
+        /\/scan\/new\/([0-9A-HJKMNP-TV-Z]{26})\/safety/i,
+      );
+      expect(orderIdMatch).not.toBeNull();
+      const scanOrderId = orderIdMatch![1]!;
 
       // ───────────────────────────────────────────────────────────────
       // 4. Step 2 — Safety: pick the Safe preset (RPS=10) → Next.

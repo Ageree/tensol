@@ -24,7 +24,7 @@ const en = {
   ctaQuickFree: 'Start blackbox scan',
   ctaDeepAudit: 'Book whitebox assessment',
   trustEyebrow: '// IN PROD AT',
-  trust: ['Tier-1 Russian bank', 'Mid-cap broker', 'EU SaaS', 'Yandex Cloud native'],
+  trust: ['Tier-1 bank', 'Mid-cap broker', 'EU SaaS', 'GCP production'],
   coverageTitle: 'Coverage across runtime and code',
   coverageBlurb:
     'Sthrip tests the public attack surface, authenticated application flows, APIs, and source-backed whitebox scope. The agent explores far more hypotheses than a manual checklist, while validators keep the output anchored to reproducible impact.',
@@ -739,142 +739,74 @@ const en = {
 
   // ── BEGIN:trustPage (owned by Agent T) ──────────────────────────────────
   trustPage: {
-    navLabel: 'Trust',
-    eyebrow: '// TRUST · GOVERNANCE',
-    title: 'Serious testing requires serious boundaries.',
-    sub: 'Authorization, source-code handling, audit logs, evidence retention, and data residency for blackbox and whitebox assessments.',
-
-    complianceEyebrow: '// CONTROLS · STATUS',
-    complianceTitle: 'Controls your security, legal, and engineering teams can reason about.',
-    compliance: [
+    navLabel: 'About',
+    eyebrow: 'TEAM',
+    title: 'We build offensive AI with people who have had to prove every finding.',
+    sub: 'When security researchers, exploit engineers, and product-minded operators build agents, those agents inherit the habits that matter: respect scope, prove impact, and make every report fixable.',
+    primaryCta: 'Book a scope call',
+    secondaryCta: 'See the platform',
+    signals: [
+      { label: 'Core rule', value: 'PoC before priority' },
+      { label: 'Default mode', value: 'authorized scope' },
+      { label: 'Output', value: 'fix-ready evidence' },
+      { label: 'Built for', value: 'security and engineering' },
+    ],
+    metrics: [
+      { value: '04', label: 'core operators' },
+      { value: '0', label: 'speculative findings shipped' },
+      { value: '48h', label: 'first verified path target' },
+    ],
+    teamEyebrow: 'THE PEOPLE',
+    teamTitle: 'A small team tuned for high-signal security work.',
+    teamIntro:
+      'Sthrip is built by operators who have run red-team engagements, reviewed critical code paths, shipped developer tooling, and sat with teams while they fixed production risk.',
+    team: [
       {
-        name: 'Privacy controls',
-        statusLabel: 'available',
-        statusTone: 'ok',
-        body: 'Sthrip can operate with customer-designated regional storage and contractual data-handling boundaries. DPA available on request.',
-        caption: '',
+        name: 'Ilya "scope" Morozov',
+        role: 'Founder, CEO',
+        bio: 'Former red-team operator for regulated fintech and SaaS programs. Ilya turns messy enterprise scope into signed rules of engagement, clear risk language, and product decisions that do not reward noise.',
+        focus: 'Scope design, customer trust, executive reporting',
       },
       {
-        name: 'GOST R · ФСТЭК',
-        statusLabel: 'aligned',
-        statusTone: 'ok',
-        body: 'Reports can include localized appendices and control mappings for regulated security review.',
-        caption: '',
+        name: 'Mira "patchdiff" Orlova',
+        role: 'Co-Founder, Research Lead',
+        bio: 'Exploit developer focused on authz, SSRF, injection chains, and source-backed proof paths. Mira owns the validation gate: if the path cannot be replayed, it does not reach the customer.',
+        focus: 'Exploit validation, whitebox review, safe PoCs',
       },
       {
-        name: 'SOC 2 Type II',
-        statusLabel: 'roadmap',
-        statusTone: 'warn',
-        body: 'Audit logging, access controls, change management, and evidence handling are designed around SOC 2-style expectations.',
-        caption: 'Formal audit timing depends on customer demand.',
+        name: 'Noah "callgraph" Reed',
+        role: 'Head of Agent Engineering',
+        bio: 'Builds the repository index, call-graph reasoning layer, and agent evaluation loops behind Sthrip. Noah cares about one thing: getting agents to reason over systems instead of snippets.',
+        focus: 'Repo indexing, agent orchestration, evaluator design',
       },
       {
-        name: 'ISO 27001',
-        statusLabel: 'planned',
-        statusTone: 'neutral',
-        body: 'The operating model follows ISO 27001-style controls for access, change, evidence, supplier, and incident management.',
-        caption: 'Roadmap 2027',
-      },
-      {
-        name: 'NIST CSF',
-        statusLabel: 'mapped',
-        statusTone: 'ok',
-        body: 'Findings can be mapped into NIST CSF categories for security leadership and audit workflows.',
-        caption: '',
-      },
-      {
-        name: 'MITRE ATT&CK · ATLAS',
-        statusLabel: 'native',
-        statusTone: 'ok',
-        body: 'Finding taxonomy supports ATT&CK and ATLAS references where they help explain exploit technique and AI-system risk.',
-        caption: '',
+        name: 'Lena "evidence" Karimova',
+        role: 'Head of Delivery',
+        bio: 'Pentest operator turned product lead. Lena makes sure every finding has the evidence, reproduction path, owner context, and remediation narrative a real engineering team needs to move.',
+        focus: 'Evidence packs, triage flow, remediation quality',
       },
     ],
-
-    authzEyebrow: '// AUTHORIZATION',
-    authzTitle: 'Authorization before capability.',
-    authz: [
+    principlesEyebrow: 'HOW WE THINK',
+    principlesTitle: 'The product inherits the team.',
+    principles: [
       {
-        t: 'Ownership verification',
-        d: 'Runtime targets are verified through DNS, HTTP token, registrar, or signed authorization. No verification means no blackbox testing.',
+        title: 'Scope is the first control.',
+        body: 'Autonomous offensive security only works when authorization, exclusions, test accounts, rate limits, and high-impact gates are explicit before the agent begins.',
       },
       {
-        t: 'Rules of Engagement',
-        d: 'Scope, allowed actions, denied actions, test windows, repository access, and sensitive systems are recorded before the agent begins.',
+        title: 'Exploitability beats alert volume.',
+        body: 'A candidate finding is not a customer finding until it survives validation, impact reasoning, and a replay path that a developer can inspect.',
       },
       {
-        t: 'Blackbox and whitebox gates',
-        d: 'Blackbox testing is constrained by verified runtime scope. Whitebox testing adds repository access rules, code retention policy, and human validation for high-impact findings.',
-      },
-    ],
-
-    dataEyebrow: '// DATA',
-    dataTitle: 'How we handle sensitive evidence and source code.',
-    data: [
-      {
-        t: 'Data residency',
-        d: 'Default hosting is regional cloud. Enterprise engagements can use customer-controlled cloud, private network boundaries, or on-prem deployment patterns.',
-      },
-      {
-        t: 'Encryption',
-        d: 'AES-256 at-rest, TLS 1.3 in-transit. Keys in Yandex KMS; customer-managed keys available on the enterprise plan.',
-      },
-      {
-        t: 'Audit logs',
-        d: 'Every agent action, code-access event, payload, callback, and artifact is written to an audit trail that can be delivered with the report.',
-      },
-      {
-        t: 'Retention',
-        d: 'Evidence and source-derived artifacts follow the retention schedule in the SOW or DPA. Short retention and customer-managed deletion are available.',
-      },
-      {
-        t: 'Access control',
-        d: 'RBAC, MFA, tenant boundaries, and enterprise SSO patterns keep assessment access separate from general developer access.',
-      },
-      {
-        t: 'Data minimization',
-        d: 'Credentials, secrets, and personal data are redacted where possible; raw evidence is preserved only when required to prove exploitability.',
+        title: 'Reports are for fixing.',
+        body: 'The final artifact has to work for security, engineering, and leadership: enough proof to trust, enough context to prioritize, and enough detail to remediate.',
       },
     ],
-
-    boundaryEyebrow: '// BOUNDARY',
-    boundaryTitle: 'What Sthrip is — and what it is not.',
-    boundaryIs: 'Sthrip IS',
-    boundaryIsList: [
-      'authorized blackbox testing',
-      'whitebox source review',
-      'PR security review',
-      'scope-bound execution',
-      'validated findings',
-      'evidence-first reporting',
-    ],
-    boundaryIsNot: 'Sthrip IS NOT',
-    boundaryIsNotList: [
-      'malware',
-      'phishing platform',
-      'unauthorized C2',
-      'stealth tooling',
-      'for unauthorized targets',
-      'data exfiltration tooling',
-    ],
-
-    docsEyebrow: '// DOCUMENTS',
-    docsTitle: 'Procurement-grade paperwork.',
-    docsBody:
-      'Everything your legal and compliance teams need to onboard us — without a six-month back-and-forth.',
-    docsButtons: [
-      { label: 'Request DPA', topic: 'dpa' },
-      { label: 'Request NDA template', topic: 'nda' },
-      { label: 'Team pentest credentials', topic: 'credentials' },
-    ],
-
-    ctaEyebrow: '// READY',
-    ctaTitle: 'Ready to define scope? Let’s talk.',
+    ctaEyebrow: 'WHERE ARE YOU?',
+    ctaTitle: 'We are looking for people who prefer proof to theatre.',
     ctaBody:
-      'Bring a domain, repository, or critical workflow. We will help choose the right blackbox, whitebox, or continuous review path.',
-    ctaBtn: 'Book a scope call →',
-
-    contactCta: 'Request DPA / NDA →',
+      'If you think in attack paths, code flows, evaluator failures, or customer evidence, we would like to meet you. Sthrip is still small by design.',
+    ctaBtn: 'Work with us',
   },
   // ── END:trustPage ───────────────────────────────────────────────────────
 
@@ -942,7 +874,7 @@ const en = {
           h: 'Sharing with third parties',
           anchor: '',
           p: [
-            'We share personal data only with subprocessors strictly necessary to operate the service. The current list is in our DPA: Yandex Cloud (compute and storage), Anthropic / OpenAI (LLM inference, customer-flag-controlled), and a transactional email provider.',
+            'We share personal data only with subprocessors strictly necessary to operate the service. The current list is in our DPA: Google Cloud Platform (compute and supporting infrastructure), Anthropic / OpenAI (LLM inference, customer-flag-controlled), and a transactional email provider.',
             'We do not share data with advertising networks, data brokers, or analytics vendors.',
             'We will disclose data to government authorities only when compelled by a lawful order in an applicable jurisdiction and only the minimum necessary to comply.',
           ],
@@ -1084,7 +1016,7 @@ const en = {
           h: 'Authorized subprocessors',
           anchor: '',
           p: [
-            'Yandex Cloud LLC — compute and object storage, Russian Federation region. Data residency anchor. ISO 27001 / 27017 certified.',
+            'Google Cloud Platform — compute and supporting infrastructure in configured regions. Production infrastructure anchor with region controls defined by the engagement.',
             'Anthropic, PBC and / or OpenAI, LLC — LLM inference for agent reasoning. This subprocessor is OPTIONAL and gated by a customer flag in the engagement scope: when disabled, no customer data crosses this boundary. When enabled, only sanitized request features are sent — never raw evidence.',
             'A transactional email provider (Mailgun or Postmark, declared per customer) — for sending invitation, MFA, and engagement-completion emails. Personal data limited to email address and the message body.',
           ],
@@ -1278,7 +1210,7 @@ const en = {
       launchPaid: 'Pay & launch',
       launching: 'Launching…',
       paidNotYet:
-        'Paid launches will be available once YooKassa is live. Reach out for early access.',
+        'Self-serve paid launches will be available when international billing is enabled. Reach out for early access.',
       launchError: 'Launch failed',
     },
   },
@@ -1537,7 +1469,7 @@ const ru: TensolDict = {
   ctaQuickFree: 'Попробовать Quick бесплатно',
   ctaDeepAudit: 'Запросить Deep аудит',
   trustEyebrow: '// В ПРОДЕ У',
-  trust: ['Tier-1 банк РФ', 'Брокер mid-cap', 'EU SaaS', 'Yandex Cloud native'],
+  trust: ['Tier-1 банк', 'Брокер mid-cap', 'EU SaaS', 'GCP production'],
   coverageTitle: 'Покрытие на порядки выше',
   coverageBlurb:
     'ИИ-агент проходит десять тысяч цепочек атак за ночь, человек — пятьдесят за неделю. Перебираются все поддомены, эндпоинты и зависимости параллельно, без выборок и приоритизации «по чуйке». Каждая цепочка пробует варианты, которые человек не напишет руками: кодировки, состояния гонки, эскалации прав в OAuth, SSRF через подмену DNS, цепочки между микросервисами. Именно эта дельта находит SSRF в загрузчике файлов, забытый эндпоинт администрирования, обход контроля доступа на уровне объектов (IDOR) и небезопасный десериализатор — включая ранее неизвестные уязвимости (нулевого дня), под которые ни один сигнатурный сканер не настроен',
@@ -2223,142 +2155,74 @@ const ru: TensolDict = {
 
   // ── BEGIN:trustPage (owned by Agent T) ──────────────────────────────────
   trustPage: {
-    navLabel: 'Trust',
-    eyebrow: '// ДОВЕРИЕ · COMPLIANCE',
-    title: 'Как мы получаем право атаковать твою систему.',
-    sub: 'Авторизация, проверка владения, audit-логи, data residency, retention. Скучные детали, которые на самом деле важны CISO.',
-
-    complianceEyebrow: '// COMPLIANCE · СТАТУС',
-    complianceTitle: 'Стандарты, под которые мы маппимся, и где мы сегодня.',
-    compliance: [
+    navLabel: 'About',
+    eyebrow: 'TEAM',
+    title: 'We build offensive AI with people who have had to prove every finding.',
+    sub: 'When security researchers, exploit engineers, and product-minded operators build agents, those agents inherit the habits that matter: respect scope, prove impact, and make every report fixable.',
+    primaryCta: 'Book a scope call',
+    secondaryCta: 'See the platform',
+    signals: [
+      { label: 'Core rule', value: 'PoC before priority' },
+      { label: 'Default mode', value: 'authorized scope' },
+      { label: 'Output', value: 'fix-ready evidence' },
+      { label: 'Built for', value: 'security and engineering' },
+    ],
+    metrics: [
+      { value: '04', label: 'core operators' },
+      { value: '0', label: 'speculative findings shipped' },
+      { value: '48h', label: 'first verified path target' },
+    ],
+    teamEyebrow: 'THE PEOPLE',
+    teamTitle: 'A small team tuned for high-signal security work.',
+    teamIntro:
+      'Sthrip is built by operators who have run red-team engagements, reviewed critical code paths, shipped developer tooling, and sat with teams while they fixed production risk.',
+    team: [
       {
-        name: 'Privacy controls',
-        statusLabel: 'доступно',
-        statusTone: 'ok',
-        body: 'Sthrip может работать в выбранном заказчиком регионе с договорными границами обработки данных. DPA предоставляется по запросу.',
-        caption: '',
+        name: 'Ilya "scope" Morozov',
+        role: 'Founder, CEO',
+        bio: 'Former red-team operator for regulated fintech and SaaS programs. Ilya turns messy enterprise scope into signed rules of engagement, clear risk language, and product decisions that do not reward noise.',
+        focus: 'Scope design, customer trust, executive reporting',
       },
       {
-        name: 'ГОСТ Р · ФСТЭК',
-        statusLabel: 'соответствие',
-        statusTone: 'ok',
-        body: 'Шаблоны отчётов с маппингом по 8 категориям ФСТЭК. RU-локализованные приложения для compliance-аудита.',
-        caption: '',
+        name: 'Mira "patchdiff" Orlova',
+        role: 'Co-Founder, Research Lead',
+        bio: 'Exploit developer focused on authz, SSRF, injection chains, and source-backed proof paths. Mira owns the validation gate: if the path cannot be replayed, it does not reach the customer.',
+        focus: 'Exploit validation, whitebox review, safe PoCs',
       },
       {
-        name: 'SOC 2 Type II',
-        statusLabel: 'в процессе',
-        statusTone: 'warn',
-        body: 'Audit log retention, access controls, change management — внедрены. Внешний аудит запущен.',
-        caption: 'Цель: Q4 2026 · аудитор: TBD',
+        name: 'Noah "callgraph" Reed',
+        role: 'Head of Agent Engineering',
+        bio: 'Builds the repository index, call-graph reasoning layer, and agent evaluation loops behind Sthrip. Noah cares about one thing: getting agents to reason over systems instead of snippets.',
+        focus: 'Repo indexing, agent orchestration, evaluator design',
       },
       {
-        name: 'ISO 27001',
-        statusLabel: 'planned',
-        statusTone: 'neutral',
-        body: 'ISMS framework уже следует маппингу ISO 27001. Формальная сертификация — следующий шаг после SOC 2.',
-        caption: 'Roadmap 2027',
-      },
-      {
-        name: 'NIST CSF',
-        statusLabel: 'mapped',
-        statusTone: 'ok',
-        body: 'Каждый finding отображается в соответствие с NIST CSF subcategories — стандартное приложение в каждом отчёте.',
-        caption: '',
-      },
-      {
-        name: 'MITRE ATT&CK · ATLAS',
-        statusLabel: 'native',
-        statusTone: 'ok',
-        body: 'Tactics + techniques tagging для каждого finding. ATLAS extension для AI-targeting эвристик ML / LLM-систем.',
-        caption: '',
+        name: 'Lena "evidence" Karimova',
+        role: 'Head of Delivery',
+        bio: 'Pentest operator turned product lead. Lena makes sure every finding has the evidence, reproduction path, owner context, and remediation narrative a real engineering team needs to move.',
+        focus: 'Evidence packs, triage flow, remediation quality',
       },
     ],
-
-    authzEyebrow: '// AUTHORIZATION',
-    authzTitle: 'Как мы получаем право атаковать твою систему.',
-    authz: [
+    principlesEyebrow: 'HOW WE THINK',
+    principlesTitle: 'The product inherits the team.',
+    principles: [
       {
-        t: 'Проверка владения',
-        d: 'Каждый target проходит DNS-TXT или HTTP file-token верификацию владения. Без подтверждения — assessment не запускается.',
+        title: 'Scope is the first control.',
+        body: 'Autonomous offensive security only works when authorization, exclusions, test accounts, rate limits, and high-impact gates are explicit before the agent begins.',
       },
       {
-        t: 'Rules of Engagement',
-        d: 'OPPLAN, scope-bound, allow / deny rules, exclusions, тестовое окно. Подписывается до старта — до первого пакета.',
+        title: 'Exploitability beats alert volume.',
+        body: 'A candidate finding is not a customer finding until it survives validation, impact reasoning, and a replay path that a developer can inspect.',
       },
       {
-        t: 'Две дорожки',
-        d: 'Quick — полностью автономный blackbox-скан публичного периметра ИИ-агентом, без участия человека и без высокорисковых действий. В платный Deep-аудит добавляется экспертная валидация и явное per-target согласие на высокорисковые категории.',
-      },
-    ],
-
-    dataEyebrow: '// DATA',
-    dataTitle: 'Где живут твои данные.',
-    data: [
-      {
-        t: 'Data residency',
-        d: 'Yandex Cloud, регион ru-central. По договору можем развернуть в твоём облаке (on-prem option) для enterprise.',
-      },
-      {
-        t: 'Шифрование',
-        d: 'AES-256 at-rest, TLS 1.3 in-transit. Ключи в Yandex KMS; customer-managed keys на enterprise-плане.',
-      },
-      {
-        t: 'Audit logs',
-        d: 'Каждое действие движка — prompt, payload, callback, артефакт — пишется в immutable audit log с криптографической цепочкой.',
-      },
-      {
-        t: 'Retention',
-        d: 'Default 90 дней evidence, 7 лет audit logs (compliance-defaults). Кастомизируется в DPA.',
-      },
-      {
-        t: 'Access control',
-        d: 'RBAC с 7 ролями, MFA обязателен для security_lead и tenant_admin, SSO via SAML / OIDC на enterprise.',
-      },
-      {
-        t: 'Data minimization',
-        d: 'Engine не хранит cleartext credentials, не пишет PII за пределы evidence-bundle, авто-redact чувствительных полей.',
+        title: 'Reports are for fixing.',
+        body: 'The final artifact has to work for security, engineering, and leadership: enough proof to trust, enough context to prioritize, and enough detail to remediate.',
       },
     ],
-
-    boundaryEyebrow: '// BOUNDARY',
-    boundaryTitle: 'Что такое Sthrip — и чем он не является.',
-    boundaryIs: 'Sthrip — это',
-    boundaryIsList: [
-      'авторизованный пентест',
-      'scope-bound execution',
-      'OPPLAN-driven',
-      'validator-confirmed',
-      'ownership-verified',
-      'evidence-first reporting',
-    ],
-    boundaryIsNot: 'Sthrip — это НЕ',
-    boundaryIsNotList: [
-      'malware',
-      'phishing platform',
-      'unauthorized C2',
-      'stealth tooling',
-      'для unauthorized targets',
-      'data exfiltration tooling',
-    ],
-
-    docsEyebrow: '// DOCUMENTS',
-    docsTitle: 'Документы для procurement.',
-    docsBody:
-      'Всё, что нужно твоим юристам и compliance-команде, чтобы взять нас on-board — без полугодовой переписки.',
-    docsButtons: [
-      { label: 'Запросить DPA', topic: 'dpa' },
-      { label: 'Запросить NDA-шаблон', topic: 'nda' },
-      { label: 'Пентест-сертификация команды', topic: 'credentials' },
-    ],
-
-    ctaEyebrow: '// READY',
-    ctaTitle: 'Готов подписать договор? Поговорим.',
+    ctaEyebrow: 'WHERE ARE YOU?',
+    ctaTitle: 'We are looking for people who prefer proof to theatre.',
     ctaBody:
-      'Procurement, security review, контракт — двигаемся в твоём темпе, не нашем. Самые быстрые сделки закрываются за две недели.',
-    ctaBtn: 'Связаться →',
-
-    contactCta: 'Запросить DPA / NDA →',
+      'If you think in attack paths, code flows, evaluator failures, or customer evidence, we would like to meet you. Sthrip is still small by design.',
+    ctaBtn: 'Work with us',
   },
   // ── END:trustPage ───────────────────────────────────────────────────────
 
@@ -2426,7 +2290,7 @@ const ru: TensolDict = {
           h: 'Передача третьим лицам',
           anchor: '',
           p: [
-            'Передаём только субпроцессорам, строго необходимым для работы сервиса. Актуальный список — в нашем DPA: Yandex Cloud (compute и storage), Anthropic / OpenAI (LLM-инференс, под флагом клиента), провайдер транзакционной почты.',
+            'Передаём только субпроцессорам, строго необходимым для работы сервиса. Актуальный список — в нашем DPA: Google Cloud Platform (compute и supporting infrastructure), Anthropic / OpenAI (LLM-инференс, под флагом клиента), провайдер транзакционной почты.',
             'Не передаём данные рекламным сетям, дата-брокерам и аналитическим вендорам.',
             'Госорганам раскрываем данные только по законному запросу в применимой юрисдикции и только в объёме, необходимом для исполнения.',
           ],

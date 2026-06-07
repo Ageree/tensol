@@ -84,11 +84,11 @@ branch. Expected.
   (9-method state machine), `crt.sh` subdomain probe.
 - **DNS verify** — multi-resolver TXT agreement + audit + dev bypass.
 - **Free-tier quota** — atomic SQL quota service.
-- **Yandex CloudProvider** — IAM exchange, Operations poller, cloud-init
-  template, real-yandex IT (skipped by default).
+- **GCPProvider** — IAM exchange, Operations poller, cloud-init
+  template, live cloud IT (skipped by default).
 - **Findings ingest** — dedup + Juice Shop fixture + tests.
 - **Reports** — HTML template + puppeteer-core PDF render + S3 upload.
-- **Job handlers** — `spawn_yandex_vm`, `teardown_yandex_vm`,
+- **Job handlers** — `spawn_vm`, `teardown_vm`,
   `render_pdf`, `send_scan_complete_telegram`, `scan_timeout`,
   `cleanup_expired_reports`, daily-cleanup cron, orphan-VM cleanup.
 - **Routes** — `/v1/scan-orders/*` (9 endpoints), simplified

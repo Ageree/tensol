@@ -43,7 +43,7 @@ const CROCKFORD_ULID_REGEX = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 /**
  * S3-style object storage URI used for the evidence tarball reference.
  *
- * `s3://<bucket>/<key>` — bucket validated as 3–63 chars (S3 / Yandex
+ * `s3://<bucket>/<key>` — bucket validated as 3–63 chars (S3 / GCP
  * Object Storage convention), key as any non-empty path. The exact bucket
  * name match (against `tensol-evidence-*`) happens in the route handler,
  * not the schema, so test fixtures can use synthetic bucket names.

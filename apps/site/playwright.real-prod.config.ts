@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// Real-prod smoke against https://tensol.ru — no local dev server, no globalSetup.
+// Real-prod smoke against https://sthrip.dev — no local dev server, no globalSetup.
 export default defineConfig({
   testDir: './e2e',
   testMatch: /real-prod-smoke\.spec\.ts/,
@@ -9,7 +9,7 @@ export default defineConfig({
   retries: 0,
   reporter: [['list']],
   use: {
-    baseURL: process.env.PW_BASE_URL ?? 'https://tensol.ru',
+    baseURL: process.env.PW_BASE_URL ?? 'https://sthrip.dev',
     screenshot: 'only-on-failure',
     video: 'off',
     trace: 'off',

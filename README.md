@@ -3,6 +3,13 @@
 Multi-tenant SaaS / private-cloud platform for authorized autonomous pentest
 and adversary emulation in owned or explicitly authorized environments.
 
+## Current product context
+
+Read [`docs/project-current-context.md`](./docs/project-current-context.md)
+before relying on older specs. The product has pivoted from Russia-first
+packaging to an international security SaaS; YooKassa/RUB/RU-first assumptions
+are legacy unless a task explicitly says otherwise.
+
 ## Quick start for new contributors
 
 The canonical setup doc for the current product (Blackbox MVP) is:

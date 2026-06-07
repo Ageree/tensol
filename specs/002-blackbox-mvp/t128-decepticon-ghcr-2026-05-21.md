@@ -3,7 +3,7 @@
 **Verdict (running): IMAGE MIRROR PROVEN END-TO-END on real prod cloud-init.**
 
 Scan against `sthrip.dev` reached `status=running` at 17:33Z, meaning the
-Yandex VM provisioned successfully (IAM ok) AND `docker pull
+GCP VM provisioned successfully (IAM ok) AND `docker pull
 ${DECEPTICON_IMAGE}` succeeded inside cloud-init — the gap that blocked the
 2026-05-21 morning retest (memory note: "Decepticon image DENIED on GHCR")
 is closed.
@@ -111,7 +111,7 @@ After the morning's image-mirror unblock, four additional V1↔V2 architecture g
 | Commit | Bug |
 |---|---|
 | `ddbf4d3` | `dispatch-scan.ts` POSTed to `https://<ip>/scan` (no listener on :443). Switch to `http://<ip>:8080`. |
-| `61373de` | V2 `spawn-yandex-vm` never enqueued `dispatch_scan` job. Inlined the POST after vm_ready. |
+| `61373de` | V2 `spawn-vm` never enqueued `dispatch_scan` job. Inlined the POST after vm_ready. |
 | `3374c8c` | First inline POST fired ~30s after VM op resolved, before cloud-init finished. Added wait-for-agent loop (8min budget) + reordered: dispatch happens BEFORE vm_ready commit so retries can re-enter. |
 | `50e94e6` | Agent webhook URL was `/v1/webhooks/scan-progress` but route is mounted at `/api/webhooks/scan-progress`. Also V1 handler needs a `vps_instances` row to look up the per-VPS signKey — V2 didn't insert one. Fixed both. |
 
@@ -123,7 +123,7 @@ After the morning's image-mirror unblock, four additional V1↔V2 architecture g
 - completed_at: 2026-05-21 20:21:15Z (4m 16s total)
 - status: `failed`
 - failure_reason: `runner_threw_Executable not found in $PATH: "docker"`
-- jobs: `spawn_yandex_vm | done | att=1` (single attempt, no retries needed)
+- jobs: `spawn_vm | done | att=1` (single attempt, no retries needed)
 
 The webhook callback path is now fully wired and verified — server received the agent's terminal POST, verified the HMAC against the freshly-inserted `vps_instances.signKey`, and flipped scan/order rows to `failed`. **This is the first time in the project's history that a scan reached a terminal state via the real prod e2e pipeline.**
 
@@ -177,9 +177,9 @@ User decision: stop here. Bug #7 is logged for a future session.
 b687755  ci: (on main, file-only port for workflow_dispatch)
 6f594ae  test(e2e): T128 Decepticon GHCR mirror + real DNS-verify against sthrip.dev
 ddbf4d3  fix(dispatch-scan): http://<ip>:8080/scan instead of https://<ip>/scan
-61373de  fix(spawn-yandex-vm): inline POST /scan to vps-agent after vm_ready
-3374c8c  fix(spawn-yandex-vm): wait for vps-agent before dispatch, reorder pre-vm_ready
-50e94e6  fix(spawn-yandex-vm): /api webhook path + insert vps_instances row
+61373de  fix(spawn-vm): inline POST /scan to vps-agent after vm_ready
+3374c8c  fix(spawn-vm): wait for vps-agent before dispatch, reorder pre-vm_ready
+50e94e6  fix(spawn-vm): /api webhook path + insert vps_instances row
 d3556ee  docs(t128): evening update — full pipeline orchestration proven end-to-end
 47a420e  fix(vps-agent): install docker-ce-cli + compose plugin from official repo
 ```

@@ -129,15 +129,37 @@ describe("loadConfig", () => {
       ...validEnv,
       TENSOL_OPENROUTER_API_KEY: "sk-or-v1-shared",
     });
+    expect(cfg.TENSOL_OPENROUTER_API_KEY).toBe("sk-or-v1-shared");
+    expect(cfg.TENSOL_REVIEW_LLM_API_KEY).toBe("sk-or-v1-shared");
+  });
+
+  test("shared OpenRouter key accepts the standard provider env name", () => {
+    const cfg = loadConfig({
+      ...validEnv,
+      OPENROUTER_API_KEY: "sk-or-v1-standard",
+    });
+    expect(cfg.TENSOL_OPENROUTER_API_KEY).toBe("sk-or-v1-standard");
+    expect(cfg.TENSOL_REVIEW_LLM_API_KEY).toBe("sk-or-v1-standard");
+  });
+
+  test("TENSOL_OPENROUTER_API_KEY takes precedence over OPENROUTER_API_KEY", () => {
+    const cfg = loadConfig({
+      ...validEnv,
+      OPENROUTER_API_KEY: "sk-or-v1-standard",
+      TENSOL_OPENROUTER_API_KEY: "sk-or-v1-shared",
+    });
+    expect(cfg.TENSOL_OPENROUTER_API_KEY).toBe("sk-or-v1-shared");
     expect(cfg.TENSOL_REVIEW_LLM_API_KEY).toBe("sk-or-v1-shared");
   });
 
   test("review-specific LLM API key takes precedence over the shared key", () => {
     const cfg = loadConfig({
       ...validEnv,
+      OPENROUTER_API_KEY: "sk-or-v1-standard",
       TENSOL_OPENROUTER_API_KEY: "sk-or-v1-shared",
       TENSOL_REVIEW_LLM_API_KEY: "sk-or-v1-review",
     });
+    expect(cfg.TENSOL_OPENROUTER_API_KEY).toBe("sk-or-v1-shared");
     expect(cfg.TENSOL_REVIEW_LLM_API_KEY).toBe("sk-or-v1-review");
   });
 

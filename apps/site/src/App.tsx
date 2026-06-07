@@ -62,15 +62,18 @@ function safeImport<T extends { default: React.ComponentType<unknown> }>(
   load: () => Promise<T>,
   route: string,
 ): Promise<T> {
-  return load().catch(() => ({
-    default: () => (
-      <Placeholder
-        route={route}
-        title="Port pending"
-        hint={`This screen has not been ported yet. The design lives at tensol-platform-design/project/src/. Source key: ${route}.`}
-      />
-    ),
-  })) as Promise<T>;
+  return load().catch((error: unknown) => {
+    console.error(`[lazy-route:${route}] import failed`, error);
+    return {
+      default: () => (
+        <Placeholder
+          route={route}
+          title="Port pending"
+          hint={`This screen has not been ported yet. The design lives at tensol-platform-design/project/src/. Source key: ${route}.`}
+        />
+      ),
+    };
+  }) as Promise<T>;
 }
 
 const MarketingRoute = () => {
@@ -113,6 +116,7 @@ export const App = () => (
         <Route path="/err/:kind" element={<ErrorScreen />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/pricing" element={<Pricing />} />
+        <Route path="/about" element={<Trust />} />
         <Route path="/trust" element={<Trust />} />
         <Route path="/legal/:kind" element={<Legal />} />
         <Route path="/blog" element={<Blog />} />

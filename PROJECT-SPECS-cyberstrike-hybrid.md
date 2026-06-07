@@ -18,7 +18,7 @@
 - evidence-first отчетность;
 - профессиональная дисциплина engagement: OPPLAN, RoE, ConOps, deconfliction;
 - hybrid LLM routing по ролям агентов;
-- российская инфраструктурная база на Yandex Cloud;
+- российская инфраструктурная база на Google Cloud;
 - compliance-friendly supply chain с pinned mirrors, audit logs и ownership-verified offensive capabilities.
 
 ### 1.2. Продуктовое позиционирование
@@ -211,7 +211,7 @@ Product platform owns:
 - reporting;
 - compliance views;
 - billing / cost analytics later;
-- Yandex Cloud deployment and operations.
+- Google Cloud deployment and operations.
 
 Decepticon owns:
 
@@ -229,7 +229,7 @@ Decepticon owns:
 Public zone:
 
 - `web`;
-- public route to `api` through Yandex Application Load Balancer.
+- public route to `api` through Google Cloud Load Balancing.
 
 Private product zone:
 
@@ -252,10 +252,10 @@ Isolated assessment zone:
 
 Managed services zone:
 
-- Yandex Managed PostgreSQL;
-- Yandex Message Queue;
-- Yandex Object Storage;
-- Yandex Container Registry;
+- Google Cloud managed PostgreSQL;
+- Pub/Sub;
+- Google Cloud Storage;
+- Artifact Registry;
 - Sentry / telemetry endpoint if approved.
 
 ### 3.4. Network isolation
@@ -314,7 +314,7 @@ Backend requirements:
 - typed request / response contracts;
 - structured errors;
 - idempotency keys for state-changing assessment commands;
-- background job enqueue through Yandex Message Queue;
+- background job enqueue through Pub/Sub;
 - object artifacts stored outside Postgres.
 
 ### 4.3. Pentest engine
@@ -355,7 +355,7 @@ No tool is category-blocked after ownership verification. Every execution is sti
 
 ### 4.5. Infrastructure
 
-Yandex Cloud only:
+Google Cloud only:
 
 - Managed PostgreSQL;
 - Message Queue;
@@ -473,7 +473,7 @@ Raw prompt / completion storage must be configurable per tenant.
 
 ### 5.6. Self-hosting phase
 
-Phase 6+ supports self-hosted DeepSeek V4 and K2.6 on Yandex GPU when:
+Phase 6+ supports self-hosted DeepSeek V4 and K2.6 on GCP GPU when:
 
 - enterprise data residency requires it;
 - latency justifies it;
@@ -2106,7 +2106,7 @@ Required:
 - pinned Decepticon commit;
 - pinned cyberstrike-runner commit;
 - pinned skill library commit;
-- mirrored images in Yandex Container Registry;
+- mirrored images in Artifact Registry;
 - image digest deployment;
 - quarterly upstream review;
 - SBOM where feasible;
@@ -2157,7 +2157,7 @@ Audit event fields:
 
 ### 18.1. 152-FZ posture
 
-Personal data and customer data must remain in Yandex Cloud managed services unless tenant explicitly opts into external processing.
+Personal data and customer data must remain in Google Cloud managed services unless tenant explicitly opts into external processing.
 
 External LLM use must be documented:
 
@@ -2322,7 +2322,7 @@ Images must be:
 
 - built by CI;
 - scanned;
-- pushed to Yandex Container Registry;
+- pushed to Artifact Registry;
 - deployed by digest;
 - pinned for third-party mirrors.
 
@@ -2591,7 +2591,7 @@ MVP is acceptable when:
 Production readiness requires:
 
 - all MVP criteria;
-- Yandex K8s deployment;
+- GCP K8s deployment;
 - managed Postgres;
 - object storage artifacts;
 - queue-based workers;

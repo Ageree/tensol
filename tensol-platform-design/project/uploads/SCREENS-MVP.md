@@ -26,7 +26,7 @@
 - три ключевых обещания: автономное прохождение kill chain, browser-first проверка реальных web-приложений, публикация только подтверждённых findings;
 - короткое объяснение, почему это не «ещё один сканер» и не «red-team-as-a-service без правил», а authorized pentest с дисциплиной engagement (OPPLAN, RoE, scope, ownership verification);
 - демонстрация результата: образ confirmed finding с evidence, attack graph, отчёт с framework mappings;
-- блок про российскую инфраструктурную базу (Yandex Cloud), 152-FZ совместимость, GOST R / FSTEC шаблоны отчётов;
+- блок про международную инфраструктурную модель, customer-designated cloud regions, contractual controls и framework report templates;
 - блок про supply-chain дисциплину: pinned mirrors, audit logs, ownership-verified offensive capabilities;
 - честная демаркация: что Tensol делает и чего не делает (не malware tooling, не phishing platform, не unauthorized C2, не stealth tooling);
 - целевые роли пользователей: Security Lead, Pentest Operator, Compliance Reviewer, Developer / App Owner;

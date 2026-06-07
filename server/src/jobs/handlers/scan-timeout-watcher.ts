@@ -25,10 +25,10 @@
  *                                      failure_reason='scan_timeout',
  *                                      updated_at=now
  *               WHERE id=:scanOrderId
- *             - INSERT teardown_yandex_vm job (status='pending') carrying
+ *             - INSERT teardown_scan_vm job (status='pending') carrying
  *               {scan_order_id, scan_id, vps_instance_id, vps_zone}
  *        b) refundFreeQuickQuota(userId) — OUTSIDE the tx (statement-level
- *           lock, same rationale as spawn-yandex-vm.ts).
+ *           lock, same rationale as spawn-scan-vm.ts).
  *        c) emit `scan_failed` signed audit (metadata.reason='scan_timeout')
  *        d) IF refund returned `refunded: true`, emit `free_quota_refunded`
  *           signed audit.
@@ -44,17 +44,17 @@
  *   `BLACKBOX_AUDIT_EVENTS` in audit/emit.ts:72-114 does NOT contain a
  *   `scan_timeout` literal. We use `scan_failed` with `outcome='failure'`
  *   and `metadata.reason='scan_timeout'` — mirroring the substitution in
- *   spawn-yandex-vm.ts (vm_provisioning_failed → scan_failed +
+ *   spawn-scan-vm.ts (vm_provisioning_failed → scan_failed +
  *   reason='vm_spawn_failed').
  *
  * Why audit emit is post-commit (not inside withTx):
  *   `emitSignedAudit` opens its own `BEGIN IMMEDIATE`. bun:sqlite does not
- *   support nested transactions. Same pattern as spawn-yandex-vm.ts
- *   (T056) / teardown-yandex-vm.ts (T058). Per Constitution X, audit
+ *   support nested transactions. Same pattern as spawn-scan-vm.ts
+ *   (T056) / teardown-scan-vm.ts (T058). Per Constitution X, audit
  *   always emits AFTER the controlling tx commits.
  *
  * Why teardown is enqueued (not invoked synchronously):
- *   Teardown takes minutes (Yandex long-running ops, polling). The watcher
+ *   Teardown takes minutes (GCP long-running ops, polling). The watcher
  *   must remain fast and atomic per its 5-minute tick cadence. Enqueueing
  *   matches the pattern used by scan-orders/service.cancelOrder (T036).
  *
@@ -250,7 +250,7 @@ async function processExpiredScan(
       .where(eq(scanOrders.id, scan_order_id))
       .run();
 
-    // Enqueue teardown_yandex_vm. We always enqueue, even if vps_instance_id
+    // Enqueue teardown_scan_vm. We always enqueue, even if vps_instance_id
     // is NULL — the teardown handler is idempotent on missing-instance via
     // its `alreadyTornDown` check, and would normally throw on a missing
     // vpsInstanceId. To avoid a follow-up wedge we only enqueue when we
@@ -258,7 +258,7 @@ async function processExpiredScan(
     if (vps_instance_id) {
       const teardownJobId = newId();
       const teardownPayload = JSON.stringify({
-        type: "teardown_yandex_vm",
+        type: "teardown_scan_vm",
         scan_order_id,
         scan_id,
         vps_instance_id,
@@ -267,7 +267,7 @@ async function processExpiredScan(
       tx.insert(jobsTable)
         .values({
           id: teardownJobId,
-          type: "teardown_yandex_vm",
+          type: "teardown_scan_vm",
           payloadJson: teardownPayload,
           status: "pending",
           scheduledAt: ts,

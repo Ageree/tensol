@@ -8,6 +8,14 @@ transitions for the Blackbox MVP. Implementation lives in
 `server/src/db/schema.ts` (Drizzle TS DSL); migrations land in
 `server/src/db/migrations/`.
 
+## 2026-06-05 International Pivot Overlay
+
+`docs/project-current-context.md` supersedes the original Russia-first billing
+assumptions. The existing SQLite schema may still contain legacy
+`payment_kind`, `amount_kopecks`, and `yookassa` compatibility markers, but new
+work must model billing through provider-agnostic accounts, checkout sessions,
+payments, credits, and entitlements. Do not add new YooKassa-specific behavior.
+
 ## Conventions
 
 - All primary keys are **Crockford ULID** (26 chars, regex
@@ -69,14 +77,14 @@ The user's intent-to-scan record. Drives the wizard state machine.
 | `dns_verify_requested_at` | INTEGER | nullable | when status → dns_pending |
 | `dns_verified_at` | INTEGER | nullable | when verified |
 | `dns_check_attempts` | INTEGER | NOT NULL DEFAULT 0 | counter for debugging |
-| `vps_instance_id` | TEXT | nullable | Yandex compute instance id |
-| `vps_provider` | TEXT | NOT NULL DEFAULT 'yandex' CHECK IN ('yandex') | provider taxonomy, currently single value |
-| `vps_zone` | TEXT | nullable | `ru-central1-{a,b,d}` |
+| `vps_instance_id` | TEXT | nullable | GCP compute instance id |
+| `vps_provider` | TEXT | NOT NULL DEFAULT 'gcp' CHECK IN ('gcp') | provider taxonomy, currently single value |
+| `vps_zone` | TEXT | nullable | selected cloud zone |
 | `scan_id` | TEXT | FK→scans(id) nullable | populated at launch |
 | `failure_reason` | TEXT | nullable | enum-ish: `dns_timeout`, `vm_spawn_failed`, `scan_timeout`, `cancelled_pre_start`, `cancelled_post_start`, `webhook_timeout`, `internal_error` |
 | `cancelled_at` | INTEGER | nullable | |
-| `payment_kind` | TEXT | NOT NULL DEFAULT 'free_quick' CHECK IN ('free_quick','yookassa') | reserved for future paid path |
-| `amount_kopecks` | INTEGER | nullable | reserved for future paid path; NULL for free |
+| `payment_kind` | TEXT | LEGACY NOT NULL DEFAULT 'free_quick' CHECK IN ('free_quick','yookassa') | pre-pivot compatibility column. New billing must not branch on `yookassa`; use entitlements/credits instead |
+| `amount_kopecks` | INTEGER | LEGACY nullable | pre-pivot RUB minor-unit field. New billing must use `amount_minor` + ISO currency on billing/payment records |
 | `created_at` | INTEGER | NOT NULL | |
 | `updated_at` | INTEGER | NOT NULL | |
 
@@ -234,10 +242,10 @@ enum.
 
 | Existing kinds | New kinds (this feature) |
 |---|---|
-| `spawn_vps`, `teardown_vps`, `cleanup_vps_failed`, … | `spawn_yandex_vm`, `teardown_yandex_vm`, `render_pdf`, `send_scan_complete_email`, `poll_dns_verify` (optional bg poll), `scan_timeout_watcher` (cron), `retry_telegram_notification`, `cleanup_orphan_vms` (cron) |
+| `spawn_vps`, `teardown_vps`, `cleanup_vps_failed`, … | `spawn_vm`, `teardown_vm`, `render_pdf`, `send_scan_complete_email`, `poll_dns_verify` (optional bg poll), `scan_timeout_watcher` (cron), `retry_telegram_notification`, `cleanup_orphan_vms` (cron) |
 
 Old kinds `spawn_vps`/`teardown_vps` are kept as deprecated aliases that
-the runner routes to the new yandex-specific handlers if seen.
+the runner routes to the new gcp-specific handlers if seen.
 
 ---
 

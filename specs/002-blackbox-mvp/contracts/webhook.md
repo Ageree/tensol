@@ -1,7 +1,7 @@
 # Webhook contract — `vps-agent → server`
 
 This document defines the HMAC-signed contract between the ephemeral
-Yandex VM (running `vps-agent`) and the Tensol backend.
+GCP VM (running `vps-agent`) and the Tensol backend.
 
 ## Endpoint
 
@@ -67,7 +67,7 @@ cloud-init at spawn time (per-scan unique 256-bit value).
 6. **State transition** — `scan_orders.status` → `completed`, `scans.
    completed_at` set, emit `scan_completed` audit event.
 7. **Enqueue follow-up jobs**: `render_pdf`,
-   `send_scan_complete_email`, `teardown_yandex_vm`.
+   `send_scan_complete_email`, `teardown_vm`.
 
 ## Required fields (machine-validated)
 

@@ -18,7 +18,7 @@
 // Constitution V: NO SSE — DNS-verify uses the polling primitive (T075).
 // Constitution IX: server-side Zod is canonical; this UI mirrors snake_case.
 
-import { useEffect, type ReactElement } from 'react';
+import { useEffect, useRef, type ReactElement } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { AppShell } from '../../components/AppShell.tsx';
 import { DashboardPage } from '../../components/dashboard-ui.tsx';
@@ -166,38 +166,11 @@ export const ScanWizardContainer = ({
   const params = useParams<{ orderId?: string; step?: string }>();
   const api = useScanWizardState();
   const { state, dispatch } = api;
+  const dnsRequestOrderRef = useRef<string | null>(null);
 
-  // ── Mode `create`: POST /v1/scan-orders then redirect to step-1 ──
-  useEffect(() => {
-    if (mode !== 'create') return;
-    let cancelled = false;
-    const run = async (): Promise<void> => {
-      dispatch({ type: 'loading', payload: true });
-      try {
-        // Domain is empty at draft-create; T079 PUTs it via attack-surface.
-        // Backend allows an empty primary_domain on draft creation; if not,
-        // T079 will surface the 422 inline.
-        const order = await scanOrders.create({
-          tier: 'quick',
-          primary_domain: '',
-        });
-        if (cancelled) return;
-        navigate(`/scan/new/${order.id}/${STEP_NUM_TO_SLUG[1]}`, {
-          replace: true,
-        });
-      } catch (err) {
-        if (cancelled) return;
-        const code = err instanceof ApiError ? err.code : 'unknown_error';
-        dispatch({ type: 'error', payload: code });
-      }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-    // navigate is stable; dispatch is stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  // Mode `create` intentionally renders step 1 before creating a backend row.
+  // The REST contract requires `primary_domain` at POST /v1/scan-orders time, so
+  // the draft is created on the first Next click after the domain is valid.
 
   // ── Mode `edit`: GET /v1/scan-orders/:id → hydrate reducer ──
   useEffect(() => {
@@ -226,7 +199,7 @@ export const ScanWizardContainer = ({
   }, [mode, params.orderId]);
 
   // ── URL → reducer step sync ──
-  const urlStep = parseStep(params.step);
+  const urlStep = mode === 'create' ? 1 : parseStep(params.step);
   useEffect(() => {
     if (urlStep && urlStep !== state.step) {
       dispatch({ type: 'stepTo', payload: urlStep });
@@ -239,8 +212,10 @@ export const ScanWizardContainer = ({
   useEffect(() => {
     if (urlStep !== 3) return;
     if (!state.orderId) return;
-    if (state.dnsToken) return;
+    if (state.dnsVerified) return;
     if (state.loading) return;
+    if (dnsRequestOrderRef.current === state.orderId) return;
+    dnsRequestOrderRef.current = state.orderId;
     let cancelled = false;
     const run = async (): Promise<void> => {
       dispatch({ type: 'loading', payload: true });
@@ -251,6 +226,7 @@ export const ScanWizardContainer = ({
         dispatch({ type: 'loading', payload: false });
       } catch (err) {
         if (cancelled) return;
+        dnsRequestOrderRef.current = null;
         const code = err instanceof ApiError ? err.code : 'unknown_error';
         dispatch({ type: 'error', payload: code });
       }
@@ -292,17 +268,16 @@ export const ScanWizardContainer = ({
   // `Next` performs the per-step commit before navigating. Step components
   // own their own form fields + validation hints; the container is the only
   // place that touches the server so loading/error state remains unified.
-  // Step 1: PUT /v1/scan-orders/:id/attack-surface
+  // Step 1: POST /v1/scan-orders when needed, then PUT attack-surface
   // Step 2: PUT /v1/scan-orders/:id/safety
   // Step 3: T082 (DNS poll) — no commit on Next, but the polling primitive
   //         must have reported `dnsVerified` before we advance.
   // Step 4: uses Launch, not Next (handled inside the step).
-  const commitStep1 = async (): Promise<boolean> => {
-    if (!state.orderId) return false;
+  const commitStep1 = async (): Promise<string | null> => {
     const trimmedDomain = state.domain.trim().toLowerCase();
     if (!isValidHostname(trimmedDomain)) {
       dispatch({ type: 'error', payload: 'invalid_domain' });
-      return false;
+      return null;
     }
     // Build attack_surface array — exactly one primary entry + opted-in subs.
     // Global headers attach to the primary entry per FR-006.
@@ -319,16 +294,21 @@ export const ScanWizardContainer = ({
 
     dispatch({ type: 'loading', payload: true });
     try {
-      const order = await scanOrders.updateAttackSurface(state.orderId, {
+      const orderId = state.orderId
+        ?? (await scanOrders.create({
+          tier: 'quick',
+          primary_domain: trimmedDomain,
+        })).id;
+      const order = await scanOrders.updateAttackSurface(orderId, {
         attack_surface: entries,
       });
       dispatch({ type: 'loaded', payload: hydrateFromOrder(order) });
       dispatch({ type: 'loading', payload: false });
-      return true;
+      return order.id;
     } catch (err) {
       const code = err instanceof ApiError ? err.code : 'unknown_error';
       dispatch({ type: 'error', payload: code });
-      return false;
+      return null;
     }
   };
 
@@ -358,7 +338,8 @@ export const ScanWizardContainer = ({
   // verification window is open. Step3DnsVerify then drives the 5s poll loop.
   const commitStep3Entry = async (): Promise<boolean> => {
     if (!state.orderId) return false;
-    if (state.dnsToken) return true; // already issued — Step3 will poll
+    if (state.dnsVerified) return true;
+    dnsRequestOrderRef.current = state.orderId;
     dispatch({ type: 'loading', payload: true });
     try {
       const result = await scanOrders.requestDnsVerify(state.orderId);
@@ -375,8 +356,10 @@ export const ScanWizardContainer = ({
   const onNext = async (): Promise<void> => {
     if (state.step >= STEP_COUNT) return;
     if (state.step === 1) {
-      const ok = await commitStep1();
-      if (!ok) return;
+      const orderId = await commitStep1();
+      if (!orderId) return;
+      navigate(`/scan/new/${orderId}/${STEP_NUM_TO_SLUG[2]}`);
+      return;
     } else if (state.step === 2) {
       const ok = await commitStep2();
       if (!ok) return;
@@ -390,39 +373,8 @@ export const ScanWizardContainer = ({
   };
 
   // ── Routing guards ──
-  if (mode === 'create') {
-    if (state.error) {
-      return (
-        <AppShell breadcrumb={['wizard', 'new']}>
-          <RouteHead title="Sthrip · New assessment" />
-          <div style={{ padding: 24 }}>
-            <Mono size={12} color="var(--red)">
-              {`${t.wizard.errCreate}: ${state.error}`}
-            </Mono>
-            <div style={{ marginTop: 16 }}>
-              <Btn kind="ghost" size="md" onClick={() => navigate('/dashboard')}>
-                {t.wizard.cancel}
-              </Btn>
-            </div>
-          </div>
-        </AppShell>
-      );
-    }
-    return (
-      <AppShell breadcrumb={['wizard', 'new']}>
-        <RouteHead title="Sthrip · New assessment" />
-        <div style={{ padding: 24 }}>
-          <Mono size={12} color="var(--fg-2)">
-            {t.wizard.creating}
-          </Mono>
-        </div>
-      </AppShell>
-    );
-  }
-
-  // mode === 'edit'
-  if (!params.orderId) return <Navigate to="/dashboard" replace />;
-  if (!urlStep) {
+  if (mode === 'edit' && !params.orderId) return <Navigate to="/dashboard" replace />;
+  if (mode === 'edit' && !urlStep) {
     return (
       <Navigate
         to={`/scan/new/${params.orderId}/${STEP_NUM_TO_SLUG[1]}`}
@@ -444,17 +396,17 @@ export const ScanWizardContainer = ({
         return <Step4Review api={api} />;
       default:
         return (
-      <Navigate
-        to={`/scan/new/${params.orderId}/${STEP_NUM_TO_SLUG[1]}`}
-        replace
-      />
-    );
+          <Navigate
+            to={`/scan/new/${params.orderId}/${STEP_NUM_TO_SLUG[1]}`}
+            replace
+          />
+        );
     }
   };
 
   return (
     <AppShell
-      breadcrumb={['wizard', params.orderId, `step-${state.step}`]}
+      breadcrumb={['wizard', params.orderId ?? 'new', `step-${state.step}`]}
       role="security_lead"
       density="compact"
       brand="sthrip"
@@ -466,7 +418,7 @@ export const ScanWizardContainer = ({
       <DashboardPage
         title={labels[state.step - 1]}
         section="Blackbox Scans"
-        description={params.orderId ? `Draft scan ${params.orderId}` : 'Create a new authorized blackbox scan.'}
+        description={state.orderId ? `Draft scan ${state.orderId}` : 'Create a new authorized blackbox scan.'}
         data-screen-label="Scan wizard"
         actions={
           <button type="button" className="hack-button" data-slot="button" onClick={() => void onCancel()}>

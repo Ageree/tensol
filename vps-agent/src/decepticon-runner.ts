@@ -117,6 +117,7 @@ const DEFAULT_BOOT_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
 const DEFAULT_LANGGRAPH_URL = "http://127.0.0.1:2024";
 const BOOT_POLL_INTERVAL_MS = 5_000;
 const RUN_POLL_INTERVAL_MS = 10_000;
+export const DEFAULT_DOCKER_SPAWN_STDIO = "inherit";
 const TERMINAL_STATUSES = new Set([
   "success",
   "error",
@@ -129,7 +130,7 @@ const TERMINAL_STATUSES = new Set([
  * Default spawn wrapper around `Bun.spawn`. Tests inject a different
  * `SpawnImpl` and never reach this code path.
  */
-function defaultSpawn(cmd: string[], opts?: SpawnOpts): ReturnType<SpawnImpl> {
+export function defaultSpawn(cmd: string[], opts?: SpawnOpts): ReturnType<SpawnImpl> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bun = (globalThis as any).Bun;
   if (!bun || typeof bun.spawn !== "function") {
@@ -137,8 +138,8 @@ function defaultSpawn(cmd: string[], opts?: SpawnOpts): ReturnType<SpawnImpl> {
   }
   const proc = bun.spawn(cmd, {
     env: { ...process.env, ...(opts?.env ?? {}) },
-    stdout: "pipe",
-    stderr: "pipe",
+    stdout: DEFAULT_DOCKER_SPAWN_STDIO,
+    stderr: DEFAULT_DOCKER_SPAWN_STDIO,
   });
   return {
     exited: proc.exited as Promise<number>,
@@ -772,6 +773,7 @@ export async function runDecepticonScan(
   const upCode = await upProc.exited;
   console.error(`[runner] compose up exited code=${upCode}`);
   if (upCode !== 0) {
+    await dumpLogs(spawn, args);
     const findings = await collectSafe(collect, args);
     console.error(
       `[runner] result: status=failed failure_reason=docker_exit_${upCode} findings=${findings.length}`,

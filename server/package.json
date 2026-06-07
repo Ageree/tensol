@@ -12,6 +12,7 @@
     "db:migrate-bun": "bun run scripts/migrate.ts",
     "db:migrate-drizzle": "drizzle-kit migrate",
     "cleanup-orphan-vms": "bun run scripts/cleanup-orphan-vms.ts",
+    "preflight:live-scan": "bun run scripts/live-scan-preflight.ts",
     "debug:scan-order": "bun run scripts/debug-scan-order.ts",
     "agent:cli": "bun run src/cli/index.ts",
     "agent:mcp": "bun run src/mcp/server.ts",

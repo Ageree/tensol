@@ -93,7 +93,7 @@ function seedParents(db: DB, payload: WebhookScanCompleteBody): void {
       attackSurfaceJson: "[]",
       safetyRps: 50,
       dnsVerifyToken: "test-dns-token",
-      vpsProvider: "yandex",
+      vpsProvider: "gcp",
       paymentKind: "free_quick",
       createdAt: ts - 3600_000,
       updatedAt: ts,

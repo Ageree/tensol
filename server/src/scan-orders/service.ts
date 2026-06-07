@@ -19,7 +19,7 @@
  *       In a single `withTx`:
  *         - consume free-tier quota (atomic conditional UPDATE)
  *         - INSERT scans row
- *         - INSERT jobs row (type='spawn_yandex_vm')
+ *         - INSERT jobs row (type='spawn_scan_vm')
  *         - UPDATE order status=vm_provisioning, scan_id=<new>
  *       If any step fails → tx rollback. Quota consume is OUTSIDE the tx
  *       (statement-level lock is the FR-014 gate); on failure we explicitly
@@ -66,85 +66,79 @@
  *     `discoverSubdomains` directly. Inside the service we do NOT re-probe.
  */
 import { and, desc, eq } from "drizzle-orm";
+import { emitSignedAudit } from "../audit/emit.ts";
 import type { DB } from "../db/client.ts";
 import { withTx } from "../db/client.ts";
-import { emitSignedAudit } from "../audit/emit.ts";
 import {
-  scanOrders as scanOrdersTable,
-  scans as scansTable,
-  jobs as jobsTable,
-  type ScanOrder as ScanOrderRow,
+	type ScanOrder as ScanOrderRow,
+	jobs as jobsTable,
+	scanOrders as scanOrdersTable,
+	scans as scansTable,
 } from "../db/schema.ts";
+import { resolveTxtAgreed } from "../dns-verify/resolver.ts";
+import { checkVerification, generateToken } from "../dns-verify/service.ts";
+import {
+	consumeFreeQuickQuota,
+	refundFreeQuickQuota,
+} from "../free-tier/service.ts";
 import { ulid } from "../lib/ids.ts";
 import { now as defaultNow } from "../lib/time.ts";
-import {
-  consumeFreeQuickQuota,
-  refundFreeQuickQuota,
-} from "../free-tier/service.ts";
-import {
-  generateToken,
-  checkVerification,
-} from "../dns-verify/service.ts";
-import { discoverSubdomains as defaultDiscoverSubdomains } from "./subdomain-probe.ts";
-import { resolveTxtAgreed } from "../dns-verify/resolver.ts";
-import { canTransition, type ScanOrderState } from "./lifecycle.ts";
 import type {
-  CreateScanOrderBody,
-  UpdateAttackSurfaceBody,
-  UpdateSafetyBody,
-  ScanOrderResponse,
-  LaunchScanOrderResponse,
-  AttackSurfaceEntry,
+	AttackSurfaceEntry,
+	CreateScanOrderBody,
+	LaunchScanOrderResponse,
+	ScanOrderResponse,
+	UpdateAttackSurfaceBody,
+	UpdateSafetyBody,
 } from "../schemas/scan-orders.ts";
+import { type ScanOrderState, canTransition } from "./lifecycle.ts";
+import { discoverSubdomains as defaultDiscoverSubdomains } from "./subdomain-probe.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public service interface
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ScanOrdersService {
-  createDraft(
-    userId: string,
-    body: CreateScanOrderBody,
-  ): Promise<ScanOrderResponse>;
-  updateAttackSurface(
-    userId: string,
-    orderId: string,
-    body: UpdateAttackSurfaceBody,
-  ): Promise<ScanOrderResponse>;
-  updateSafety(
-    userId: string,
-    orderId: string,
-    body: UpdateSafetyBody,
-  ): Promise<ScanOrderResponse>;
-  requestDnsVerify(
-    userId: string,
-    orderId: string,
-  ): Promise<ScanOrderResponse>;
-  checkDnsAndUnlock(
-    userId: string,
-    orderId: string,
-  ): Promise<ScanOrderResponse>;
-  launchScan(
-    userId: string,
-    orderId: string,
-  ): Promise<LaunchScanOrderResponse>;
-  cancelOrder(userId: string, orderId: string): Promise<ScanOrderResponse>;
-  getOrder(userId: string, orderId: string): Promise<ScanOrderResponse>;
-  listUserOrders(userId: string): Promise<ScanOrderResponse[]>;
+	createDraft(
+		userId: string,
+		body: CreateScanOrderBody,
+	): Promise<ScanOrderResponse>;
+	updateAttackSurface(
+		userId: string,
+		orderId: string,
+		body: UpdateAttackSurfaceBody,
+	): Promise<ScanOrderResponse>;
+	updateSafety(
+		userId: string,
+		orderId: string,
+		body: UpdateSafetyBody,
+	): Promise<ScanOrderResponse>;
+	requestDnsVerify(userId: string, orderId: string): Promise<ScanOrderResponse>;
+	checkDnsAndUnlock(
+		userId: string,
+		orderId: string,
+	): Promise<ScanOrderResponse>;
+	launchScan(userId: string, orderId: string): Promise<LaunchScanOrderResponse>;
+	cancelOrder(userId: string, orderId: string): Promise<ScanOrderResponse>;
+	getOrder(userId: string, orderId: string): Promise<ScanOrderResponse>;
+	listUserOrders(
+		userId: string,
+		opts?: { readonly limit?: number },
+	): Promise<ScanOrderResponse[]>;
 }
 
 /** DI surface for testability + per-request clock/id determinism. */
 export interface CreateScanOrdersServiceDeps {
-  readonly db: DB;
-  readonly auditKey: string;
-  /** Subdomain probe; defaults to crt.sh per T037. Test stubs may inject. */
-  readonly discoverSubdomains?: typeof defaultDiscoverSubdomains;
-  /** DNS resolver for the verification poll; defaults to T032's `resolveTxtAgreed`. */
-  readonly dnsResolver?: typeof resolveTxtAgreed;
-  /** Clock injection. Defaults to system `Date.now()` via `lib/time.ts`. */
-  readonly now?: () => number;
-  /** ULID factory injection. Defaults to `lib/ids.ts.ulid()`. */
-  readonly newId?: () => string;
+	readonly db: DB;
+	readonly auditKey: string;
+	/** Subdomain probe; defaults to crt.sh per T037. Test stubs may inject. */
+	readonly discoverSubdomains?: typeof defaultDiscoverSubdomains;
+	/** DNS resolver for the verification poll; defaults to T032's `resolveTxtAgreed`. */
+	readonly dnsResolver?: typeof resolveTxtAgreed;
+	/** Clock injection. Defaults to system `Date.now()` via `lib/time.ts`. */
+	readonly now?: () => number;
+	/** ULID factory injection. Defaults to `lib/ids.ts.ulid()`. */
+	readonly newId?: () => string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -152,11 +146,21 @@ export interface CreateScanOrdersServiceDeps {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type ErrCode = "NOT_FOUND" | "CONFLICT" | "QUOTA_EXHAUSTED" | "BAD_REQUEST";
+type RunResult = { readonly changes: number };
+const DEFAULT_LIST_USER_ORDERS_LIMIT = 100;
+const MAX_LIST_USER_ORDERS_LIMIT = 500;
+
+function normalizeListLimit(limit: number | undefined): number {
+	if (limit === undefined || !Number.isFinite(limit)) {
+		return DEFAULT_LIST_USER_ORDERS_LIMIT;
+	}
+	return Math.max(1, Math.min(MAX_LIST_USER_ORDERS_LIMIT, Math.floor(limit)));
+}
 
 function tagged(code: ErrCode, message: string): Error {
-  const e = new Error(message) as Error & { code: ErrCode };
-  e.code = code;
-  return e;
+	const e = new Error(message) as Error & { code: ErrCode };
+	e.code = code;
+	return e;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -164,34 +168,34 @@ function tagged(code: ErrCode, message: string): Error {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function rowToResponse(row: ScanOrderRow): ScanOrderResponse {
-  let attackSurface: AttackSurfaceEntry[] = [];
-  try {
-    const parsed = JSON.parse(row.attackSurfaceJson) as unknown;
-    if (Array.isArray(parsed)) {
-      attackSurface = parsed as AttackSurfaceEntry[];
-    }
-  } catch {
-    // Malformed JSON column shouldn't happen because we always write valid
-    // JSON.stringify output; surface as empty list rather than throwing.
-    attackSurface = [];
-  }
-  return {
-    id: row.id,
-    user_id: row.userId,
-    status: row.status,
-    tier: row.tier,
-    primary_domain: row.primaryDomain,
-    attack_surface: attackSurface,
-    safety_rps: row.safetyRps,
-    payment_kind: row.paymentKind,
-    created_at: row.createdAt,
-    updated_at: row.updatedAt,
-    dns_verify_token: row.dnsVerifyToken,
-    dns_verified_at: row.dnsVerifiedAt,
-    scan_id: row.scanId ?? null,
-    failure_reason: row.failureReason ?? null,
-    amount_kopecks: row.amountKopecks ?? null,
-  };
+	let attackSurface: AttackSurfaceEntry[] = [];
+	try {
+		const parsed = JSON.parse(row.attackSurfaceJson) as unknown;
+		if (Array.isArray(parsed)) {
+			attackSurface = parsed as AttackSurfaceEntry[];
+		}
+	} catch {
+		// Malformed JSON column shouldn't happen because we always write valid
+		// JSON.stringify output; surface as empty list rather than throwing.
+		attackSurface = [];
+	}
+	return {
+		id: row.id,
+		user_id: row.userId,
+		status: row.status,
+		tier: row.tier,
+		primary_domain: row.primaryDomain,
+		attack_surface: attackSurface,
+		safety_rps: row.safetyRps,
+		payment_kind: row.paymentKind,
+		created_at: row.createdAt,
+		updated_at: row.updatedAt,
+		dns_verify_token: row.dnsVerifyToken,
+		dns_verified_at: row.dnsVerifiedAt,
+		scan_id: row.scanId ?? null,
+		failure_reason: row.failureReason ?? null,
+		amount_kopecks: row.amountKopecks ?? null,
+	};
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -199,531 +203,570 @@ function rowToResponse(row: ScanOrderRow): ScanOrderResponse {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function createScanOrdersService(
-  deps: CreateScanOrdersServiceDeps,
+	deps: CreateScanOrdersServiceDeps,
 ): ScanOrdersService {
-  const { db, auditKey } = deps;
-  const nowFn = deps.now ?? defaultNow;
-  const newIdFn = deps.newId ?? (() => ulid(nowFn()));
-  const probe = deps.discoverSubdomains ?? defaultDiscoverSubdomains;
-  const dnsResolver = deps.dnsResolver ?? resolveTxtAgreed;
+	const { db, auditKey } = deps;
+	const nowFn = deps.now ?? defaultNow;
+	const newIdFn = deps.newId ?? (() => ulid(nowFn()));
+	const probe = deps.discoverSubdomains ?? defaultDiscoverSubdomains;
+	const dnsResolver = deps.dnsResolver ?? resolveTxtAgreed;
 
-  /** Load an order, enforcing ownership. Throws NOT_FOUND on missing/foreign. */
-  function loadOwned(userId: string, orderId: string): ScanOrderRow {
-    const row = db
-      .select()
-      .from(scanOrdersTable)
-      .where(eq(scanOrdersTable.id, orderId))
-      .get();
-    if (!row || row.userId !== userId) {
-      throw tagged("NOT_FOUND", "scan order not found");
-    }
-    return row;
-  }
+	/** Load an order, enforcing ownership. Throws NOT_FOUND on missing/foreign. */
+	function loadOwned(userId: string, orderId: string): ScanOrderRow {
+		const row = db
+			.select()
+			.from(scanOrdersTable)
+			.where(eq(scanOrdersTable.id, orderId))
+			.get();
+		if (!row || row.userId !== userId) {
+			throw tagged("NOT_FOUND", "scan order not found");
+		}
+		return row;
+	}
 
-  /** Re-read post-mutation, asserting it still exists. */
-  function reloadOrThrow(orderId: string): ScanOrderRow {
-    const row = db
-      .select()
-      .from(scanOrdersTable)
-      .where(eq(scanOrdersTable.id, orderId))
-      .get();
-    if (!row) {
-      throw new Error(`scan order vanished mid-flight: ${orderId}`);
-    }
-    return row;
-  }
+	/** Re-read post-mutation, asserting it still exists. */
+	function reloadOrThrow(orderId: string): ScanOrderRow {
+		const row = db
+			.select()
+			.from(scanOrdersTable)
+			.where(eq(scanOrdersTable.id, orderId))
+			.get();
+		if (!row) {
+			throw new Error(`scan order vanished mid-flight: ${orderId}`);
+		}
+		return row;
+	}
 
-  // ───────────────────────────────────────────────────────────────────────
-  // createDraft
-  // ───────────────────────────────────────────────────────────────────────
-  async function createDraft(
-    userId: string,
-    body: CreateScanOrderBody,
-  ): Promise<ScanOrderResponse> {
-    const ts = nowFn();
-    const id = newIdFn();
-    const token = generateToken(id);
+	// ───────────────────────────────────────────────────────────────────────
+	// createDraft
+	// ───────────────────────────────────────────────────────────────────────
+	async function createDraft(
+		userId: string,
+		body: CreateScanOrderBody,
+	): Promise<ScanOrderResponse> {
+		const ts = nowFn();
+		const id = newIdFn();
+		const token = generateToken(id);
 
-    await withTx(db, async (tx) => {
-      tx.insert(scanOrdersTable)
-        .values({
-          id,
-          userId,
-          status: "draft",
-          tier: body.tier,
-          primaryDomain: body.primary_domain,
-          attackSurfaceJson: "[]",
-          safetyRps: 50,
-          dnsVerifyToken: token,
-          dnsCheckAttempts: 0,
-          vpsProvider: "yandex",
-          paymentKind: "free_quick",
-          createdAt: ts,
-          updatedAt: ts,
-        })
-        .run();
-    });
+		await withTx(db, async (tx) => {
+			tx.insert(scanOrdersTable)
+				.values({
+					id,
+					userId,
+					status: "draft",
+					tier: body.tier,
+					primaryDomain: body.primary_domain,
+					attackSurfaceJson: "[]",
+					safetyRps: 50,
+					dnsVerifyToken: token,
+					dnsCheckAttempts: 0,
+					vpsProvider: "gcp",
+					paymentKind: "free_quick",
+					createdAt: ts,
+					updatedAt: ts,
+				})
+				.run();
+		});
 
-    await emitSignedAudit(
-      db,
-      {
-        event: "scan_order_created",
-        outcome: "success",
-        ts,
-        user_id: userId,
-        metadata: {
-          scan_order_id: id,
-          primary_domain: body.primary_domain,
-          tier: body.tier,
-        },
-      },
-      { key: auditKey },
-    );
+		await emitSignedAudit(
+			db,
+			{
+				event: "scan_order_created",
+				outcome: "success",
+				ts,
+				user_id: userId,
+				metadata: {
+					scan_order_id: id,
+					primary_domain: body.primary_domain,
+					tier: body.tier,
+				},
+			},
+			{ key: auditKey },
+		);
 
-    return rowToResponse(reloadOrThrow(id));
-  }
+		return rowToResponse(reloadOrThrow(id));
+	}
 
-  // ───────────────────────────────────────────────────────────────────────
-  // updateAttackSurface
-  // ───────────────────────────────────────────────────────────────────────
-  async function updateAttackSurface(
-    userId: string,
-    orderId: string,
-    body: UpdateAttackSurfaceBody,
-  ): Promise<ScanOrderResponse> {
-    const row = loadOwned(userId, orderId);
-    if (row.status !== "draft") {
-      throw tagged(
-        "CONFLICT",
-        `cannot update attack_surface in status=${row.status}`,
-      );
-    }
+	// ───────────────────────────────────────────────────────────────────────
+	// updateAttackSurface
+	// ───────────────────────────────────────────────────────────────────────
+	async function updateAttackSurface(
+		userId: string,
+		orderId: string,
+		body: UpdateAttackSurfaceBody,
+	): Promise<ScanOrderResponse> {
+		const row = loadOwned(userId, orderId);
+		if (row.status !== "draft") {
+			throw tagged(
+				"CONFLICT",
+				`cannot update attack_surface in status=${row.status}`,
+			);
+		}
 
-    // Touch the probe for side-effect determinism in tests — the wizard may
-    // pre-call this for default suggestions; here we simply ensure DI works.
-    // Result is not merged: the caller (route) presents probe results to
-    // the user, who confirms a list. We trust the supplied list.
-    // Keep `probe` reference live so linters don't complain.
-    void probe;
+		// Touch the probe for side-effect determinism in tests — the wizard may
+		// pre-call this for default suggestions; here we simply ensure DI works.
+		// Result is not merged: the caller (route) presents probe results to
+		// the user, who confirms a list. We trust the supplied list.
+		// Keep `probe` reference live so linters don't complain.
+		void probe;
 
-    const ts = nowFn();
-    const json = JSON.stringify(body.attack_surface);
+		const ts = nowFn();
+		const json = JSON.stringify(body.attack_surface);
 
-    await withTx(db, async (tx) => {
-      tx.update(scanOrdersTable)
-        .set({ attackSurfaceJson: json, updatedAt: ts })
-        .where(eq(scanOrdersTable.id, orderId))
-        .run();
-    });
+		await withTx(db, async (tx) => {
+			tx.update(scanOrdersTable)
+				.set({ attackSurfaceJson: json, updatedAt: ts })
+				.where(eq(scanOrdersTable.id, orderId))
+				.run();
+		});
 
-    await emitSignedAudit(
-      db,
-      {
-        event: "scan_order_attack_surface_updated",
-        outcome: "success",
-        ts,
-        user_id: userId,
-        metadata: {
-          scan_order_id: orderId,
-          entry_count: body.attack_surface.length,
-        },
-      },
-      { key: auditKey },
-    );
+		await emitSignedAudit(
+			db,
+			{
+				event: "scan_order_attack_surface_updated",
+				outcome: "success",
+				ts,
+				user_id: userId,
+				metadata: {
+					scan_order_id: orderId,
+					entry_count: body.attack_surface.length,
+				},
+			},
+			{ key: auditKey },
+		);
 
-    return rowToResponse(reloadOrThrow(orderId));
-  }
+		return rowToResponse(reloadOrThrow(orderId));
+	}
 
-  // ───────────────────────────────────────────────────────────────────────
-  // updateSafety
-  // ───────────────────────────────────────────────────────────────────────
-  async function updateSafety(
-    userId: string,
-    orderId: string,
-    body: UpdateSafetyBody,
-  ): Promise<ScanOrderResponse> {
-    const row = loadOwned(userId, orderId);
-    if (row.status !== "draft") {
-      throw tagged(
-        "CONFLICT",
-        `cannot update safety in status=${row.status}`,
-      );
-    }
+	// ───────────────────────────────────────────────────────────────────────
+	// updateSafety
+	// ───────────────────────────────────────────────────────────────────────
+	async function updateSafety(
+		userId: string,
+		orderId: string,
+		body: UpdateSafetyBody,
+	): Promise<ScanOrderResponse> {
+		const row = loadOwned(userId, orderId);
+		if (row.status !== "draft") {
+			throw tagged("CONFLICT", `cannot update safety in status=${row.status}`);
+		}
 
-    const ts = nowFn();
-    await withTx(db, async (tx) => {
-      tx.update(scanOrdersTable)
-        .set({ safetyRps: body.safety_rps, updatedAt: ts })
-        .where(eq(scanOrdersTable.id, orderId))
-        .run();
-    });
+		const ts = nowFn();
+		await withTx(db, async (tx) => {
+			tx.update(scanOrdersTable)
+				.set({ safetyRps: body.safety_rps, updatedAt: ts })
+				.where(eq(scanOrdersTable.id, orderId))
+				.run();
+		});
 
-    await emitSignedAudit(
-      db,
-      {
-        event: "scan_order_safety_updated",
-        outcome: "success",
-        ts,
-        user_id: userId,
-        metadata: { scan_order_id: orderId, safety_rps: body.safety_rps },
-      },
-      { key: auditKey },
-    );
+		await emitSignedAudit(
+			db,
+			{
+				event: "scan_order_safety_updated",
+				outcome: "success",
+				ts,
+				user_id: userId,
+				metadata: { scan_order_id: orderId, safety_rps: body.safety_rps },
+			},
+			{ key: auditKey },
+		);
 
-    return rowToResponse(reloadOrThrow(orderId));
-  }
+		return rowToResponse(reloadOrThrow(orderId));
+	}
 
-  // ───────────────────────────────────────────────────────────────────────
-  // requestDnsVerify
-  // ───────────────────────────────────────────────────────────────────────
-  async function requestDnsVerify(
-    userId: string,
-    orderId: string,
-  ): Promise<ScanOrderResponse> {
-    const row = loadOwned(userId, orderId);
-    if (!canTransition(row.status as ScanOrderState, "dns_pending")) {
-      throw tagged(
-        "CONFLICT",
-        `cannot request DNS verify in status=${row.status}`,
-      );
-    }
+	// ───────────────────────────────────────────────────────────────────────
+	// requestDnsVerify
+	// ───────────────────────────────────────────────────────────────────────
+	async function requestDnsVerify(
+		userId: string,
+		orderId: string,
+	): Promise<ScanOrderResponse> {
+		const row = loadOwned(userId, orderId);
+		if (row.status === "dns_pending" || row.status === "dns_verified") {
+			return rowToResponse(row);
+		}
+		if (!canTransition(row.status as ScanOrderState, "dns_pending")) {
+			throw tagged(
+				"CONFLICT",
+				`cannot request DNS verify in status=${row.status}`,
+			);
+		}
 
-    const ts = nowFn();
-    await withTx(db, async (tx) => {
-      tx.update(scanOrdersTable)
-        .set({
-          status: "dns_pending",
-          dnsVerifyRequestedAt: ts,
-          updatedAt: ts,
-        })
-        .where(eq(scanOrdersTable.id, orderId))
-        .run();
-    });
+		const ts = nowFn();
+		await withTx(db, async (tx) => {
+			tx.update(scanOrdersTable)
+				.set({
+					status: "dns_pending",
+					dnsVerifyRequestedAt: ts,
+					updatedAt: ts,
+				})
+				.where(eq(scanOrdersTable.id, orderId))
+				.run();
+		});
 
-    await emitSignedAudit(
-      db,
-      {
-        event: "dns_verify_requested",
-        outcome: "success",
-        ts,
-        user_id: userId,
-        metadata: {
-          scan_order_id: orderId,
-          primary_domain: row.primaryDomain,
-          token: row.dnsVerifyToken,
-        },
-      },
-      { key: auditKey },
-    );
+		await emitSignedAudit(
+			db,
+			{
+				event: "dns_verify_requested",
+				outcome: "success",
+				ts,
+				user_id: userId,
+				metadata: {
+					scan_order_id: orderId,
+					primary_domain: row.primaryDomain,
+					token: row.dnsVerifyToken,
+				},
+			},
+			{ key: auditKey },
+		);
 
-    return rowToResponse(reloadOrThrow(orderId));
-  }
+		return rowToResponse(reloadOrThrow(orderId));
+	}
 
-  // ───────────────────────────────────────────────────────────────────────
-  // checkDnsAndUnlock
-  // ───────────────────────────────────────────────────────────────────────
-  async function checkDnsAndUnlock(
-    userId: string,
-    orderId: string,
-  ): Promise<ScanOrderResponse> {
-    // Ownership gate first — checkVerification doesn't enforce it.
-    const row = loadOwned(userId, orderId);
+	// ───────────────────────────────────────────────────────────────────────
+	// checkDnsAndUnlock
+	// ───────────────────────────────────────────────────────────────────────
+	async function checkDnsAndUnlock(
+		userId: string,
+		orderId: string,
+	): Promise<ScanOrderResponse> {
+		// Ownership gate first — checkVerification doesn't enforce it.
+		const row = loadOwned(userId, orderId);
 
-    // If already verified, idempotent return.
-    if (row.status === "dns_verified") {
-      return rowToResponse(row);
-    }
-    if (row.status !== "dns_pending") {
-      throw tagged(
-        "CONFLICT",
-        `cannot check DNS in status=${row.status}`,
-      );
-    }
+		// If already verified, idempotent return.
+		if (row.status === "dns_verified") {
+			return rowToResponse(row);
+		}
+		if (row.status !== "dns_pending") {
+			throw tagged("CONFLICT", `cannot check DNS in status=${row.status}`);
+		}
 
-    // Delegate to dns-verify/service which emits its own dns_verified audit.
-    const result = await checkVerification(db, orderId, {
-      key: auditKey,
-      resolver: dnsResolver,
-      now: nowFn,
-    });
+		// Delegate to dns-verify/service which emits its own dns_verified audit.
+		const result = await checkVerification(db, orderId, {
+			key: auditKey,
+			resolver: dnsResolver,
+			now: nowFn,
+		});
 
-    if (result.verified) {
-      // Promote status. checkVerification only writes dnsVerifiedAt; the
-      // status enum transition is the scan-orders service's responsibility.
-      const ts = nowFn();
-      await withTx(db, async (tx) => {
-        tx.update(scanOrdersTable)
-          .set({ status: "dns_verified", updatedAt: ts })
-          .where(eq(scanOrdersTable.id, orderId))
-          .run();
-      });
-      // No additional audit — checkVerification already emitted dns_verified.
-    }
+		if (result.verified) {
+			// Promote status. checkVerification only writes dnsVerifiedAt; the
+			// status enum transition is the scan-orders service's responsibility.
+			const ts = nowFn();
+			await withTx(db, async (tx) => {
+				tx.update(scanOrdersTable)
+					.set({ status: "dns_verified", updatedAt: ts })
+					.where(eq(scanOrdersTable.id, orderId))
+					.run();
+			});
+			// No additional audit — checkVerification already emitted dns_verified.
+		}
 
-    return rowToResponse(reloadOrThrow(orderId));
-  }
+		return rowToResponse(reloadOrThrow(orderId));
+	}
 
-  // ───────────────────────────────────────────────────────────────────────
-  // launchScan — the atomic free-tier-consume + scans + jobs insert.
-  // ───────────────────────────────────────────────────────────────────────
-  async function launchScan(
-    userId: string,
-    orderId: string,
-  ): Promise<LaunchScanOrderResponse> {
-    const row = loadOwned(userId, orderId);
-    if (row.status !== "dns_verified") {
-      throw tagged(
-        "CONFLICT",
-        `cannot launch in status=${row.status}`,
-      );
-    }
+	// ───────────────────────────────────────────────────────────────────────
+	// launchScan — the atomic free-tier-consume + scans + jobs insert.
+	// ───────────────────────────────────────────────────────────────────────
+	async function launchScan(
+		userId: string,
+		orderId: string,
+	): Promise<LaunchScanOrderResponse> {
+		const row = loadOwned(userId, orderId);
+		if (row.status !== "dns_verified") {
+			throw tagged("CONFLICT", `cannot launch in status=${row.status}`);
+		}
 
-    // Step 1: atomic quota consume (single conditional UPDATE — FR-014).
-    // This is OUTSIDE the tx because free-tier/service.ts deliberately uses
-    // statement-level locking instead of nesting BEGIN IMMEDIATE.
-    const ts = nowFn();
-    const quota = await consumeFreeQuickQuota(db, userId, ts);
-    if (!quota.consumed) {
-      throw tagged(
-        "QUOTA_EXHAUSTED",
-        "free Quick quota already consumed in the current 7-day window",
-      );
-    }
+		// Step 1: atomic quota consume (single conditional UPDATE — FR-014).
+		// This is OUTSIDE the tx because free-tier/service.ts deliberately uses
+		// statement-level locking instead of nesting BEGIN IMMEDIATE.
+		const ts = nowFn();
+		const quota = await consumeFreeQuickQuota(db, userId, ts);
+		if (!quota.consumed) {
+			throw tagged(
+				"QUOTA_EXHAUSTED",
+				"free Quick quota already consumed in the current 7-day window",
+			);
+		}
 
-    const scanId = newIdFn();
-    const jobId = newIdFn();
+		const scanId = newIdFn();
+		const jobId = newIdFn();
 
-    try {
-      // Step 2: scans + jobs + order-status flip in one tx.
-      await withTx(db, async (tx) => {
-        tx.insert(scansTable)
-          .values({
-            id: scanId,
-            userId,
-            scanOrderId: orderId,
-            profile: "recon", // Quick = recon profile per data-model E3
-            status: "queued",
-            failureReason: null,
-            startedAt: ts,
-            completedAt: null,
-            usageTokens: null,
-            usageUsdCents: null,
-          })
-          .run();
+		try {
+			// Step 2: scans + jobs + order-status flip in one tx.
+			await withTx(db, async (tx) => {
+				tx.insert(scansTable)
+					.values({
+						id: scanId,
+						userId,
+						scanOrderId: orderId,
+						profile: "recon", // Quick = recon profile per data-model E3
+						status: "queued",
+						failureReason: null,
+						startedAt: ts,
+						completedAt: null,
+						usageTokens: null,
+						usageUsdCents: null,
+					})
+					.run();
 
-        tx.insert(jobsTable)
-          .values({
-            id: jobId,
-            type: "spawn_yandex_vm",
-            payloadJson: JSON.stringify({
-              type: "spawn_yandex_vm",
-              scan_id: scanId,
-              scan_order_id: orderId,
-              primary_domain: row.primaryDomain,
-            }),
-            status: "pending",
-            scheduledAt: ts,
-            attempts: 0,
-            lastError: null,
-            createdAt: ts,
-            updatedAt: ts,
-          })
-          .run();
+				tx.insert(jobsTable)
+					.values({
+						id: jobId,
+						type: "spawn_scan_vm",
+						payloadJson: JSON.stringify({
+							type: "spawn_scan_vm",
+							scan_id: scanId,
+							scan_order_id: orderId,
+							primary_domain: row.primaryDomain,
+						}),
+						status: "pending",
+						scheduledAt: ts,
+						attempts: 0,
+						lastError: null,
+						createdAt: ts,
+						updatedAt: ts,
+					})
+					.run();
 
-        tx.update(scanOrdersTable)
-          .set({
-            status: "vm_provisioning",
-            scanId,
-            updatedAt: ts,
-          })
-          .where(eq(scanOrdersTable.id, orderId))
-          .run();
-      });
-    } catch (err) {
-      // Atomic refund (FR-016): if any DB step failed, the quota consume
-      // must be reverted. The tx already rolled back order + scans + jobs
-      // changes; we only need to refund the OUT-OF-TX free-tier UPDATE.
-      await refundFreeQuickQuota(db, userId);
-      await emitSignedAudit(
-        db,
-        {
-          event: "free_quota_refunded",
-          outcome: "failure",
-          ts: nowFn(),
-          user_id: userId,
-          metadata: {
-            scan_order_id: orderId,
-            reason: "launch_atomic_rollback",
-            error: (err as Error).message,
-          },
-        },
-        { key: auditKey },
-      );
-      throw err;
-    }
+				tx.update(scanOrdersTable)
+					.set({
+						status: "vm_provisioning",
+						scanId,
+						updatedAt: ts,
+					})
+					.where(eq(scanOrdersTable.id, orderId))
+					.run();
+			});
+		} catch (err) {
+			// Atomic refund (FR-016): if any DB step failed, the quota consume
+			// must be reverted. The tx already rolled back order + scans + jobs
+			// changes; we only need to refund the OUT-OF-TX free-tier UPDATE.
+			await refundFreeQuickQuota(db, userId);
+			await emitSignedAudit(
+				db,
+				{
+					event: "free_quota_refunded",
+					outcome: "failure",
+					ts: nowFn(),
+					user_id: userId,
+					metadata: {
+						scan_order_id: orderId,
+						reason: "launch_atomic_rollback",
+						error: (err as Error).message,
+					},
+				},
+				{ key: auditKey },
+			);
+			throw err;
+		}
 
-    // Step 3: post-commit audit events (Constitution X).
-    await emitSignedAudit(
-      db,
-      {
-        event: "free_quota_consumed",
-        outcome: "success",
-        ts,
-        user_id: userId,
-        metadata: { scan_order_id: orderId, scan_id: scanId },
-      },
-      { key: auditKey },
-    );
+		// Step 3: post-commit audit events (Constitution X).
+		await emitSignedAudit(
+			db,
+			{
+				event: "free_quota_consumed",
+				outcome: "success",
+				ts,
+				user_id: userId,
+				metadata: { scan_order_id: orderId, scan_id: scanId },
+			},
+			{ key: auditKey },
+		);
 
-    await emitSignedAudit(
-      db,
-      {
-        event: "scan_started",
-        outcome: "success",
-        ts,
-        user_id: userId,
-        scan_id: scanId,
-        metadata: {
-          scan_order_id: orderId,
-          profile: "recon",
-          primary_domain: row.primaryDomain,
-        },
-      },
-      { key: auditKey },
-    );
+		await emitSignedAudit(
+			db,
+			{
+				event: "scan_started",
+				outcome: "success",
+				ts,
+				user_id: userId,
+				scan_id: scanId,
+				metadata: {
+					scan_order_id: orderId,
+					profile: "recon",
+					primary_domain: row.primaryDomain,
+				},
+			},
+			{ key: auditKey },
+		);
 
-    await emitSignedAudit(
-      db,
-      {
-        event: "vm_provisioning",
-        outcome: "success",
-        ts,
-        user_id: userId,
-        scan_id: scanId,
-        metadata: { scan_order_id: orderId, job_id: jobId },
-      },
-      { key: auditKey },
-    );
+		await emitSignedAudit(
+			db,
+			{
+				event: "vm_provisioning",
+				outcome: "success",
+				ts,
+				user_id: userId,
+				scan_id: scanId,
+				metadata: { scan_order_id: orderId, job_id: jobId },
+			},
+			{ key: auditKey },
+		);
 
-    return { scan_id: scanId };
-  }
+		return { scan_id: scanId };
+	}
 
-  // ───────────────────────────────────────────────────────────────────────
-  // cancelOrder
-  // ───────────────────────────────────────────────────────────────────────
-  async function cancelOrder(
-    userId: string,
-    orderId: string,
-  ): Promise<ScanOrderResponse> {
-    const row = loadOwned(userId, orderId);
-    const status = row.status as ScanOrderState;
+	// ───────────────────────────────────────────────────────────────────────
+	// cancelOrder
+	// ───────────────────────────────────────────────────────────────────────
+	async function cancelOrder(
+		userId: string,
+		orderId: string,
+	): Promise<ScanOrderResponse> {
+		const row = loadOwned(userId, orderId);
+		const status = row.status as ScanOrderState;
 
-    if (!canTransition(status, "cancelled")) {
-      // Terminal state (completed/failed/cancelled): no outgoing arrows.
-      throw tagged("CONFLICT", `cannot cancel in status=${status}`);
-    }
+		if (!canTransition(status, "cancelled")) {
+			// Terminal state (completed/failed/cancelled): no outgoing arrows.
+			throw tagged("CONFLICT", `cannot cancel in status=${status}`);
+		}
 
-    // FR-016/FR-017 interpretation: refund IFF cancelled BEFORE running.
-    // States with quota consumed but pre-significant-runtime:
-    //   vm_provisioning  → refund
-    // Pre-quota-consume states (draft / dns_pending / dns_verified) →
-    //   no quota was ever consumed; refund call is a no-op.
-    // running → no refund (significant LLM cost in flight).
-    const shouldRefund = status !== "running";
+		// FR-016/FR-017 interpretation: refund IFF cancelled BEFORE running.
+		// States with quota consumed but pre-significant-runtime:
+		//   vm_provisioning  → refund
+		// Pre-quota-consume states (draft / dns_pending / dns_verified) →
+		//   no quota was ever consumed; refund call is a no-op.
+		// running → no refund (significant LLM cost in flight).
+		const shouldRefund = status !== "running";
 
-    const ts = nowFn();
-    await withTx(db, async (tx) => {
-      tx.update(scanOrdersTable)
-        .set({
-          status: "cancelled",
-          cancelledAt: ts,
-          updatedAt: ts,
-          failureReason:
-            status === "running"
-              ? "cancelled_post_start"
-              : "cancelled_pre_start",
-        })
-        .where(eq(scanOrdersTable.id, orderId))
-        .run();
-    });
+		const ts = nowFn();
+		const linkedScans = db
+			.select({ id: scansTable.id })
+			.from(scansTable)
+			.where(
+				and(eq(scansTable.scanOrderId, orderId), eq(scansTable.userId, userId)),
+			)
+			.all();
+		const expectsLinkedScan =
+			status === "vm_provisioning" || status === "running";
+		if (
+			linkedScans.length > 1 ||
+			(expectsLinkedScan && linkedScans.length !== 1)
+		) {
+			throw tagged(
+				"CONFLICT",
+				`cannot cancel in status=${status}: expected one linked scan, found ${linkedScans.length}`,
+			);
+		}
+		const linkedScanId = linkedScans[0]?.id ?? null;
 
-    // Refund quota (outside tx, like consume). Only meaningful if the user
-    // had consumed it (vm_provisioning); idempotent no-op otherwise.
-    let refunded = false;
-    if (shouldRefund && status === "vm_provisioning") {
-      const result = await refundFreeQuickQuota(db, userId);
-      refunded = result.refunded;
-    }
+		await withTx(db, async (tx) => {
+			tx.update(scanOrdersTable)
+				.set({
+					status: "cancelled",
+					cancelledAt: ts,
+					updatedAt: ts,
+					failureReason:
+						status === "running"
+							? "cancelled_post_start"
+							: "cancelled_pre_start",
+				})
+				.where(eq(scanOrdersTable.id, orderId))
+				.run();
 
-    await emitSignedAudit(
-      db,
-      {
-        event: "scan_cancelled",
-        outcome: "success",
-        ts,
-        user_id: userId,
-        scan_id: row.scanId,
-        metadata: {
-          scan_order_id: orderId,
-          from_status: status,
-          refunded,
-        },
-      },
-      { key: auditKey },
-    );
+			if (linkedScanId) {
+				const scanUpdate = tx
+					.update(scansTable)
+					.set({
+						status: "cancelled",
+						failureReason:
+							status === "running"
+								? "cancelled_post_start"
+								: "cancelled_pre_start",
+						completedAt: ts,
+					})
+					.where(
+						and(
+							eq(scansTable.scanOrderId, orderId),
+							eq(scansTable.userId, userId),
+						),
+					)
+					.run() as unknown as RunResult;
+				if (scanUpdate.changes !== 1) {
+					throw tagged(
+						"CONFLICT",
+						`cannot cancel in status=${status}: linked scan update affected ${scanUpdate.changes} rows`,
+					);
+				}
+			}
+		});
 
-    if (refunded) {
-      await emitSignedAudit(
-        db,
-        {
-          event: "free_quota_refunded",
-          outcome: "success",
-          ts,
-          user_id: userId,
-          metadata: { scan_order_id: orderId, reason: "user_cancelled" },
-        },
-        { key: auditKey },
-      );
-    }
+		// Refund quota (outside tx, like consume). Only meaningful if the user
+		// had consumed it (vm_provisioning); idempotent no-op otherwise.
+		let refunded = false;
+		if (shouldRefund && status === "vm_provisioning") {
+			const result = await refundFreeQuickQuota(db, userId);
+			refunded = result.refunded;
+		}
 
-    return rowToResponse(reloadOrThrow(orderId));
-  }
+		await emitSignedAudit(
+			db,
+			{
+				event: "scan_cancelled",
+				outcome: "success",
+				ts,
+				user_id: userId,
+				scan_id: linkedScanId ?? row.scanId,
+				metadata: {
+					scan_order_id: orderId,
+					from_status: status,
+					refunded,
+				},
+			},
+			{ key: auditKey },
+		);
 
-  // ───────────────────────────────────────────────────────────────────────
-  // getOrder / listUserOrders (read paths)
-  // ───────────────────────────────────────────────────────────────────────
-  async function getOrder(
-    userId: string,
-    orderId: string,
-  ): Promise<ScanOrderResponse> {
-    return rowToResponse(loadOwned(userId, orderId));
-  }
+		if (refunded) {
+			await emitSignedAudit(
+				db,
+				{
+					event: "free_quota_refunded",
+					outcome: "success",
+					ts,
+					user_id: userId,
+					metadata: { scan_order_id: orderId, reason: "user_cancelled" },
+				},
+				{ key: auditKey },
+			);
+		}
 
-  async function listUserOrders(
-    userId: string,
-  ): Promise<ScanOrderResponse[]> {
-    const rows = db
-      .select()
-      .from(scanOrdersTable)
-      .where(eq(scanOrdersTable.userId, userId))
-      .orderBy(desc(scanOrdersTable.createdAt))
-      .all();
-    return rows.map(rowToResponse);
-  }
+		return rowToResponse(reloadOrThrow(orderId));
+	}
 
-  return {
-    createDraft,
-    updateAttackSurface,
-    updateSafety,
-    requestDnsVerify,
-    checkDnsAndUnlock,
-    launchScan,
-    cancelOrder,
-    getOrder,
-    listUserOrders,
-  };
+	// ───────────────────────────────────────────────────────────────────────
+	// getOrder / listUserOrders (read paths)
+	// ───────────────────────────────────────────────────────────────────────
+	async function getOrder(
+		userId: string,
+		orderId: string,
+	): Promise<ScanOrderResponse> {
+		return rowToResponse(loadOwned(userId, orderId));
+	}
+
+	async function listUserOrders(
+		userId: string,
+		opts?: { readonly limit?: number },
+	): Promise<ScanOrderResponse[]> {
+		const limit = normalizeListLimit(opts?.limit);
+		const rows = db
+			.select()
+			.from(scanOrdersTable)
+			.where(eq(scanOrdersTable.userId, userId))
+			.orderBy(desc(scanOrdersTable.createdAt), desc(scanOrdersTable.id))
+			.limit(limit)
+			.all();
+		return rows.map(rowToResponse);
+	}
+
+	return {
+		createDraft,
+		updateAttackSurface,
+		updateSafety,
+		requestDnsVerify,
+		checkDnsAndUnlock,
+		launchScan,
+		cancelOrder,
+		getOrder,
+		listUserOrders,
+	};
 }
-
-// Suppress unused-import warning for `and` (kept available for future
-// composite-where queries on list endpoints).
-void and;

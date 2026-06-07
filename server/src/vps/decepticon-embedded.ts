@@ -1,6 +1,6 @@
 /**
  * Decepticon stack assets (T128 Bug #7) embedded at build time and laid
- * onto each ephemeral Yandex VM by `cloud-init.ts`.
+ * onto each ephemeral GCP VM by `cloud-init.ts`.
  *
  * Three host-side override files live as the source of truth under
  * `infra/decepticon-overrides/`:

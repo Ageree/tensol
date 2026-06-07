@@ -27,14 +27,15 @@
  * pins the pipeline contract without requiring a real render.
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
-  renderReport,
   PDFRenderError,
-  RENDER_TIMEOUT_MS,
   type PuppeteerLauncher,
+  RENDER_TIMEOUT_MS,
+  renderReport,
+  resolvePlaywrightChromiumExecutablePath,
 } from "./pdf.ts";
-import { renderReportHtml, type ReportTemplateInput } from "./template.html.ts";
+import { type ReportTemplateInput, renderReportHtml } from "./template.html.ts";
 
 // ---------------------------------------------------------------------------
 // Fake puppeteer plumbing.
@@ -182,9 +183,11 @@ describe("renderReportHtml (T051)", () => {
 
   test("escapes HTML in titles and bodies", () => {
     const input = makeInput(1);
+    const firstFinding = input.findings[0];
+    if (!firstFinding) throw new Error("missing finding fixture");
     const findings = [
       {
-        ...input.findings[0]!,
+        ...firstFinding,
         title: "<script>alert(1)</script>",
         bodyMd: "Body with <iframe> and `safe code`",
       },
@@ -320,6 +323,67 @@ describe("renderReport (T052) — mocked launcher", () => {
     });
     expect(receivedExecPath).toBe("/custom/chromium/binary");
     expect(Array.isArray(trace.launchArgs)).toBe(true);
+  });
+});
+
+describe("resolvePlaywrightChromiumExecutablePath", () => {
+  test("returns newest compatible headless-shell from an explicit Playwright cache root", () => {
+    const existing = new Set([
+      "/cache/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell",
+    ]);
+
+    const path = resolvePlaywrightChromiumExecutablePath({
+      env: { PLAYWRIGHT_BROWSERS_PATH: "/cache" },
+      platform: "darwin",
+      arch: "arm64",
+      homeDir: "/home/test",
+      readdir: () => [
+        "chromium_headless_shell-1148",
+        "chromium_headless_shell-1223",
+      ],
+      exists: (candidate) => existing.has(candidate),
+    });
+
+    expect(path).toBe(
+      "/cache/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell",
+    );
+  });
+
+  test("sorts mixed-width Playwright revisions numerically", () => {
+    const existing = new Set([
+      "/cache/chromium_headless_shell-10000/chrome-headless-shell-mac-arm64/chrome-headless-shell",
+    ]);
+
+    const path = resolvePlaywrightChromiumExecutablePath({
+      env: { PLAYWRIGHT_BROWSERS_PATH: "/cache" },
+      platform: "darwin",
+      arch: "arm64",
+      homeDir: "/home/test",
+      readdir: () => [
+        "chromium_headless_shell-9999",
+        "chromium_headless_shell-10000",
+      ],
+      exists: (candidate) => existing.has(candidate),
+    });
+
+    expect(path).toBe(
+      "/cache/chromium_headless_shell-10000/chrome-headless-shell-mac-arm64/chrome-headless-shell",
+    );
+  });
+
+  test("returns null when the Playwright cache is unavailable", () => {
+    const path = resolvePlaywrightChromiumExecutablePath({
+      env: {},
+      platform: "darwin",
+      arch: "arm64",
+      homeDir: "/home/test",
+      readdir: () => {
+        throw new Error("missing cache");
+      },
+      exists: () => false,
+    });
+
+    expect(path).toBeNull();
   });
 });
 

@@ -1,9 +1,9 @@
 /**
  * T045 — cloud-init.test.ts
  *
- * Tests for the per-scan Yandex VM bootstrap script generator
+ * Tests for the per-scan GCP VM bootstrap script generator
  * (`buildCloudInit`). The script is plugged into the VM's
- * `metadata["user-data"]` field at spawn time (see T043 → yandex.ts).
+ * `metadata["user-data"]` field at spawn time (see T043 → gcp.ts).
  *
  * Strategy: a mix of structural assertions (presence of shebang, docker
  * commands, env-var names) and an injection-safety test for shell escape.
@@ -24,7 +24,7 @@ const STABLE_ARGS: BuildCloudInitArgs = {
   evidencePrefix: "evidence/",
   awsAccessKeyId: "YCAJEtestaccesskeyABCDEFG",
   awsSecretAccessKey: "ycSecretKey-test-1234567",
-  awsEndpoint: "https://storage.yandexcloud.net",
+  awsEndpoint: "https://storage.googleapis.com",
   awsRegion: "ru-central1",
   signKey: "hex-sign-key-abc123",
   decepticonImage: "ghcr.io/purpleailab/decepticon:latest",
@@ -69,7 +69,7 @@ describe("buildCloudInit", () => {
     expect(out).toMatch(/export AWS_REGION=/);
     expect(out).toContain("YCAJEtestaccesskeyABCDEFG");
     expect(out).toContain("ycSecretKey-test-1234567");
-    expect(out).toContain("https://storage.yandexcloud.net");
+    expect(out).toContain("https://storage.googleapis.com");
     expect(out).toContain("ru-central1");
   });
 
@@ -127,6 +127,7 @@ describe("buildCloudInit", () => {
     expect(out).toContain(
       "ln -sf /opt/decepticon/docker-compose.yml /opt/tensol/docker-compose.yml",
     );
+    expect(out).toContain("ln -sf /opt/decepticon/.env /opt/tensol/.env");
   });
 
   test("[T128 Bug #7] writes /opt/decepticon/.env with secrets + chmod 600", () => {
@@ -162,6 +163,22 @@ describe("buildCloudInit", () => {
     const pullIdx = out.indexOf("docker pull");
     const runIdx = out.indexOf("docker run");
     expect(pullIdx).toBeLessThan(runIdx);
+  });
+
+  test("pre-pulls every Decepticon compose image before starting vps-agent", () => {
+    const out = buildCloudInit(STABLE_ARGS);
+    const runIdx = out.indexOf("docker run");
+    for (const image of [
+      "postgres:17-alpine",
+      "neo4j:5.24-community",
+      "ghcr.io/purpleailab/decepticon-litellm:latest",
+      "ghcr.io/purpleailab/decepticon-sandbox:latest",
+      "ghcr.io/purpleailab/decepticon-langgraph:latest",
+    ]) {
+      const pullLine = `docker pull '${image}'`;
+      expect(out).toContain(pullLine);
+      expect(out.indexOf(pullLine)).toBeLessThan(runIdx);
+    }
   });
 
   test("mounts /var/run/docker.sock so vps-agent can run the Decepticon compose stack", () => {

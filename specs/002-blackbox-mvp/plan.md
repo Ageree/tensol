@@ -6,7 +6,13 @@
 
 ## Summary
 
-Build a self-serve blackbox pentest product on top of the existing Decepticon engine. Two tracks: **Quick** (automated, free in MVP, 4-step wizard, DNS-verified) and **Deep** (lead-gen form forwarded to operator via Telegram). Clean-slate UX — legacy expert-mode pages (`Targets`/`Builder`/`Approval`/`Projects`) are removed; the wizard replaces them. Backend extends the existing `server/` package with new modules for scan-orders, DNS verification, free-tier quota, deep-inquiries, Yandex VM provisioning, findings ingest, PDF reporting, email, and Telegram notification. Scans execute on ephemeral Yandex Cloud VMs (one per scan, torn down at completion). Real Yandex Cloud is hit in CI on PR-merge + nightly smoke; unit + per-push integration tests use a fake provider per Constitution VI.
+Build a self-serve blackbox pentest product on top of the existing Decepticon engine. Two tracks: **Quick** (automated, free in MVP, 4-step wizard, DNS-verified) and **Deep** (lead-gen form forwarded to operator via Telegram). Clean-slate UX — legacy expert-mode pages (`Targets`/`Builder`/`Approval`/`Projects`) are removed; the wizard replaces them. Backend extends the existing `server/` package with new modules for scan-orders, DNS verification, free-tier quota, deep-inquiries, GCP VM provisioning, findings ingest, PDF reporting, email, and Telegram notification. Scans execute on ephemeral GCP VMs (one per scan, torn down at completion). Real GCP is hit in CI on PR-merge + nightly smoke; unit + per-push integration tests use a fake provider per Constitution VI.
+
+**2026-06-05 international pivot overlay**: this plan's GCP/Timeweb/RU
+deployment details describe the current execution implementation, not the
+product's market positioning. New product work should follow
+`docs/project-current-context.md`: international-by-default, Clerk auth target,
+provider-agnostic billing, and no new YooKassa-specific paths.
 
 ## Technical Context
 
@@ -14,23 +20,23 @@ Build a self-serve blackbox pentest product on top of the existing Decepticon en
 
 **Primary Dependencies**:
 - Backend: Hono, Drizzle ORM, Zod, `node:dns/promises`, Puppeteer (PDF render), Resend (transactional email).
-- Yandex Cloud REST API client (custom, ~250 LOC). gRPC client deferred — REST via gRPC-JSON transcoder is sufficient and lighter to maintain.
+- GCP REST API client (custom, ~250 LOC). gRPC client deferred — REST via gRPC-JSON transcoder is sufficient and lighter to maintain.
 - Telegram Bot API client (thin fetch wrapper, ~80 LOC).
 - Frontend: existing React Router setup, Tailwind classes already in place. No new framework.
 
 **Storage**:
 - SQLite (file-backed prod, in-memory in tests) — primary store per Constitution III.
-- Yandex Object Storage — evidence archives, per-scan key prefix, 30-day lifecycle policy.
+- GCS-compatible object storage — evidence archives, per-scan key prefix, 30-day lifecycle policy.
 
 **Testing**:
 - `bun test` for unit + integration. Tests hit real SQLite in-memory; never mock DB or audit signer (Constitution VI).
 - Playwright for E2E in `apps/site/e2e/`.
-- Fake Yandex provider for unit/IT on every push. Real Yandex on PR-merge to `main` + nightly cron smoke.
+- fake cloud provider for unit/IT on every push. live cloud on PR-merge to `main` + nightly cron smoke.
 - Contract test between `vps-agent` HMAC webhook payloads and backend receiver.
 
 **Target Platform**:
-- Backend runs on Yandex Cloud VM (single instance for MVP, scale-out post-MVP).
-- Per-scan ephemeral VMs in zones `ru-central1-{a,b,d}` (round-robin).
+- Backend runs on GCP VM (single instance for MVP, scale-out post-MVP).
+- Per-scan ephemeral VMs in the selected production cloud region.
 - Frontend served as static SPA from CDN-fronted bucket.
 - Browsers: modern evergreen (Chrome, Firefox, Safari, Edge — last 2 versions).
 
@@ -51,13 +57,13 @@ Build a self-serve blackbox pentest product on top of the existing Decepticon en
 - No real-time SSE / WebSocket from backend to browser (Constitution V deletion list). Frontend uses HTTP polling at 3-second intervals on the Live page.
 - Files ≤ 800 lines hard, ~200–400 typical (Constitution VII).
 - Frontend `apps/site/` untouched semantics: we ADD new pages and DELETE removed pages; we do not refactor existing pages.
-- No paid checkout in MVP (Spec FR-046 future-toggle, YooKassa registration in flight).
-- All payment-track code (`server/src/payments/`) deferred to post-MVP — touched only by the feature flag scaffolding in MVP scope.
+- No paid checkout in MVP (Spec FR-046 future-toggle). YooKassa registration is no longer relevant after the international pivot.
+- All payment-track code (`server/src/payments/`) deferred to post-MVP. Future billing must be provider-agnostic and entitlement-based. The operator has no Stripe account as of 2026-06-05, so direct Stripe and Clerk Billing are not production defaults; near-term paid access is manual/offline credits, and future self-serve requires a Merchant-of-Record eligibility check.
 
 **Scale/Scope**:
 - MVP target: O(10²) users in first 3 months.
 - 1 free Quick per user per 7 days → max ~14 scans / user / quarter → MVP infrastructure cost upper bound is manageable.
-- Yandex test folder quota: 5 VMs concurrent, 10 vCPU total, 20 GB RAM total.
+- GCP test folder quota: 5 VMs concurrent, 10 vCPU total, 20 GB RAM total.
 - Deep inquiries: O(10¹) per month projection in MVP; operator-handled manually.
 - Codebase: estimated ~3,000 new LOC backend + ~1,500 new LOC frontend across the wizard + Deep inquiry pages.
 
@@ -70,12 +76,12 @@ Build a self-serve blackbox pentest product on top of the existing Decepticon en
 | # | Principle | This plan's compliance | Status |
 |---|---|---|---|
 | I | Decepticon Untouched | All changes in `server/`, `apps/site/`, `vps-agent/`. No edits to `external/decepticon/`. Decepticon configured purely via env vars baked into cloud-init. | ✅ pass |
-| II | Three Load-Bearing Invariants | (a) Auth-proof: DNS TXT verification gates every scan launch (Spec FR-008…FR-011) — this is the auth-proof invariant by another name. (b) HMAC audit: every state-changing operation emits via `emitSignedAudit()` (Spec FR-042). (c) Egress isolation: each scan provisions an ephemeral Yandex VM and tears it down at completion (Spec FR-018). | ✅ pass |
+| II | Three Load-Bearing Invariants | (a) Auth-proof: DNS TXT verification gates every scan launch (Spec FR-008…FR-011) — this is the auth-proof invariant by another name. (b) HMAC audit: every state-changing operation emits via `emitSignedAudit()` (Spec FR-042). (c) Egress isolation: each scan provisions an ephemeral GCP VM and tears it down at completion (Spec FR-018). | ✅ pass |
 | III | Single Binary, Single Package | Backend stays a single Bun package at `server/`. No `packages/*` created. Frontend at `apps/site/` is its own untouched package per existing layout. `vps-agent/` is a separate small TS package, unchanged in concept. | ✅ pass |
-| IV | No Premature Abstraction | Concrete code paths only. No generic "scan engine adapter" layer — Yandex is the one provider impl in MVP, behind a simple `CloudProvider` interface per Constitution's pluggable-provider clause. No multi-tenant framework, no plugin loader. | ✅ pass |
+| IV | No Premature Abstraction | Concrete code paths only. No generic "scan engine adapter" layer — GCP is the one provider impl in MVP, behind a simple `CloudProvider` interface per Constitution's pluggable-provider clause. No multi-tenant framework, no plugin loader. | ✅ pass |
 | V | YAGNI Ruthlessly | (a) MVP cuts: paid checkout, Test Accounts encrypted storage, automated Deep dispatch, multi-region foreign rollout, admin UI for refunds (use SQL directly). (b) Live UI uses HTTP polling, not SSE/WebSockets — direct match to Constitution V deletion list. (c) No project/team scoping beyond user_id. | ✅ pass |
-| VI | Test-First (NON-NEGOTIABLE) | Every new function ships with a failing test first. Coverage floor 80% (already at 93.92% in 001 — we will not regress). Tests hit real SQLite in-memory. Fake Yandex provider for default test runs; real Yandex only on PR-merge + nightly. | ✅ pass |
-| VII | Files Small & Focused | All new modules sized at 80–350 LOC. Largest: `vps/yandex.ts` ~250 LOC (operation-polling + auth + spawn + teardown). Hard cap 800 LOC respected. | ✅ pass |
+| VI | Test-First (NON-NEGOTIABLE) | Every new function ships with a failing test first. Coverage floor 80% (already at 93.92% in 001 — we will not regress). Tests hit real SQLite in-memory. fake cloud provider for default test runs; live cloud only on PR-merge + nightly. | ✅ pass |
+| VII | Files Small & Focused | All new modules sized at 80–350 LOC. Largest: `vps/gcp.ts` ~250 LOC (operation-polling + auth + spawn + teardown). Hard cap 800 LOC respected. | ✅ pass |
 | VIII | Immutable Data | All Drizzle row reads treated readonly. State transitions use `db.update()` with explicit set clauses. No object mutation in service code. | ✅ pass |
 | IX | Validate at Boundaries | Every new HTTP route gets a Zod schema (request body + URL params). Every webhook receiver Zod-validates payload before any other processing. | ✅ pass |
 | X | Audit Everything State-Changing | New audit event types defined: `scan_order_created`, `dns_verify_requested`, `dns_verified`, `dns_verify_failed`, `free_quota_consumed`, `free_quota_refunded`, `vm_provisioning`, `vm_ready`, `vm_teardown`, `scan_started`, `finding_ingested`, `scan_completed`, `scan_failed`, `pdf_rendered`, `email_sent`, `inquiry_received`, `inquiry_telegram_sent`, `webhook_invalid_signature`. All emitted via `emitSignedAudit()`. | ✅ pass |
@@ -137,9 +143,9 @@ server/                          # Single Bun package, Constitution III
 │   │   └── service.test.ts
 │   ├── vps/
 │   │   ├── provider.ts          # NEW — CloudProvider interface
-│   │   ├── yandex.ts            # NEW — concrete impl
-│   │   ├── yandex.test.ts       # NEW — uses fake-Yandex per Constitution VI
-│   │   ├── yandex-real.test.ts  # NEW — real Yandex, runs only with env flag
+│   │   ├── gcp.ts            # NEW — concrete impl
+│   │   ├── gcp.test.ts       # NEW — uses fake-GCP per Constitution VI
+│   │   ├── gcp-real.test.ts  # NEW — live cloud, runs only with env flag
 │   │   ├── cloud-init.ts        # NEW — bash template for VM bootstrap
 │   │   ├── cloud-init.test.ts
 │   │   └── hetzner.ts           # DELETE (vestigial, drop in same PR)
@@ -170,8 +176,8 @@ server/                          # Single Bun package, Constitution III
 │   ├── jobs/
 │   │   ├── runner.ts            # MODIFY — register new job kinds
 │   │   ├── handlers/
-│   │   │   ├── spawn-yandex-vm.ts          # NEW
-│   │   │   ├── teardown-yandex-vm.ts       # NEW
+│   │   │   ├── spawn-vm.ts          # NEW
+│   │   │   ├── teardown-vm.ts       # NEW
 │   │   │   ├── render-pdf.ts               # NEW
 │   │   │   ├── send-scan-complete-email.ts # NEW
 │   │   │   ├── poll-dns-verify.ts          # NEW (optional background poll)
@@ -188,7 +194,7 @@ server/                          # Single Bun package, Constitution III
 │       ├── free-tier.test.ts            # NEW
 │       ├── deep-inquiries.test.ts       # NEW
 │       ├── webhook-scan-complete.test.ts# NEW
-│       ├── scan-lifecycle.test.ts       # NEW (real Yandex when env set)
+│       ├── scan-lifecycle.test.ts       # NEW (live cloud when env set)
 │       └── ...
 └── package.json                 # MODIFY — add deps: puppeteer, resend
 
@@ -243,4 +249,3 @@ vps-agent/                       # ~50-line agent → grows ~150 LOC for MVP
 ## Complexity Tracking
 
 > Constitution Check passed with zero deviations. This section is intentionally empty.
-

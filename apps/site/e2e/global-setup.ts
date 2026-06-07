@@ -8,6 +8,7 @@ export default async function globalSetup(): Promise<void> {
   // proxy has somewhere to route /api/* requests. The backend port is
   // exported via VITE_DEV_API_TARGET so vite.config.ts picks it up when
   // it starts a fresh process.
+  process.env.VITE_E2E_AUTH_BYPASS = 'true';
   const backend = await startBackend();
   process.env.VITE_DEV_API_TARGET = backend.baseUrl;
   process.env.TENSOL_E2E_BACKEND_BASE_URL = backend.baseUrl;

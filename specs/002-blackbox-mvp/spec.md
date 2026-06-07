@@ -10,6 +10,14 @@
 
 **Source design**: `docs/superpowers/specs/2026-05-19-blackbox-mvp-design.md`
 
+**2026-06-05 international pivot overlay**:
+`docs/project-current-context.md` supersedes Russia-first/YooKassa assumptions
+in this 2026-05-19 spec. Quick remains free in the MVP, Deep remains
+contact-led, and future self-serve billing must be international and
+provider-agnostic. Because the operator currently has no Stripe account, do not
+assume Stripe or Clerk Billing for production; the near-term paid path is
+manual/offline entitlements, with self-serve MoR providers evaluated later.
+
 ---
 
 ## User Scenarios & Testing *(mandatory)*
@@ -162,9 +170,9 @@ A returning user wants to see scans they've run before, check what was found, an
 - **FR-044**: System MUST automatically purge per-scan evidence archives 30 days after scan completion.
 - **FR-045**: System MUST mark anonymous inquiries as such (no linked account) and avoid creating implicit accounts from them.
 
-**Operator readiness for future payment activation**
+**Operator readiness for future international billing activation**
 
-- **FR-046**: System MUST support an operator-controlled toggle that, when activated, replaces the free-Quick CTA with a paid checkout flow and unlocks the Deep tier from "lead-gen only" to a future self-serve path. Until activated, the system behaves as in Free Quick + Deep-inquiry mode.
+- **FR-046**: System MUST support an operator-controlled billing toggle that, when activated, replaces the free-Quick CTA with an international paid checkout flow and unlocks the Deep tier from "lead-gen only" to a future self-serve path. Until activated, the system behaves as in Free Quick + Deep-inquiry mode. New billing work MUST use provider-agnostic entitlements/credits and MUST NOT add a YooKassa-specific path.
 
 ### Key Entities *(business-level, no implementation detail)*
 
@@ -222,11 +230,12 @@ A returning user wants to see scans they've run before, check what was found, an
 
 - **Decepticon engine is production-ready for blackbox scanning**: The scanning agent (already proven in the operator's local-smoke run of 2026-05-19 that produced 9 CVSS-scored findings against OWASP Juice Shop in 38 minutes) is treated as a stable dependency. Failures inside the engine are handled as time-outs at the orchestration layer.
 - **Email infrastructure is available**: A transactional email provider can be wired in for sign-in links and scan-completion notifications, with retry semantics.
-- **Operator availability for Deep follow-up is during Russian business hours**: The 24-hour Deep response SLA is intended for working days; weekend/holiday delays are acceptable for the MVP.
-- **Russian residency of the operator entity**: The operator is registering a Russian sole-proprietor entity; this drives currency (RUB), language (Russian primary, English present but not primary), and applicable regulation (152-ФЗ for personal data).
+- **Operator availability for Deep follow-up is explicit per engagement**: The 24-hour Deep response SLA is measured on working days in the operator/customer-agreed timezone. Do not assume Russian business hours for international customers.
+- **International product posture**: The product is no longer Russia-first. Default copy, pricing, billing, legal, and data-residency assumptions should be international and customer-region-aware. Russia-specific legal or hosting requirements are optional engagement constraints, not the product default.
+- **Clerk is the target auth provider**: Legacy magic-link/session flows may exist in the current server implementation, but future architecture should assume Clerk unless a task explicitly asks for legacy auth work.
 - **DNS TXT verification is acceptable to target users**: SMB and corporate users are willing to add a TXT record to their own DNS for verification. Users without DNS access are out of scope for MVP.
 - **Free Quick is sustainable as a lead-magnet**: The unit cost of a single Quick scan (compute + LLM tokens) is small enough relative to user lifetime value to justify offering it free in the introductory phase.
-- **Paid payments are deferred but not abandoned**: The operator has a Russian sole-proprietor entity and is registering with a Russian payment gateway in parallel with this build. The MVP must operate end-to-end without paid checkout, but the data model and UI must accommodate a future toggle that turns on paid scans.
+- **Paid payments are deferred but not abandoned**: The MVP must operate end-to-end without paid checkout, but the data model and UI must accommodate a future international billing toggle. YooKassa is obsolete. Stripe is not available to the operator today, so Clerk Billing and direct Stripe are not valid production assumptions. Use a provider-agnostic billing/entitlement model; current paid access, if any, is manual/offline credits, while future self-serve should evaluate Merchant-of-Record providers such as Paddle, Lemon Squeezy, or Polar.
 - **Deep engagement scope is negotiated off-platform in MVP**: The MVP does not attempt to automate Deep scans, billing for Deep, or contract management for Deep. The product surface for Deep is the inquiry form plus operator notification only.
 - **Existing magic-link auth and audit-chain infrastructure are reused**: The backend already has working magic-link sign-in and an append-only signed audit log. These are foundations, not new work.
 - **The legacy "expert mode" pages (multi-step Targets/Projects/Builder/Approval flow) are being decommissioned**: New users see only the wizard; no migration of prior data is in scope for MVP because there are no production users yet.
