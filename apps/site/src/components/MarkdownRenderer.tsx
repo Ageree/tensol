@@ -254,18 +254,29 @@ function parseBlocks(src: string): Block[] {
 
 export interface MarkdownRendererProps {
   source: string;
+  variant?: 'default' | 'detail';
 }
 
-export function MarkdownRenderer({ source }: MarkdownRendererProps): ReactElement {
+export function MarkdownRenderer({
+  source,
+  variant = 'default',
+}: MarkdownRendererProps): ReactElement {
   // `esc` runs on TEXT segments inside renderInline (we wrap raw text in
   // <span>), but here we render structured React elements directly — the
   // inline tokens never become innerHTML, so React's own escaping protects
   // us from injection. We still call `esc` on `code` block bodies because
   // they're whitespace-preserving but otherwise raw.
   const blocks = parseBlocks(source);
+  const detail = variant === 'detail';
+  const bodyFontSize = detail ? 15 : 13.5;
+  const bodyLineHeight = detail ? 1.65 : 1.55;
+  const bodyMaxWidth = detail ? '86ch' : '72ch';
+  const codeFontSize = detail ? 12.5 : 11.5;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div
+      style={{ display: 'flex', flexDirection: 'column', gap: detail ? 16 : 14 }}
+    >
       {blocks.map((b, i) => {
         const key = `${i}-${b.kind}`;
         switch (b.kind) {
@@ -276,8 +287,8 @@ export function MarkdownRenderer({ source }: MarkdownRendererProps): ReactElemen
                 style={{
                   fontFamily: "'Space Grotesk', sans-serif",
                   fontWeight: 500,
-                  fontSize: 24,
-                  letterSpacing: '-0.02em',
+                  fontSize: detail ? 26 : 24,
+                  letterSpacing: 0,
                   margin: '8px 0 4px',
                   lineHeight: 1.2,
                 }}
@@ -292,8 +303,8 @@ export function MarkdownRenderer({ source }: MarkdownRendererProps): ReactElemen
                 style={{
                   fontFamily: "'Space Grotesk', sans-serif",
                   fontWeight: 500,
-                  fontSize: 18,
-                  letterSpacing: '-0.015em',
+                  fontSize: detail ? 20 : 18,
+                  letterSpacing: 0,
                   margin: '6px 0 2px',
                   lineHeight: 1.25,
                 }}
@@ -308,8 +319,8 @@ export function MarkdownRenderer({ source }: MarkdownRendererProps): ReactElemen
                 style={{
                   fontFamily: "'JetBrains Mono', monospace",
                   fontWeight: 500,
-                  fontSize: 12,
-                  letterSpacing: '0.04em',
+                  fontSize: detail ? 13 : 12,
+                  letterSpacing: 0,
                   textTransform: 'uppercase',
                   color: 'var(--fg-3)',
                   margin: '4px 0 0',
@@ -324,11 +335,11 @@ export function MarkdownRenderer({ source }: MarkdownRendererProps): ReactElemen
                 key={key}
                 style={{
                   fontFamily: "'Inter', sans-serif",
-                  fontSize: 13.5,
-                  lineHeight: 1.55,
+                  fontSize: bodyFontSize,
+                  lineHeight: bodyLineHeight,
                   color: 'var(--fg)',
                   margin: 0,
-                  maxWidth: '72ch',
+                  maxWidth: bodyMaxWidth,
                 }}
               >
                 {renderInline(b.text)}
@@ -340,12 +351,13 @@ export function MarkdownRenderer({ source }: MarkdownRendererProps): ReactElemen
                 key={key}
                 style={{
                   fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: 11.5,
+                  fontSize: codeFontSize,
                   lineHeight: 1.6,
                   margin: 0,
                   color: 'var(--paper)',
                   background: 'var(--ink)',
-                  padding: 14,
+                  padding: detail ? '18px 20px' : 14,
+                  borderLeft: detail ? '4px solid var(--red)' : undefined,
                   overflow: 'auto',
                   whiteSpace: 'pre',
                 }}
@@ -361,12 +373,12 @@ export function MarkdownRenderer({ source }: MarkdownRendererProps): ReactElemen
                 key={key}
                 style={{
                   fontFamily: "'Inter', sans-serif",
-                  fontSize: 13.5,
-                  lineHeight: 1.55,
+                  fontSize: bodyFontSize,
+                  lineHeight: bodyLineHeight,
                   color: 'var(--fg)',
                   margin: 0,
                   paddingLeft: 22,
-                  maxWidth: '72ch',
+                  maxWidth: bodyMaxWidth,
                 }}
               >
                 {b.items.map((it, j) => (
@@ -380,12 +392,12 @@ export function MarkdownRenderer({ source }: MarkdownRendererProps): ReactElemen
                 key={key}
                 style={{
                   fontFamily: "'Inter', sans-serif",
-                  fontSize: 13.5,
-                  lineHeight: 1.55,
+                  fontSize: bodyFontSize,
+                  lineHeight: bodyLineHeight,
                   color: 'var(--fg)',
                   margin: 0,
                   paddingLeft: 22,
-                  maxWidth: '72ch',
+                  maxWidth: bodyMaxWidth,
                 }}
               >
                 {b.items.map((it, j) => (
