@@ -36,6 +36,7 @@ import type { GitHubClient } from "../review/github/client.ts";
 import {
 	buildConnectState,
 	buildInstallUrl,
+	buildUserAuthorizationUrl,
 	handleInstallCallback,
 	verifyConnectState,
 } from "../review/github/connect.ts";
@@ -52,6 +53,10 @@ export interface CreateGithubConnectRouterDeps {
 	readonly requireAuth: MiddlewareHandler<{ Variables: AuthVariables }>;
 	/** GitHub App slug (`GITHUB_APP_SLUG`). Empty string → /connect returns 503. */
 	readonly slug: string;
+	/** GitHub App OAuth client id (`GITHUB_APP_CLIENT_ID`). */
+	readonly oauthClientId?: string;
+	/** Public callback URL registered in the GitHub App callback URL list. */
+	readonly callbackUrl?: string;
 	/** HMAC secret for CSRF state nonces (TENSOL_SESSION_COOKIE_SECRET or dedicated). */
 	readonly stateSecret: string;
 	/** Public SPA origin used after external GitHub browser redirects. */
@@ -83,6 +88,7 @@ const GITHUB_UNCONFIGURED: ErrorEnvelope = {
 };
 const DEFAULT_INSTALLATION_REPOS_LIMIT = 200;
 const MAX_INSTALLATION_REPOS_LIMIT = 500;
+const SYNTHETIC_REVIEW_REPOS_INSTALLATION_ID = "__review_repos";
 
 function parseLimit(raw: string | undefined): number {
 	if (raw === undefined) return DEFAULT_INSTALLATION_REPOS_LIMIT;
@@ -91,16 +97,23 @@ function parseLimit(raw: string | undefined): number {
 	return Math.max(1, Math.min(MAX_INSTALLATION_REPOS_LIMIT, parsed));
 }
 
+function validationFailed(message: string): ErrorEnvelope {
+	return {
+		error: "validation_failed",
+		message,
+	};
+}
+
 // ── Zod schemas ──────────────────────────────────────────────────────────────
 
 const CallbackQuerySchema = z.object({
-	installation_id: z.string().min(1),
-	setup_action: z.string().min(1),
+	installation_id: z.string().min(1).optional(),
+	setup_action: z.string().min(1).optional(),
 	state: z.string().min(1),
 	// OAuth `code` from the combined install+authorize redirect. Required: it is
 	// the only way to prove the authenticated user actually controls the claimed
 	// installation_id (the App JWT alone can read ANY installation's repos).
-	code: z.string().min(1),
+	code: z.string().min(1).optional(),
 });
 
 const DisconnectBodySchema = z.object({
@@ -171,6 +184,63 @@ function githubRepoToInstallationRepoWire(repo: {
 	};
 }
 
+function repoMatchesInstallation(
+	repo: ReviewRepo,
+	installation: {
+		readonly id: string;
+		readonly installationId: string;
+	},
+): boolean {
+	return (
+		repo.installationRowId === installation.id ||
+		repo.installationId === installation.installationId
+	);
+}
+
+function fallbackReviewRepos(
+	repos: readonly ReviewRepo[],
+	installations: readonly {
+		readonly id: string;
+		readonly installationId: string;
+	}[],
+): ReviewRepo[] {
+	return repos.filter((repo) => {
+		if (repo.scm !== "github") return false;
+		if (repo.status === "revoked") return false;
+		return !installations.some((installation) =>
+			repoMatchesInstallation(repo, installation),
+		);
+	});
+}
+
+function fallbackAccountLogin(repos: readonly ReviewRepo[]): string {
+	const owners = Array.from(new Set(repos.map((repo) => repo.owner))).sort();
+	if (owners.length === 1) return owners[0] ?? "Connected repositories";
+	return "Connected repositories";
+}
+
+function fallbackInstallationWire(repos: readonly ReviewRepo[]) {
+	return {
+		id: SYNTHETIC_REVIEW_REPOS_INSTALLATION_ID,
+		installation_id: SYNTHETIC_REVIEW_REPOS_INSTALLATION_ID,
+		account_login: fallbackAccountLogin(repos),
+		account_type: "Organization" as const,
+		repository_selection: "selected" as const,
+		status: "active" as const,
+	};
+}
+
+function lastReviewForRepo(db: DB, repo: ReviewRepo): Review | null {
+	if (repo.lastReviewId === null) return null;
+	return (
+		(db
+			.select()
+			.from(reviewsTable)
+			.where(eq(reviewsTable.id, repo.lastReviewId))
+			.get() as Review | undefined) ?? null
+	);
+}
+
 // ── Router factory ────────────────────────────────────────────────────────────
 
 export function createGithubConnectRouter(
@@ -182,6 +252,10 @@ export function createGithubConnectRouter(
 		"/repositories",
 		deps.frontendBaseUrl ?? FRONTEND_BASE_URL,
 	).toString();
+	const callbackUrl =
+		deps.callbackUrl ??
+		new URL("/v1/github/callback", deps.frontendBaseUrl ?? FRONTEND_BASE_URL)
+			.toString();
 
 	const app = new Hono<{ Variables: AuthVariables }>();
 
@@ -232,7 +306,7 @@ export function createGithubConnectRouter(
 			);
 		}
 
-		const { installation_id, setup_action, state, code } = parsed.data;
+		const { state, code } = parsed.data;
 
 		// Verify the CSRF state nonce. GitHub returns to this endpoint through a
 		// top-level browser redirect, so the app session cookie / Clerk bearer token
@@ -252,6 +326,49 @@ export function createGithubConnectRouter(
 			);
 		}
 		const userId = verified.userId;
+		const installationId =
+			parsed.data.installation_id ?? verified.installationId ?? null;
+		const setupAction =
+			parsed.data.setup_action ?? verified.setupAction ?? null;
+
+		if (!code) {
+			if (parsed.data.installation_id === undefined) {
+				return c.json(validationFailed("installation_id is required"), 400);
+			}
+			if (parsed.data.setup_action === undefined) {
+				return c.json(validationFailed("setup_action is required"), 400);
+			}
+			if (!deps.oauthClientId) {
+				return c.json(
+					{
+						error: "github_oauth_unconfigured",
+						message:
+							"the GitHub App OAuth client id is not configured on this server",
+					},
+					503,
+				);
+			}
+
+			const oauthState = buildConnectState({
+				userId,
+				now: clock(),
+				secret: stateSecret,
+				installationId: parsed.data.installation_id,
+				setupAction: parsed.data.setup_action,
+			});
+			return c.redirect(
+				buildUserAuthorizationUrl({
+					clientId: deps.oauthClientId,
+					state: oauthState,
+					redirectUri: callbackUrl,
+				}),
+				302,
+			);
+		}
+
+		if (installationId === null) {
+			return c.json(validationFailed("installation_id is required"), 400);
+		}
 
 		// Prove the authenticated user actually controls this GitHub installation.
 		// The App JWT can read ANY installation's private repos, so without this
@@ -262,7 +379,10 @@ export function createGithubConnectRouter(
 		// user's own installation list (spec.md:128, data-model.md:103).
 		let userInstallationIds: string[];
 		try {
-			userInstallationIds = await github.listUserInstallationIds({ code });
+			userInstallationIds = await github.listUserInstallationIds({
+				code,
+				redirectUri: callbackUrl,
+			});
 		} catch {
 			return c.json(
 				{
@@ -272,7 +392,7 @@ export function createGithubConnectRouter(
 				400,
 			);
 		}
-		if (!userInstallationIds.includes(installation_id)) {
+		if (!userInstallationIds.includes(installationId)) {
 			return c.json(
 				{ error: "forbidden", message: "you do not control this installation" },
 				403,
@@ -280,8 +400,8 @@ export function createGithubConnectRouter(
 		}
 
 		await handleInstallCallback({
-			installationId: installation_id,
-			setupAction: setup_action,
+			installationId,
+			setupAction,
 			userId,
 			github,
 			service,
@@ -300,10 +420,14 @@ export function createGithubConnectRouter(
 		// Only active/suspended rows count as "connected" — deleted are hidden from
 		// the connected concept (per openapi.yaml semantics: uninstall flips status).
 		const visible = all.filter((i) => i.status !== "deleted");
+		const localRepos = await service.listReposByUser(user.id, {
+			limit: MAX_INSTALLATION_REPOS_LIMIT,
+		});
+		const fallbackRepos = fallbackReviewRepos(localRepos, all);
 
-		const connected = visible.some(
-			(i) => i.status === "active" || i.status === "suspended",
-		);
+		const connected =
+			visible.some((i) => i.status === "active" || i.status === "suspended") ||
+			fallbackRepos.length > 0;
 
 		const installations = visible.map((i) => ({
 			id: i.id,
@@ -313,6 +437,9 @@ export function createGithubConnectRouter(
 			repository_selection: i.repositorySelection,
 			status: i.status,
 		}));
+		if (fallbackRepos.length > 0) {
+			installations.push(fallbackInstallationWire(fallbackRepos));
+		}
 
 		return c.json({ connected, installations }, 200);
 	});
@@ -332,7 +459,26 @@ export function createGithubConnectRouter(
 		const installation =
 			await service.getInstallationByRowId(installationRowId);
 		if (!installation || installation.userId !== user.id) {
-			return c.json(NOT_FOUND, 404);
+			if (installationRowId !== SYNTHETIC_REVIEW_REPOS_INSTALLATION_ID) {
+				return c.json(NOT_FOUND, 404);
+			}
+
+			const all = await service.getInstallationsForUser(user.id);
+			const localRepos = await service.listReposByUser(user.id, {
+				limit: MAX_INSTALLATION_REPOS_LIMIT,
+			});
+			const fallbackRepos = fallbackReviewRepos(localRepos, all).slice(
+				0,
+				limit,
+			);
+			if (fallbackRepos.length === 0) return c.json(NOT_FOUND, 404);
+
+			return c.json(
+				fallbackRepos.map((repo) =>
+					repoToInstallationRepoWire(repo, lastReviewForRepo(db, repo)),
+				),
+				200,
+			);
 		}
 
 		// Fetch GitHub's current repo list for this installation (live, no cache).
@@ -361,7 +507,7 @@ export function createGithubConnectRouter(
 		});
 		const localBySlug = new Map<string, ReviewRepo>();
 		for (const r of localRepos) {
-			if (r.installationRowId === installationRowId) {
+			if (repoMatchesInstallation(r, installation)) {
 				localBySlug.set(`${r.owner}/${r.name}`, r);
 			}
 		}
@@ -376,16 +522,9 @@ export function createGithubConnectRouter(
 
 				if (local) {
 					// Fetch last review if tracked.
-					let lastReview: Review | null = null;
-					if (local.lastReviewId !== null) {
-						lastReview =
-							(db
-								.select()
-								.from(reviewsTable)
-								.where(eq(reviewsTable.id, local.lastReviewId))
-								.get() as Review | undefined) ?? null;
-					}
-					result.push(repoToInstallationRepoWire(local, lastReview));
+					result.push(
+						repoToInstallationRepoWire(local, lastReviewForRepo(db, local)),
+					);
 				} else {
 					result.push(githubRepoToInstallationRepoWire(ghRepo));
 				}
@@ -393,16 +532,9 @@ export function createGithubConnectRouter(
 		} else {
 			// GitHub list unavailable — serve locally tracked repos for this installation.
 			for (const [, local] of Array.from(localBySlug).slice(0, limit)) {
-				let lastReview: Review | null = null;
-				if (local.lastReviewId !== null) {
-					lastReview =
-						(db
-							.select()
-							.from(reviewsTable)
-							.where(eq(reviewsTable.id, local.lastReviewId))
-							.get() as Review | undefined) ?? null;
-				}
-				result.push(repoToInstallationRepoWire(local, lastReview));
+				result.push(
+					repoToInstallationRepoWire(local, lastReviewForRepo(db, local)),
+				);
 			}
 		}
 

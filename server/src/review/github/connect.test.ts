@@ -22,6 +22,7 @@ import { createReviewService } from "../service.ts";
 import { FakeGitHubClient } from "./client.ts";
 import {
   buildInstallUrl,
+  buildUserAuthorizationUrl,
   buildConnectState,
   verifyConnectState,
   handleInstallCallback,
@@ -79,6 +80,23 @@ describe("buildInstallUrl", () => {
   test("uses the slug in the path", () => {
     const url = buildInstallUrl({ slug: "my-app-slug", state: "x" });
     expect(url).toContain("/apps/my-app-slug/installations/new");
+  });
+});
+
+describe("buildUserAuthorizationUrl", () => {
+  test("returns a GitHub App OAuth authorize URL with state and redirect_uri", () => {
+    const url = buildUserAuthorizationUrl({
+      clientId: "Iv1.client",
+      state: "state-123",
+      redirectUri: "https://api.sthrip.dev/v1/github/callback",
+    });
+    const parsed = new URL(url);
+    expect(parsed.origin + parsed.pathname).toBe("https://github.com/login/oauth/authorize");
+    expect(parsed.searchParams.get("client_id")).toBe("Iv1.client");
+    expect(parsed.searchParams.get("state")).toBe("state-123");
+    expect(parsed.searchParams.get("redirect_uri")).toBe(
+      "https://api.sthrip.dev/v1/github/callback",
+    );
   });
 });
 
@@ -161,6 +179,23 @@ describe("buildConnectState / verifyConnectState — round-trip", () => {
     expect(s1).not.toBe(s2);
     expect(verifyConnectState({ state: s1, secret: SECRET, now })?.userId).toBe("user-A");
     expect(verifyConnectState({ state: s2, secret: SECRET, now })?.userId).toBe("user-B");
+  });
+
+  test("round-trips installation context for the setup-to-OAuth handoff", () => {
+    const now = 1_700_000_000_000;
+    const state = buildConnectState({
+      userId: "user-1",
+      installationId: "inst-42",
+      setupAction: "install",
+      now,
+      secret: SECRET,
+    });
+    const result = verifyConnectState({ state, secret: SECRET, now });
+    expect(result).toEqual({
+      userId: "user-1",
+      installationId: "inst-42",
+      setupAction: "install",
+    });
   });
 
   test("rejects malformed state (not valid base64url)", () => {

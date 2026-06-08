@@ -23,7 +23,10 @@ import type { MiddlewareHandler } from "hono";
 import type { AuthVariables } from "../auth/middleware.ts";
 import { type DB, createDb } from "../db/client.ts";
 import { FakeGitHubClient } from "../review/github/client.ts";
-import { buildConnectState } from "../review/github/connect.ts";
+import {
+	buildConnectState,
+	verifyConnectState,
+} from "../review/github/connect.ts";
 import { createReviewService } from "../review/service.ts";
 import { createGithubConnectRouter } from "./github-connect.ts";
 
@@ -33,6 +36,8 @@ const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "migrations");
 const AUDIT_KEY = "test-key-github-connect-0123456789abcdef0123456789abcdef";
 const STATE_SECRET = "state-secret-0123456789abcdef0123456789abcdef";
 const GITHUB_SLUG = "sthrip-app";
+const GITHUB_CLIENT_ID = "Iv1.client";
+const CALLBACK_URL = "https://api.sthrip.dev/v1/github/callback";
 /** OAuth `code` the happy-path callbacks pass; the default Fake maps it to the
  *  installation ids the user is allowed to claim. */
 const OWNED_CODE = "oauth-code-user-1";
@@ -96,6 +101,8 @@ function makeConnectApp(
 		github?: FakeGitHubClient;
 		authed?: boolean;
 		slug?: string;
+		oauthClientId?: string;
+		callbackUrl?: string;
 	} = {},
 ) {
 	const userId = opts.userId ?? "user_1";
@@ -124,6 +131,8 @@ function makeConnectApp(
 		github,
 		requireAuth,
 		slug: opts.slug ?? GITHUB_SLUG,
+		oauthClientId: opts.oauthClientId ?? GITHUB_CLIENT_ID,
+		callbackUrl: opts.callbackUrl ?? CALLBACK_URL,
 		stateSecret: STATE_SECRET,
 		now: clock,
 	});
@@ -218,7 +227,9 @@ describe("GET /callback — installation callback", () => {
 		expect(installation?.accountLogin).toBe("acme");
 		expect(installation?.userId).toBe("user_1");
 		expect(installation?.setupAction).toBe("install");
-		expect(github.listUserInstallationIdsCalls).toEqual([{ code: OWNED_CODE }]);
+		expect(github.listUserInstallationIdsCalls).toEqual([
+			{ code: OWNED_CODE, redirectUri: CALLBACK_URL },
+		]);
 	});
 
 	test("valid callback does not require the browser to carry an app session", async () => {
@@ -270,7 +281,7 @@ describe("GET /callback — installation callback", () => {
 		expect(body.error).toBeTruthy();
 	});
 
-	test("returns 400 when OAuth code is missing", async () => {
+	test("redirects setup callback without OAuth code to GitHub user authorization", async () => {
 		const db = freshMemDb();
 		const { router } = makeConnectApp(db);
 
@@ -282,10 +293,76 @@ describe("GET /callback — installation callback", () => {
 		const res = await router.request(
 			`/callback?installation_id=inst_42&setup_action=install&state=${encodeURIComponent(state)}`,
 		);
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(302);
+
+		const location = res.headers.get("location");
+		expect(location).not.toBeNull();
+		const url = new URL(location ?? "");
+		expect(url.origin + url.pathname).toBe(
+			"https://github.com/login/oauth/authorize",
+		);
+		expect(url.searchParams.get("client_id")).toBe(GITHUB_CLIENT_ID);
+		expect(url.searchParams.get("redirect_uri")).toBe(CALLBACK_URL);
+
+		const oauthState = url.searchParams.get("state");
+		expect(oauthState).not.toBeNull();
+		const verified = verifyConnectState({
+			state: oauthState ?? "",
+			secret: STATE_SECRET,
+			now: clockNow,
+		});
+		expect(verified).toMatchObject({
+			userId: "user_1",
+			installationId: "inst_42",
+			setupAction: "install",
+		});
+	});
+
+	test("OAuth callback can complete using installation context from signed state", async () => {
+		const db = freshMemDb();
+		const { router, service, github } = makeConnectApp(db);
+
+		const state = buildConnectState({
+			userId: "user_1",
+			installationId: "inst_42",
+			setupAction: "install",
+			now: clockNow,
+			secret: STATE_SECRET,
+		});
+
+		const res = await router.request(
+			`/callback?code=${OWNED_CODE}&state=${encodeURIComponent(state)}`,
+		);
+		expect(res.status).toBe(302);
+		expect(res.headers.get("location")).toBe("https://sthrip.dev/repositories");
+
+		const installation = await service.getInstallationByGithubId(
+			"github",
+			"inst_42",
+		);
+		expect(installation?.userId).toBe("user_1");
+		expect(installation?.setupAction).toBe("install");
+		expect(github.listUserInstallationIdsCalls).toEqual([
+			{ code: OWNED_CODE, redirectUri: CALLBACK_URL },
+		]);
+	});
+
+	test("returns 503 when setup callback needs OAuth but client id is missing", async () => {
+		const db = freshMemDb();
+		const { router } = makeConnectApp(db, { oauthClientId: "" });
+
+		const state = buildConnectState({
+			userId: "user_1",
+			now: clockNow,
+			secret: STATE_SECRET,
+		});
+		const res = await router.request(
+			`/callback?installation_id=inst_42&setup_action=install&state=${encodeURIComponent(state)}`,
+		);
+		expect(res.status).toBe(503);
 
 		const body = (await res.json()) as { error: string };
-		expect(body.error).toBe("validation_failed");
+		expect(body.error).toBe("github_oauth_unconfigured");
 	});
 
 	test("returns 400 on forged/invalid state", async () => {
@@ -448,6 +525,38 @@ describe("GET /installations — connection status", () => {
 		expect(body.installations[0]?.status).toBe("active");
 	});
 
+	test("surfaces review repos as a fallback GitHub connection", async () => {
+		const db = freshMemDb();
+		const { router, service } = makeConnectApp(db);
+
+		await service.upsertRepo({
+			userId: "user_1",
+			owner: "acme",
+			name: "api",
+			installationId: "inst_orphan",
+			defaultBranch: "main",
+		});
+
+		const res = await router.request("/installations");
+		expect(res.status).toBe(200);
+
+		const body = (await res.json()) as {
+			connected: boolean;
+			installations: Array<{
+				id: string;
+				account_login: string;
+				repository_selection: string;
+				status: string;
+			}>;
+		};
+		expect(body.connected).toBe(true);
+		expect(body.installations).toHaveLength(1);
+		expect(body.installations[0]?.id).toBe("__review_repos");
+		expect(body.installations[0]?.account_login).toBe("acme");
+		expect(body.installations[0]?.repository_selection).toBe("selected");
+		expect(body.installations[0]?.status).toBe("active");
+	});
+
 	test("does NOT return deleted installations", async () => {
 		const db = freshMemDb();
 		const { router, service } = makeConnectApp(db);
@@ -546,6 +655,40 @@ describe("GET /installations/:id/repos — repos for an installation", () => {
 		expect(body).toHaveLength(7);
 		expect(body[0]?.name).toBe("repo-0");
 		expect(body[6]?.name).toBe("repo-6");
+	});
+
+	test("returns fallback review repos for the synthetic installation", async () => {
+		const db = freshMemDb();
+		const { router, service } = makeConnectApp(db, {
+			github: new FakeGitHubClient({ installationRepos: [] }),
+		});
+
+		await service.upsertRepo({
+			userId: "user_1",
+			owner: "acme",
+			name: "api",
+			installationId: "inst_orphan",
+			defaultBranch: "trunk",
+		});
+
+		const res = await router.request("/installations/__review_repos/repos");
+		expect(res.status).toBe(200);
+
+		const body = (await res.json()) as Array<{
+			repo_id: string | null;
+			owner: string;
+			name: string;
+			enabled: boolean;
+			default_branch: string;
+		}>;
+		expect(body).toHaveLength(1);
+		expect(body[0]).toMatchObject({
+			owner: "acme",
+			name: "api",
+			enabled: true,
+			default_branch: "trunk",
+		});
+		expect(typeof body[0]?.repo_id).toBe("string");
 	});
 
 	test("returns 404 for installation not owned by user", async () => {

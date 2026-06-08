@@ -4,18 +4,19 @@
  * Pure, injectable, side-effect-free functions for the GitHub App install
  * redirect flow and post-install callback handling.
  *
- *   - buildInstallUrl     — builds the GitHub App installation URL (redirects user)
- *   - buildConnectState   — creates a stateless HMAC-signed CSRF nonce
- *   - verifyConnectState  — verifies and decodes the CSRF nonce
+ *   - buildInstallUrl            — builds the GitHub App installation URL
+ *   - buildUserAuthorizationUrl  — builds the GitHub App OAuth URL
+ *   - buildConnectState          — creates a stateless HMAC-signed CSRF nonce
+ *   - verifyConnectState         — verifies and decodes the CSRF nonce
  *   - handleInstallCallback — orchestrates metadata fetch + upsert + repo reconcile
  *
  * No module-level singletons. All external dependencies are injected.
  * No console.log. Immutability: inputs never mutated; only new objects created.
  */
 import { createHmac, timingSafeEqual as nodeTimingSafeEqual } from "node:crypto";
-import type { GitHubClient } from "./client.ts";
-import type { ReviewService } from "../service.ts";
 import type { Installation } from "../../db/schema.ts";
+import type { ReviewService } from "../service.ts";
+import type { GitHubClient } from "./client.ts";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,21 @@ const DEFAULT_STATE_MAX_AGE_MS = 15 * 60 * 1000;
 
 /** Separator between the payload and HMAC signature in the state string. */
 const STATE_SEP = ".";
+const STRUCTURED_STATE_PREFIX = "json";
+
+export interface VerifiedConnectState {
+  readonly userId: string;
+  readonly installationId?: string;
+  readonly setupAction?: string | null;
+}
+
+interface StructuredConnectState {
+  readonly v: 2;
+  readonly userId: string;
+  readonly ts: number;
+  readonly installationId?: string;
+  readonly setupAction?: string | null;
+}
 
 // ── buildInstallUrl ──────────────────────────────────────────────────────────
 
@@ -39,6 +55,29 @@ const STATE_SEP = ".";
 export function buildInstallUrl(args: { slug: string; state: string }): string {
   const params = new URLSearchParams({ state: args.state });
   return `https://github.com/apps/${args.slug}/installations/new?${params.toString()}`;
+}
+
+// ── buildUserAuthorizationUrl ───────────────────────────────────────────────
+
+/**
+ * Build the GitHub App user-authorization URL used after a setup callback
+ * returns only `installation_id` and `state`. The OAuth `code` returned by this
+ * flow lets the callback prove the signed-in GitHub user can access the
+ * claimed installation.
+ */
+export function buildUserAuthorizationUrl(args: {
+  clientId: string;
+  state: string;
+  redirectUri?: string;
+}): string {
+  const params = new URLSearchParams({
+    client_id: args.clientId,
+    state: args.state,
+  });
+  if (args.redirectUri !== undefined) {
+    params.set("redirect_uri", args.redirectUri);
+  }
+  return `https://github.com/login/oauth/authorize?${params.toString()}`;
 }
 
 // ── buildConnectState ────────────────────────────────────────────────────────
@@ -64,7 +103,29 @@ export function buildConnectState(args: {
   userId: string;
   now: number;
   secret: string;
+  installationId?: string;
+  setupAction?: string | null;
 }): string {
+  if (args.installationId !== undefined || args.setupAction !== undefined) {
+    const structured: StructuredConnectState = {
+      v: 2,
+      userId: args.userId,
+      ts: args.now,
+      ...(args.installationId !== undefined
+        ? { installationId: args.installationId }
+        : {}),
+      ...(args.setupAction !== undefined ? { setupAction: args.setupAction } : {}),
+    };
+    const payload = Buffer.from(JSON.stringify(structured), "utf8").toString(
+      "base64url",
+    );
+    const signedPayload = `${STRUCTURED_STATE_PREFIX}${STATE_SEP}${payload}`;
+    const sig = computeHmac(args.secret, signedPayload);
+    return Buffer.from(`${signedPayload}${STATE_SEP}${sig}`, "utf8").toString(
+      "base64url",
+    );
+  }
+
   const payload = `${args.userId}${STATE_SEP}${args.now}`;
   const sig = computeHmac(args.secret, payload);
   const raw = `${payload}${STATE_SEP}${sig}`;
@@ -92,7 +153,7 @@ export function verifyConnectState(args: {
   secret: string;
   maxAgeMs?: number;
   now?: number;
-}): { userId: string } | null {
+}): VerifiedConnectState | null {
   if (!args.state) return null;
 
   let raw: string;
@@ -100,6 +161,10 @@ export function verifyConnectState(args: {
     raw = Buffer.from(args.state, "base64url").toString("utf8");
   } catch {
     return null;
+  }
+
+  if (raw.startsWith(`${STRUCTURED_STATE_PREFIX}${STATE_SEP}`)) {
+    return verifyStructuredConnectState(args, raw);
   }
 
   // Expected format: "<userId>.<timestampMs>.<hmac-hex>"
@@ -134,6 +199,75 @@ export function verifyConnectState(args: {
   if (now - ts > maxAge) return null;
 
   return { userId };
+}
+
+function verifyStructuredConnectState(
+  args: {
+    state: string;
+    secret: string;
+    maxAgeMs?: number;
+    now?: number;
+  },
+  raw: string,
+): VerifiedConnectState | null {
+  const lastDot = raw.lastIndexOf(STATE_SEP);
+  if (lastDot === -1) return null;
+
+  const signedPayload = raw.slice(0, lastDot);
+  const receivedSig = raw.slice(lastDot + 1);
+  if (!signedPayload || !receivedSig) return null;
+
+  const expectedSig = computeHmac(args.secret, signedPayload);
+  if (!constantTimeEqual(expectedSig, receivedSig)) return null;
+
+  const prefix = `${STRUCTURED_STATE_PREFIX}${STATE_SEP}`;
+  const encodedPayload = signedPayload.slice(prefix.length);
+  if (!encodedPayload) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    );
+  } catch {
+    return null;
+  }
+
+  if (parsed === null || typeof parsed !== "object") return null;
+  const claims = parsed as Partial<StructuredConnectState>;
+  if (claims.v !== 2) return null;
+  if (typeof claims.userId !== "string" || claims.userId.length === 0) {
+    return null;
+  }
+  if (typeof claims.ts !== "number" || !Number.isFinite(claims.ts) || claims.ts <= 0) {
+    return null;
+  }
+
+  const now = args.now ?? Date.now();
+  const maxAge = args.maxAgeMs ?? DEFAULT_STATE_MAX_AGE_MS;
+  if (now - claims.ts > maxAge) return null;
+
+  const result: {
+    userId: string;
+    installationId?: string;
+    setupAction?: string | null;
+  } = { userId: claims.userId };
+  if (
+    typeof claims.installationId === "string" &&
+    claims.installationId.length > 0
+  ) {
+    result.installationId = claims.installationId;
+  }
+  if (claims.setupAction === null) {
+    result.setupAction = null;
+  } else if (
+    typeof claims.setupAction === "string" &&
+    claims.setupAction.length > 0
+  ) {
+    result.setupAction = claims.setupAction;
+  }
+
+  return result;
 }
 
 // ── handleInstallCallback ────────────────────────────────────────────────────

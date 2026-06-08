@@ -205,6 +205,8 @@ const DEFAULT_DATABASE_PATH = "./data/tensol.db";
 /** Default location of migration `.sql` files relative to this module. */
 const DEFAULT_MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
 const MIGRATIONS_TABLE = "__migrations";
+const DISABLE_FOREIGN_KEYS_MIGRATION_MARKER =
+  "tensol:migration-disable-foreign-keys";
 
 /**
  * Conditional-spread helper for `now?: () => number` props.
@@ -313,6 +315,8 @@ export interface CreateAppDeps {
    * endpoints still work (graceful-null pattern mirrors reviewLlm above).
    */
   readonly githubAppSlug?: string;
+  /** 004-sthrip-pr-review — GitHub App OAuth client id. */
+  readonly githubAppClientId?: string;
   /**
    * 004-sthrip-pr-review — authenticated GitHub App client for the connect
    * router. Null when `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` are absent;
@@ -666,6 +670,8 @@ export function createApp(deps: CreateAppDeps): Hono {
       github: githubConnectClientResolved,
       requireAuth: requireAuthForConnect,
       slug: deps.githubAppSlug ?? "",
+      ...maybeProp("oauthClientId", deps.githubAppClientId),
+      callbackUrl: new URL("/v1/github/callback", baseUrl).toString(),
       stateSecret: deps.sessionCookieSecret,
       ...maybeNow(now),
     }),
@@ -710,6 +716,19 @@ function splitMigrationStatements(sql: string): string[] {
     .split(/-->\s*statement-breakpoint\s*/g)
     .map((stmt) => stmt.trim())
     .filter((stmt) => stmt.length > 0);
+}
+
+function migrationDisablesForeignKeys(sql: string): boolean {
+  return sql.includes(DISABLE_FOREIGN_KEYS_MIGRATION_MARKER);
+}
+
+function assertNoForeignKeyViolations(raw: Database, tag: string): void {
+  const violations = raw.query("PRAGMA foreign_key_check").all();
+  if (violations.length > 0) {
+    throw new Error(
+      `migration ${tag}: foreign_key_check failed: ${JSON.stringify(violations)}`,
+    );
+  }
 }
 
 function tableExists(raw: Database, table: string): boolean {
@@ -824,7 +843,12 @@ export function applyMigrationsOnce(
     const tag = file.replace(/\.sql$/, "");
     if (applied.has(tag)) continue;
 
-    const statements = splitMigrationStatements(readFileSync(join(migrationsDir, file), "utf8"));
+    const sql = readFileSync(join(migrationsDir, file), "utf8");
+    const statements = splitMigrationStatements(sql);
+    const foreignKeysDisabled = migrationDisablesForeignKeys(sql);
+    if (foreignKeysDisabled) {
+      raw.exec("PRAGMA foreign_keys = OFF");
+    }
     raw.exec("BEGIN");
     try {
       for (const statement of statements) {
@@ -836,10 +860,17 @@ export function applyMigrationsOnce(
         )
         .run(tag, Date.now());
       raw.exec("COMMIT");
+      if (foreignKeysDisabled) {
+        raw.exec("PRAGMA foreign_keys = ON");
+        assertNoForeignKeyViolations(raw, tag);
+      }
       applied.add(tag);
       appliedCount += 1;
     } catch (error) {
       raw.exec("ROLLBACK");
+      if (foreignKeysDisabled) {
+        raw.exec("PRAGMA foreign_keys = ON");
+      }
       throw error;
     }
   }
@@ -1457,9 +1488,12 @@ export async function main(): Promise<{
     // 004-sthrip-pr-review — GitHub App connect surface.
     // `githubAppSlug` is the App's URL slug (GITHUB_APP_SLUG); empty string
     // degrades GET /v1/github/connect to 503 without halting boot.
+    // `githubAppClientId` lets setup callbacks complete the GitHub App OAuth
+    // authorization step when GitHub returns without an OAuth code.
     // `githubConnectClient` re-uses the same HttpGitHubClient already built
     // for the PR-review job handler — null when App credentials are absent.
     githubAppSlug: config.GITHUB_APP_SLUG,
+    githubAppClientId: config.GITHUB_APP_CLIENT_ID,
     ...(githubReviewClient !== null ? { githubConnectClient: githubReviewClient } : {}),
     ...maybeProp("clerkAuth", clerkAuth ?? undefined),
     preserveFailedScanVm: config.TENSOL_DIAGNOSTIC_PRESERVE_FAILED_VM,

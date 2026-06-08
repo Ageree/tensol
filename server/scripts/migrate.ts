@@ -25,10 +25,11 @@
  */
 
 import { Database } from "bun:sqlite";
-import { readdirSync, readFileSync, statSync, mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 const MIGRATIONS_TABLE = "__migrations";
+const DISABLE_FOREIGN_KEYS_MARKER = "tensol:migration-disable-foreign-keys";
 
 function resolveDbPath(): string {
   const raw = process.env.TENSOL_DB_URL ?? "file:./data/tensol.db";
@@ -87,6 +88,19 @@ function splitStatements(sql: string): string[] {
     .filter((stmt) => stmt.length > 0);
 }
 
+function disablesForeignKeys(sql: string): boolean {
+  return sql.includes(DISABLE_FOREIGN_KEYS_MARKER);
+}
+
+function assertNoForeignKeyViolations(db: Database, tag: string): void {
+  const violations = db.query("PRAGMA foreign_key_check").all();
+  if (violations.length > 0) {
+    throw new Error(
+      `[migrate] ${tag}: foreign_key_check failed after migration: ${JSON.stringify(violations)}`,
+    );
+  }
+}
+
 function main(): void {
   const dbPath = resolveDbPath();
   const migrationsDir = resolveMigrationsDir();
@@ -133,9 +147,13 @@ function main(): void {
     const filePath = join(migrationsDir, file);
     const sql = readFileSync(filePath, "utf8");
     const statements = splitStatements(sql);
+    const foreignKeysDisabled = disablesForeignKeys(sql);
 
     console.log(`[migrate] apply ${tag} (${statements.length} statements)`);
 
+    if (foreignKeysDisabled) {
+      db.exec("PRAGMA foreign_keys = OFF");
+    }
     db.exec("BEGIN");
     try {
       for (const stmt of statements) {
@@ -146,9 +164,16 @@ function main(): void {
         [tag, Date.now()],
       );
       db.exec("COMMIT");
+      if (foreignKeysDisabled) {
+        db.exec("PRAGMA foreign_keys = ON");
+        assertNoForeignKeyViolations(db, tag);
+      }
       appliedCount += 1;
     } catch (err) {
       db.exec("ROLLBACK");
+      if (foreignKeysDisabled) {
+        db.exec("PRAGMA foreign_keys = ON");
+      }
       console.error(`[migrate] FAILED on ${tag}:`, err);
       db.close();
       process.exit(1);
