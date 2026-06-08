@@ -10,10 +10,15 @@ export default function SignUpPage() {
   const navigate = useNavigate();
   const [search] = useSearchParams();
   const returnTo = normalizeReturnTo(search.get('return_to'));
+  const onBack = () => navigate('/');
+
+  if (isClerkConfigured) {
+    return <ConfiguredSignUpPage onBack={onBack} returnTo={returnTo} />;
+  }
 
   return (
     <AuthShell
-      onBack={() => navigate('/')}
+      onBack={onBack}
       language="en"
       brand="sthrip"
       eyebrow="// SIGN UP"
@@ -21,27 +26,29 @@ export default function SignUpPage() {
       sub="Use Google or GitHub through Clerk to unlock the workspace."
     >
       <RouteHead title="Sign Up — Sthrip" />
-      {isClerkConfigured ? (
-        <ClerkSignUp returnTo={returnTo} />
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Mono size={12} color="var(--red)">
-            auth_not_configured
-          </Mono>
-          <Mono size={12} color="var(--fg-2)">
-            Set VITE_CLERK_PUBLISHABLE_KEY for local development.
-          </Mono>
-        </div>
-      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <Mono size={12} color="var(--red)">
+          auth_not_configured
+        </Mono>
+        <Mono size={12} color="var(--fg-2)">
+          Set VITE_CLERK_PUBLISHABLE_KEY for local development.
+        </Mono>
+      </div>
     </AuthShell>
   );
 }
 
-function ClerkSignUp({ returnTo }: { readonly returnTo: string }) {
+function ConfiguredSignUpPage({
+  onBack,
+  returnTo,
+}: {
+  readonly onBack: () => void;
+  readonly returnTo: string;
+}) {
   const { isLoaded, isSignedIn } = useAuth();
 
   if (!isLoaded) {
-    return <Mono size={12}>loading auth</Mono>;
+    return <AuthLoading title="Sign Up — Sthrip" />;
   }
 
   if (isSignedIn) {
@@ -49,14 +56,33 @@ function ClerkSignUp({ returnTo }: { readonly returnTo: string }) {
   }
 
   return (
-    <div className="auth-clerk-frame">
-      <SignUp
-        routing="path"
-        path="/signup"
-        signInUrl="/login"
-        forceRedirectUrl={returnTo}
-        fallback={<Mono size={12}>loading auth</Mono>}
-      />
-    </div>
+    <AuthShell
+      onBack={onBack}
+      language="en"
+      brand="sthrip"
+      eyebrow="// SIGN UP"
+      title="Create your Sthrip account."
+      sub="Use Google or GitHub through Clerk to unlock the workspace."
+    >
+      <RouteHead title="Sign Up — Sthrip" />
+      <div className="auth-clerk-frame">
+        <SignUp
+          routing="path"
+          path="/signup"
+          signInUrl="/login"
+          forceRedirectUrl={returnTo}
+          fallback={<Mono size={12}>loading auth</Mono>}
+        />
+      </div>
+    </AuthShell>
+  );
+}
+
+function AuthLoading({ title }: { readonly title: string }) {
+  return (
+    <main className="auth-route-loading">
+      <RouteHead title={title} />
+      <Mono size={12}>loading auth</Mono>
+    </main>
   );
 }

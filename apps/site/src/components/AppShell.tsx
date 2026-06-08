@@ -77,6 +77,9 @@ const APP_SHELL_RESPONSIVE_CSS = `
 @media (max-width: 760px) {
   .app-shell--hacktron-light {
     grid-template-columns: minmax(0, 1fr) !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
   }
 
   .app-shell--hacktron-light .app-shell-sidebar {
@@ -87,10 +90,22 @@ const APP_SHELL_RESPONSIVE_CSS = `
     min-height: 64px !important;
     flex-direction: row !important;
     align-items: center !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
     overflow-x: auto !important;
     overflow-y: hidden !important;
     border-right: 0 !important;
     border-bottom: 1px solid var(--line-soft, var(--fg)) !important;
+    overscroll-behavior-x: contain !important;
+  }
+
+  .app-shell--hacktron-light .app-shell-content,
+  .app-shell--hacktron-light .app-shell-main {
+    width: 100% !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    overflow-x: hidden !important;
   }
 
   .app-shell--hacktron-light .app-shell-brandbar {

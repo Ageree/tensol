@@ -101,6 +101,10 @@ interface SlaCardData {
 const DASHBOARD_CSS = `
 .hacktron-dashboard {
   min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
   padding: 30px 32px 48px;
   background: #f5f5f4;
   color: #202020;
@@ -165,7 +169,9 @@ const DASHBOARD_CSS = `
 .hack-top-actions {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 18px;
+  min-width: 0;
 }
 
 .hack-icon-button {
@@ -232,6 +238,8 @@ const DASHBOARD_CSS = `
   align-items: center;
   justify-content: center;
   gap: 9px;
+  max-width: 100%;
+  min-width: 0;
   min-height: 46px;
   padding: 0 18px;
   border: 1px solid var(--h-line);
@@ -320,6 +328,7 @@ const DASHBOARD_CSS = `
 .chart-legend {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 24px;
   color: var(--h-text);
   font-family: var(--font-sans);
@@ -518,6 +527,7 @@ const DASHBOARD_CSS = `
 
 .activity-table-wrap {
   width: 100%;
+  max-width: 100%;
   overflow-x: auto;
 }
 
@@ -635,9 +645,33 @@ const DASHBOARD_CSS = `
     width: 100%;
   }
 
+  .hack-top-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+  }
+
+  .hack-top-actions .hack-button {
+    padding: 0 8px;
+    font-size: 14px;
+  }
+
+  .hack-top-actions .hack-icon-button {
+    width: 44px;
+    justify-self: start;
+  }
+
   .hack-tabs {
     display: grid;
     grid-template-columns: 1fr 1fr;
+  }
+
+  .hack-tab {
+    min-width: 0;
+    padding: 0 10px;
+    font-size: 14px;
+    white-space: normal;
   }
 
   .metrics-grid,
@@ -654,6 +688,70 @@ const DASHBOARD_CSS = `
   .chart-panel,
   .sla-card {
     padding: 22px;
+  }
+
+  .chart-frame {
+    height: 190px;
+  }
+
+  .activity-panel {
+    overflow: hidden;
+  }
+
+  .activity-table-wrap {
+    overflow-x: hidden;
+  }
+
+  .activity-table {
+    min-width: 0;
+    font-size: 14px;
+  }
+
+  .activity-table,
+  .activity-table thead,
+  .activity-table tbody,
+  .activity-table tr,
+  .activity-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .activity-table thead {
+    display: none;
+  }
+
+  .activity-table tr {
+    padding: 12px 0;
+    border-top: 1px solid var(--h-line);
+  }
+
+  .activity-table td {
+    height: auto;
+    min-height: 32px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 6px 16px;
+    border-top: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: right;
+  }
+
+  .activity-table td::before {
+    content: attr(data-label);
+    flex: 0 0 92px;
+    color: var(--h-faint);
+    font-size: 11px;
+    font-weight: 600;
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  .service-cell,
+  .status-pill {
+    justify-content: flex-end;
   }
 }
 `;
@@ -1275,7 +1373,7 @@ function ActivityTable({
 							const Icon = meta.icon;
 							return (
 								<tr data-slot="table-row" key={operation.id}>
-									<td data-slot="table-cell">
+									<td data-slot="table-cell" data-label="Service">
 										<span
 											className="service-cell"
 											style={{ "--service-color": meta.color } as CSSProperties}
@@ -1289,9 +1387,13 @@ function ActivityTable({
 											{meta.label}
 										</span>
 									</td>
-									<td data-slot="table-cell">{operation.target}</td>
-									<td data-slot="table-cell">{operation.type}</td>
-									<td data-slot="table-cell">
+									<td data-slot="table-cell" data-label="Target">
+										{operation.target}
+									</td>
+									<td data-slot="table-cell" data-label="Type">
+										{operation.type}
+									</td>
+									<td data-slot="table-cell" data-label="Status">
 										<span
 											data-slot="badge"
 											className="status-pill"
@@ -1305,13 +1407,15 @@ function ActivityTable({
 											{operation.statusLabel}
 										</span>
 									</td>
-									<td data-slot="table-cell">{operation.findingsLabel}</td>
-									<td data-slot="table-cell">
+									<td data-slot="table-cell" data-label="Findings">
+										{operation.findingsLabel}
+									</td>
+									<td data-slot="table-cell" data-label="Last run">
 										{operation.lastRunMs == null
 											? "-"
 											: formatRelativeTime(operation.lastRunMs, nowMs)}
 									</td>
-									<td data-slot="table-cell">
+									<td data-slot="table-cell" data-label="Action">
 										<Link className="row-action" to={operation.href}>
 											{operation.actionLabel}
 										</Link>

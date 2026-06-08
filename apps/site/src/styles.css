@@ -2845,6 +2845,15 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   color: var(--ink) !important;
 }
 
+.auth-route-loading {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+}
+
 .contact-theme-aside {
   background: var(--paper);
   color: var(--ink);

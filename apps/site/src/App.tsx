@@ -1,8 +1,10 @@
+import { useAuth } from '@clerk/react';
 import { Suspense, lazy, type ComponentType } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Placeholder } from './components/Placeholder.tsx';
 import { ProtectedRoute } from './components/ProtectedRoute.tsx';
 import { TensolProvider } from './context.tsx';
+import { isClerkConfigured, isE2EAuthBypass } from './lib/clerk.ts';
 import { MarketingPage } from './pages/Marketing.tsx';
 import type { ScanWizardContainerProps } from './pages/scan-wizard/ScanWizardContainer.tsx';
 
@@ -79,12 +81,35 @@ function safeImport<T extends { default: React.ComponentType<unknown> }>(
   }) as Promise<T>;
 }
 
-const MarketingRoute = () => {
+const MarketingRoute = () =>
+  isClerkConfigured && !isE2EAuthBypass ? (
+    <MarketingRouteWithAuth />
+  ) : (
+    <MarketingRoutePublic />
+  );
+
+const MarketingRoutePublic = () => {
   const navigate = useNavigate();
   return (
     <MarketingPage
       onSignIn={() => navigate('/login')}
       onSignUp={() => navigate('/signup')}
+      onDemo={() => navigate('/contact')}
+    />
+  );
+};
+
+const MarketingRouteWithAuth = () => {
+  const navigate = useNavigate();
+  const { isLoaded, isSignedIn } = useAuth();
+
+  const authTarget = (fallback: '/login' | '/signup') =>
+    isLoaded && isSignedIn ? '/dashboard' : fallback;
+
+  return (
+    <MarketingPage
+      onSignIn={() => navigate(authTarget('/login'))}
+      onSignUp={() => navigate(authTarget('/signup'))}
       onDemo={() => navigate('/contact')}
     />
   );

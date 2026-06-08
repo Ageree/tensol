@@ -171,10 +171,11 @@ log "5/9  Build apps/site (static SPA) -> $SITE_DIST"
 # -------------------------------------------------------------
 mkdir -p "$SITE_DIST" "$DEPLOY_DIR/data" "$DEPLOY_DIR/chrome-cache"
 docker run --rm \
+    --user root \
     -v "$REPO_DIR:/repo" \
     -w /repo \
     oven/bun:1.3.11-alpine \
-    sh -c "bun install --frozen-lockfile && cd apps/site && bun run build"
+    sh -c "apk add --no-cache python3 make g++ && bun install --frozen-lockfile && cd apps/site && bun run build"
 rsync -a --delete "$REPO_DIR/apps/site/dist/" "$SITE_DIST/"
 
 # -------------------------------------------------------------
