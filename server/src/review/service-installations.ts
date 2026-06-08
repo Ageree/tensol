@@ -36,6 +36,10 @@ export interface UpsertInstallationArgs {
   readonly repositorySelection: "all" | "selected";
   readonly status?: "active" | "suspended" | "deleted";
   readonly setupAction?: string | null;
+  readonly ownerVerification?: {
+    readonly provider: "github_oauth_user_installations";
+    readonly installationIds: readonly string[];
+  };
 }
 
 export interface UpdateRepoSettingsArgs {
@@ -135,8 +139,18 @@ export function createInstallationMethods(
         .get();
 
       if (existing) {
+        // Rebinding is allowed only with GitHub's OAuth user-installation proof.
+        const hasOwnerRebindProof =
+          args.ownerVerification?.provider === "github_oauth_user_installations" &&
+          args.ownerVerification.installationIds.includes(args.installationId);
+
+        if (existing.userId !== args.userId && !hasOwnerRebindProof) {
+          return existing as Installation;
+        }
+
         db.update(installationsTable)
           .set({
+            ...(hasOwnerRebindProof ? { userId: args.userId } : {}),
             accountLogin: args.accountLogin,
             accountType: args.accountType,
             repositorySelection: args.repositorySelection,
