@@ -465,7 +465,37 @@ describe("installations service (T005/T006)", () => {
 	// ---------------------------------------------------------------------------
 	// Cross-tenant: installation belongs to exactly one userId
 	// ---------------------------------------------------------------------------
-	test("installation is uniquely owned and rebinds to the verified user", async () => {
+	test("installation owner is immutable without explicit verification", async () => {
+		const svc = makeSvc(db);
+		const original = await svc.upsertInstallation({
+			userId: "user_1",
+			scm: "github",
+			installationId: "inst_111",
+			accountLogin: "acme-org",
+			accountType: "Organization",
+			repositorySelection: "all",
+		});
+
+		const unchanged = await svc.upsertInstallation({
+			userId: "user_2",
+			scm: "github",
+			installationId: "inst_111", // same external id
+			accountLogin: "acme-org",
+			accountType: "Organization",
+			repositorySelection: "all",
+			setupAction: "update",
+		});
+
+		const rows = db.select().from(installationsTable).all();
+		expect(rows.length).toBe(1);
+		expect(unchanged.id).toBe(original.id);
+		expect(rows[0]?.userId).toBe("user_1");
+		expect(rows[0]?.setupAction).toBeNull();
+		expect(await svc.getInstallationsForUser("user_1")).toHaveLength(1);
+		expect(await svc.getInstallationsForUser("user_2")).toHaveLength(0);
+	});
+
+	test("installation can rebind after explicit owner verification", async () => {
 		const svc = makeSvc(db);
 		const original = await svc.upsertInstallation({
 			userId: "user_1",
@@ -479,11 +509,15 @@ describe("installations service (T005/T006)", () => {
 		const rebound = await svc.upsertInstallation({
 			userId: "user_2",
 			scm: "github",
-			installationId: "inst_111", // same external id
+			installationId: "inst_111",
 			accountLogin: "acme-org",
 			accountType: "Organization",
 			repositorySelection: "all",
 			setupAction: "update",
+			ownerVerification: {
+				provider: "github_oauth_user_installations",
+				installationIds: ["inst_111"],
+			},
 		});
 
 		const rows = db.select().from(installationsTable).all();

@@ -345,6 +345,10 @@ export function createGithubConnectRouter(
 			installationId,
 			setupAction,
 			userId,
+			ownerVerification: {
+				provider: "github_oauth_user_installations",
+				installationIds: userInstallationIds,
+			},
 			github,
 			service,
 			...(deps.now !== undefined ? { now: deps.now } : {}),

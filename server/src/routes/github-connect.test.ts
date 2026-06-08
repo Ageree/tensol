@@ -400,6 +400,39 @@ describe("GET /callback — installation callback", () => {
 		expect(installation?.userId).toBe("user_2");
 	});
 
+	test("verified OAuth callback rebinds a stale local installation row", async () => {
+		const db = freshMemDb("user_1");
+		(db.$client as Database)
+			.query("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)")
+			.run("user_2", "user_2@x.io", clockNow);
+
+		const { router, service } = makeConnectApp(db, { userId: "user_1" });
+		await service.upsertInstallation({
+			userId: "user_1",
+			scm: "github",
+			installationId: "inst_42",
+			accountLogin: "acme",
+			accountType: "Organization",
+			repositorySelection: "all",
+		});
+
+		const state = buildConnectState({
+			userId: "user_2",
+			now: clockNow,
+			secret: STATE_SECRET,
+		});
+		const res = await router.request(
+			`/callback?installation_id=inst_42&setup_action=update&code=${OWNED_CODE}&state=${encodeURIComponent(state)}`,
+		);
+		expect(res.status).toBe(302);
+
+		expect(await service.getInstallationsForUser("user_1")).toHaveLength(0);
+		const rebound = await service.getInstallationsForUser("user_2");
+		expect(rebound).toHaveLength(1);
+		expect(rebound[0]?.installationId).toBe("inst_42");
+		expect(rebound[0]?.setupAction).toBe("update");
+	});
+
 	test("returns 403 when OAuth user cannot access claimed installation", async () => {
 		const db = freshMemDb();
 		const github = new FakeGitHubClient({

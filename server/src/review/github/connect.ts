@@ -289,6 +289,7 @@ function verifyStructuredConnectState(
  * @param args.installationId GitHub's installation id (from the callback query param).
  * @param args.setupAction    The `setup_action` query param ("install", "update", etc.).
  * @param args.userId         The authenticated user who triggered the install.
+ * @param args.ownerVerification GitHub OAuth proof that user controls the installation.
  * @param args.github         The GitHub client (real or Fake for tests).
  * @param args.service        The review service (real or Fake for tests).
  * @param args.now            Clock function (injectable for tests).
@@ -298,6 +299,10 @@ export async function handleInstallCallback(args: {
   installationId: string;
   setupAction: string | null;
   userId: string;
+  ownerVerification?: {
+    readonly provider: "github_oauth_user_installations";
+    readonly installationIds: readonly string[];
+  };
   github: GitHubClient;
   service: ReviewService;
   now?: () => number;
@@ -317,6 +322,9 @@ export async function handleInstallCallback(args: {
     repositorySelection: meta.repositorySelection,
     status: "active",
     ...(setupAction !== null ? { setupAction } : {}),
+    ...(args.ownerVerification !== undefined
+      ? { ownerVerification: args.ownerVerification }
+      : {}),
   });
 
   // 3. List repos accessible to this installation.
