@@ -22,6 +22,7 @@ import { createReviewService } from "../service.ts";
 import { FakeGitHubClient } from "./client.ts";
 import {
   buildInstallUrl,
+  buildUserAuthorizationUrl,
   buildConnectState,
   verifyConnectState,
   handleInstallCallback,
@@ -82,6 +83,27 @@ describe("buildInstallUrl", () => {
   });
 });
 
+describe("buildUserAuthorizationUrl", () => {
+  test("returns the GitHub App OAuth URL with state and redirect_uri", () => {
+    const url = new URL(
+      buildUserAuthorizationUrl({
+        clientId: "Iv1.client",
+        state: "state-123",
+        redirectUri: "https://api.sthrip.dev/v1/github/callback",
+      }),
+    );
+
+    expect(url.origin + url.pathname).toBe(
+      "https://github.com/login/oauth/authorize",
+    );
+    expect(url.searchParams.get("client_id")).toBe("Iv1.client");
+    expect(url.searchParams.get("state")).toBe("state-123");
+    expect(url.searchParams.get("redirect_uri")).toBe(
+      "https://api.sthrip.dev/v1/github/callback",
+    );
+  });
+});
+
 // ── buildConnectState / verifyConnectState ────────────────────────────────────
 
 describe("buildConnectState / verifyConnectState — round-trip", () => {
@@ -91,6 +113,24 @@ describe("buildConnectState / verifyConnectState — round-trip", () => {
     const result = verifyConnectState({ state, secret: SECRET, now });
     expect(result).not.toBeNull();
     expect(result?.userId).toBe("user-1");
+  });
+
+  test("round-trips setup callback context in structured state", () => {
+    const now = 1_700_000_000_000;
+    const state = buildConnectState({
+      userId: "user-1",
+      installationId: "123456",
+      setupAction: "install",
+      now,
+      secret: SECRET,
+    });
+    const result = verifyConnectState({ state, secret: SECRET, now });
+
+    expect(result).toEqual({
+      userId: "user-1",
+      installationId: "123456",
+      setupAction: "install",
+    });
   });
 
   test("state is base64url (no + or / or =)", () => {

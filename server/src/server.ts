@@ -313,6 +313,8 @@ export interface CreateAppDeps {
    * endpoints still work (graceful-null pattern mirrors reviewLlm above).
    */
   readonly githubAppSlug?: string;
+  /** 004-sthrip-pr-review — GitHub App OAuth client id. */
+  readonly githubAppClientId?: string;
   /**
    * 004-sthrip-pr-review — authenticated GitHub App client for the connect
    * router. Null when `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` are absent;
@@ -666,6 +668,8 @@ export function createApp(deps: CreateAppDeps): Hono {
       github: githubConnectClientResolved,
       requireAuth: requireAuthForConnect,
       slug: deps.githubAppSlug ?? "",
+      ...maybeProp("oauthClientId", deps.githubAppClientId),
+      callbackUrl: new URL("/v1/github/callback", baseUrl).toString(),
       stateSecret: deps.sessionCookieSecret,
       ...maybeNow(now),
     }),
@@ -1457,9 +1461,12 @@ export async function main(): Promise<{
     // 004-sthrip-pr-review — GitHub App connect surface.
     // `githubAppSlug` is the App's URL slug (GITHUB_APP_SLUG); empty string
     // degrades GET /v1/github/connect to 503 without halting boot.
+    // `githubAppClientId` lets setup callbacks complete the GitHub App OAuth
+    // authorization step when GitHub returns without an OAuth code.
     // `githubConnectClient` re-uses the same HttpGitHubClient already built
     // for the PR-review job handler — null when App credentials are absent.
     githubAppSlug: config.GITHUB_APP_SLUG,
+    githubAppClientId: config.GITHUB_APP_CLIENT_ID,
     ...(githubReviewClient !== null ? { githubConnectClient: githubReviewClient } : {}),
     ...maybeProp("clerkAuth", clerkAuth ?? undefined),
     preserveFailedScanVm: config.TENSOL_DIAGNOSTIC_PRESERVE_FAILED_VM,

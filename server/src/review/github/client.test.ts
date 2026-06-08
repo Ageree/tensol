@@ -123,13 +123,18 @@ describe("FakeGitHubClient", () => {
     const c = new FakeGitHubClient({
       userInstallationIds: { code_owned: ["123", "456"] },
     });
-    await expect(c.listUserInstallationIds({ code: "code_owned" })).resolves.toEqual([
-      "123",
-      "456",
-    ]);
+    await expect(
+      c.listUserInstallationIds({
+        code: "code_owned",
+        redirectUri: "https://api.sthrip.dev/v1/github/callback",
+      }),
+    ).resolves.toEqual(["123", "456"]);
     await expect(c.listUserInstallationIds({ code: "unknown" })).resolves.toEqual([]);
     expect(c.listUserInstallationIdsCalls).toEqual([
-      { code: "code_owned" },
+      {
+        code: "code_owned",
+        redirectUri: "https://api.sthrip.dev/v1/github/callback",
+      },
       { code: "unknown" },
     ]);
   });
@@ -501,7 +506,10 @@ describe("createHttpGitHubClient — listUserInstallationIds", () => {
       clientSecret: "secret",
     });
 
-    const ids = await c.listUserInstallationIds({ code: "oauth-code" });
+    const ids = await c.listUserInstallationIds({
+      code: "oauth-code",
+      redirectUri: "https://api.sthrip.dev/v1/github/callback",
+    });
 
     expect(ids).toHaveLength(101);
     expect(ids[0]).toBe("1");
@@ -516,6 +524,7 @@ describe("createHttpGitHubClient — listUserInstallationIds", () => {
       client_id: "Iv1.client",
       client_secret: "secret",
       code: "oauth-code",
+      redirect_uri: "https://api.sthrip.dev/v1/github/callback",
     });
 
     const installationCalls = calls.filter((call) => call.url.includes("/user/installations"));

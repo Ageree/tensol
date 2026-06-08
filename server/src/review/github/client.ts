@@ -136,7 +136,7 @@ export interface GitHubClient {
    * account — a cross-tenant installation takeover + private-repo leak. Requires
    * the App's OAuth client_id + client_secret; throws when they are absent.
    */
-  listUserInstallationIds(a: { code: string }): Promise<string[]>;
+  listUserInstallationIds(a: { code: string; redirectUri?: string }): Promise<string[]>;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -303,9 +303,9 @@ export class FakeGitHubClient implements GitHubClient {
     return Promise.resolve({ ...this.pullRequestInfo });
   }
 
-  readonly listUserInstallationIdsCalls: Array<{ code: string }> = [];
+  readonly listUserInstallationIdsCalls: Array<{ code: string; redirectUri?: string }> = [];
 
-  listUserInstallationIds(a: { code: string }): Promise<string[]> {
+  listUserInstallationIds(a: { code: string; redirectUri?: string }): Promise<string[]> {
     this.listUserInstallationIdsCalls.push({ ...a });
     const hit = Object.prototype.hasOwnProperty.call(this.userInstallationIds, a.code);
     return Promise.resolve(hit ? [...(this.userInstallationIds[a.code] as string[])] : []);
@@ -626,6 +626,7 @@ export function createHttpGitHubClient(a: {
           client_id: a.clientId,
           client_secret: a.clientSecret,
           code: args.code,
+          ...(args.redirectUri !== undefined ? { redirect_uri: args.redirectUri } : {}),
         }),
       });
       if (!tokenRes.ok) {
