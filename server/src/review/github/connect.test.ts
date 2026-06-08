@@ -203,6 +203,23 @@ describe("buildConnectState / verifyConnectState — round-trip", () => {
     expect(verifyConnectState({ state: s2, secret: SECRET, now })?.userId).toBe("user-B");
   });
 
+  test("round-trips installation context for the setup-to-OAuth handoff", () => {
+    const now = 1_700_000_000_000;
+    const state = buildConnectState({
+      userId: "user-1",
+      installationId: "inst-42",
+      setupAction: "install",
+      now,
+      secret: SECRET,
+    });
+    const result = verifyConnectState({ state, secret: SECRET, now });
+    expect(result).toEqual({
+      userId: "user-1",
+      installationId: "inst-42",
+      setupAction: "install",
+    });
+  });
+
   test("rejects malformed state (not valid base64url)", () => {
     const result = verifyConnectState({
       state: "not-valid-state-at-all",

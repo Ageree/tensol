@@ -81,6 +81,17 @@ function loadMigration(file: string): string {
   );
 }
 
+function applyForeignKeyRebuildMigration(d: Database, file: string): void {
+  d.exec("PRAGMA foreign_keys = OFF;");
+  try {
+    d.exec(loadMigration(file));
+  } finally {
+    d.exec("PRAGMA foreign_keys = ON;");
+  }
+  const violations = d.prepare("PRAGMA foreign_key_check").all();
+  expect(violations).toEqual([]);
+}
+
 beforeAll(() => {
   db = new Database(":memory:");
   db.exec(loadMigration("0000_init.sql"));
@@ -271,9 +282,16 @@ describe("column shape", () => {
     expect(info.find((c) => c.name === "id")?.pk).toBe(1);
     expect(info.find((c) => c.name === "status")?.dflt_value).toBe("'draft'");
     expect(info.find((c) => c.name === "safety_rps")?.dflt_value).toBe("50");
+    expect(info.find((c) => c.name === "vps_provider")?.dflt_value).toBe(
+      "'gcp'",
+    );
     expect(info.find((c) => c.name === "attack_surface_json")?.dflt_value).toBe(
       "'[]'",
     );
+    const schemaSql = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='scan_orders'")
+      .get() as { sql: string };
+    expect(schemaSql.sql).toContain("CHECK (`vps_provider` IN ('gcp'))");
   });
 
   test("scans rebuilt with scan_order_id (no target_id)", () => {
@@ -922,5 +940,96 @@ describe("migration 0011_webhook_dedup", () => {
       stmt.run("d_4", "other_kind", "order_abc", now, null),
     ).not.toThrow();
     d.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Migration 0016 — repair stale yandex scan_orders provider constraint
+// ---------------------------------------------------------------------------
+
+describe("migration 0016_scan_orders_gcp_provider", () => {
+  test("rewrites stale yandex CHECK/default to gcp without deleting child scans", () => {
+    const d = new Database(":memory:");
+    d.exec(loadMigration("0000_init.sql"));
+    const legacy0010 = loadMigration("0010_blackbox_mvp.sql")
+      .replace("`vps_provider` text DEFAULT 'gcp' NOT NULL", "`vps_provider` text DEFAULT 'yandex' NOT NULL")
+      .replace("CHECK (`vps_provider` IN ('gcp'))", "CHECK (`vps_provider` IN ('yandex'))");
+    d.exec(legacy0010);
+    d.exec("PRAGMA foreign_keys = ON;");
+
+    d.exec(`
+      INSERT INTO users (id, email, created_at, free_quick_consumed_count)
+      VALUES ('01H00000000000000000000000', 'owner@example.test', 1700000000000, 0);
+
+      INSERT INTO scan_orders (
+        id, user_id, status, tier, primary_domain, attack_surface_json,
+        safety_rps, dns_verify_token, dns_check_attempts, vps_provider,
+        payment_kind, created_at, updated_at
+      )
+      VALUES (
+        '01H00000000000000000000001', '01H00000000000000000000000',
+        'vm_provisioning', 'quick', 'example.com', '[]', 50,
+        'sthrip-token', 0, 'yandex', 'free_quick', 1700000000001,
+        1700000000002
+      );
+
+      INSERT INTO scans (
+        id, user_id, scan_order_id, profile, status, started_at
+      )
+      VALUES (
+        '01H00000000000000000000002', '01H00000000000000000000000',
+        '01H00000000000000000000001', 'recon', 'queued',
+        1700000000003
+      );
+    `);
+
+    applyForeignKeyRebuildMigration(d, "0016_scan_orders_gcp_provider.sql");
+
+    const tableSql = d
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='scan_orders'")
+      .get() as { sql: string };
+    expect(tableSql.sql).toContain("`vps_provider` text DEFAULT 'gcp' NOT NULL");
+    expect(tableSql.sql).toContain("CHECK (`vps_provider` IN ('gcp'))");
+
+    const migratedOrder = d
+      .prepare("SELECT vps_provider FROM scan_orders WHERE id = ?")
+      .get("01H00000000000000000000001") as { vps_provider: string };
+    expect(migratedOrder.vps_provider).toBe("gcp");
+
+    const childScan = d
+      .prepare("SELECT scan_order_id FROM scans WHERE id = ?")
+      .get("01H00000000000000000000002") as { scan_order_id: string };
+    expect(childScan.scan_order_id).toBe("01H00000000000000000000001");
+
+    d.exec(`
+      INSERT INTO scan_orders (
+        id, user_id, tier, primary_domain, dns_verify_token, created_at, updated_at
+      )
+      VALUES (
+        '01H00000000000000000000003', '01H00000000000000000000000',
+        'quick', 'new.example', 'sthrip-token-2', 1700000000004,
+        1700000000005
+      );
+    `);
+    const defaultOrder = d
+      .prepare("SELECT vps_provider FROM scan_orders WHERE id = ?")
+      .get("01H00000000000000000000003") as { vps_provider: string };
+    expect(defaultOrder.vps_provider).toBe("gcp");
+
+    const badProviderInsert = d.prepare(`
+      INSERT INTO scan_orders (
+        id, user_id, tier, primary_domain, dns_verify_token, vps_provider,
+        created_at, updated_at
+      )
+      VALUES (?, ?, 'quick', 'bad.example', 'sthrip-token-3', 'yandex', ?, ?)
+    `);
+    expect(() =>
+      badProviderInsert.run(
+        "01H00000000000000000000004",
+        "01H00000000000000000000000",
+        1700000000006,
+        1700000000007,
+      ),
+    ).toThrow(/CHECK constraint failed/);
   });
 });

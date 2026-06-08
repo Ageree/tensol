@@ -205,6 +205,8 @@ const DEFAULT_DATABASE_PATH = "./data/tensol.db";
 /** Default location of migration `.sql` files relative to this module. */
 const DEFAULT_MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
 const MIGRATIONS_TABLE = "__migrations";
+const DISABLE_FOREIGN_KEYS_MIGRATION_MARKER =
+  "tensol:migration-disable-foreign-keys";
 
 /**
  * Conditional-spread helper for `now?: () => number` props.
@@ -716,6 +718,19 @@ function splitMigrationStatements(sql: string): string[] {
     .filter((stmt) => stmt.length > 0);
 }
 
+function migrationDisablesForeignKeys(sql: string): boolean {
+  return sql.includes(DISABLE_FOREIGN_KEYS_MIGRATION_MARKER);
+}
+
+function assertNoForeignKeyViolations(raw: Database, tag: string): void {
+  const violations = raw.query("PRAGMA foreign_key_check").all();
+  if (violations.length > 0) {
+    throw new Error(
+      `migration ${tag}: foreign_key_check failed: ${JSON.stringify(violations)}`,
+    );
+  }
+}
+
 function tableExists(raw: Database, table: string): boolean {
   return Boolean(
     raw
@@ -828,7 +843,12 @@ export function applyMigrationsOnce(
     const tag = file.replace(/\.sql$/, "");
     if (applied.has(tag)) continue;
 
-    const statements = splitMigrationStatements(readFileSync(join(migrationsDir, file), "utf8"));
+    const sql = readFileSync(join(migrationsDir, file), "utf8");
+    const statements = splitMigrationStatements(sql);
+    const foreignKeysDisabled = migrationDisablesForeignKeys(sql);
+    if (foreignKeysDisabled) {
+      raw.exec("PRAGMA foreign_keys = OFF");
+    }
     raw.exec("BEGIN");
     try {
       for (const statement of statements) {
@@ -840,10 +860,17 @@ export function applyMigrationsOnce(
         )
         .run(tag, Date.now());
       raw.exec("COMMIT");
+      if (foreignKeysDisabled) {
+        raw.exec("PRAGMA foreign_keys = ON");
+        assertNoForeignKeyViolations(raw, tag);
+      }
       applied.add(tag);
       appliedCount += 1;
     } catch (error) {
       raw.exec("ROLLBACK");
+      if (foreignKeysDisabled) {
+        raw.exec("PRAGMA foreign_keys = ON");
+      }
       throw error;
     }
   }

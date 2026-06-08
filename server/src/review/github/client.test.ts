@@ -535,6 +535,35 @@ describe("createHttpGitHubClient — listUserInstallationIds", () => {
     expect(installationCalls[1]?.url).toContain("page=2");
   });
 
+  test("passes redirect_uri when exchanging an OAuth code", async () => {
+    const { impl, calls } = makeFetch((rec) => {
+      if (rec.url === "https://github.com/login/oauth/access_token") {
+        return { json: { access_token: "ghu_user_token", token_type: "bearer" } };
+      }
+      if (rec.url.includes("/user/installations")) {
+        return { json: { installations: [] } };
+      }
+      return { json: {} };
+    });
+    const c = createHttpGitHubClient({
+      appId: "1",
+      privateKeyPem: FAKE_PEM,
+      fetchImpl: impl,
+      tokenProvider,
+      clientId: "Iv1.client",
+      clientSecret: "secret",
+    });
+
+    await c.listUserInstallationIds({
+      code: "oauth-code",
+      redirectUri: "https://api.sthrip.dev/v1/github/callback",
+    });
+
+    expect(calls[0]?.body).toMatchObject({
+      redirect_uri: "https://api.sthrip.dev/v1/github/callback",
+    });
+  });
+
   test("throws when OAuth client credentials are missing", async () => {
     const c = createHttpGitHubClient({
       appId: "1",

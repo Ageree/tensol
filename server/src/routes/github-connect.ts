@@ -88,6 +88,7 @@ const GITHUB_UNCONFIGURED: ErrorEnvelope = {
 };
 const DEFAULT_INSTALLATION_REPOS_LIMIT = 200;
 const MAX_INSTALLATION_REPOS_LIMIT = 500;
+const SYNTHETIC_REVIEW_REPOS_INSTALLATION_ID = "__review_repos";
 
 function parseLimit(raw: string | undefined): number {
 	if (raw === undefined) return DEFAULT_INSTALLATION_REPOS_LIMIT;
@@ -181,6 +182,63 @@ function githubRepoToInstallationRepoWire(repo: {
 		merge_block_on_critical: false,
 		last_review: null,
 	};
+}
+
+function repoMatchesInstallation(
+	repo: ReviewRepo,
+	installation: {
+		readonly id: string;
+		readonly installationId: string;
+	},
+): boolean {
+	return (
+		repo.installationRowId === installation.id ||
+		repo.installationId === installation.installationId
+	);
+}
+
+function fallbackReviewRepos(
+	repos: readonly ReviewRepo[],
+	installations: readonly {
+		readonly id: string;
+		readonly installationId: string;
+	}[],
+): ReviewRepo[] {
+	return repos.filter((repo) => {
+		if (repo.scm !== "github") return false;
+		if (repo.status === "revoked") return false;
+		return !installations.some((installation) =>
+			repoMatchesInstallation(repo, installation),
+		);
+	});
+}
+
+function fallbackAccountLogin(repos: readonly ReviewRepo[]): string {
+	const owners = Array.from(new Set(repos.map((repo) => repo.owner))).sort();
+	if (owners.length === 1) return owners[0] ?? "Connected repositories";
+	return "Connected repositories";
+}
+
+function fallbackInstallationWire(repos: readonly ReviewRepo[]) {
+	return {
+		id: SYNTHETIC_REVIEW_REPOS_INSTALLATION_ID,
+		installation_id: SYNTHETIC_REVIEW_REPOS_INSTALLATION_ID,
+		account_login: fallbackAccountLogin(repos),
+		account_type: "Organization" as const,
+		repository_selection: "selected" as const,
+		status: "active" as const,
+	};
+}
+
+function lastReviewForRepo(db: DB, repo: ReviewRepo): Review | null {
+	if (repo.lastReviewId === null) return null;
+	return (
+		(db
+			.select()
+			.from(reviewsTable)
+			.where(eq(reviewsTable.id, repo.lastReviewId))
+			.get() as Review | undefined) ?? null
+	);
 }
 
 // ── Router factory ────────────────────────────────────────────────────────────
@@ -366,10 +424,14 @@ export function createGithubConnectRouter(
 		// Only active/suspended rows count as "connected" — deleted are hidden from
 		// the connected concept (per openapi.yaml semantics: uninstall flips status).
 		const visible = all.filter((i) => i.status !== "deleted");
+		const localRepos = await service.listReposByUser(user.id, {
+			limit: MAX_INSTALLATION_REPOS_LIMIT,
+		});
+		const fallbackRepos = fallbackReviewRepos(localRepos, all);
 
-		const connected = visible.some(
-			(i) => i.status === "active" || i.status === "suspended",
-		);
+		const connected =
+			visible.some((i) => i.status === "active" || i.status === "suspended") ||
+			fallbackRepos.length > 0;
 
 		const installations = visible.map((i) => ({
 			id: i.id,
@@ -379,6 +441,9 @@ export function createGithubConnectRouter(
 			repository_selection: i.repositorySelection,
 			status: i.status,
 		}));
+		if (fallbackRepos.length > 0) {
+			installations.push(fallbackInstallationWire(fallbackRepos));
+		}
 
 		return c.json({ connected, installations }, 200);
 	});
@@ -398,7 +463,26 @@ export function createGithubConnectRouter(
 		const installation =
 			await service.getInstallationByRowId(installationRowId);
 		if (!installation || installation.userId !== user.id) {
-			return c.json(NOT_FOUND, 404);
+			if (installationRowId !== SYNTHETIC_REVIEW_REPOS_INSTALLATION_ID) {
+				return c.json(NOT_FOUND, 404);
+			}
+
+			const all = await service.getInstallationsForUser(user.id);
+			const localRepos = await service.listReposByUser(user.id, {
+				limit: MAX_INSTALLATION_REPOS_LIMIT,
+			});
+			const fallbackRepos = fallbackReviewRepos(localRepos, all).slice(
+				0,
+				limit,
+			);
+			if (fallbackRepos.length === 0) return c.json(NOT_FOUND, 404);
+
+			return c.json(
+				fallbackRepos.map((repo) =>
+					repoToInstallationRepoWire(repo, lastReviewForRepo(db, repo)),
+				),
+				200,
+			);
 		}
 
 		// Fetch GitHub's current repo list for this installation (live, no cache).
@@ -427,7 +511,7 @@ export function createGithubConnectRouter(
 		});
 		const localBySlug = new Map<string, ReviewRepo>();
 		for (const r of localRepos) {
-			if (r.installationRowId === installationRowId) {
+			if (repoMatchesInstallation(r, installation)) {
 				localBySlug.set(`${r.owner}/${r.name}`, r);
 			}
 		}
@@ -442,16 +526,9 @@ export function createGithubConnectRouter(
 
 				if (local) {
 					// Fetch last review if tracked.
-					let lastReview: Review | null = null;
-					if (local.lastReviewId !== null) {
-						lastReview =
-							(db
-								.select()
-								.from(reviewsTable)
-								.where(eq(reviewsTable.id, local.lastReviewId))
-								.get() as Review | undefined) ?? null;
-					}
-					result.push(repoToInstallationRepoWire(local, lastReview));
+					result.push(
+						repoToInstallationRepoWire(local, lastReviewForRepo(db, local)),
+					);
 				} else {
 					result.push(githubRepoToInstallationRepoWire(ghRepo));
 				}
@@ -459,16 +536,9 @@ export function createGithubConnectRouter(
 		} else {
 			// GitHub list unavailable — serve locally tracked repos for this installation.
 			for (const [, local] of Array.from(localBySlug).slice(0, limit)) {
-				let lastReview: Review | null = null;
-				if (local.lastReviewId !== null) {
-					lastReview =
-						(db
-							.select()
-							.from(reviewsTable)
-							.where(eq(reviewsTable.id, local.lastReviewId))
-							.get() as Review | undefined) ?? null;
-				}
-				result.push(repoToInstallationRepoWire(local, lastReview));
+				result.push(
+					repoToInstallationRepoWire(local, lastReviewForRepo(db, local)),
+				);
 			}
 		}
 

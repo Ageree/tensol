@@ -558,6 +558,38 @@ describe("GET /installations — connection status", () => {
 		expect(body.installations[0]?.status).toBe("active");
 	});
 
+	test("surfaces review repos as a fallback GitHub connection", async () => {
+		const db = freshMemDb();
+		const { router, service } = makeConnectApp(db);
+
+		await service.upsertRepo({
+			userId: "user_1",
+			owner: "acme",
+			name: "api",
+			installationId: "inst_orphan",
+			defaultBranch: "main",
+		});
+
+		const res = await router.request("/installations");
+		expect(res.status).toBe(200);
+
+		const body = (await res.json()) as {
+			connected: boolean;
+			installations: Array<{
+				id: string;
+				account_login: string;
+				repository_selection: string;
+				status: string;
+			}>;
+		};
+		expect(body.connected).toBe(true);
+		expect(body.installations).toHaveLength(1);
+		expect(body.installations[0]?.id).toBe("__review_repos");
+		expect(body.installations[0]?.account_login).toBe("acme");
+		expect(body.installations[0]?.repository_selection).toBe("selected");
+		expect(body.installations[0]?.status).toBe("active");
+	});
+
 	test("does NOT return deleted installations", async () => {
 		const db = freshMemDb();
 		const { router, service } = makeConnectApp(db);
@@ -656,6 +688,40 @@ describe("GET /installations/:id/repos — repos for an installation", () => {
 		expect(body).toHaveLength(7);
 		expect(body[0]?.name).toBe("repo-0");
 		expect(body[6]?.name).toBe("repo-6");
+	});
+
+	test("returns fallback review repos for the synthetic installation", async () => {
+		const db = freshMemDb();
+		const { router, service } = makeConnectApp(db, {
+			github: new FakeGitHubClient({ installationRepos: [] }),
+		});
+
+		await service.upsertRepo({
+			userId: "user_1",
+			owner: "acme",
+			name: "api",
+			installationId: "inst_orphan",
+			defaultBranch: "trunk",
+		});
+
+		const res = await router.request("/installations/__review_repos/repos");
+		expect(res.status).toBe(200);
+
+		const body = (await res.json()) as Array<{
+			repo_id: string | null;
+			owner: string;
+			name: string;
+			enabled: boolean;
+			default_branch: string;
+		}>;
+		expect(body).toHaveLength(1);
+		expect(body[0]).toMatchObject({
+			owner: "acme",
+			name: "api",
+			enabled: true,
+			default_branch: "trunk",
+		});
+		expect(typeof body[0]?.repo_id).toBe("string");
 	});
 
 	test("returns 404 for installation not owned by user", async () => {
