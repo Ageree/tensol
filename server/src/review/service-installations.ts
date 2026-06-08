@@ -137,6 +137,7 @@ export function createInstallationMethods(
       if (existing) {
         db.update(installationsTable)
           .set({
+            userId: args.userId,
             accountLogin: args.accountLogin,
             accountType: args.accountType,
             repositorySelection: args.repositorySelection,

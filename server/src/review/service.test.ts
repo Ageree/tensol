@@ -465,9 +465,9 @@ describe("installations service (T005/T006)", () => {
 	// ---------------------------------------------------------------------------
 	// Cross-tenant: installation belongs to exactly one userId
 	// ---------------------------------------------------------------------------
-	test("installation is uniquely owned — same (scm,installationId) cannot belong to two users", async () => {
+	test("installation is uniquely owned and rebinds to the verified user", async () => {
 		const svc = makeSvc(db);
-		await svc.upsertInstallation({
+		const original = await svc.upsertInstallation({
 			userId: "user_1",
 			scm: "github",
 			installationId: "inst_111",
@@ -476,26 +476,23 @@ describe("installations service (T005/T006)", () => {
 			repositorySelection: "all",
 		});
 
-		// Attempting to upsert the same installationId for user_2 should either:
-		// - throw a UNIQUE constraint (if we don't find and return the existing row) OR
-		// - refuse to reassign ownership (the row stays owned by user_1)
-		// The invariant: after both calls the row's userId must still be user_1.
-		try {
-			await svc.upsertInstallation({
-				userId: "user_2",
-				scm: "github",
-				installationId: "inst_111", // same external id
-				accountLogin: "acme-org",
-				accountType: "Organization",
-				repositorySelection: "all",
-			});
-		} catch {
-			// A UNIQUE violation is acceptable — the row is immutably owned by user_1
-		}
+		const rebound = await svc.upsertInstallation({
+			userId: "user_2",
+			scm: "github",
+			installationId: "inst_111", // same external id
+			accountLogin: "acme-org",
+			accountType: "Organization",
+			repositorySelection: "all",
+			setupAction: "update",
+		});
 
 		const rows = db.select().from(installationsTable).all();
 		expect(rows.length).toBe(1);
-		expect(rows[0]?.userId).toBe("user_1");
+		expect(rebound.id).toBe(original.id);
+		expect(rows[0]?.userId).toBe("user_2");
+		expect(rows[0]?.setupAction).toBe("update");
+		expect(await svc.getInstallationsForUser("user_1")).toHaveLength(0);
+		expect(await svc.getInstallationsForUser("user_2")).toHaveLength(1);
 	});
 
 	// ---------------------------------------------------------------------------
