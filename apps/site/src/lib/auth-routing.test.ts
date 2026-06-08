@@ -12,4 +12,10 @@ describe('auth routing helpers', () => {
     expect(normalizeReturnTo('//example.com')).toBe('/dashboard');
   });
 
+  test('normalizeReturnTo rejects auth pages to avoid signed-in redirect loops', () => {
+    expect(normalizeReturnTo('/login')).toBe('/dashboard');
+    expect(normalizeReturnTo('/login?return_to=/login')).toBe('/dashboard');
+    expect(normalizeReturnTo('/signup')).toBe('/dashboard');
+    expect(normalizeReturnTo('/signup/sso')).toBe('/dashboard');
+  });
 });

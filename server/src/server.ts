@@ -616,7 +616,9 @@ export function createApp(deps: CreateAppDeps): Hono {
   );
 
   // 004-sthrip-pr-review — GitHub App connect surface.
-  //   Mounted at `/v1/github`. All endpoints are auth-gated via requireAuth.
+  //   Mounted at `/v1/github`. User-initiated API endpoints are auth-gated via
+  //   requireAuth. GitHub's browser callback is state-authenticated because the
+  //   top-level redirect may not carry the SPA's Clerk bearer token.
   //   Graceful-null: when `GITHUB_APP_SLUG` is absent the /connect endpoint
   //   returns 503; all other routes remain functional (they don't need the
   //   slug). When `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` are absent the

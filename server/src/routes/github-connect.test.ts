@@ -3,7 +3,7 @@
  *
  * Tests are TDD-first (failing before the router is implemented):
  *   GET /v1/github/connect       → 200 { install_url, state }; 401 unauth
- *   GET /v1/github/callback      → 302 /repositories on valid state; 400 bad state
+ *   GET /v1/github/callback      → 302 frontend /repositories on valid state; 400 bad state
  *   GET /v1/github/installations → { connected, installations[] }
  *   GET /v1/github/installations/{id}/repos → InstallationRepo[]; 404 not-owned
  *   POST /v1/github/disconnect   → 200; 403 not-owned
@@ -207,7 +207,7 @@ describe("GET /callback — installation callback", () => {
 		expect(res.status).toBe(302);
 
 		const location = res.headers.get("location");
-		expect(location).toBe("/repositories");
+		expect(location).toBe("https://sthrip.dev/repositories");
 
 		// Installation row should be persisted.
 		const installation = await service.getInstallationByGithubId(
@@ -219,6 +219,42 @@ describe("GET /callback — installation callback", () => {
 		expect(installation?.userId).toBe("user_1");
 		expect(installation?.setupAction).toBe("install");
 		expect(github.listUserInstallationIdsCalls).toEqual([{ code: OWNED_CODE }]);
+	});
+
+	test("valid callback does not require the browser to carry an app session", async () => {
+		const db = freshMemDb();
+		const { router, service } = makeConnectApp(db, { authed: false });
+
+		const state = buildConnectState({
+			userId: "user_1",
+			now: clockNow,
+			secret: STATE_SECRET,
+		});
+
+		const res = await router.request(
+			`/callback?installation_id=inst_42&setup_action=install&code=${OWNED_CODE}&state=${encodeURIComponent(state)}`,
+		);
+		expect(res.status).toBe(302);
+		expect(res.headers.get("location")).toBe("https://sthrip.dev/repositories");
+
+		const installation = await service.getInstallationByGithubId(
+			"github",
+			"inst_42",
+		);
+		expect(installation?.userId).toBe("user_1");
+	});
+
+	test("invalid callback state stays rejected without an app session", async () => {
+		const db = freshMemDb();
+		const { router } = makeConnectApp(db, { authed: false });
+
+		const res = await router.request(
+			`/callback?installation_id=inst_42&setup_action=install&code=${OWNED_CODE}&state=totally-invalid-state`,
+		);
+		expect(res.status).toBe(400);
+
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toBe("invalid_state");
 	});
 
 	test("returns 400 when state is missing", async () => {
@@ -262,24 +298,29 @@ describe("GET /callback — installation callback", () => {
 		expect(res.status).toBe(400);
 	});
 
-	test("returns 400 when state is from a different user (cross-user forgery)", async () => {
+	test("uses the signed state user even if a stale browser session is present", async () => {
 		const db = freshMemDb("user_1");
 		(db.$client as Database)
 			.query("INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)")
 			.run("user_2", "user_2@x.io", clockNow);
 
-		// State built for user_2 but used by the router that's authed as user_1.
-		const forgedState = buildConnectState({
+		const state = buildConnectState({
 			userId: "user_2",
 			now: clockNow,
 			secret: STATE_SECRET,
 		});
 
-		const { router } = makeConnectApp(db, { userId: "user_1" });
+		const { router, service } = makeConnectApp(db, { userId: "user_1" });
 		const res = await router.request(
-			`/callback?installation_id=inst_42&setup_action=install&code=${OWNED_CODE}&state=${encodeURIComponent(forgedState)}`,
+			`/callback?installation_id=inst_42&setup_action=install&code=${OWNED_CODE}&state=${encodeURIComponent(state)}`,
 		);
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(302);
+
+		const installation = await service.getInstallationByGithubId(
+			"github",
+			"inst_42",
+		);
+		expect(installation?.userId).toBe("user_2");
 	});
 
 	test("returns 403 when OAuth user cannot access claimed installation", async () => {

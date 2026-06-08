@@ -1,8 +1,8 @@
-import { Show, SignIn } from '@clerk/react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { SignIn, useAuth } from '@clerk/react';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthShell } from '../components/AuthShell.tsx';
 import { RouteHead } from '../components/RouteHead.tsx';
-import { Btn, Mono } from '../components/primitives.tsx';
+import { Mono } from '../components/primitives.tsx';
 import { TENSOL_I18N } from '../i18n.ts';
 import { normalizeReturnTo } from '../lib/auth-routing.ts';
 import { isClerkConfigured } from '../lib/clerk.ts';
@@ -47,27 +47,7 @@ export default function Login() {
         )}
 
         {isClerkConfigured ? (
-          <Show
-            when="signed-out"
-            fallback={
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <Mono size={12} color="var(--fg-2)">
-                  active session detected
-                </Mono>
-                <Btn kind="primary" fullWidth href={returnTo}>
-                  {t.authContinue} →
-                </Btn>
-              </div>
-            }
-          >
-            <SignIn
-              routing="path"
-              path="/login"
-              signUpUrl="/signup"
-              forceRedirectUrl={returnTo}
-              fallback={<Mono size={12}>loading auth</Mono>}
-            />
-          </Show>
+          <ClerkSignIn returnTo={returnTo} />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Mono size={12} color="var(--red)">
@@ -80,5 +60,29 @@ export default function Login() {
         )}
       </div>
     </AuthShell>
+  );
+}
+
+function ClerkSignIn({ returnTo }: { readonly returnTo: string }) {
+  const { isLoaded, isSignedIn } = useAuth();
+
+  if (!isLoaded) {
+    return <Mono size={12}>loading auth</Mono>;
+  }
+
+  if (isSignedIn) {
+    return <Navigate to={returnTo} replace />;
+  }
+
+  return (
+    <div className="auth-clerk-frame">
+      <SignIn
+        routing="path"
+        path="/login"
+        signUpUrl="/signup"
+        forceRedirectUrl={returnTo}
+        fallback={<Mono size={12}>loading auth</Mono>}
+      />
+    </div>
   );
 }

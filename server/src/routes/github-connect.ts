@@ -41,6 +41,8 @@ import {
 } from "../review/github/connect.ts";
 import type { ReviewService } from "../review/service.ts";
 
+const FRONTEND_BASE_URL = "https://sthrip.dev";
+
 // ── Deps ─────────────────────────────────────────────────────────────────────
 
 export interface CreateGithubConnectRouterDeps {
@@ -52,6 +54,8 @@ export interface CreateGithubConnectRouterDeps {
 	readonly slug: string;
 	/** HMAC secret for CSRF state nonces (TENSOL_SESSION_COOKIE_SECRET or dedicated). */
 	readonly stateSecret: string;
+	/** Public SPA origin used after external GitHub browser redirects. */
+	readonly frontendBaseUrl?: string;
 	readonly now?: () => number;
 }
 
@@ -174,9 +178,12 @@ export function createGithubConnectRouter(
 ): Hono<{ Variables: AuthVariables }> {
 	const { db, service, github, requireAuth, slug, stateSecret } = deps;
 	const clock = deps.now ?? (() => Date.now());
+	const repositoriesUrl = new URL(
+		"/repositories",
+		deps.frontendBaseUrl ?? FRONTEND_BASE_URL,
+	).toString();
 
 	const app = new Hono<{ Variables: AuthVariables }>();
-	app.use("*", requireAuth);
 
 	// ---------------------------------------------------------------------------
 	// GET /connect — begin GitHub connection
@@ -184,7 +191,7 @@ export function createGithubConnectRouter(
 	// Graceful-null: when GITHUB_APP_SLUG is absent, return 503 so the frontend
 	// can show a "GitHub not configured" state. Never halts dev boot.
 	// ---------------------------------------------------------------------------
-	app.get("/connect", (c) => {
+	app.get("/connect", requireAuth, (c) => {
 		if (!slug) return c.json(GITHUB_UNCONFIGURED, 503);
 
 		const user = c.get("user");
@@ -202,7 +209,8 @@ export function createGithubConnectRouter(
 	// GET /callback — GitHub App installation callback
 	//
 	// Validates the CSRF state, persists the installation row, reconciles repos,
-	// then 302-redirects to /repositories. Returns 400 on any state error.
+	// then 302-redirects to the SPA /repositories page. Returns 400 on any
+	// state error.
 	// ---------------------------------------------------------------------------
 	app.get("/callback", async (c) => {
 		const raw = {
@@ -225,16 +233,16 @@ export function createGithubConnectRouter(
 		}
 
 		const { installation_id, setup_action, state, code } = parsed.data;
-		const user = c.get("user");
 
-		// Verify the CSRF state nonce. The state must have been minted for this
-		// exact user — cross-user states are rejected (400, hides cross-tenant attack).
+		// Verify the CSRF state nonce. GitHub returns to this endpoint through a
+		// top-level browser redirect, so the app session cookie / Clerk bearer token
+		// may be absent. The signed state is the callback's user binding.
 		const verified = verifyConnectState({
 			state,
 			secret: stateSecret,
 			now: clock(),
 		});
-		if (!verified || verified.userId !== user.id) {
+		if (!verified) {
 			return c.json(
 				{
 					error: "invalid_state",
@@ -243,6 +251,7 @@ export function createGithubConnectRouter(
 				400,
 			);
 		}
+		const userId = verified.userId;
 
 		// Prove the authenticated user actually controls this GitHub installation.
 		// The App JWT can read ANY installation's private repos, so without this
@@ -273,19 +282,19 @@ export function createGithubConnectRouter(
 		await handleInstallCallback({
 			installationId: installation_id,
 			setupAction: setup_action,
-			userId: user.id,
+			userId,
 			github,
 			service,
 			...(deps.now !== undefined ? { now: deps.now } : {}),
 		});
 
-		return c.redirect("/repositories", 302);
+		return c.redirect(repositoriesUrl, 302);
 	});
 
 	// ---------------------------------------------------------------------------
 	// GET /installations — connection status + installations for current user
 	// ---------------------------------------------------------------------------
-	app.get("/installations", async (c) => {
+	app.get("/installations", requireAuth, async (c) => {
 		const user = c.get("user");
 		const all = await service.getInstallationsForUser(user.id);
 		// Only active/suspended rows count as "connected" — deleted are hidden from
@@ -314,7 +323,7 @@ export function createGithubConnectRouter(
 	// Ownership: if the installation's userId !== caller → 404 (hides existence).
 	// Response merges GitHub's live repo list with local review_repos state.
 	// ---------------------------------------------------------------------------
-	app.get("/installations/:id/repos", async (c) => {
+	app.get("/installations/:id/repos", requireAuth, async (c) => {
 		const user = c.get("user");
 		const installationRowId = c.req.param("id");
 		const limit = parseLimit(c.req.query("limit"));
@@ -407,7 +416,7 @@ export function createGithubConnectRouter(
 	// return 403 (per openapi.yaml — disconnect uses 403, not 404, to align with
 	// uninstall semantics where existence is visible on GitHub anyway).
 	// ---------------------------------------------------------------------------
-	app.post("/disconnect", async (c) => {
+	app.post("/disconnect", requireAuth, async (c) => {
 		let raw: unknown;
 		try {
 			raw = await c.req.json();
