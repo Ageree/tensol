@@ -28,12 +28,11 @@
  *   3. SELECT the latest vps_instance for this scan. Missing → no-op
  *      (defensive, e.g. teardown raced the watchdog).
  *
- *   4. Probe `GET https://<vps.ipv4>/status` via the injected
+ *   4. Probe `GET http://<vps.ipv4>:8080/status` via the injected
  *      `fetchImpl`, with a 10s AbortSignal timeout. The VPS agent
- *      runs a self-signed TLS cert, so callers wiring this in
- *      production must inject a fetch that tolerates / pins the
- *      agent CA. The handler itself does not enforce TLS validation
- *      policy — that's a deployment concern.
+ *      binds plain TCP/8080 in cloud-init; dispatch_scan uses the
+ *      same transport and relies on HMAC for authenticated commands.
+ *      The watchdog probe is liveness-only and never sends secrets.
  *
  *     • 2xx OK              → counter resets to 0; reschedule
  *                              watchdog +5min; emit watchdog_action
@@ -77,288 +76,281 @@
  */
 import { eq } from "drizzle-orm";
 
+import { emitSignedAudit } from "../../audit/emit.ts";
 import type { DB } from "../../db/client.ts";
 import { withTx } from "../../db/client.ts";
 import { jobs, scans, vpsInstances } from "../../db/schema.ts";
 import { ulid } from "../../lib/ids.ts";
 import { now as defaultNow } from "../../lib/time.ts";
-import { emitSignedAudit } from "../../audit/emit.ts";
-import type {
-  Handler,
-  TeardownVpsJob,
-  WatchdogJob,
-} from "../types.ts";
+import type { Handler, TeardownVpsJob, WatchdogJob } from "../types.ts";
 
 const DEFAULT_STUCK_THRESHOLD_MS = 30 * 60 * 1_000;
 const DEFAULT_RESCHEDULE_DELAY_MS = 5 * 60 * 1_000;
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3;
 const DEFAULT_PROBE_TIMEOUT_MS = 10_000;
+const AGENT_PORT = 8080;
 
 export interface WatchdogHandlerDeps {
-  readonly db: DB;
-  /** Injected fetch — production callers thread an agent-CA-aware
-   *  implementation; tests pass a pure mock. */
-  readonly fetchImpl?: typeof fetch;
-  /** Audit-log signing key. */
-  readonly signingKey: string;
-  readonly now?: () => number;
-  /** Minimum scan age before a probe is issued. Default 30 min. */
-  readonly stuckThresholdMs?: number;
-  /** Delay until the next watchdog tick. Default 5 min. */
-  readonly rescheduleDelayMs?: number;
-  /** Number of consecutive failures that trip the kill switch.
-   *  Default 3 (i.e. the third failure marks the scan failed). */
-  readonly maxConsecutiveFailures?: number;
-  /** Per-probe abort timeout (ms). Default 10s. */
-  readonly probeTimeoutMs?: number;
+	readonly db: DB;
+	/** Injected fetch — production callers thread an agent-CA-aware
+	 *  implementation; tests pass a pure mock. */
+	readonly fetchImpl?: typeof fetch;
+	/** Audit-log signing key. */
+	readonly signingKey: string;
+	readonly now?: () => number;
+	/** Minimum scan age before a probe is issued. Default 30 min. */
+	readonly stuckThresholdMs?: number;
+	/** Delay until the next watchdog tick. Default 5 min. */
+	readonly rescheduleDelayMs?: number;
+	/** Number of consecutive failures that trip the kill switch.
+	 *  Default 3 (i.e. the third failure marks the scan failed). */
+	readonly maxConsecutiveFailures?: number;
+	/** Per-probe abort timeout (ms). Default 10s. */
+	readonly probeTimeoutMs?: number;
 }
 
 interface ProbeResult {
-  readonly ok: boolean;
-  readonly errorKind: "none" | "http" | "network";
-  readonly status?: number;
-  readonly errorMessage?: string;
+	readonly ok: boolean;
+	readonly errorKind: "none" | "http" | "network";
+	readonly status?: number;
+	readonly errorMessage?: string;
 }
 
 async function probeAgent(
-  fetchImpl: typeof fetch,
-  url: string,
-  timeoutMs: number,
+	fetchImpl: typeof fetch,
+	url: string,
+	timeoutMs: number,
 ): Promise<ProbeResult> {
-  try {
-    const res = await fetchImpl(url, {
-      method: "GET",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (res.ok) {
-      return { ok: true, errorKind: "none", status: res.status };
-    }
-    return { ok: false, errorKind: "http", status: res.status };
-  } catch (err) {
-    return {
-      ok: false,
-      errorKind: "network",
-      errorMessage: err instanceof Error ? err.message : String(err),
-    };
-  }
+	try {
+		const res = await fetchImpl(url, {
+			method: "GET",
+			signal: AbortSignal.timeout(timeoutMs),
+		});
+		if (res.ok) {
+			return { ok: true, errorKind: "none", status: res.status };
+		}
+		return { ok: false, errorKind: "http", status: res.status };
+	} catch (err) {
+		return {
+			ok: false,
+			errorKind: "network",
+			errorMessage: err instanceof Error ? err.message : String(err),
+		};
+	}
 }
 
 function reschedule(
-  db: DB,
-  ts: number,
-  payload: WatchdogJob,
-  delayMs: number,
+	db: DB,
+	ts: number,
+	payload: WatchdogJob,
+	delayMs: number,
 ): void {
-  const id = ulid(ts);
-  db.insert(jobs)
-    .values({
-      id,
-      type: "watchdog_scan",
-      payloadJson: JSON.stringify(payload),
-      status: "pending",
-      scheduledAt: ts + delayMs,
-      attempts: 0,
-      lastError: null,
-      createdAt: ts,
-      updatedAt: ts,
-    })
-    .run();
+	const id = ulid(ts);
+	db.insert(jobs)
+		.values({
+			id,
+			type: "watchdog_scan",
+			payloadJson: JSON.stringify(payload),
+			status: "pending",
+			scheduledAt: ts + delayMs,
+			attempts: 0,
+			lastError: null,
+			createdAt: ts,
+			updatedAt: ts,
+		})
+		.run();
 }
 
 /** Build a `watchdog_scan` Handler closing over the injected deps. */
 export function createWatchdogHandler(
-  deps: WatchdogHandlerDeps,
+	deps: WatchdogHandlerDeps,
 ): Handler<WatchdogJob> {
-  const {
-    db,
-    fetchImpl = fetch,
-    signingKey,
-    now = defaultNow,
-    stuckThresholdMs = DEFAULT_STUCK_THRESHOLD_MS,
-    rescheduleDelayMs = DEFAULT_RESCHEDULE_DELAY_MS,
-    maxConsecutiveFailures = DEFAULT_MAX_CONSECUTIVE_FAILURES,
-    probeTimeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
-  } = deps;
+	const {
+		db,
+		fetchImpl = fetch,
+		signingKey,
+		now = defaultNow,
+		stuckThresholdMs = DEFAULT_STUCK_THRESHOLD_MS,
+		rescheduleDelayMs = DEFAULT_RESCHEDULE_DELAY_MS,
+		maxConsecutiveFailures = DEFAULT_MAX_CONSECUTIVE_FAILURES,
+		probeTimeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
+	} = deps;
 
-  return async function watchdogHandler(job: WatchdogJob): Promise<void> {
-    // 1. Re-read the scan; bail out if missing or terminal.
-    const scan = db
-      .select()
-      .from(scans)
-      .where(eq(scans.id, job.scan_id))
-      .get();
-    if (!scan) return;
-    if (scan.status !== "running") return;
+	return async function watchdogHandler(job: WatchdogJob): Promise<void> {
+		// 1. Re-read the scan; bail out if missing or terminal.
+		const scan = db.select().from(scans).where(eq(scans.id, job.scan_id)).get();
+		if (!scan) return;
+		if (scan.status !== "running") return;
 
-    // 2. Under threshold? Skip probe, just keep the watchdog alive.
-    const stuckFor = now() - scan.startedAt;
-    if (stuckFor < stuckThresholdMs) {
-      const ts = now();
-      reschedule(
-        db,
-        ts,
-        {
-          type: "watchdog_scan",
-          scan_id: scan.id,
-          consecutive_failures: 0,
-        },
-        rescheduleDelayMs,
-      );
-      return;
-    }
+		// 2. Under threshold? Skip probe, just keep the watchdog alive.
+		const stuckFor = now() - scan.startedAt;
+		if (stuckFor < stuckThresholdMs) {
+			const ts = now();
+			reschedule(
+				db,
+				ts,
+				{
+					type: "watchdog_scan",
+					scan_id: scan.id,
+					consecutive_failures: 0,
+				},
+				rescheduleDelayMs,
+			);
+			return;
+		}
 
-    // 3. Find the VPS to probe.
-    const vps = db
-      .select()
-      .from(vpsInstances)
-      .where(eq(vpsInstances.scanId, scan.id))
-      .get();
-    if (!vps || !vps.ipv4) return;
+		// 3. Find the VPS to probe.
+		const vps = db
+			.select()
+			.from(vpsInstances)
+			.where(eq(vpsInstances.scanId, scan.id))
+			.get();
+		if (!vps || !vps.ipv4) return;
 
-    // 4. Probe.
-    const probeUrl = `https://${vps.ipv4}/status`;
-    const probe = await probeAgent(fetchImpl, probeUrl, probeTimeoutMs);
+		// 4. Probe.
+		const probeUrl = `http://${vps.ipv4}:${AGENT_PORT}/status`;
+		const probe = await probeAgent(fetchImpl, probeUrl, probeTimeoutMs);
 
-    // 5. Successful probe → reset counter + reschedule + success audit.
-    if (probe.ok) {
-      const ts = now();
-      reschedule(
-        db,
-        ts,
-        {
-          type: "watchdog_scan",
-          scan_id: scan.id,
-          consecutive_failures: 0,
-        },
-        rescheduleDelayMs,
-      );
-      await emitSignedAudit(
-        db,
-        {
-          event: "watchdog_action",
-          outcome: "success",
-          scan_id: scan.id,
-          vps_instance_id: vps.id,
-          metadata: {
-            outcome: "probe_ok",
-            terminal: false,
-            consecutive_failures: 0,
-            http_status: probe.status ?? 0,
-          },
-        },
-        { key: signingKey },
-      );
-      return;
-    }
+		// 5. Successful probe → reset counter + reschedule + success audit.
+		if (probe.ok) {
+			const ts = now();
+			reschedule(
+				db,
+				ts,
+				{
+					type: "watchdog_scan",
+					scan_id: scan.id,
+					consecutive_failures: 0,
+				},
+				rescheduleDelayMs,
+			);
+			await emitSignedAudit(
+				db,
+				{
+					event: "watchdog_action",
+					outcome: "success",
+					scan_id: scan.id,
+					vps_instance_id: vps.id,
+					metadata: {
+						outcome: "probe_ok",
+						terminal: false,
+						consecutive_failures: 0,
+						http_status: probe.status ?? 0,
+					},
+				},
+				{ key: signingKey },
+			);
+			return;
+		}
 
-    // 6. Failed probe → increment counter; if at limit → kill switch.
-    const incomingCount = job.consecutive_failures ?? 0;
-    const newCount = incomingCount + 1;
-    const terminal = newCount >= maxConsecutiveFailures;
+		// 6. Failed probe → increment counter; if at limit → kill switch.
+		const incomingCount = job.consecutive_failures ?? 0;
+		const newCount = incomingCount + 1;
+		const terminal = newCount >= maxConsecutiveFailures;
 
-    if (!terminal) {
-      const ts = now();
-      reschedule(
-        db,
-        ts,
-        {
-          type: "watchdog_scan",
-          scan_id: scan.id,
-          consecutive_failures: newCount,
-        },
-        rescheduleDelayMs,
-      );
-      await emitSignedAudit(
-        db,
-        {
-          event: "watchdog_action",
-          outcome: "failure",
-          scan_id: scan.id,
-          vps_instance_id: vps.id,
-          metadata: {
-            outcome: "probe_failure",
-            terminal: false,
-            consecutive_failures: newCount,
-            error_kind: probe.errorKind,
-            ...(probe.status !== undefined && { http_status: probe.status }),
-            ...(probe.errorMessage && { error_message: probe.errorMessage }),
-          },
-        },
-        { key: signingKey },
-      );
-      return;
-    }
+		if (!terminal) {
+			const ts = now();
+			reschedule(
+				db,
+				ts,
+				{
+					type: "watchdog_scan",
+					scan_id: scan.id,
+					consecutive_failures: newCount,
+				},
+				rescheduleDelayMs,
+			);
+			await emitSignedAudit(
+				db,
+				{
+					event: "watchdog_action",
+					outcome: "failure",
+					scan_id: scan.id,
+					vps_instance_id: vps.id,
+					metadata: {
+						outcome: "probe_failure",
+						terminal: false,
+						consecutive_failures: newCount,
+						error_kind: probe.errorKind,
+						...(probe.status !== undefined && { http_status: probe.status }),
+						...(probe.errorMessage && { error_message: probe.errorMessage }),
+					},
+				},
+				{ key: signingKey },
+			);
+			return;
+		}
 
-    // 7. KILL SWITCH — mark scan failed + enqueue teardown.
-    const killTs = now();
-    const teardownPayload: TeardownVpsJob = {
-      type: "teardown_vps",
-      vps_instance_id: vps.id,
-      reason: "agent_unresponsive",
-    };
+		// 7. KILL SWITCH — mark scan failed + enqueue teardown.
+		const killTs = now();
+		const teardownPayload: TeardownVpsJob = {
+			type: "teardown_vps",
+			vps_instance_id: vps.id,
+			reason: "agent_unresponsive",
+		};
 
-    await withTx(db, async (tx) => {
-      tx.update(scans)
-        .set({
-          status: "failed",
-          failureReason: "agent_unresponsive",
-          completedAt: killTs,
-        })
-        .where(eq(scans.id, scan.id))
-        .run();
+		await withTx(db, async (tx) => {
+			tx.update(scans)
+				.set({
+					status: "failed",
+					failureReason: "agent_unresponsive",
+					completedAt: killTs,
+				})
+				.where(eq(scans.id, scan.id))
+				.run();
 
-      const teardownJobId = ulid(killTs);
-      tx.insert(jobs)
-        .values({
-          id: teardownJobId,
-          type: "teardown_vps",
-          payloadJson: JSON.stringify(teardownPayload),
-          status: "pending",
-          scheduledAt: killTs,
-          attempts: 0,
-          lastError: null,
-          createdAt: killTs,
-          updatedAt: killTs,
-        })
-        .run();
-    });
+			const teardownJobId = ulid(killTs);
+			tx.insert(jobs)
+				.values({
+					id: teardownJobId,
+					type: "teardown_vps",
+					payloadJson: JSON.stringify(teardownPayload),
+					status: "pending",
+					scheduledAt: killTs,
+					attempts: 0,
+					lastError: null,
+					createdAt: killTs,
+					updatedAt: killTs,
+				})
+				.run();
+		});
 
-    // Terminal watchdog_action audit.
-    await emitSignedAudit(
-      db,
-      {
-        event: "watchdog_action",
-        outcome: "failure",
-        scan_id: scan.id,
-        vps_instance_id: vps.id,
-        metadata: {
-          outcome: "probe_failure",
-          terminal: true,
-          consecutive_failures: newCount,
-          error_kind: probe.errorKind,
-          ...(probe.status !== undefined && { http_status: probe.status }),
-          ...(probe.errorMessage && { error_message: probe.errorMessage }),
-        },
-      },
-      { key: signingKey },
-    );
+		// Terminal watchdog_action audit.
+		await emitSignedAudit(
+			db,
+			{
+				event: "watchdog_action",
+				outcome: "failure",
+				scan_id: scan.id,
+				vps_instance_id: vps.id,
+				metadata: {
+					outcome: "probe_failure",
+					terminal: true,
+					consecutive_failures: newCount,
+					error_kind: probe.errorKind,
+					...(probe.status !== undefined && { http_status: probe.status }),
+					...(probe.errorMessage && { error_message: probe.errorMessage }),
+				},
+			},
+			{ key: signingKey },
+		);
 
-    // scan_failed audit for downstream consumers (T044 webhook +
-    // reporting). Reason is the same string we wrote to
-    // failure_reason so external observers can correlate.
-    await emitSignedAudit(
-      db,
-      {
-        event: "scan_failed",
-        outcome: "failure",
-        scan_id: scan.id,
-        vps_instance_id: vps.id,
-        metadata: {
-          reason: "agent_unresponsive",
-          consecutive_failures: newCount,
-        },
-      },
-      { key: signingKey },
-    );
-  };
+		// scan_failed audit for downstream consumers (T044 webhook +
+		// reporting). Reason is the same string we wrote to
+		// failure_reason so external observers can correlate.
+		await emitSignedAudit(
+			db,
+			{
+				event: "scan_failed",
+				outcome: "failure",
+				scan_id: scan.id,
+				vps_instance_id: vps.id,
+				metadata: {
+					reason: "agent_unresponsive",
+					consecutive_failures: newCount,
+				},
+			},
+			{ key: signingKey },
+		);
+	};
 }

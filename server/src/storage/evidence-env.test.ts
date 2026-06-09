@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveEvidenceStorageEnv } from "./evidence-env.ts";
+import {
+	isEvidenceStorageConfigured,
+	resolveEvidenceStorageEnv,
+} from "./evidence-env.ts";
 
 describe("resolveEvidenceStorageEnv", () => {
 	test("uses AWS-compatible names when present", () => {
@@ -64,5 +67,33 @@ describe("resolveEvidenceStorageEnv", () => {
 
 		expect(env.accessKeyId).toBe("gcs-key");
 		expect(env.secretAccessKey).toBe("gcs-secret");
+	});
+});
+
+describe("isEvidenceStorageConfigured", () => {
+	test("requires bucket, endpoint, access key, and secret key", () => {
+		expect(
+			isEvidenceStorageConfigured({
+				bucket: "bucket",
+				region: "auto",
+				endpoint: "",
+				accessKeyId: "key",
+				secretAccessKey: "secret",
+				prefix: "scans/",
+			}),
+		).toBe(false);
+	});
+
+	test("accepts a fully explicit S3/GCS-compatible storage config", () => {
+		expect(
+			isEvidenceStorageConfigured({
+				bucket: "bucket",
+				region: "auto",
+				endpoint: "https://storage.googleapis.com",
+				accessKeyId: "key",
+				secretAccessKey: "secret",
+				prefix: "scans/",
+			}),
+		).toBe(true);
 	});
 });

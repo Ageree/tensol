@@ -65,6 +65,16 @@ describe("HostnameSchema", () => {
     expect(() => HostnameSchema.parse("http://example.com")).toThrow();
   });
 
+  it("rejects single-label hostnames", () => {
+    expect(() => HostnameSchema.parse("localhost")).toThrow();
+    expect(() => HostnameSchema.parse("single")).toThrow();
+  });
+
+  it("rejects IPv4 literals and numeric final labels", () => {
+    expect(() => HostnameSchema.parse("127.0.0.1")).toThrow();
+    expect(() => HostnameSchema.parse("example.123")).toThrow();
+  });
+
   it("rejects a trailing dot", () => {
     expect(() => HostnameSchema.parse("example.com.")).toThrow();
   });
@@ -118,7 +128,7 @@ describe("AttackSurfaceEntrySchema", () => {
   it("rejects more than 10 headers", () => {
     const headers = Array.from({ length: 11 }, (_, i) => ({
       k: `X-Hdr-${i}`,
-      v: `v`,
+      v: "v",
     }));
     expect(() =>
       AttackSurfaceEntrySchema.parse({

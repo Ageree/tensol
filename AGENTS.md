@@ -1,7 +1,91 @@
+<!-- dox:start -->
+# DOX — AGENTS.md Documentation Framework
+
+This project now uses `agent0ai/dox`: a self-documenting AGENTS.md hierarchy
+for durable project context. Dox has no runtime, package, or dependency; the
+contract is this AGENTS.md tree.
+
+## Core Contract
+
+- AGENTS.md files are binding work contracts for their directory subtrees.
+- Before editing, read this root AGENTS.md and every child AGENTS.md on the
+  path to each file you expect to touch.
+- If a parent lists a child AGENTS.md whose scope contains the target path,
+  read that child and continue from there.
+- The nearest AGENTS.md owns local work details; parent docs own broader
+  project rules. If docs conflict, the closer doc controls local details, but
+  no child may weaken Dox, GitNexus, GitButler, security, or current-context
+  rules.
+- Do not rely on memory. Re-read the applicable Dox chain in the current
+  session before editing.
+
+## Update After Editing
+
+- Every meaningful change requires a Dox pass before closeout.
+- Update the closest owning AGENTS.md when a change affects purpose, scope,
+  ownership, durable structure, contracts, workflows, verification, artifacts,
+  permissions, constraints, side effects, or stable user preferences.
+- Update parent docs when parent-level structure, ownership, workflow, or child
+  index entries change.
+- Small edits that do not change behavior or contracts may leave docs
+  unchanged, but still report that the Dox pass found no doc update needed.
+- Remove stale or contradictory instructions instead of adding historical
+  explanations.
+
+## Child Doc Shape
+
+Use this section order for new child AGENTS.md files:
+
+- Purpose
+- Ownership
+- Local Contracts
+- Work Guidance
+- Verification
+- Child DOX Index
+
+Keep child docs concise, operational, and scoped to stable rules for that
+subtree.
+
+## Root Ownership
+
+- Root owns repo-wide operating rules, source-control workflow, code-intel
+  workflow, current product context, package-manager posture, and the top-level
+  Dox index.
+- Root owns root config/scripts and generated/runtime/cache/archive directories
+  unless a more specific child AGENTS.md exists.
+- Do not add Dox docs under generated or dependency directories such as
+  `node_modules/`, `.git/`, `.gitnexus/`, `.omx/`, `coverage/`, or build
+  outputs.
+
+## User Preferences
+
+- Use Dox for this project going forward.
+- Keep the Dox tree current as the project structure, workflows, and local
+  contracts change.
+
+## Child DOX Index
+
+- `apps/AGENTS.md` — frontend application workspace; delegates current site
+  rules to `apps/site/AGENTS.md`.
+- `server/AGENTS.md` — Bun/Hono API, jobs, reports, audit, auth, database, and
+  production worker service.
+- `convex/AGENTS.md` — Convex control-plane candidate, schema, functions, auth,
+  and generated Convex API boundaries.
+- `vps-agent/AGENTS.md` — ephemeral scan agent, callback protocol, evidence
+  upload, Decepticon runner, and agent tests.
+- `docs/AGENTS.md` — durable documentation, ADRs, runbooks, research, security
+  notes, and current context.
+- `infra/AGENTS.md` — Docker, production deployment files, Caddy, and scanner VM
+  override assets.
+- `specs/AGENTS.md` — feature specs, plans, contracts, task lists, and evidence
+  records.
+
+<!-- dox:end -->
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **пентест ИИ** (6081 symbols, 12977 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **пентест ИИ** (6146 symbols, 13053 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

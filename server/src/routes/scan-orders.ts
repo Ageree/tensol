@@ -373,6 +373,8 @@ export function createScanOrdersRouter(
 				order.status === "vm_provisioning" ||
 				order.status === "running" ||
 				order.status === "completed";
+			const timedOut =
+				order.status === "failed" && order.failure_reason === "timeout";
 			// attempts + remaining are read from order shape; the service writes
 			// dns_check_attempts via the dns-verify subsystem and the order
 			// response includes dns_verified_at but NOT attempts directly — we
@@ -380,7 +382,9 @@ export function createScanOrdersRouter(
 			// The window-remaining is computed against created_at if not yet
 			// requested. This keeps the route response openapi-shaped without
 			// round-tripping into the DB.
-			const elapsed = Date.now() - order.created_at;
+			const elapsed = timedOut
+				? VERIFY_WINDOW_MS
+				: Date.now() - order.created_at;
 			const remaining = Math.max(
 				0,
 				Math.floor((VERIFY_WINDOW_MS - elapsed) / 1000),
@@ -390,7 +394,7 @@ export function createScanOrdersRouter(
 					verified,
 					attempts: 0,
 					remaining_window_seconds: remaining,
-					last_error: null as string | null,
+					last_error: timedOut ? "timeout" : null,
 				},
 				200,
 			);

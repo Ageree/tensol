@@ -83,6 +83,8 @@ interface MetricCardData {
 }
 
 interface ChartDay {
+	readonly key: string;
+	readonly dateMs: number;
 	readonly label: string;
 	readonly blackbox: number;
 	readonly pr: number;
@@ -312,7 +314,7 @@ const DASHBOARD_CSS = `
 }
 
 .chart-panel {
-  min-height: 346px;
+  min-height: 316px;
   margin-bottom: 32px;
   padding: 32px;
 }
@@ -325,46 +327,115 @@ const DASHBOARD_CSS = `
   margin-bottom: 22px;
 }
 
-.chart-legend {
+.heatmap-legend {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 24px;
+  gap: 6px;
   color: var(--h-text);
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 500;
-}
-
-.legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.legend-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: var(--legend-color);
 }
 
 .chart-frame {
   width: 100%;
-  height: 228px;
+  min-height: 198px;
   position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0 8px;
 }
 
-.chart-svg {
-  display: block;
-  width: 100%;
-  height: 100%;
+.heatmap-calendar {
+  min-width: var(--heatmap-width);
 }
 
-.chart-axis-label {
-  fill: #6f7b91;
+.heatmap-months {
+  display: grid;
+  grid-template-columns: repeat(var(--heatmap-weeks), 15px);
+  gap: 4px;
+  margin: 0 0 9px 36px;
+  color: var(--h-text);
   font-family: var(--font-sans);
   font-size: 13px;
+  line-height: 1.1;
+}
+
+.heatmap-months span {
+  min-width: 36px;
+  white-space: nowrap;
+}
+
+.heatmap-body {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.heatmap-weekdays {
+  display: grid;
+  grid-template-rows: repeat(7, 15px);
+  gap: 4px;
+  color: var(--h-muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 15px;
+  text-align: right;
+}
+
+.heatmap-weeks {
+  display: grid;
+  grid-template-columns: repeat(var(--heatmap-weeks), 15px);
+  gap: 4px;
+}
+
+.heatmap-week {
+  display: grid;
+  grid-template-rows: repeat(7, 15px);
+  gap: 4px;
+}
+
+.heatmap-cell,
+.heatmap-scale-cell {
+  width: 15px;
+  height: 15px;
+  border: 1px solid #dbdad6;
+  border-radius: 2px;
+  background: #e8e8e6;
+}
+
+.heatmap-scale-cell {
+  display: inline-block;
+}
+
+.heatmap-cell[data-level="1"],
+.heatmap-scale-cell[data-level="1"] {
+  border-color: #88d095;
+  background: #9be9a8;
+}
+
+.heatmap-cell[data-level="2"],
+.heatmap-scale-cell[data-level="2"] {
+  border-color: #49bd63;
+  background: #40c463;
+}
+
+.heatmap-cell[data-level="3"],
+.heatmap-scale-cell[data-level="3"] {
+  border-color: #2da04a;
+  background: #30a14e;
+}
+
+.heatmap-cell[data-level="4"],
+.heatmap-scale-cell[data-level="4"] {
+  border-color: #216e39;
+  background: #216e39;
+}
+
+.heatmap-cell[data-future="true"] {
+  opacity: 0.42;
 }
 
 .resolution-head {
@@ -691,7 +762,7 @@ const DASHBOARD_CSS = `
   }
 
   .chart-frame {
-    height: 190px;
+    min-height: 184px;
   }
 
   .activity-panel {
@@ -783,6 +854,9 @@ const SCAN_ACTIVE_STATUSES = new Set<ScanOrderStatus>([
 ]);
 
 const REVIEW_ACTIVE_STATUSES = new Set<ReviewRunStatus>(["queued", "running"]);
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const HEATMAP_WEEK_COUNT = 53;
+const HEATMAP_DAY_COUNT = HEATMAP_WEEK_COUNT * 7;
 
 function IconButton({
 	label,
@@ -810,10 +884,27 @@ function dayKey(ms: number): string {
 	return new Date(ms).toISOString().slice(0, 10);
 }
 
-function shortDay(ms: number): string {
+function startOfUtcDay(ms: number): number {
+	const date = new Date(ms);
+	return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function startOfUtcWeek(ms: number): number {
+	const dayStart = startOfUtcDay(ms);
+	return dayStart - new Date(dayStart).getUTCDay() * MS_PER_DAY;
+}
+
+function shortMonth(ms: number): string {
+	return new Intl.DateTimeFormat("en-US", {
+		month: "short",
+	}).format(new Date(ms));
+}
+
+function fullDay(ms: number): string {
 	return new Intl.DateTimeFormat("en-US", {
 		month: "short",
 		day: "numeric",
+		year: "numeric",
 	}).format(new Date(ms));
 }
 
@@ -868,7 +959,7 @@ function actionHref(order: ScanOrder, action: ActionMapping): string {
 
 	if (action.key === "download" || action.key === "regenerate") {
 		return order.scan_id != null
-			? `/reports?scan=${encodeURIComponent(order.scan_id)}`
+			? `/scan/${encodeURIComponent(order.scan_id)}/report`
 			: "/reports";
 	}
 
@@ -945,11 +1036,14 @@ function buildChartDays(
 	orders: readonly ScanOrder[],
 	reviews: readonly ReviewListItemWire[],
 ): ChartDay[] {
-	const days = Array.from({ length: 7 }, (_, index) => {
-		const ms = nowMs - (6 - index) * 24 * 60 * 60 * 1000;
+	const startMs =
+		startOfUtcWeek(nowMs) - (HEATMAP_WEEK_COUNT - 1) * 7 * MS_PER_DAY;
+	const days = Array.from({ length: HEATMAP_DAY_COUNT }, (_, index) => {
+		const ms = startMs + index * MS_PER_DAY;
 		return {
 			key: dayKey(ms),
-			label: shortDay(ms),
+			dateMs: ms,
+			label: fullDay(ms),
 			blackbox: 0,
 			pr: 0,
 			whitebox: 0,
@@ -1095,22 +1189,6 @@ function MetricCard({
 	);
 }
 
-function linePath(
-	values: readonly number[],
-	max: number,
-	width: number,
-	height: number,
-): string {
-	const step = width / Math.max(values.length - 1, 1);
-	return values
-		.map((value, index) => {
-			const x = index * step;
-			const y = height - (value / max) * (height - 8) - 4;
-			return `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
-		})
-		.join(" ");
-}
-
 function ChartPanel({
 	days,
 	tab,
@@ -1121,129 +1199,122 @@ function ChartPanel({
 	const showBlackbox = tab === "overview" || tab === "blackbox";
 	const showPr = tab === "overview" || tab === "pr-review";
 	const showWhitebox = tab === "overview" || tab === "whitebox";
-	const visibleValues = days.flatMap((day) => [
-		showBlackbox ? day.blackbox : 0,
-		showPr ? day.pr : 0,
-		showWhitebox ? day.whitebox : 0,
-	]);
-	const maxValue = Math.max(2, ...visibleValues);
-	const width = 760;
-	const height = 176;
-	const blackboxPath = linePath(
-		days.map((day) => day.blackbox),
-		maxValue,
-		width,
-		height,
+	const todayMs = startOfUtcDay(Date.now());
+	const weeks = useMemo(() => {
+		const result: ChartDay[][] = [];
+		for (let index = 0; index < days.length; index += 7) {
+			result.push(days.slice(index, index + 7));
+		}
+		return result;
+	}, [days]);
+	const visibleTotal = useCallback(
+		(day: ChartDay) =>
+			(showBlackbox ? day.blackbox : 0) +
+			(showPr ? day.pr : 0) +
+			(showWhitebox ? day.whitebox : 0),
+		[showBlackbox, showPr, showWhitebox],
 	);
-	const prPath = linePath(
-		days.map((day) => day.pr),
-		maxValue,
-		width,
-		height,
-	);
-	const whiteboxPath = linePath(
-		days.map((day) => day.whitebox),
-		maxValue,
-		width,
-		height,
-	);
+	const maxValue = Math.max(1, ...days.map(visibleTotal));
+	const heatmapWidth = 28 + weeks.length * 15 + (weeks.length - 1) * 4;
+	const monthLabels = useMemo(() => {
+		let lastMonthKey = "";
+		return weeks.map((week, index) => {
+			const labelDay =
+				index === 0
+					? week[0]
+					: week.find((day) => new Date(day.dateMs).getUTCDate() <= 7);
+			if (!labelDay) return "";
+			const date = new Date(labelDay.dateMs);
+			const monthKey = `${date.getUTCFullYear()}-${date.getUTCMonth()}`;
+			if (monthKey === lastMonthKey) return "";
+			lastMonthKey = monthKey;
+			return shortMonth(labelDay.dateMs);
+		});
+	}, [weeks]);
+
+	const heatLevel = (value: number): number => {
+		if (value <= 0) return 0;
+		return Math.max(1, Math.min(4, Math.ceil((value / maxValue) * 4)));
+	};
+
+	const cellLabel = (day: ChartDay): string => {
+		const parts = [
+			showBlackbox && day.blackbox > 0 ? `${day.blackbox} Blackbox` : "",
+			showPr && day.pr > 0 ? `${day.pr} PR Review` : "",
+			showWhitebox && day.whitebox > 0 ? `${day.whitebox} Whitebox Scan` : "",
+		].filter(Boolean);
+		return `${day.label}: ${parts.length > 0 ? parts.join(", ") : "no activity"}`;
+	};
 
 	return (
 		<section
 			data-slot="card"
 			className="chart-panel"
-			aria-label="Scan volume over time"
+			aria-label="Scan activity heatmap"
 		>
 			<div data-slot="card-header" className="panel-heading">
 				<h2 data-slot="card-title" className="section-title">
-					Scan volume over time
+					Scan activity heatmap
 				</h2>
-				<div className="chart-legend" aria-label="Chart legend">
-					{showBlackbox && (
-						<span className="legend-item">
-							<i
-								className="legend-dot"
-								style={{ "--legend-color": "var(--h-blue)" } as CSSProperties}
-							/>
-							Blackbox
-						</span>
-					)}
-					{showPr && (
-						<span className="legend-item">
-							<i
-								className="legend-dot"
-								style={{ "--legend-color": "#8fd7ff" } as CSSProperties}
-							/>
-							PR Review
-						</span>
-					)}
-					{showWhitebox && (
-						<span className="legend-item">
-							<i
-								className="legend-dot"
-								style={{ "--legend-color": "var(--h-violet)" } as CSSProperties}
-							/>
-							Whitebox Scan
-						</span>
-					)}
+				<div className="heatmap-legend" aria-label="Heatmap scale">
+					<span>Less</span>
+					{[0, 1, 2, 3, 4].map((level) => (
+						<i key={level} className="heatmap-scale-cell" data-level={level} />
+					))}
+					<span>More</span>
 				</div>
 			</div>
 			<div data-slot="card-content" className="chart-frame">
-				<svg
-					className="chart-svg"
-					viewBox={`0 0 ${width + 42} ${height + 44}`}
-					role="img"
-					aria-label="Seven day scan volume"
+				<div
+					className="heatmap-calendar"
+					style={
+						{
+							"--heatmap-weeks": weeks.length,
+							"--heatmap-width": `${heatmapWidth}px`,
+						} as CSSProperties
+					}
 				>
-					<line x1="0" x2={width} y1="18" y2="18" stroke="#e8e7e4" />
-					<line x1="0" x2={width} y1={height} y2={height} stroke="#e0dfdc" />
-					<line x1={width} x2={width} y1="18" y2={height} stroke="#ebe9e6" />
-					<text x={width + 16} y="22" className="chart-axis-label">
-						{maxValue}
-					</text>
-					<text x={width + 16} y={height + 4} className="chart-axis-label">
-						0
-					</text>
-					{showBlackbox && (
-						<path
-							d={blackboxPath}
-							fill="none"
-							stroke="var(--h-blue)"
-							strokeWidth="2.4"
-						/>
-					)}
-					{showPr && (
-						<path d={prPath} fill="none" stroke="#8fd7ff" strokeWidth="2.4" />
-					)}
-					{showWhitebox && (
-						<path
-							d={whiteboxPath}
-							fill="none"
-							stroke="var(--h-violet)"
-							strokeWidth="2.4"
-						/>
-					)}
-					{days.map((day, index) => {
-						const x = (width / Math.max(days.length - 1, 1)) * index;
-						return (
-							<text
-								key={day.label}
-								x={x}
-								y={height + 34}
-								textAnchor={
-									index === 0
-										? "start"
-										: index === days.length - 1
-											? "end"
-											: "middle"
-								}
-								className="chart-axis-label"
-							>
-								{day.label}
-							</text>
-						);
-					})}
-				</svg>
+					<div className="heatmap-months" aria-hidden="true">
+						{monthLabels.map((label, index) => (
+							<span key={`${label || "blank"}-${index}`}>{label}</span>
+						))}
+					</div>
+					<div className="heatmap-body">
+						<div className="heatmap-weekdays" aria-hidden="true">
+							<span />
+							<span>Mon</span>
+							<span />
+							<span>Wed</span>
+							<span />
+							<span>Fri</span>
+							<span />
+						</div>
+						<div
+							className="heatmap-weeks"
+							role="img"
+							aria-label="Daily scan activity"
+						>
+							{weeks.map((week) => (
+								<div className="heatmap-week" key={week[0]?.key}>
+									{week.map((day) => {
+										const value = visibleTotal(day);
+										const isFuture = day.dateMs > todayMs;
+										return (
+											<span
+												key={day.key}
+												className="heatmap-cell"
+												data-level={isFuture ? 0 : heatLevel(value)}
+												data-future={isFuture ? "true" : undefined}
+												aria-label={cellLabel(day)}
+												title={cellLabel(day)}
+											/>
+										);
+									})}
+								</div>
+							))}
+						</div>
+					</div>
+				</div>
 			</div>
 		</section>
 	);

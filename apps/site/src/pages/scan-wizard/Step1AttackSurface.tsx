@@ -24,12 +24,12 @@ export interface Step1AttackSurfaceProps {
 }
 
 /**
- * Lowercase RFC 1035 hostname check — mirrors the server-side regex in
- * `server/src/schemas/scan-orders.ts` (`HostnameSchema`). Loose enough to
- * be friendly; server returns 422 on the strict pattern + length.
+ * Public lowercase RFC 1035 hostname check — mirrors the server-side regex in
+ * `server/src/schemas/scan-orders.ts` (`HostnameSchema`). Server remains the
+ * canonical validator and returns 422 on contract drift.
  */
 const HOSTNAME_RE =
-  /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
+  /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]([a-z0-9-]{0,61}[a-z0-9])?$/;
 
 export function isValidHostname(value: string): boolean {
   if (!value) return false;
@@ -263,6 +263,7 @@ export const Step1AttackSurface = ({
         {state.headers.length > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {state.headers.map((h, idx) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: Header rows are positional draft fields with no stable server id.
               <div key={idx} style={ROW_STYLE}>
                 <Input
                   value={h.k}

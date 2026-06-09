@@ -64,11 +64,11 @@ const S3_URI_REGEX = /^s3:\/\/[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\/.+$/;
  * upstream Decepticon emitter and the data-model literal.
  */
 export const FindingSeverityEnum = z.enum([
-  "critical",
-  "high",
-  "medium",
-  "low",
-  "informational",
+	"critical",
+	"high",
+	"medium",
+	"low",
+	"informational",
 ]);
 
 export type FindingSeverity = z.infer<typeof FindingSeverityEnum>;
@@ -78,10 +78,10 @@ export type FindingSeverity = z.infer<typeof FindingSeverityEnum>;
  * Optional in the YAML frontmatter (some findings ship without it).
  */
 export const FindingConfidenceEnum = z.enum([
-  "verified",
-  "high",
-  "medium",
-  "low",
+	"verified",
+	"high",
+	"medium",
+	"low",
 ]);
 
 export type FindingConfidence = z.infer<typeof FindingConfidenceEnum>;
@@ -105,38 +105,38 @@ export type FindingConfidence = z.infer<typeof FindingConfidenceEnum>;
  * forward-compatibility guarantee the contract gives Decepticon.
  */
 export const RawYamlFrontmatterSchema = z
-  .object({
-    id: z.string().min(1, { message: "Frontmatter `id` is required" }),
-    severity: FindingSeverityEnum,
-    title: z.string().min(1, { message: "Frontmatter `title` is required" }),
+	.object({
+		id: z.string().min(1, { message: "Frontmatter `id` is required" }),
+		severity: FindingSeverityEnum,
+		title: z.string().min(1, { message: "Frontmatter `title` is required" }),
 
-    cvss_score: z.number().min(0).max(10).optional(),
-    cvss_vector: z.string().min(1).optional(),
-    cvss_version: z.string().min(1).optional(),
+		cvss_score: z.number().min(0).max(10).optional(),
+		cvss_vector: z.string().min(1).optional(),
+		cvss_version: z.string().min(1).optional(),
 
-    cwe: z.array(z.string().min(1)).optional(),
-    mitre: z.array(z.string().min(1)).optional(),
+		cwe: z.array(z.string().min(1)).optional(),
+		mitre: z.array(z.string().min(1)).optional(),
 
-    affected_target: z.string().min(1).optional(),
-    affected_component: z.string().min(1).optional(),
+		affected_target: z.string().min(1).optional(),
+		affected_component: z.string().min(1).optional(),
 
-    confidence: FindingConfidenceEnum.optional(),
-    phase: z.string().min(1).optional(),
-    agent: z.string().min(1).optional(),
-    objective_id: z.string().min(1).optional(),
+		confidence: FindingConfidenceEnum.optional(),
+		phase: z.string().min(1).optional(),
+		agent: z.string().min(1).optional(),
+		objective_id: z.string().min(1).optional(),
 
-    /**
-     * `discovered_at` may arrive as either an ISO-8601 string or unix ms.
-     * Both are passed through verbatim; coercion to `INTEGER` happens in
-     * the ingest layer where the data-model column type is known.
-     */
-    discovered_at: z.union([z.string().min(1), z.number().int()]).optional(),
+		/**
+		 * `discovered_at` may arrive as either an ISO-8601 string or unix ms.
+		 * Both are passed through verbatim; coercion to `INTEGER` happens in
+		 * the ingest layer where the data-model column type is known.
+		 */
+		discovered_at: z.union([z.string().min(1), z.number().int()]).optional(),
 
-    remediation_priority: z
-      .union([z.string().min(1), z.number().int()])
-      .optional(),
-  })
-  .passthrough();
+		remediation_priority: z
+			.union([z.string().min(1), z.number().int()])
+			.optional(),
+	})
+	.passthrough();
 
 export type RawYamlFrontmatter = z.infer<typeof RawYamlFrontmatterSchema>;
 
@@ -169,55 +169,51 @@ export type RawYamlFrontmatter = z.infer<typeof RawYamlFrontmatterSchema>;
  * carries them into `raw_yaml_json` downstream.
  */
 function parseYamlFrontmatter(raw: string): Record<string, unknown> {
-  const stripped = raw
-    .replace(/^---\s*\n/, "")
-    .replace(/\n---\s*$/, "")
-    .trim();
+	const stripped = raw
+		.replace(/^---\s*\n/, "")
+		.replace(/\n---\s*$/, "")
+		.trim();
 
-  const out: Record<string, unknown> = {};
+	const out: Record<string, unknown> = {};
 
-  for (const rawLine of stripped.split("\n")) {
-    const line = rawLine.trim();
-    if (line.length === 0 || line.startsWith("#")) continue;
+	for (const rawLine of stripped.split("\n")) {
+		const line = rawLine.trim();
+		if (line.length === 0 || line.startsWith("#")) continue;
 
-    const colonIdx = line.indexOf(":");
-    if (colonIdx <= 0) continue;
+		const colonIdx = line.indexOf(":");
+		if (colonIdx <= 0) continue;
 
-    const key = line.slice(0, colonIdx).trim();
-    let value = line.slice(colonIdx + 1).trim();
+		const key = line.slice(0, colonIdx).trim();
+		let value = line.slice(colonIdx + 1).trim();
 
-    // Strip surrounding double quotes (preserves the inner string verbatim).
-    if (
-      value.length >= 2 &&
-      value.startsWith('"') &&
-      value.endsWith('"')
-    ) {
-      value = value.slice(1, -1);
-      out[key] = value;
-      continue;
-    }
+		// Strip surrounding double quotes (preserves the inner string verbatim).
+		if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+			value = value.slice(1, -1);
+			out[key] = value;
+			continue;
+		}
 
-    // Bracketed array → string[].
-    if (value.startsWith("[") && value.endsWith("]")) {
-      const inner = value.slice(1, -1).trim();
-      if (inner.length === 0) {
-        out[key] = [];
-      } else {
-        out[key] = inner.split(",").map((item) => item.trim());
-      }
-      continue;
-    }
+		// Bracketed array → string[].
+		if (value.startsWith("[") && value.endsWith("]")) {
+			const inner = value.slice(1, -1).trim();
+			if (inner.length === 0) {
+				out[key] = [];
+			} else {
+				out[key] = inner.split(",").map((item) => item.trim());
+			}
+			continue;
+		}
 
-    // Bare numeric → number (lets z.number() fields parse cleanly).
-    if (value.length > 0 && /^-?\d+(\.\d+)?$/.test(value)) {
-      out[key] = Number(value);
-      continue;
-    }
+		// Bare numeric → number (lets z.number() fields parse cleanly).
+		if (value.length > 0 && /^-?\d+(\.\d+)?$/.test(value)) {
+			out[key] = Number(value);
+			continue;
+		}
 
-    out[key] = value;
-  }
+		out[key] = value;
+	}
 
-  return out;
+	return out;
 }
 
 /**
@@ -233,23 +229,23 @@ function parseYamlFrontmatter(raw: string): Record<string, unknown> {
  * branch on the wire shape.
  */
 const RawYamlFrontmatterField = z
-  .union([z.record(z.string(), z.unknown()), z.string().min(1)])
-  .transform((value, ctx) => {
-    const candidate =
-      typeof value === "string" ? parseYamlFrontmatter(value) : value;
+	.union([z.record(z.string(), z.unknown()), z.string().min(1)])
+	.transform((value, ctx) => {
+		const candidate =
+			typeof value === "string" ? parseYamlFrontmatter(value) : value;
 
-    const parsed = RawYamlFrontmatterSchema.safeParse(candidate);
-    if (!parsed.success) {
-      for (const issue of parsed.error.issues) {
-        ctx.addIssue({
-          ...issue,
-          path: ["raw_yaml_frontmatter", ...issue.path],
-        });
-      }
-      return z.NEVER;
-    }
-    return parsed.data;
-  });
+		const parsed = RawYamlFrontmatterSchema.safeParse(candidate);
+		if (!parsed.success) {
+			for (const issue of parsed.error.issues) {
+				ctx.addIssue({
+					...issue,
+					path: ["raw_yaml_frontmatter", ...issue.path],
+				});
+			}
+			return z.NEVER;
+		}
+		return parsed.data;
+	});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Per-finding wire shape
@@ -267,12 +263,16 @@ const RawYamlFrontmatterField = z
  *     is almost certainly the agent looping).
  */
 export const FindingFromAgentSchema = z.object({
-  raw_yaml_frontmatter: RawYamlFrontmatterField,
-  body_md: z.string().max(50_000),
-  evidence_keys: z.array(z.string().min(1)).max(100),
+	raw_yaml_frontmatter: RawYamlFrontmatterField,
+	body_md: z.string().max(50_000),
+	evidence_keys: z.array(z.string().min(1)).max(100),
 });
 
 export type FindingFromAgent = z.infer<typeof FindingFromAgentSchema>;
+
+export const WebhookTerminalStatusEnum = z.enum(["completed", "failed"]);
+
+export type WebhookTerminalStatus = z.infer<typeof WebhookTerminalStatusEnum>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Top-level body
@@ -289,27 +289,56 @@ export type FindingFromAgent = z.infer<typeof FindingFromAgentSchema>;
  *     where wall-clock-vs-DB-clock semantics live
  *   - `findings` is an array (may be empty for zero-findings scans),
  *     capped at 1000 to bound the per-request memory + DB write budget
- *   - `evidence_archive_url` is an `s3://` URI; bucket-name policy
- *     enforcement is in the route handler
+ *   - `status` defaults to `completed` for legacy payloads; `failed` is a
+ *     terminal runner-failure callback
+ *   - `evidence_archive_url` is an `s3://` URI when present; completed
+ *     callbacks require it and bucket-name policy enforcement is in the route
+ *     handler. Failed callbacks may omit it.
  *   - `duration_seconds` is a non-negative integer
  *   - `decepticon_events_count` is an optional observability metric
  */
-export const WebhookScanCompleteBodySchema = z.object({
-  scan_order_id: z
-    .string()
-    .length(26)
-    .regex(CROCKFORD_ULID_REGEX, {
-      message: "scan_order_id must be a 26-character Crockford ULID",
-    }),
-  completed_at: z.number().int().positive(),
-  decepticon_events_count: z.number().int().nonnegative().optional(),
-  findings: z.array(FindingFromAgentSchema).max(1000),
-  evidence_archive_url: z.string().regex(S3_URI_REGEX, {
-    message: "evidence_archive_url must be an s3:// URI",
-  }),
-  duration_seconds: z.number().int().nonnegative(),
-});
+export const WebhookScanCompleteBodySchema = z
+	.object({
+		scan_order_id: z.string().length(26).regex(CROCKFORD_ULID_REGEX, {
+			message: "scan_order_id must be a 26-character Crockford ULID",
+		}),
+		status: WebhookTerminalStatusEnum.optional().default("completed"),
+		failure_reason: z.string().min(1).max(255).nullable().optional(),
+		completed_at: z.number().int().positive(),
+		decepticon_events_count: z.number().int().nonnegative().optional(),
+		findings: z.array(FindingFromAgentSchema).max(1000),
+		evidence_archive_url: z
+			.string()
+			.regex(S3_URI_REGEX, {
+				message: "evidence_archive_url must be an s3:// URI",
+			})
+			.nullable()
+			.optional(),
+		duration_seconds: z.number().int().nonnegative(),
+	})
+	.superRefine((value, ctx) => {
+		if (value.status === "completed" && !value.evidence_archive_url) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["evidence_archive_url"],
+				message: "evidence_archive_url is required when status is completed",
+			});
+		}
+		if (value.status === "failed" && !value.failure_reason) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["failure_reason"],
+				message: "failure_reason is required when status is failed",
+			});
+		}
+	})
+	.transform((value) => ({
+		...value,
+		failure_reason:
+			value.status === "failed" ? (value.failure_reason ?? null) : null,
+		evidence_archive_url: value.evidence_archive_url ?? null,
+	}));
 
 export type WebhookScanCompleteBody = z.infer<
-  typeof WebhookScanCompleteBodySchema
+	typeof WebhookScanCompleteBodySchema
 >;

@@ -1129,8 +1129,9 @@ const en = {
     errGeneric: 'Error',
     step1: {
       domainLabel: 'Primary domain',
-      domainHint: 'Lowercase hostname (e.g. example.com). No scheme, no trailing dot.',
-      domainErrInvalid: 'Must be a lowercase RFC 1035 hostname.',
+      domainHint:
+        'Public lowercase hostname (e.g. example.com). No scheme, IP, localhost, or trailing dot.',
+      domainErrInvalid: 'Must be a public lowercase DNS hostname.',
       subdomainsLabel: 'Subdomains',
       subdomainsHint:
         'Add hostnames that should also be in scope. Toggle to include or exclude.',
@@ -1139,7 +1140,7 @@ const en = {
       subdomainAdd: 'Add subdomain',
       subdomainRemove: 'Remove',
       subdomainErrDup: 'Already added.',
-      subdomainErrInvalid: 'Must be a lowercase RFC 1035 hostname.',
+      subdomainErrInvalid: 'Must be a public lowercase DNS hostname.',
       headersLabel: 'Global request headers',
       headersHint:
         'Up to 10 headers attached to every probe (e.g. Authorization, X-Test).',
@@ -2544,8 +2545,9 @@ const ru: TensolDict = {
     step1: {
       domainLabel: 'Основной домен',
       domainHint:
-        'Хостнейм в нижнем регистре (например, example.com). Без схемы и завершающей точки.',
-      domainErrInvalid: 'Допустим только хостнейм RFC 1035 в нижнем регистре.',
+        'Публичный хостнейм в нижнем регистре (например, example.com). Без схемы, IP, localhost и завершающей точки.',
+      domainErrInvalid:
+        'Допустим только публичный DNS-хостнейм в нижнем регистре.',
       subdomainsLabel: 'Поддомены',
       subdomainsHint:
         'Добавьте хостнеймы, которые также должны быть в периметре. Переключайте для включения или исключения.',
@@ -2554,7 +2556,8 @@ const ru: TensolDict = {
       subdomainAdd: 'Добавить поддомен',
       subdomainRemove: 'Удалить',
       subdomainErrDup: 'Уже добавлен.',
-      subdomainErrInvalid: 'Допустим только хостнейм RFC 1035 в нижнем регистре.',
+      subdomainErrInvalid:
+        'Допустим только публичный DNS-хостнейм в нижнем регистре.',
       headersLabel: 'Глобальные HTTP-заголовки',
       headersHint:
         'До 10 заголовков, добавляемых к каждому запросу (например, Authorization, X-Test).',

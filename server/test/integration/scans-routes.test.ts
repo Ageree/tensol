@@ -287,6 +287,12 @@ function seedReport(
 interface BuildAppOpts {
 	readonly db: DB;
 	readonly now?: () => number;
+	readonly reportDownloadUrl?: (input: {
+		bucket: string;
+		key: string;
+		expiresAt: number | null;
+		nowMs: number;
+	}) => { url: string; expiresAt: number } | null;
 }
 
 function buildApp(opts: BuildAppOpts): Hono<{ Variables: AuthVariables }> {
@@ -301,6 +307,9 @@ function buildApp(opts: BuildAppOpts): Hono<{ Variables: AuthVariables }> {
 		auditKey: SIGNING_KEY,
 		now: nowFn,
 		requireAuth,
+		...(opts.reportDownloadUrl
+			? { reportDownloadUrl: opts.reportDownloadUrl }
+			: {}),
 	});
 	const app = new Hono<{ Variables: AuthVariables }>();
 	app.route("/v1/scans", router);
@@ -657,9 +666,25 @@ describe("GET /v1/scans/:id/findings/:findingId (detail)", () => {
 // ---------------------------------------------------------------------------
 
 describe("GET /v1/scans/:id/report (meta)", () => {
-	test("ready report → 200 with status=ready + byte_size + download_url", async () => {
+	test("ready report → 200 with status=ready + byte_size + presigned download_url", async () => {
 		const db = freshMemDb();
-		const app = buildApp({ db });
+		const signedUrls: Array<{
+			bucket: string;
+			key: string;
+			expiresAt: number | null;
+			nowMs: number;
+		}> = [];
+		const app = buildApp({
+			db,
+			now: () => 1_700_000_400_000,
+			reportDownloadUrl: (input) => {
+				signedUrls.push(input);
+				return {
+					url: `https://storage.example/${input.bucket}/${input.key}?signed=1`,
+					expiresAt: 1_700_000_460_000,
+				};
+			},
+		});
 		const { cookie, userId } = seedUserAndSession(db);
 		const { scanId } = seedScanOrderAndScan(db, userId);
 		seedReport(db, scanId, { status: "ready" });
@@ -676,10 +701,39 @@ describe("GET /v1/scans/:id/report (meta)", () => {
 		};
 		expect(body.status).toBe("ready");
 		expect(body.byte_size).toBe(12345);
-		// download_url is a placeholder (presigning is out-of-scope for the
-		// route layer); just verify the field is present and non-null when ready.
-		expect(typeof body.download_url).toBe("string");
-		expect(typeof body.download_expires_at).toBe("number");
+		expect(body.download_url).toBe(
+			`https://storage.example/tensol-evidence/reports/${scanId}.pdf?signed=1`,
+		);
+		expect(body.download_expires_at).toBe(1_700_000_460_000);
+		expect(signedUrls).toEqual([
+			{
+				bucket: "tensol-evidence",
+				key: `reports/${scanId}.pdf`,
+				expiresAt: 1_702_592_300_000,
+				nowMs: 1_700_000_400_000,
+			},
+		]);
+	});
+
+	test("ready report without download signer → 200 with null download_url", async () => {
+		const db = freshMemDb();
+		const app = buildApp({ db });
+		const { cookie, userId } = seedUserAndSession(db);
+		const { scanId } = seedScanOrderAndScan(db, userId);
+		seedReport(db, scanId, { status: "ready" });
+
+		const res = await app.request(`/v1/scans/${scanId}/report`, {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			status: string;
+			download_url: string | null;
+			download_expires_at: number | null;
+		};
+		expect(body.status).toBe("ready");
+		expect(body.download_url).toBeNull();
+		expect(body.download_expires_at).toBeNull();
 	});
 
 	test("pending report → 200 with status=pending + null url", async () => {

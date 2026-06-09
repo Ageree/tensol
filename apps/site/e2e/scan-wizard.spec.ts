@@ -42,186 +42,198 @@
  * Constitution VII: server-side Zod is canonical; this spec mirrors the
  *   snake_case contract shapes from `specs/002-blackbox-mvp/contracts/`.
  *
- * NOTE: this spec is scaffolded so that running it requires the v2
- * test-server (T102 deliverable). Until then, this file documents the
- * full happy-path assertions and type-checks cleanly under `@playwright/
- * test`.
+ * The Playwright config starts the v2 test-server for this spec; keep the
+ * assertions aligned with the live `/v1/scan-orders` and scan-complete
+ * webhook contract rather than the quarantined legacy first-scan flow.
  */
-import { test, expect, request as pwRequest } from '@playwright/test';
+import { expect, request as pwRequest, test } from "@playwright/test";
 import {
-  attachSessionCookie,
-  BACKEND_BASE_URL,
-  FRONTEND_BASE_URL,
-  pollUntil,
-  seedSession,
-  simulateScanComplete,
-} from './helpers/scan-wizard-helpers.ts';
+	BACKEND_BASE_URL,
+	FRONTEND_BASE_URL,
+	attachSessionCookie,
+	pollUntil,
+	seedSession,
+	simulateScanComplete,
+} from "./helpers/scan-wizard-helpers.ts";
 
 // ── Test ───────────────────────────────────────────────────────────────────
 
-test.describe('T091 — scan wizard happy path (US1)', () => {
-  // The DNS bypass alone needs ~5s, plus VM provisioning + webhook +
-  // render_pdf job ticks; budget generously for slow CI workers.
-  test.setTimeout(120_000);
+test.describe("T091 — scan wizard happy path (US1)", () => {
+	// The DNS bypass alone needs ~5s, plus VM provisioning + webhook +
+	// render_pdf job ticks; budget generously for slow CI workers.
+	test.setTimeout(120_000);
 
-  test('landing → wizard 1..4 → live → findings → report', async ({
-    page,
-    context,
-  }) => {
-    // ─────────────────────────────────────────────────────────────────
-    // 1. Seed user + session via backend test helper, drop cookie.
-    // ─────────────────────────────────────────────────────────────────
-    const backend = await pwRequest.newContext({ baseURL: BACKEND_BASE_URL });
-    try {
-      const seed = await seedSession(
-        backend,
-        `e2e+wizard+${Date.now()}@example.test`,
-      );
+	test("landing → wizard 1..4 → live → findings → report", async ({
+		page,
+		context,
+	}, testInfo) => {
+		// ─────────────────────────────────────────────────────────────────
+		// 1. Seed user + session via backend test helper, drop cookie.
+		// ─────────────────────────────────────────────────────────────────
+		const backend = await pwRequest.newContext({ baseURL: BACKEND_BASE_URL });
+		try {
+			const emailSuffix = [
+				testInfo.project.name,
+				testInfo.workerIndex,
+				Date.now(),
+				Math.random().toString(36).slice(2),
+			].join("-");
+			const seed = await seedSession(
+				backend,
+				`e2e+wizard+${emailSuffix}@example.test`,
+			);
 
-      await attachSessionCookie(context, seed.session_id, FRONTEND_BASE_URL);
+			await attachSessionCookie(context, seed.session_id, FRONTEND_BASE_URL);
 
-      // ───────────────────────────────────────────────────────────────
-      // 2. Navigate to /scan/new — Step 1 renders before creating a
-      //    backend order, because POST /v1/scan-orders requires the
-      //    primary_domain chosen by the user.
-      // ───────────────────────────────────────────────────────────────
-      await page.goto('/scan/new');
-      await expect(
-        page.locator('[data-testid="wizard-step1-domain"]'),
-      ).toBeVisible({ timeout: 15_000 });
+			// ───────────────────────────────────────────────────────────────
+			// 2. Navigate to /scan/new — Step 1 renders before creating a
+			//    backend order, because POST /v1/scan-orders requires the
+			//    primary_domain chosen by the user.
+			// ───────────────────────────────────────────────────────────────
+			await page.goto("/scan/new");
+			await expect(
+				page.locator('[data-testid="wizard-step1-domain"]'),
+			).toBeVisible({ timeout: 15_000 });
 
-      // ───────────────────────────────────────────────────────────────
-      // 3. Step 1 — Attack Surface: enter domain.
-      // ───────────────────────────────────────────────────────────────
-      await page.locator('[data-testid="wizard-step1-domain"]').fill('example.com');
-      await page.locator('button:has-text("Next")').click();
+			// ───────────────────────────────────────────────────────────────
+			// 3. Step 1 — Attack Surface: enter domain.
+			// ───────────────────────────────────────────────────────────────
+			await page
+				.locator('[data-testid="wizard-step1-domain"]')
+				.fill("example.com");
+			await page.locator('button:has-text("Next")').click();
 
-      // Wait for Step 2 and capture the orderId created by the Step 1
-      // commit. We need the order ID for the webhook-complete step.
-      await page.waitForURL(/\/scan\/new\/[0-9A-HJKMNP-TV-Z]{26}\/safety/i, {
-        timeout: 10_000,
-      });
-      const wizardUrl = new URL(page.url());
-      const orderIdMatch = wizardUrl.pathname.match(
-        /\/scan\/new\/([0-9A-HJKMNP-TV-Z]{26})\/safety/i,
-      );
-      expect(orderIdMatch).not.toBeNull();
-      const scanOrderId = orderIdMatch![1]!;
+			// Wait for Step 2 and capture the orderId created by the Step 1
+			// commit. We need the order ID for the webhook-complete step.
+			await page.waitForURL(/\/scan\/new\/[0-9A-HJKMNP-TV-Z]{26}\/safety/i, {
+				timeout: 10_000,
+			});
+			const wizardUrl = new URL(page.url());
+			const orderIdMatch = wizardUrl.pathname.match(
+				/\/scan\/new\/([0-9A-HJKMNP-TV-Z]{26})\/safety/i,
+			);
+			expect(orderIdMatch).not.toBeNull();
+			const scanOrderId = orderIdMatch?.[1];
+			if (!scanOrderId) {
+				throw new Error(`scan order id missing from URL ${wizardUrl.pathname}`);
+			}
 
-      // ───────────────────────────────────────────────────────────────
-      // 4. Step 2 — Safety: pick the Safe preset (RPS=10) → Next.
-      // ───────────────────────────────────────────────────────────────
-      // Safe preset button label format: "Safe · 10" (per Step2Safety.tsx).
-      await page.locator('button:has-text("Safe")').first().click();
-      await page.locator('button:has-text("Next")').click();
+			// ───────────────────────────────────────────────────────────────
+			// 4. Step 2 — Safety: pick the Safe preset (RPS=10) → Next.
+			// ───────────────────────────────────────────────────────────────
+			// Safe preset button label format: "Safe · 10" (per Step2Safety.tsx).
+			await page.locator('button:has-text("Safe")').first().click();
+			await page.locator('button:has-text("Next")').click();
 
-      // Wait for step-3 URL slug.
-      await page.waitForURL(/\/scan\/new\/[0-9A-HJKMNP-TV-Z]{26}\/verify/i, {
-        timeout: 10_000,
-      });
+			// Wait for step-3 URL slug.
+			await page.waitForURL(/\/scan\/new\/[0-9A-HJKMNP-TV-Z]{26}\/verify/i, {
+				timeout: 10_000,
+			});
 
-      // ───────────────────────────────────────────────────────────────
-      // 5. Step 3 — DNS Verify: wait for the bypass to auto-verify.
-      //    Step3DnsVerify polls every 5s; the bypass kicks in after
-      //    ≥5s elapsed. Budget 30s for the first auto-verification.
-      // ───────────────────────────────────────────────────────────────
-      await expect(
-        page.locator('[data-testid="wizard-step3-txt-card"]'),
-      ).toBeVisible({ timeout: 10_000 });
+			// ───────────────────────────────────────────────────────────────
+			// 5. Step 3 — DNS Verify: wait for the bypass to auto-verify.
+			//    Step3DnsVerify polls every 5s; the bypass kicks in after
+			//    ≥5s elapsed. Budget 30s for the first auto-verification.
+			// ───────────────────────────────────────────────────────────────
+			await expect(
+				page.locator('[data-testid="wizard-step3-txt-card"]'),
+			).toBeVisible({ timeout: 10_000 });
 
-      // Step3DnsVerify auto-navigates to /wizard/:id/step-4 on verified,
-      // but the canonical container route is /scan/new/:id/launch. Either
-      // shape lands us at step 4. Wait for the Step 4 launch button to
-      // appear, however we arrive there.
-      await expect(
-        page.locator('[data-testid="wizard-step4-launch-btn"]'),
-      ).toBeVisible({ timeout: 60_000 });
+			// Step3DnsVerify auto-navigates to /wizard/:id/step-4 on verified,
+			// but the canonical container route is /scan/new/:id/launch. Either
+			// shape lands us at step 4. Wait for the Step 4 launch button to
+			// appear, however we arrive there.
+			await expect(
+				page.locator('[data-testid="wizard-step4-launch-btn"]'),
+			).toBeVisible({ timeout: 60_000 });
 
-      // ───────────────────────────────────────────────────────────────
-      // 6. Step 4 — Review/Launch: click Launch → /scan/:scanId.
-      // ───────────────────────────────────────────────────────────────
-      // Confirm summary card surfaces the entered values.
-      await expect(
-        page.locator('[data-testid="wizard-step4-domain"]'),
-      ).toHaveText('example.com');
-      await expect(
-        page.locator('[data-testid="wizard-step4-rps"]'),
-      ).toHaveText('10');
-      await expect(
-        page.locator('[data-testid="wizard-step4-dns-verified"]'),
-      ).not.toHaveText(/false|нет/i);
+			// ───────────────────────────────────────────────────────────────
+			// 6. Step 4 — Review/Launch: click Launch → /scan/:scanId.
+			// ───────────────────────────────────────────────────────────────
+			// Confirm summary card surfaces the entered values.
+			await expect(
+				page.locator('[data-testid="wizard-step4-domain"]'),
+			).toHaveText("example.com");
+			await expect(page.locator('[data-testid="wizard-step4-rps"]')).toHaveText(
+				"10",
+			);
+			await expect(
+				page.locator('[data-testid="wizard-step4-dns-verified"]'),
+			).not.toHaveText(/false|нет/i);
 
-      await page.locator('[data-testid="wizard-step4-launch-btn"]').click();
+			await page.locator('[data-testid="wizard-step4-launch-btn"]').click();
 
-      // Launch redirects to /scan/:scanId — capture the scan ID.
-      await page.waitForURL(/\/scan\/[0-9A-HJKMNP-TV-Z]{26}$/i, {
-        timeout: 15_000,
-      });
+			// Launch redirects to /scan/:scanId — capture the scan ID.
+			await page.waitForURL(/\/scan\/[0-9A-HJKMNP-TV-Z]{26}$/i, {
+				timeout: 15_000,
+			});
 
-      // ───────────────────────────────────────────────────────────────
-      // 7. Simulate the VPS pushing a complete payload via the real
-      //    /v1/webhooks/scan-complete endpoint. Replays Juice Shop
-      //    fixture (9 findings) signed with TENSOL_WEBHOOK_SECRET.
-      // ───────────────────────────────────────────────────────────────
-      const webhookRes = await simulateScanComplete(backend, scanOrderId);
-      expect(webhookRes.ok).toBe(true);
-      expect(webhookRes.inserted_findings).toBe(9);
+			// ───────────────────────────────────────────────────────────────
+			// 7. Simulate the VPS pushing a complete payload via the real
+			//    /v1/webhooks/scan-complete endpoint. Replays Juice Shop
+			//    fixture (9 findings) signed with TENSOL_WEBHOOK_SECRET.
+			// ───────────────────────────────────────────────────────────────
+			const webhookRes = await simulateScanComplete(backend, scanOrderId);
+			expect(webhookRes.ok).toBe(true);
+			expect(webhookRes.inserted_findings).toBe(9);
 
-      // ───────────────────────────────────────────────────────────────
-      // 8. Live page — wait for "completed" status to render.
-      //    Live polls every few seconds; budget 30s.
-      // ───────────────────────────────────────────────────────────────
-      await expect(page.locator('body')).toContainText(/completed/i, {
-        timeout: 30_000,
-      });
+			// ───────────────────────────────────────────────────────────────
+			// 8. Live page — wait for "completed" status to render.
+			//    Live polls every few seconds; budget 30s.
+			// ───────────────────────────────────────────────────────────────
+			await expect(page.locator("body")).toContainText(/completed/i, {
+				timeout: 30_000,
+			});
 
-      // The "Findings" + "Report" CTAs only show when status is terminal.
-      await expect(page.locator('a[href$="/findings"]')).toBeVisible({
-        timeout: 10_000,
-      });
-      await expect(page.locator('a[href$="/report"]')).toBeVisible();
+			// The "Findings" + "Report" CTAs only show when status is terminal.
+			await expect(page.locator('a[href$="/findings"]')).toBeVisible({
+				timeout: 10_000,
+			});
+			await expect(page.locator('a[href$="/report"]')).toBeVisible();
 
-      // ───────────────────────────────────────────────────────────────
-      // 9. Findings page — assert all 9 Juice Shop findings render.
-      // ───────────────────────────────────────────────────────────────
-      await page.locator('a[href$="/findings"]').first().click();
-      await page.waitForURL(/\/scan\/[0-9A-HJKMNP-TV-Z]{26}\/findings$/i, {
-        timeout: 10_000,
-      });
+			// ───────────────────────────────────────────────────────────────
+			// 9. Findings page — assert all 9 Juice Shop findings render.
+			// ───────────────────────────────────────────────────────────────
+			await page.locator('a[href$="/findings"]').first().click();
+			await page.waitForURL(/\/scan\/[0-9A-HJKMNP-TV-Z]{26}\/findings$/i, {
+				timeout: 10_000,
+			});
 
-      // Findings.tsx renders `countOf` text like "Showing N of M". We
-      // simply assert "9" appears somewhere on the page; tighter selector
-      // can be added once a stable data-testid lands on the count badge.
-      await expect(page.locator('body')).toContainText(/9/, {
-        timeout: 15_000,
-      });
+			// Findings.tsx renders `countOf` text like "Showing N of M". We
+			// simply assert "9" appears somewhere on the page; tighter selector
+			// can be added once a stable data-testid lands on the count badge.
+			await expect(page.locator("body")).toContainText(/9/, {
+				timeout: 15_000,
+			});
 
-      // ───────────────────────────────────────────────────────────────
-      // 10. Report page — assert status=ready + download link visible.
-      //     render_pdf job is enqueued by the webhook handler; budget
-      //     60s for the runner to pick it up and the page to poll the
-      //     status into `ready`.
-      // ───────────────────────────────────────────────────────────────
-      await page.goBack();
-      await page.locator('a[href$="/report"]').first().click();
-      await page.waitForURL(/\/scan\/[0-9A-HJKMNP-TV-Z]{26}\/report$/i, {
-        timeout: 10_000,
-      });
+			// ───────────────────────────────────────────────────────────────
+			// 10. Report page — assert status=ready + download link visible.
+			//     render_pdf job is enqueued by the webhook handler; budget
+			//     60s for the runner to pick it up and the page to poll the
+			//     status into `ready`.
+			// ───────────────────────────────────────────────────────────────
+			await page.goBack();
+			await page.locator('a[href$="/report"]').first().click();
+			await page.waitForURL(/\/scan\/[0-9A-HJKMNP-TV-Z]{26}\/report$/i, {
+				timeout: 10_000,
+			});
 
-      await pollUntil(
-        async () => {
-          const text = await page.locator('body').innerText();
-          return /ready|готов/i.test(text) ? true : undefined;
-        },
-        { intervalMs: 1_000, timeoutMs: 60_000, label: 'report→ready' },
-      );
+			await pollUntil(
+				async () => {
+					const text = await page.locator("body").innerText();
+					return /ready|готов/i.test(text) ? true : undefined;
+				},
+				{ intervalMs: 1_000, timeoutMs: 60_000, label: "report→ready" },
+			);
 
-      // Download CTA must be visible once the report is ready.
-      await expect(
-        page.locator('a[download], a:has-text("Download"), a:has-text("Скачать")').first(),
-      ).toBeVisible({ timeout: 10_000 });
-    } finally {
-      await backend.dispose();
-    }
-  });
+			// Download CTA must be visible once the report is ready.
+			await expect(
+				page
+					.locator('a[download], a:has-text("Download"), a:has-text("Скачать")')
+					.first(),
+			).toBeVisible({ timeout: 10_000 });
+		} finally {
+			await backend.dispose();
+		}
+	});
 });

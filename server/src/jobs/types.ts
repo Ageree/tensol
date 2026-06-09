@@ -29,16 +29,16 @@ import type { jobs } from "../db/schema.ts";
 /** Provision a new VPS instance for a queued scan. Inserted by the
  *  scans service when `startScan` succeeds. */
 export interface SpawnVpsJob {
-  readonly type: "spawn_vps";
-  readonly scan_id: string;
+	readonly type: "spawn_vps";
+	readonly scan_id: string;
 }
 
 /** HMAC-POST the scan request to a now-alive VPS. Inserted by the
  *  `spawn_vps` handler once the VPS reports ready. */
 export interface DispatchScanJob {
-  readonly type: "dispatch_scan";
-  readonly scan_id: string;
-  readonly vps_instance_id: string;
+	readonly type: "dispatch_scan";
+	readonly scan_id: string;
+	readonly vps_instance_id: string;
 }
 
 /** Periodic liveness probe for running scans. Spec calls this
@@ -55,16 +55,16 @@ export interface DispatchScanJob {
  *  with `consecutive_failures=0`. The field is optional for backward
  *  compatibility with existing enqueue sites that pre-date T060. */
 export interface WatchdogJob {
-  readonly type: "watchdog_scan";
-  readonly scan_id: string;
-  readonly consecutive_failures?: number;
+	readonly type: "watchdog_scan";
+	readonly scan_id: string;
+	readonly consecutive_failures?: number;
 }
 
 /** Destroy a VPS after a scan finishes / fails / is cancelled. */
 export interface TeardownVpsJob {
-  readonly type: "teardown_vps";
-  readonly vps_instance_id: string;
-  readonly reason: string;
+	readonly type: "teardown_vps";
+	readonly vps_instance_id: string;
+	readonly reason: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,44 +86,53 @@ export interface TeardownVpsJob {
 
 /** T056 — provision a Google Cloud Compute VM for a queued scan. */
 export interface SpawnScanVmJob {
-  readonly type: "spawn_scan_vm";
-  readonly scanOrderId: string;
-  readonly scanId: string;
+	readonly type: "spawn_scan_vm";
+	readonly scanOrderId: string;
+	readonly scanId: string;
 }
 
 /** T058 — destroy a Google Cloud Compute VM. */
 export interface TeardownScanVmJob {
-  readonly type: "teardown_scan_vm";
-  readonly scanOrderId: string;
-  readonly scanId?: string;
-  readonly vpsInstanceId: string;
-  readonly vpsZone?: string;
+	readonly type: "teardown_scan_vm";
+	readonly scanOrderId: string;
+	readonly scanId?: string;
+	readonly vpsInstanceId: string;
+	readonly vpsZone?: string;
 }
 
 /** T060 — render the PDF report and upload to S3. */
 export interface RenderPdfJob {
-  readonly type: "render_pdf";
-  readonly scanId: string;
-  readonly reportId: string;
+	readonly type: "render_pdf";
+	readonly scanId: string;
+	readonly reportId: string;
 }
 
 /** T062 — send the scan-complete Telegram notification (PIVOT applied).
  *  Renamed from `send_scan_complete_email` per
  *  `docs/pivot-2026-05-19-telegram-auth.md`. */
 export interface SendScanCompleteTelegramJob {
-  readonly type: "send_scan_complete_telegram";
-  readonly scanId: string;
-  readonly scanOrderId: string;
-  readonly reportId?: string;
-  readonly userId: string;
+	readonly type: "send_scan_complete_telegram";
+	readonly scanId: string;
+	readonly scanOrderId: string;
+	readonly reportId?: string;
+	readonly userId: string;
+}
+
+/** Operator-facing Telegram notification for a new deep-engagement inquiry. */
+export interface SendDeepInquiryTelegramJob {
+	readonly type: "send_deep_inquiry_telegram";
+	readonly inquiryId?: string;
+	readonly inquiry_id?: string;
+	readonly attemptStartedAt?: number;
+	readonly attempt_started_at?: number;
 }
 
 /** Operator-alert envelope. Emitted by T056/T058/T060 on permanent failure
  *  and by future paths that need to reach the operator's Telegram. */
 export interface RetryTelegramNotificationJob {
-  readonly type: "retry_telegram_notification";
-  readonly kind: string;
-  readonly payload?: Record<string, unknown>;
+	readonly type: "retry_telegram_notification";
+	readonly kind: string;
+	readonly payload?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,42 +149,43 @@ export interface RetryTelegramNotificationJob {
 
 /** Review a GitHub pull request (diff-scoped). Enqueued by the GitHub webhook. */
 export interface PrReviewJob {
-  readonly type: "pr_review";
-  readonly reviewId: string;
+	readonly type: "pr_review";
+	readonly reviewId: string;
 }
 
 /** Whitebox-scan a whole repository (full-tree-scoped). Enqueued by the API. */
 export interface WhiteboxScanJob {
-  readonly type: "whitebox_scan";
-  readonly reviewId: string;
+	readonly type: "whitebox_scan";
+	readonly reviewId: string;
 }
 
 /** Reconcile GitHub review threads after a re-review of the same PR. */
 export interface ResolveThreadsJob {
-  readonly type: "resolve_threads";
-  readonly reviewId: string;
+	readonly type: "resolve_threads";
+	readonly reviewId: string;
 }
 
 /** Pre-index a repo's symbol map (future repo-map cache; no-op in MVP). */
 export interface IndexRepoJob {
-  readonly type: "index_repo";
-  readonly repoId: string;
+	readonly type: "index_repo";
+	readonly repoId: string;
 }
 
 export type Job =
-  | SpawnVpsJob
-  | DispatchScanJob
-  | WatchdogJob
-  | TeardownVpsJob
-  | SpawnScanVmJob
-  | TeardownScanVmJob
-  | RenderPdfJob
-  | SendScanCompleteTelegramJob
-  | RetryTelegramNotificationJob
-  | PrReviewJob
-  | WhiteboxScanJob
-  | ResolveThreadsJob
-  | IndexRepoJob;
+	| SpawnVpsJob
+	| DispatchScanJob
+	| WatchdogJob
+	| TeardownVpsJob
+	| SpawnScanVmJob
+	| TeardownScanVmJob
+	| RenderPdfJob
+	| SendScanCompleteTelegramJob
+	| SendDeepInquiryTelegramJob
+	| RetryTelegramNotificationJob
+	| PrReviewJob
+	| WhiteboxScanJob
+	| ResolveThreadsJob
+	| IndexRepoJob;
 
 export type JobType = Job["type"];
 
@@ -183,10 +193,10 @@ export type JobType = Job["type"];
  *  same handler registry). `spawn_vps` and `teardown_vps` are deprecated
  *  aliases — see `runner.ts` for the warn-and-route behaviour. */
 export type LegacyJobType =
-  | "spawn_vps"
-  | "dispatch_scan"
-  | "watchdog_scan"
-  | "teardown_vps";
+	| "spawn_vps"
+	| "dispatch_scan"
+	| "watchdog_scan"
+	| "teardown_vps";
 
 /** The 002 additions that participate in the Dispatcher map optionally —
  *  this lets test fixtures keep registering only the legacy 4 without
@@ -213,13 +223,13 @@ export type JobStatus = "pending" | "running" | "done" | "failed";
  *  the DB handle: handlers reach out to the singleton `db` they were
  *  closed over at registration time. */
 export interface HandlerContext {
-  readonly jobId: string;
-  readonly attempts: number;
+	readonly jobId: string;
+	readonly attempts: number;
 }
 
 export type Handler<P extends Job> = (
-  payload: P,
-  ctx: HandlerContext,
+	payload: P,
+	ctx: HandlerContext,
 ) => Promise<void> | void;
 
 /** Compile-time map: every LEGACY job discriminant MUST have a
@@ -231,7 +241,7 @@ export type Handler<P extends Job> = (
  *  present in the Dispatcher, it marks the row permanently failed via
  *  the existing "no handler registered" branch in `runner.ts`. */
 export type Dispatcher = {
-  [K in LegacyJobType]: Handler<Extract<Job, { type: K }>>;
+	[K in LegacyJobType]: Handler<Extract<Job, { type: K }>>;
 } & {
-  [K in BlackboxJobType]?: Handler<Extract<Job, { type: K }>>;
+	[K in BlackboxJobType]?: Handler<Extract<Job, { type: K }>>;
 };

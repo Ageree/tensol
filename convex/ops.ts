@@ -49,7 +49,7 @@ export const markVmRunning = internalMutation({
       await ctx.scheduler.runAfter(0, internal.gcloud.teardownScanVm, {
         scanId: args.scanId,
       });
-      return vpsId;
+      return { vpsId, status: "tearing_down" as const };
     }
     await ctx.db.patch(scan._id, { status: "running" });
     await ctx.db.patch(order._id, {
@@ -71,7 +71,7 @@ export const markVmRunning = internalMutation({
       payload: { transport: args.provider === "dry_run" ? "convex-dry-run" : "gcp-vps-agent" },
       created_at: now + 1,
     });
-    return vpsId;
+    return { vpsId, status: "running" as const };
   },
 });
 
@@ -79,14 +79,36 @@ export const failScan = internalMutation({
   args: {
     scanId: v.id("scans"),
     reason: v.string(),
+    dedupKey: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const scan = await ctx.db.get(args.scanId);
-    if (!scan) return null;
+    if (!scan) return { status: "not_found" as const };
     const order = await ctx.db.get(scan.scan_order_id);
     const now = Date.now();
-    if (["completed", "failed", "cancelled"].includes(scan.status)) {
-      return null;
+    const dedupKey = args.dedupKey;
+    if (dedupKey) {
+      const existing = await ctx.db
+        .query("webhookDedup")
+        .withIndex("by_webhook_kind_and_dedup_key", (q) =>
+          q.eq("webhook_kind", "scan_complete").eq("dedup_key", dedupKey),
+        )
+        .first();
+      if (existing) return { status: "duplicate" as const };
+    }
+    if (
+      ["completed", "failed", "cancelled"].includes(scan.status) ||
+      (order && ["completed", "failed", "cancelled"].includes(order.status))
+    ) {
+      return { status: "ignored_terminal" as const };
+    }
+    if (dedupKey) {
+      await ctx.db.insert("webhookDedup", {
+        webhook_kind: "scan_complete",
+        dedup_key: dedupKey,
+        received_at: now,
+        metadata: { scan_id: args.scanId },
+      });
     }
     await ctx.db.patch(scan._id, {
       status: "failed",
@@ -107,7 +129,7 @@ export const failScan = internalMutation({
       payload: { reason: args.reason },
       created_at: now,
     });
-    return null;
+    return { status: "failed" as const };
   },
 });
 
@@ -135,18 +157,20 @@ export const completeScan = internalMutation({
         )
         .first();
       if (existing) return { status: "duplicate" as const };
-      await ctx.db.insert("webhookDedup", {
-        webhook_kind: "scan_complete",
-        dedup_key: dedupKey,
-        received_at: now,
-        metadata: { scan_id: args.scanId },
-      });
     }
     if (
       ["completed", "failed", "cancelled"].includes(scan.status) ||
       ["completed", "failed", "cancelled"].includes(order.status)
     ) {
       return { status: "ignored_terminal" as const };
+    }
+    if (dedupKey) {
+      await ctx.db.insert("webhookDedup", {
+        webhook_kind: "scan_complete",
+        dedup_key: dedupKey,
+        received_at: now,
+        metadata: { scan_id: args.scanId },
+      });
     }
     let count = 0;
     for (const f of args.findings) {
@@ -232,6 +256,100 @@ export const getWebhookVerificationMaterial = internalQuery({
       scanStatus: scan.status,
       vpsStatus: vps.status,
     };
+  },
+});
+
+export const getWebhookScanTarget = internalQuery({
+  args: {
+    scanId: v.optional(v.id("scans")),
+    scanOrderId: v.optional(v.id("scanOrders")),
+  },
+  handler: async (ctx, args) => {
+    if (!args.scanId && !args.scanOrderId) {
+      throw new ConvexError({
+        error: "bad_request",
+        message: "scanId or scanOrderId required",
+      });
+    }
+
+    const scanOrderId = args.scanOrderId;
+    const scan = args.scanId
+      ? await ctx.db.get(args.scanId)
+      : scanOrderId
+        ? await ctx.db
+            .query("scans")
+            .withIndex("by_scan_order_id", (q) =>
+              q.eq("scan_order_id", scanOrderId),
+            )
+            .first()
+        : null;
+    if (!scan) {
+      throw new ConvexError({ error: "not_found", message: "scan not found" });
+    }
+    if (scanOrderId && scan.scan_order_id !== scanOrderId) {
+      throw new ConvexError({
+        error: "conflict",
+        message: "scan does not belong to scanOrderId",
+      });
+    }
+
+    const order = await ctx.db.get(scan.scan_order_id);
+    if (!order) {
+      throw new ConvexError({
+        error: "not_found",
+        message: "scan order not found",
+      });
+    }
+    return {
+      scanId: scan._id,
+      scanOrderId: order._id,
+      scanStatus: scan.status,
+      orderStatus: order.status,
+    };
+  },
+});
+
+export const getScanDispatchMaterial = internalQuery({
+  args: { scanId: v.id("scans") },
+  handler: async (ctx, args) => {
+    const scan = await ctx.db.get(args.scanId);
+    if (!scan) {
+      throw new ConvexError({ error: "not_found", message: "scan not found" });
+    }
+    const order = await ctx.db.get(scan.scan_order_id);
+    if (!order) {
+      throw new ConvexError({
+        error: "not_found",
+        message: "scan order not found",
+      });
+    }
+    return {
+      scanOrderId: order._id,
+      profile: scan.profile,
+      primaryDomain: order.primary_domain,
+    };
+  },
+});
+
+export const markVmPublicIp = internalMutation({
+  args: {
+    scanId: v.id("scans"),
+    publicIp: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const vps = await ctx.db
+      .query("vpsInstances")
+      .withIndex("by_scan_id", (q) => q.eq("scan_id", args.scanId))
+      .order("desc")
+      .first();
+    if (!vps) {
+      throw new ConvexError({ error: "not_found", message: "vps not found" });
+    }
+    await ctx.db.patch(vps._id, {
+      ipv4: args.publicIp,
+      updated_at: Date.now(),
+    });
+    return null;
   },
 });
 

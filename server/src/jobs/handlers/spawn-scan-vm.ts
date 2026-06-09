@@ -72,19 +72,20 @@
  */
 import { eq } from "drizzle-orm";
 
+import { emitSignedAudit } from "../../audit/emit.ts";
 import type { DB } from "../../db/client.ts";
 import { withTx } from "../../db/client.ts";
 import {
-  jobs as jobsTable,
-  scanEvents,
-  scanOrders,
-  scans,
-  vpsInstances,
+	jobs as jobsTable,
+	scanEvents,
+	scanOrders,
+	scans,
+	vpsInstances,
 } from "../../db/schema.ts";
+import { hmacSha256 } from "../../lib/crypto.ts";
 import { ulid } from "../../lib/ids.ts";
 import { now as defaultNow } from "../../lib/time.ts";
-import { emitSignedAudit } from "../../audit/emit.ts";
-import { hmacSha256 } from "../../lib/crypto.ts";
+import { isEvidenceStorageConfigured } from "../../storage/evidence-env.ts";
 import { buildCloudInit } from "../../vps/cloud-init.ts";
 import type { CloudProvider } from "../../vps/provider.ts";
 
@@ -96,97 +97,104 @@ import type { CloudProvider } from "../../vps/provider.ts";
  * decoupled from JSON-key style.
  */
 export interface SpawnScanVmJobPayload {
-  readonly scanOrderId: string;
-  readonly scanId: string;
+	readonly scanOrderId: string;
+	readonly scanId: string;
 }
 
 /** Internal shape used to normalize both casings. */
 interface NormalizedPayload {
-  readonly scanOrderId: string;
-  readonly scanId: string;
+	readonly scanOrderId: string;
+	readonly scanId: string;
 }
 
 function normalizePayload(raw: unknown): NormalizedPayload {
-  if (!raw || typeof raw !== "object") {
-    throw new Error("spawn_scan_vm: payload is not an object");
-  }
-  const r = raw as Record<string, unknown>;
-  const scanOrderId =
-    (typeof r.scanOrderId === "string" && r.scanOrderId) ||
-    (typeof r.scan_order_id === "string" && r.scan_order_id) ||
-    "";
-  const scanId =
-    (typeof r.scanId === "string" && r.scanId) ||
-    (typeof r.scan_id === "string" && r.scan_id) ||
-    "";
-  if (!scanOrderId || !scanId) {
-    throw new Error(
-      `spawn_scan_vm: payload missing scanOrderId/scanId (got ${JSON.stringify(raw)})`,
-    );
-  }
-  return { scanOrderId, scanId };
+	if (!raw || typeof raw !== "object") {
+		throw new Error("spawn_scan_vm: payload is not an object");
+	}
+	const r = raw as Record<string, unknown>;
+	const scanOrderId =
+		(typeof r.scanOrderId === "string" && r.scanOrderId) ||
+		(typeof r.scan_order_id === "string" && r.scan_order_id) ||
+		"";
+	const scanId =
+		(typeof r.scanId === "string" && r.scanId) ||
+		(typeof r.scan_id === "string" && r.scan_id) ||
+		"";
+	if (!scanOrderId || !scanId) {
+		throw new Error(
+			`spawn_scan_vm: payload missing scanOrderId/scanId (got ${JSON.stringify(raw)})`,
+		);
+	}
+	return { scanOrderId, scanId };
 }
 
 export interface SpawnScanVmHandlerDeps {
-  readonly db: DB;
-  readonly provider: CloudProvider;
-  /** Audit-log signing key. */
-  readonly auditKey: string;
-  /** Free-tier refund helper. Injected for testability (T030). */
-  readonly refundFreeQuickQuota: (
-    db: DB,
-    userId: string,
-  ) => Promise<{ refunded: boolean }>;
-  readonly now?: () => number;
-  readonly newId?: () => string;
-  /** Polling cadence / ceiling for the spawnVm `Operation`. */
-  readonly pollIntervalMs?: number;
-  readonly pollTimeoutMs?: number;
-  /** Sleep between provider-retry attempts. Tests override to 1ms. */
-  readonly retryBackoffMs?: number;
-  /** GCP zone label (e.g. "ru-central1-a"). Persisted on the order. */
-  readonly vpsZone: string;
+	readonly db: DB;
+	readonly provider: CloudProvider;
+	/** Audit-log signing key. */
+	readonly auditKey: string;
+	/** Free-tier refund helper. Injected for testability (T030). */
+	readonly refundFreeQuickQuota: (
+		db: DB,
+		userId: string,
+	) => Promise<{ refunded: boolean }>;
+	readonly now?: () => number;
+	readonly newId?: () => string;
+	/** Polling cadence / ceiling for the spawnVm `Operation`. */
+	readonly pollIntervalMs?: number;
+	readonly pollTimeoutMs?: number;
+	/** Sleep between provider-retry attempts. Tests override to 1ms. */
+	readonly retryBackoffMs?: number;
+	/** GCP zone label (e.g. "ru-central1-a"). Persisted on the order. */
+	readonly vpsZone: string;
 
-  // ── cloud-init env contract (see vps-agent/.env.example) ──────────────
-  readonly backendUrl: string;
-  readonly webhookSecret: string;
-  readonly evidenceBucket: string;
-  readonly evidencePrefix: string;
-  readonly awsAccessKeyId: string;
-  readonly awsSecretAccessKey: string;
-  readonly awsEndpoint: string;
-  readonly awsRegion: string;
-  readonly signKey: string;
-  readonly decepticonImage: string;
-  /** T128 Bug #7 — OpenRouter API key for the per-VM LiteLLM proxy. */
-  readonly openrouterApiKey: string;
-  /** LiteLLM master key shared between litellm and langgraph containers. */
-  readonly litellmMasterKey: string;
-  /** Postgres password for the per-VM litellm-backing DB. */
-  readonly postgresPassword: string;
-  /** Neo4j auth password for the per-VM KG. */
-  readonly neo4jPassword: string;
-  readonly vpsAgentImage?: string;
-  readonly agentPort?: number;
-  /**
-   * P1 — OpenRouter model id to drive the Decepticon scan with real gpt-5.5
-   * tool-use (e.g. `"openai/gpt-5.5"`). When set, cloud-init repoints the VM's
-   * openai/* LiteLLM routes to it + pins the openai auth path. Omit (default) →
-   * the cost-safe qwen hijack. Wired from `TENSOL_BLACKBOX_AGENT_ENABLED`.
-   */
-  readonly blackboxAgentModel?: string;
-  /**
-   * HTTP client for the agent-dispatch probe. Injected so tests can drive
-   * the agent-readiness loop without a real socket. Defaults to global
-   * `fetch`.
-   */
-  readonly fetchImpl?: typeof fetch;
-  /** Total budget to wait for the vps-agent to bind :8080 (cloud-init). */
-  readonly agentWaitBudgetMs?: number;
-  /** Sleep between agent-readiness probes. Tests override to ~1ms. */
-  readonly agentProbeIntervalMs?: number;
-  /** Per-probe request timeout. */
-  readonly agentProbeTimeoutMs?: number;
+	// ── cloud-init env contract (see vps-agent/.env.example) ──────────────
+	readonly backendUrl: string;
+	readonly webhookSecret: string;
+	readonly evidenceBucket: string;
+	readonly evidencePrefix: string;
+	readonly awsAccessKeyId: string;
+	readonly awsSecretAccessKey: string;
+	readonly awsEndpoint: string;
+	readonly awsRegion: string;
+	/**
+	 * Legacy/static backend -> agent dispatch key. Prefer
+	 * `createDispatchSignKey` so production does not reuse a long-lived process
+	 * secret across scan VMs.
+	 */
+	readonly signKey?: string;
+	/** Create the per-VM backend -> agent dispatch key placed in TENSOL_SIGN_KEY. */
+	readonly createDispatchSignKey?: () => string;
+	readonly decepticonImage: string;
+	/** T128 Bug #7 — OpenRouter API key for the per-VM LiteLLM proxy. */
+	readonly openrouterApiKey: string;
+	/** LiteLLM master key shared between litellm and langgraph containers. */
+	readonly litellmMasterKey: string;
+	/** Postgres password for the per-VM litellm-backing DB. */
+	readonly postgresPassword: string;
+	/** Neo4j auth password for the per-VM KG. */
+	readonly neo4jPassword: string;
+	readonly vpsAgentImage?: string;
+	readonly agentPort?: number;
+	/**
+	 * P1 — OpenRouter model id to drive the Decepticon scan with real gpt-5.5
+	 * tool-use (e.g. `"openai/gpt-5.5"`). When set, cloud-init repoints the VM's
+	 * openai/* LiteLLM routes to it + pins the openai auth path. Omit (default) →
+	 * the cost-safe qwen hijack. Wired from `TENSOL_BLACKBOX_AGENT_ENABLED`.
+	 */
+	readonly blackboxAgentModel?: string;
+	/**
+	 * HTTP client for the agent-dispatch probe. Injected so tests can drive
+	 * the agent-readiness loop without a real socket. Defaults to global
+	 * `fetch`.
+	 */
+	readonly fetchImpl?: typeof fetch;
+	/** Total budget to wait for the vps-agent to bind :8080 (cloud-init). */
+	readonly agentWaitBudgetMs?: number;
+	/** Sleep between agent-readiness probes. Tests override to ~1ms. */
+	readonly agentProbeIntervalMs?: number;
+	/** Per-probe request timeout. */
+	readonly agentProbeTimeoutMs?: number;
 }
 
 const DEFAULT_MAX_RETRIES = 3;
@@ -200,466 +208,507 @@ const DEFAULT_AGENT_PROBE_TIMEOUT_MS = 5_000;
 /** Heuristic transient-error classifier — rate limits, 5xx, network blips,
  *  read/connect timeouts. Anything else is treated as permanent. */
 const TRANSIENT_PATTERNS: readonly RegExp[] = [
-  /RATE[_ ]?LIMIT/i,
-  /TOO[_ ]MANY[_ ]REQUESTS/i,
-  /TIMEOUT/i,
-  /TIMED[_ ]?OUT/i,
-  /UNAVAILABLE/i,
-  /TEMPORARILY/i,
-  /(^|[^0-9])5\d{2}([^0-9]|$)/, // 5xx in the message
-  /ECONNRESET/i,
-  /ECONNREFUSED/i,
-  /ETIMEDOUT/i,
-  /ENETUNREACH/i,
+	/RATE[_ ]?LIMIT/i,
+	/TOO[_ ]MANY[_ ]REQUESTS/i,
+	/TIMEOUT/i,
+	/TIMED[_ ]?OUT/i,
+	/UNAVAILABLE/i,
+	/TEMPORARILY/i,
+	/(^|[^0-9])5\d{2}([^0-9]|$)/, // 5xx in the message
+	/ECONNRESET/i,
+	/ECONNREFUSED/i,
+	/ETIMEDOUT/i,
+	/ENETUNREACH/i,
 ];
 
 function isTransient(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return TRANSIENT_PATTERNS.some((re) => re.test(msg));
+	const msg = err instanceof Error ? err.message : String(err);
+	return TRANSIENT_PATTERNS.some((re) => re.test(msg));
 }
 
 function sleep(ms: number): Promise<void> {
-  if (ms <= 0) return Promise.resolve();
-  return new Promise((r) => setTimeout(r, ms));
+	if (ms <= 0) return Promise.resolve();
+	return new Promise((r) => setTimeout(r, ms));
+}
+
+function scanCompleteWebhookUrl(backendUrl: string): string {
+	const base = backendUrl.replace(/\/+$/, "");
+	if (base.endsWith("/v1")) {
+		return `${base}/webhooks/scan-complete`;
+	}
+	return `${base}/v1/webhooks/scan-complete`;
 }
 
 /** Build a `spawn_scan_vm` handler closing over the injected deps. */
 export function createSpawnScanVmHandler(deps: SpawnScanVmHandlerDeps) {
-  const {
-    db,
-    provider,
-    auditKey,
-    refundFreeQuickQuota,
-    now = defaultNow,
-    newId = () => ulid(now()),
-    pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-    pollTimeoutMs = DEFAULT_POLL_TIMEOUT_MS,
-    retryBackoffMs = DEFAULT_RETRY_BACKOFF_MS,
-    vpsZone,
-    backendUrl,
-    webhookSecret,
-    evidenceBucket,
-    evidencePrefix,
-    awsAccessKeyId,
-    awsSecretAccessKey,
-    awsEndpoint,
-    awsRegion,
-    signKey,
-    decepticonImage,
-    openrouterApiKey,
-    litellmMasterKey,
-    postgresPassword,
-    neo4jPassword,
-    vpsAgentImage,
-    agentPort,
-    blackboxAgentModel,
-    fetchImpl = fetch,
-    agentWaitBudgetMs = DEFAULT_AGENT_WAIT_BUDGET_MS,
-    agentProbeIntervalMs = DEFAULT_AGENT_PROBE_INTERVAL_MS,
-    agentProbeTimeoutMs = DEFAULT_AGENT_PROBE_TIMEOUT_MS,
-  } = deps;
+	const {
+		db,
+		provider,
+		auditKey,
+		refundFreeQuickQuota,
+		now = defaultNow,
+		newId = () => ulid(now()),
+		pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+		pollTimeoutMs = DEFAULT_POLL_TIMEOUT_MS,
+		retryBackoffMs = DEFAULT_RETRY_BACKOFF_MS,
+		vpsZone,
+		backendUrl,
+		webhookSecret,
+		evidenceBucket,
+		evidencePrefix,
+		awsAccessKeyId,
+		awsSecretAccessKey,
+		awsEndpoint,
+		awsRegion,
+		signKey,
+		createDispatchSignKey = () => {
+			if (!signKey) {
+				throw new Error(
+					"spawn_scan_vm: createDispatchSignKey or signKey is required",
+				);
+			}
+			return signKey;
+		},
+		decepticonImage,
+		openrouterApiKey,
+		litellmMasterKey,
+		postgresPassword,
+		neo4jPassword,
+		vpsAgentImage,
+		agentPort,
+		blackboxAgentModel,
+		fetchImpl = fetch,
+		agentWaitBudgetMs = DEFAULT_AGENT_WAIT_BUDGET_MS,
+		agentProbeIntervalMs = DEFAULT_AGENT_PROBE_INTERVAL_MS,
+		agentProbeTimeoutMs = DEFAULT_AGENT_PROBE_TIMEOUT_MS,
+	} = deps;
 
-  /**
-   * @param jobId    The jobs.id from the runner — passed through to audit
-   *                 metadata for cross-referencing.
-   * @param rawPayload The parsed JSON from jobs.payload_json. Tolerant of
-   *                   both snake_case and camelCase keys.
-   */
-  return async function handle(
-    jobId: string,
-    rawPayload: unknown,
-  ): Promise<void> {
-    void jobId; // currently un-used in audit metadata; reserved for future tracing.
-    const { scanOrderId, scanId } = normalizePayload(rawPayload);
+	/**
+	 * @param jobId    The jobs.id from the runner — passed through to audit
+	 *                 metadata for cross-referencing.
+	 * @param rawPayload The parsed JSON from jobs.payload_json. Tolerant of
+	 *                   both snake_case and camelCase keys.
+	 */
+	return async function handle(
+		jobId: string,
+		rawPayload: unknown,
+	): Promise<void> {
+		void jobId; // currently un-used in audit metadata; reserved for future tracing.
+		const { scanOrderId, scanId } = normalizePayload(rawPayload);
 
-    // 1. Idempotency gate — re-read the order.
-    const orderRow = db
-      .select()
-      .from(scanOrders)
-      .where(eq(scanOrders.id, scanOrderId))
-      .get();
-    if (!orderRow) {
-      throw new Error(
-        `spawn_scan_vm: scan_order not found (id=${scanOrderId}). Job will retry / fail at the runner level.`,
-      );
-    }
-    if (orderRow.status !== "vm_provisioning") {
-      // No-op: order was cancelled, already running, completed, failed, or
-      // somehow advanced by a parallel actor. Returning marks the job done
-      // so the runner moves on.
-      return;
-    }
+		// 1. Idempotency gate — re-read the order.
+		const orderRow = db
+			.select()
+			.from(scanOrders)
+			.where(eq(scanOrders.id, scanOrderId))
+			.get();
+		if (!orderRow) {
+			throw new Error(
+				`spawn_scan_vm: scan_order not found (id=${scanOrderId}). Job will retry / fail at the runner level.`,
+			);
+		}
+		if (orderRow.status !== "vm_provisioning") {
+			// No-op: order was cancelled, already running, completed, failed, or
+			// somehow advanced by a parallel actor. Returning marks the job done
+			// so the runner moves on.
+			return;
+		}
 
-    // 2. Build cloud-init userdata (deterministic per args).
-    const userData = buildCloudInit({
-      scanId,
-      backendUrl,
-      webhookSecret,
-      evidenceBucket,
-      evidencePrefix,
-      awsAccessKeyId,
-      awsSecretAccessKey,
-      awsEndpoint,
-      awsRegion,
-      signKey,
-      decepticonImage,
-      openrouterApiKey,
-      litellmMasterKey,
-      postgresPassword,
-      neo4jPassword,
-      ...(vpsAgentImage !== undefined ? { vpsAgentImage } : {}),
-      ...(agentPort !== undefined ? { agentPort } : {}),
-      ...(blackboxAgentModel ? { blackboxAgentModel } : {}),
-    });
+		if (
+			!isEvidenceStorageConfigured({
+				bucket: evidenceBucket,
+				region: awsRegion,
+				endpoint: awsEndpoint,
+				accessKeyId: awsAccessKeyId,
+				secretAccessKey: awsSecretAccessKey,
+				prefix: evidencePrefix,
+			})
+		) {
+			await markFailure({
+				db,
+				scanOrderId,
+				scanId,
+				userId: orderRow.userId,
+				error: new Error(
+					"spawn_scan_vm: object-storage env missing; refusing to launch VM",
+				),
+				auditKey,
+				refundFreeQuickQuota,
+				now,
+				newId,
+				reason: "storage_not_configured",
+			});
+			return;
+		}
 
-    // 3. Provider call with transient retry. We pass the scan id as the
-    //    GCP idempotency key value (see CloudProvider.spawnVm contract).
-    let spawnResult: Awaited<ReturnType<CloudProvider["spawnVm"]>> | null = null;
-    let lastErr: Error | null = null;
-    for (let attempt = 1; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
-      try {
-        spawnResult = await provider.spawnVm({
-          scanId,
-          userData,
-          metadata: {
-            "tensol-scan-id": scanId,
-            "tensol-scan-order-id": scanOrderId,
-          },
-        });
-        break;
-      } catch (err) {
-        const e = err instanceof Error ? err : new Error(String(err));
-        lastErr = e;
-        if (!isTransient(e)) {
-          break; // permanent — no further retries
-        }
-        if (attempt < DEFAULT_MAX_RETRIES) {
-          await sleep(retryBackoffMs);
-        }
-      }
-    }
+		const dispatchSignKey = createDispatchSignKey();
 
-    if (!spawnResult) {
-      // 5. Permanent failure branch (all retries exhausted OR non-transient).
-      await markFailure({
-        db,
-        scanOrderId,
-        scanId,
-        userId: orderRow.userId,
-        error: lastErr ?? new Error("spawn_scan_vm: unknown failure"),
-        auditKey,
-        refundFreeQuickQuota,
-        now,
-        newId,
-      });
-      return;
-    }
+		// 2. Build cloud-init userdata (deterministic per args).
+		const userData = buildCloudInit({
+			scanId,
+			backendUrl,
+			webhookSecret,
+			evidenceBucket,
+			evidencePrefix,
+			awsAccessKeyId,
+			awsSecretAccessKey,
+			awsEndpoint,
+			awsRegion,
+			signKey: dispatchSignKey,
+			decepticonImage,
+			openrouterApiKey,
+			litellmMasterKey,
+			postgresPassword,
+			neo4jPassword,
+			...(vpsAgentImage !== undefined ? { vpsAgentImage } : {}),
+			...(agentPort !== undefined ? { agentPort } : {}),
+			...(blackboxAgentModel ? { blackboxAgentModel } : {}),
+		});
 
-    // 4a. If the provider returned a long-running operation handle, poll it.
-    //     The fake provider always returns an operationId; the real GCP
-    //     adapter does too. If `operationId` is absent the result is already
-    //     terminal — skip polling.
-    let finalInstanceId = spawnResult.instanceId;
-    if (spawnResult.operationId) {
-      const opId = spawnResult.operationId;
-      const deadline = now() + pollTimeoutMs;
-      while (true) {
-        const res = await provider.pollOperation(opId);
-        if (res.done) {
-          if (res.error) {
-            await markFailure({
-              db,
-              scanOrderId,
-              scanId,
-              userId: orderRow.userId,
-              error: new Error(`spawn_scan_vm: operation errored: ${res.error}`),
-              auditKey,
-              refundFreeQuickQuota,
-              now,
-              newId,
-            });
-            return;
-          }
-          // Success — the result discriminator carries the instanceId.
-          if (res.result && "instanceId" in res.result) {
-            finalInstanceId = res.result.instanceId;
-          }
-          break;
-        }
-        if (now() >= deadline) {
-          await markFailure({
-            db,
-            scanOrderId,
-            scanId,
-            userId: orderRow.userId,
-            error: new Error(
-              `spawn_scan_vm: operation poll TIMEOUT (op=${opId})`,
-            ),
-            auditKey,
-            refundFreeQuickQuota,
-            now,
-            newId,
-          });
-          return;
-        }
-        await sleep(pollIntervalMs);
-      }
-    }
+		// 3. Provider call with transient retry. We pass the scan id as the
+		//    GCP idempotency key value (see CloudProvider.spawnVm contract).
+		let spawnResult: Awaited<ReturnType<CloudProvider["spawnVm"]>> | null =
+			null;
+		let lastErr: Error | null = null;
+		for (let attempt = 1; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+			try {
+				spawnResult = await provider.spawnVm({
+					scanId,
+					userData,
+					metadata: {
+						"tensol-scan-id": scanId,
+						"tensol-scan-order-id": scanOrderId,
+					},
+				});
+				break;
+			} catch (err) {
+				const e = err instanceof Error ? err : new Error(String(err));
+				lastErr = e;
+				if (!isTransient(e)) {
+					break; // permanent — no further retries
+				}
+				if (attempt < DEFAULT_MAX_RETRIES) {
+					await sleep(retryBackoffMs);
+				}
+			}
+		}
 
-    // 4b. Wait for vps-agent on the new VM to come up, then dispatch.
-    //
-    // GCP's create-instance operation resolves once the VM exists, but
-    // cloud-init (apt install docker, docker pull tensol-vps-agent, docker
-    // run -d …) keeps running in the background and typically takes 3-5
-    // minutes to actually bind :8080. So we cannot just `fetch /scan` and
-    // expect a response. Loop with backoff until either (a) some HTTP
-    // status comes back from POST /scan — any code, including 401 for a
-    // probe with no signature — meaning the agent is alive, or (b) we
-    // exceed the wait budget.
-    //
-    // This wait happens BEFORE the vm_ready persistence below so that a
-    // runner retry of the whole spawn_scan_vm job (idempotency gate at
-    // step 1 keys off `scan_orders.status`, which is still
-    // `vm_provisioning` until 4c) can re-enter and try dispatch again.
-    // Only after a successful dispatch do we commit vm_ready + audit
-    // `decepticon_invoked`.
-    const vmStatus = await provider.getStatus(finalInstanceId);
-    const publicIp = vmStatus.publicIp;
-    if (!publicIp) {
-      throw new Error(
-        `spawn_scan_vm: getStatus(${finalInstanceId}) returned no publicIp`,
-      );
-    }
-    const scanRow = db
-      .select({ profile: scans.profile })
-      .from(scans)
-      .where(eq(scans.id, scanId))
-      .get();
-    if (!scanRow) {
-      throw new Error(
-        `spawn_scan_vm: scans row vanished mid-handler (id=${scanId})`,
-      );
-    }
-    const port = agentPort ?? 8080;
-    // Webhook path: V1 callback handler is mounted at `/api/webhooks/*`
-    // (see server.ts:345-348). Agent will send back the terminal status
-    // POST /scan-progress with `x-tensol-scan-id` + `x-tensol-signature`
-    // headers, and the V1 handler looks up the signKey via vps_instances.
-    // We therefore (a) point the agent at /api/webhooks/scan-progress,
-    // and (b) insert a vps_instances row below so the V1 lookup resolves.
-    const dispatchBody = {
-      profile: scanRow.profile,
-      scan_id: scanId,
-      target_url: `https://${orderRow.primaryDomain}`,
-      webhook_url: `${backendUrl}/api/webhooks/scan-progress`,
-    };
-    const rawBody = JSON.stringify(dispatchBody);
-    const signature = hmacSha256(signKey, rawBody);
-    const dispatchUrl = `http://${publicIp}:${port}/scan`;
+		if (!spawnResult) {
+			// 5. Permanent failure branch (all retries exhausted OR non-transient).
+			await markFailure({
+				db,
+				scanOrderId,
+				scanId,
+				userId: orderRow.userId,
+				error: lastErr ?? new Error("spawn_scan_vm: unknown failure"),
+				auditKey,
+				refundFreeQuickQuota,
+				now,
+				newId,
+			});
+			return;
+		}
 
-    // Wait-for-agent: probe POST /scan up to agentWaitBudgetMs,
-    // agentProbeIntervalMs between attempts. Any HTTP response (success or
-    // signed-rejection) means the agent has bound and is processing.
-    const waitDeadline = now() + agentWaitBudgetMs;
-    let dispatchRes: Response | null = null;
-    let lastProbeErr: string | null = null;
-    while (now() < waitDeadline) {
-      try {
-        const probe = await fetchImpl(dispatchUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Tensol-Signature": signature,
-          },
-          body: rawBody,
-          signal: AbortSignal.timeout(agentProbeTimeoutMs),
-        });
-        // Any HTTP status from the agent (incl. 401) proves it's alive.
-        // We only care about 2xx for success; non-2xx → terminal failure.
-        dispatchRes = probe;
-        break;
-      } catch (e) {
-        lastProbeErr = (e as Error).message ?? String(e);
-        await sleep(agentProbeIntervalMs);
-      }
-    }
-    if (!dispatchRes) {
-      // Follow-up #3: the VM spawned but its agent never bound within the
-      // budget — cloud-init likely failed. Throwing here would let the runner
-      // retry the whole job against a dead VM (idempotency gate stays in
-      // `vm_provisioning`), wasting ~8 min/attempt while the VM runs until the
-      // 35-min orphan reaper. Instead: enqueue a teardown, mark the order/scan
-      // terminally failed, refund, alert — then return (no retry).
-      const msg = `spawn_scan_vm: vps-agent at ${dispatchUrl} did not respond within ${agentWaitBudgetMs}ms (last error: ${lastProbeErr ?? "-"})`;
-      await emitSignedAudit(
-        db,
-        {
-          event: "decepticon_invoked",
-          outcome: "failure",
-          ts: now(),
-          user_id: orderRow.userId,
-          scan_id: scanId,
-          metadata: {
-            scan_order_id: scanOrderId,
-            vps_instance_id: finalInstanceId,
-            public_ip: publicIp,
-            agent_port: port,
-            error: "agent_wait_timeout",
-            last_probe_error: lastProbeErr ?? null,
-          },
-        },
-        { key: auditKey },
-      );
-      await markFailure({
-        db,
-        scanOrderId,
-        scanId,
-        userId: orderRow.userId,
-        error: new Error(msg),
-        reason: "agent_dispatch_failed",
-        teardown: { vpsInstanceId: finalInstanceId, vpsZone },
-        auditKey,
-        refundFreeQuickQuota,
-        now,
-        newId,
-      });
-      return;
-    }
-    if (!dispatchRes.ok) {
-      const errText = await dispatchRes.text().catch(() => "<no body>");
-      const msg = `spawn_scan_vm: agent dispatch HTTP ${dispatchRes.status} ${dispatchRes.statusText}: ${errText.slice(0, 200)}`;
-      await emitSignedAudit(
-        db,
-        {
-          event: "decepticon_invoked",
-          outcome: "failure",
-          ts: now(),
-          user_id: orderRow.userId,
-          scan_id: scanId,
-          metadata: {
-            scan_order_id: scanOrderId,
-            vps_instance_id: finalInstanceId,
-            public_ip: publicIp,
-            agent_port: port,
-            http_status: dispatchRes.status,
-            response_body: errText.slice(0, 200),
-          },
-        },
-        { key: auditKey },
-      );
-      // Same rationale as the timeout branch — terminal + teardown, no retry.
-      await markFailure({
-        db,
-        scanOrderId,
-        scanId,
-        userId: orderRow.userId,
-        error: new Error(msg),
-        reason: "agent_dispatch_failed",
-        teardown: { vpsInstanceId: finalInstanceId, vpsZone },
-        auditKey,
-        refundFreeQuickQuota,
-        now,
-        newId,
-      });
-      return;
-    }
-    // Dispatch succeeded → emit decepticon_invoked + fall through to
-    // vm_ready commit below.
-    await emitSignedAudit(
-      db,
-      {
-        event: "decepticon_invoked",
-        outcome: "success",
-        ts: now(),
-        user_id: orderRow.userId,
-        scan_id: scanId,
-        metadata: {
-          scan_order_id: scanOrderId,
-          vps_instance_id: finalInstanceId,
-          public_ip: publicIp,
-          agent_port: port,
-          profile: scanRow.profile,
-          target_url: dispatchBody.target_url,
-        },
-      },
-      { key: auditKey },
-    );
+		// 4a. If the provider returned a long-running operation handle, poll it.
+		//     The fake provider always returns an operationId; the real GCP
+		//     adapter does too. If `operationId` is absent the result is already
+		//     terminal — skip polling.
+		let finalInstanceId = spawnResult.instanceId;
+		if (spawnResult.operationId) {
+			const opId = spawnResult.operationId;
+			const deadline = now() + pollTimeoutMs;
+			while (true) {
+				const res = await provider.pollOperation(opId);
+				if (res.done) {
+					if (res.error) {
+						await markFailure({
+							db,
+							scanOrderId,
+							scanId,
+							userId: orderRow.userId,
+							error: new Error(
+								`spawn_scan_vm: operation errored: ${res.error}`,
+							),
+							auditKey,
+							refundFreeQuickQuota,
+							now,
+							newId,
+						});
+						return;
+					}
+					// Success — the result discriminator carries the instanceId.
+					if (res.result && "instanceId" in res.result) {
+						finalInstanceId = res.result.instanceId;
+					}
+					break;
+				}
+				if (now() >= deadline) {
+					await markFailure({
+						db,
+						scanOrderId,
+						scanId,
+						userId: orderRow.userId,
+						error: new Error(
+							`spawn_scan_vm: operation poll TIMEOUT (op=${opId})`,
+						),
+						auditKey,
+						refundFreeQuickQuota,
+						now,
+						newId,
+					});
+					return;
+				}
+				await sleep(pollIntervalMs);
+			}
+		}
 
-    // 4c. Success-path persistence: scan_orders + scans + scan_events +
-    //     vps_instances (so the V1 webhook handler at /api/webhooks/
-    //     scan-progress can look up signKey by scan_id and verify the
-    //     terminal callback HMAC). The shared `signKey` here is the same
-    //     value the agent's verifySignature() uses — it came from this
-    //     handler's deps and was injected into cloud-init env on the VM
-    //     as TENSOL_SIGN_KEY. So the same secret signs and verifies on
-    //     both sides; the V1 handler just needs the lookup row to exist.
-    const ts = now();
-    const scanEventId = newId();
-    const vpsInstanceRowId = newId();
-    const eventPayload = JSON.stringify({
-      vps_instance_id: finalInstanceId,
-      vps_zone: vpsZone,
-    });
+		// 4b. Wait for vps-agent on the new VM to come up, then dispatch.
+		//
+		// GCP's create-instance operation resolves once the VM exists, but
+		// cloud-init (apt install docker, docker pull tensol-vps-agent, docker
+		// run -d …) keeps running in the background and typically takes 3-5
+		// minutes to actually bind :8080. So we cannot just `fetch /scan` and
+		// expect a response. Loop with backoff until either (a) some HTTP
+		// status comes back from POST /scan — any code, including 401 for a
+		// probe with no signature — meaning the agent is alive, or (b) we
+		// exceed the wait budget.
+		//
+		// This wait happens BEFORE the vm_ready persistence below so that a
+		// runner retry of the whole spawn_scan_vm job (idempotency gate at
+		// step 1 keys off `scan_orders.status`, which is still
+		// `vm_provisioning` until 4c) can re-enter and try dispatch again.
+		// Only after a successful dispatch do we commit vm_ready + audit
+		// `decepticon_invoked`.
+		const vmStatus = await provider.getStatus(finalInstanceId);
+		const publicIp = vmStatus.publicIp;
+		if (!publicIp) {
+			throw new Error(
+				`spawn_scan_vm: getStatus(${finalInstanceId}) returned no publicIp`,
+			);
+		}
+		const scanRow = db
+			.select({ profile: scans.profile })
+			.from(scans)
+			.where(eq(scans.id, scanId))
+			.get();
+		if (!scanRow) {
+			throw new Error(
+				`spawn_scan_vm: scans row vanished mid-handler (id=${scanId})`,
+			);
+		}
+		const port = agentPort ?? 8080;
+		const dispatchBody = {
+			callback_version: "v2",
+			profile: scanRow.profile,
+			scan_id: scanId,
+			scan_order_id: scanOrderId,
+			target_url: `https://${orderRow.primaryDomain}`,
+			webhook_url: scanCompleteWebhookUrl(backendUrl),
+			evidence_bucket: evidenceBucket,
+		};
+		const rawBody = JSON.stringify(dispatchBody);
+		const signature = hmacSha256(dispatchSignKey, rawBody);
+		const dispatchUrl = `http://${publicIp}:${port}/scan`;
 
-    await withTx(db, async (tx) => {
-      tx.update(scanOrders)
-        .set({
-          status: "running",
-          vpsInstanceId: finalInstanceId,
-          vpsZone,
-          updatedAt: ts,
-        })
-        .where(eq(scanOrders.id, scanOrderId))
-        .run();
+		// Wait-for-agent: probe POST /scan up to agentWaitBudgetMs,
+		// agentProbeIntervalMs between attempts. Any HTTP response (success or
+		// signed-rejection) means the agent has bound and is processing.
+		const waitDeadline = now() + agentWaitBudgetMs;
+		let dispatchRes: Response | null = null;
+		let lastProbeErr: string | null = null;
+		while (now() < waitDeadline) {
+			try {
+				const probe = await fetchImpl(dispatchUrl, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"X-Tensol-Signature": signature,
+					},
+					body: rawBody,
+					signal: AbortSignal.timeout(agentProbeTimeoutMs),
+				});
+				// Any HTTP status from the agent (incl. 401) proves it's alive.
+				// We only care about 2xx for success; non-2xx → terminal failure.
+				dispatchRes = probe;
+				break;
+			} catch (e) {
+				lastProbeErr = (e as Error).message ?? String(e);
+				await sleep(agentProbeIntervalMs);
+			}
+		}
+		if (!dispatchRes) {
+			// Follow-up #3: the VM spawned but its agent never bound within the
+			// budget — cloud-init likely failed. Throwing here would let the runner
+			// retry the whole job against a dead VM (idempotency gate stays in
+			// `vm_provisioning`), wasting ~8 min/attempt while the VM runs until the
+			// 35-min orphan reaper. Instead: enqueue a teardown, mark the order/scan
+			// terminally failed, refund, alert — then return (no retry).
+			const msg = `spawn_scan_vm: vps-agent at ${dispatchUrl} did not respond within ${agentWaitBudgetMs}ms (last error: ${lastProbeErr ?? "-"})`;
+			await emitSignedAudit(
+				db,
+				{
+					event: "decepticon_invoked",
+					outcome: "failure",
+					ts: now(),
+					user_id: orderRow.userId,
+					scan_id: scanId,
+					metadata: {
+						scan_order_id: scanOrderId,
+						vps_instance_id: finalInstanceId,
+						public_ip: publicIp,
+						agent_port: port,
+						error: "agent_wait_timeout",
+						last_probe_error: lastProbeErr ?? null,
+					},
+				},
+				{ key: auditKey },
+			);
+			await markFailure({
+				db,
+				scanOrderId,
+				scanId,
+				userId: orderRow.userId,
+				error: new Error(msg),
+				reason: "agent_dispatch_failed",
+				teardown: { vpsInstanceId: finalInstanceId, vpsZone },
+				auditKey,
+				refundFreeQuickQuota,
+				now,
+				newId,
+			});
+			return;
+		}
+		if (!dispatchRes.ok) {
+			const errText = await dispatchRes.text().catch(() => "<no body>");
+			const msg = `spawn_scan_vm: agent dispatch HTTP ${dispatchRes.status} ${dispatchRes.statusText}: ${errText.slice(0, 200)}`;
+			await emitSignedAudit(
+				db,
+				{
+					event: "decepticon_invoked",
+					outcome: "failure",
+					ts: now(),
+					user_id: orderRow.userId,
+					scan_id: scanId,
+					metadata: {
+						scan_order_id: scanOrderId,
+						vps_instance_id: finalInstanceId,
+						public_ip: publicIp,
+						agent_port: port,
+						http_status: dispatchRes.status,
+						response_body: errText.slice(0, 200),
+					},
+				},
+				{ key: auditKey },
+			);
+			// Same rationale as the timeout branch — terminal + teardown, no retry.
+			await markFailure({
+				db,
+				scanOrderId,
+				scanId,
+				userId: orderRow.userId,
+				error: new Error(msg),
+				reason: "agent_dispatch_failed",
+				teardown: { vpsInstanceId: finalInstanceId, vpsZone },
+				auditKey,
+				refundFreeQuickQuota,
+				now,
+				newId,
+			});
+			return;
+		}
+		// Dispatch succeeded → emit decepticon_invoked + fall through to
+		// vm_ready commit below.
+		await emitSignedAudit(
+			db,
+			{
+				event: "decepticon_invoked",
+				outcome: "success",
+				ts: now(),
+				user_id: orderRow.userId,
+				scan_id: scanId,
+				metadata: {
+					scan_order_id: scanOrderId,
+					vps_instance_id: finalInstanceId,
+					public_ip: publicIp,
+					agent_port: port,
+					profile: scanRow.profile,
+					target_url: dispatchBody.target_url,
+				},
+			},
+			{ key: auditKey },
+		);
 
-      tx.update(scans)
-        .set({ status: "running" })
-        .where(eq(scans.id, scanId))
-        .run();
+		// 4c. Success-path persistence: scan_orders + scans + scan_events +
+		//     vps_instances. The V2 `/v1/webhooks/scan-complete` callback
+		//     uses the fleet `webhookSecret`, while this per-VM dispatch key
+		//     still authenticates backend → agent dispatch and keeps the
+		//     vps_instances row useful for watchdog/reaper/operator diagnostics.
+		const ts = now();
+		const scanEventId = newId();
+		const vpsInstanceRowId = newId();
+		const eventPayload = JSON.stringify({
+			vps_instance_id: finalInstanceId,
+			vps_zone: vpsZone,
+		});
 
-      tx.insert(scanEvents)
-        .values({
-          id: scanEventId,
-          scanId,
-          eventType: "vm_ready",
-          payloadJson: eventPayload,
-          createdAt: ts,
-        })
-        .run();
+		await withTx(db, async (tx) => {
+			tx.update(scanOrders)
+				.set({
+					status: "running",
+					vpsInstanceId: finalInstanceId,
+					vpsZone,
+					updatedAt: ts,
+				})
+				.where(eq(scanOrders.id, scanOrderId))
+				.run();
 
-      tx.insert(vpsInstances)
-        .values({
-          id: vpsInstanceRowId,
-          scanId,
-          provider: "gcp",
-          providerServerId: finalInstanceId,
-          ipv4: publicIp,
-          status: "alive",
-          signKey,
-          createdAt: ts,
-        })
-        .run();
-    });
+			tx.update(scans)
+				.set({ status: "running" })
+				.where(eq(scans.id, scanId))
+				.run();
 
-    // 4d. Post-commit audit (Constitution X).
-    await emitSignedAudit(
-      db,
-      {
-        event: "vm_ready",
-        outcome: "success",
-        ts,
-        user_id: orderRow.userId,
-        scan_id: scanId,
-        metadata: {
-          scan_order_id: scanOrderId,
-          vps_instance_id: finalInstanceId,
-          vps_zone: vpsZone,
-        },
-      },
-      { key: auditKey },
-    );
+			tx.insert(scanEvents)
+				.values({
+					id: scanEventId,
+					scanId,
+					eventType: "vm_ready",
+					payloadJson: eventPayload,
+					createdAt: ts,
+				})
+				.run();
 
-  };
+			tx.insert(vpsInstances)
+				.values({
+					id: vpsInstanceRowId,
+					scanId,
+					provider: "gcp",
+					providerServerId: finalInstanceId,
+					ipv4: publicIp,
+					status: "alive",
+					signKey: dispatchSignKey,
+					createdAt: ts,
+				})
+				.run();
+		});
+
+		// 4d. Post-commit audit (Constitution X).
+		await emitSignedAudit(
+			db,
+			{
+				event: "vm_ready",
+				outcome: "success",
+				ts,
+				user_id: orderRow.userId,
+				scan_id: scanId,
+				metadata: {
+					scan_order_id: scanOrderId,
+					vps_instance_id: finalInstanceId,
+					vps_zone: vpsZone,
+				},
+			},
+			{ key: auditKey },
+		);
+	};
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -669,161 +718,166 @@ export function createSpawnScanVmHandler(deps: SpawnScanVmHandlerDeps) {
 // ───────────────────────────────────────────────────────────────────────────
 
 interface MarkFailureArgs {
-  readonly db: DB;
-  readonly scanOrderId: string;
-  readonly scanId: string;
-  readonly userId: string;
-  readonly error: Error;
-  readonly auditKey: string;
-  readonly refundFreeQuickQuota: (
-    db: DB,
-    userId: string,
-  ) => Promise<{ refunded: boolean }>;
-  readonly now: () => number;
-  readonly newId: () => string;
-  /**
-   * Domain failure reason persisted on `scan_orders`/`scans` and carried in
-   * the `scan_failed` audit metadata. Defaults to `vm_spawn_failed` (the
-   * provider-spawn branch). The agent-dispatch branch passes
-   * `agent_dispatch_failed`.
-   */
-  readonly reason?: string;
-  /**
-   * When the VM was already provisioned before the failure (agent-dispatch
-   * branch), enqueue a `teardown_scan_vm` job in the SAME tx so the orphan
-   * is reaped promptly instead of waiting for the 35-minute cron (follow-up
-   * #3). Omitted for the pre-spawn failure branches (no VM to tear down).
-   */
-  readonly teardown?: { readonly vpsInstanceId: string; readonly vpsZone: string };
+	readonly db: DB;
+	readonly scanOrderId: string;
+	readonly scanId: string;
+	readonly userId: string;
+	readonly error: Error;
+	readonly auditKey: string;
+	readonly refundFreeQuickQuota: (
+		db: DB,
+		userId: string,
+	) => Promise<{ refunded: boolean }>;
+	readonly now: () => number;
+	readonly newId: () => string;
+	/**
+	 * Domain failure reason persisted on `scan_orders`/`scans` and carried in
+	 * the `scan_failed` audit metadata. Defaults to `vm_spawn_failed` (the
+	 * provider-spawn branch). The agent-dispatch branch passes
+	 * `agent_dispatch_failed`.
+	 */
+	readonly reason?: string;
+	/**
+	 * When the VM was already provisioned before the failure (agent-dispatch
+	 * branch), enqueue a `teardown_scan_vm` job in the SAME tx so the orphan
+	 * is reaped promptly instead of waiting for the 35-minute cron (follow-up
+	 * #3). Omitted for the pre-spawn failure branches (no VM to tear down).
+	 */
+	readonly teardown?: {
+		readonly vpsInstanceId: string;
+		readonly vpsZone: string;
+	};
 }
 
 async function markFailure(args: MarkFailureArgs): Promise<void> {
-  const {
-    db,
-    scanOrderId,
-    scanId,
-    userId,
-    error,
-    auditKey,
-    refundFreeQuickQuota,
-    now,
-    newId,
-    reason = "vm_spawn_failed",
-    teardown,
-  } = args;
+	const {
+		db,
+		scanOrderId,
+		scanId,
+		userId,
+		error,
+		auditKey,
+		refundFreeQuickQuota,
+		now,
+		newId,
+		reason = "vm_spawn_failed",
+		teardown,
+	} = args;
 
-  const ts = now();
-  const telegramJobId = newId();
-  const alertKind =
-    reason === "agent_dispatch_failed"
-      ? "operator_alert_agent_dispatch_failed"
-      : "operator_alert_vm_spawn_failed";
-  const telegramPayload = JSON.stringify({
-    type: "retry_telegram_notification",
-    kind: alertKind,
-    scan_order_id: scanOrderId,
-    scan_id: scanId,
-    error: error.message,
-  });
-  const teardownJobId = teardown ? newId() : null;
-  const teardownPayload = teardown
-    ? JSON.stringify({
-        type: "teardown_scan_vm",
-        scanOrderId,
-        scanId,
-        vpsInstanceId: teardown.vpsInstanceId,
-        vpsZone: teardown.vpsZone,
-      })
-    : null;
+	const ts = now();
+	const telegramJobId = newId();
+	const alertKind =
+		reason === "agent_dispatch_failed"
+			? "operator_alert_agent_dispatch_failed"
+			: reason === "storage_not_configured"
+				? "operator_alert_storage_not_configured"
+				: "operator_alert_vm_spawn_failed";
+	const telegramPayload = JSON.stringify({
+		type: "retry_telegram_notification",
+		kind: alertKind,
+		scan_order_id: scanOrderId,
+		scan_id: scanId,
+		error: error.message,
+	});
+	const teardownJobId = teardown ? newId() : null;
+	const teardownPayload = teardown
+		? JSON.stringify({
+				type: "teardown_scan_vm",
+				scanOrderId,
+				scanId,
+				vpsInstanceId: teardown.vpsInstanceId,
+				vpsZone: teardown.vpsZone,
+			})
+		: null;
 
-  // 1. Persist domain failure + enqueue operator alert (+ optional teardown)
-  //    in one tx.
-  await withTx(db, async (tx) => {
-    tx.update(scanOrders)
-      .set({
-        status: "failed",
-        failureReason: reason,
-        updatedAt: ts,
-      })
-      .where(eq(scanOrders.id, scanOrderId))
-      .run();
+	// 1. Persist domain failure + enqueue operator alert (+ optional teardown)
+	//    in one tx.
+	await withTx(db, async (tx) => {
+		tx.update(scanOrders)
+			.set({
+				status: "failed",
+				failureReason: reason,
+				updatedAt: ts,
+			})
+			.where(eq(scanOrders.id, scanOrderId))
+			.run();
 
-    tx.update(scans)
-      .set({
-        status: "failed",
-        failureReason: reason,
-        completedAt: ts,
-      })
-      .where(eq(scans.id, scanId))
-      .run();
+		tx.update(scans)
+			.set({
+				status: "failed",
+				failureReason: reason,
+				completedAt: ts,
+			})
+			.where(eq(scans.id, scanId))
+			.run();
 
-    tx.insert(jobsTable)
-      .values({
-        id: telegramJobId,
-        type: "retry_telegram_notification",
-        payloadJson: telegramPayload,
-        status: "pending",
-        scheduledAt: ts,
-        attempts: 0,
-        lastError: null,
-        createdAt: ts,
-        updatedAt: ts,
-      })
-      .run();
+		tx.insert(jobsTable)
+			.values({
+				id: telegramJobId,
+				type: "retry_telegram_notification",
+				payloadJson: telegramPayload,
+				status: "pending",
+				scheduledAt: ts,
+				attempts: 0,
+				lastError: null,
+				createdAt: ts,
+				updatedAt: ts,
+			})
+			.run();
 
-    if (teardownJobId && teardownPayload) {
-      tx.insert(jobsTable)
-        .values({
-          id: teardownJobId,
-          type: "teardown_scan_vm",
-          payloadJson: teardownPayload,
-          status: "pending",
-          scheduledAt: ts,
-          attempts: 0,
-          lastError: null,
-          createdAt: ts,
-          updatedAt: ts,
-        })
-        .run();
-    }
-  });
+		if (teardownJobId && teardownPayload) {
+			tx.insert(jobsTable)
+				.values({
+					id: teardownJobId,
+					type: "teardown_scan_vm",
+					payloadJson: teardownPayload,
+					status: "pending",
+					scheduledAt: ts,
+					attempts: 0,
+					lastError: null,
+					createdAt: ts,
+					updatedAt: ts,
+				})
+				.run();
+		}
+	});
 
-  // 2. Refund free-tier quota OUTSIDE the tx (statement-level lock; see
-  //    free-tier/service.ts module comment for why).
-  const refund = await refundFreeQuickQuota(db, userId);
+	// 2. Refund free-tier quota OUTSIDE the tx (statement-level lock; see
+	//    free-tier/service.ts module comment for why).
+	const refund = await refundFreeQuickQuota(db, userId);
 
-  // 3. Audit emissions — scan_failed first (causal order), then refund.
-  await emitSignedAudit(
-    db,
-    {
-      event: "scan_failed",
-      outcome: "failure",
-      ts,
-      user_id: userId,
-      scan_id: scanId,
-      metadata: {
-        scan_order_id: scanOrderId,
-        reason,
-        error: error.message,
-      },
-    },
-    { key: auditKey },
-  );
+	// 3. Audit emissions — scan_failed first (causal order), then refund.
+	await emitSignedAudit(
+		db,
+		{
+			event: "scan_failed",
+			outcome: "failure",
+			ts,
+			user_id: userId,
+			scan_id: scanId,
+			metadata: {
+				scan_order_id: scanOrderId,
+				reason,
+				error: error.message,
+			},
+		},
+		{ key: auditKey },
+	);
 
-  if (refund.refunded) {
-    await emitSignedAudit(
-      db,
-      {
-        event: "free_quota_refunded",
-        outcome: "success",
-        ts,
-        user_id: userId,
-        metadata: {
-          scan_order_id: scanOrderId,
-          reason,
-        },
-      },
-      { key: auditKey },
-    );
-  }
+	if (refund.refunded) {
+		await emitSignedAudit(
+			db,
+			{
+				event: "free_quota_refunded",
+				outcome: "success",
+				ts,
+				user_id: userId,
+				metadata: {
+					scan_order_id: scanOrderId,
+					reason,
+				},
+			},
+			{ key: auditKey },
+		);
+	}
 }
