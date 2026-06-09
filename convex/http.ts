@@ -37,6 +37,19 @@ async function hmacHex(secret: string, message: string) {
 	);
 }
 
+async function hmacSha512Hex(secret: string, message: string) {
+	const key = await crypto.subtle.importKey(
+		"raw",
+		new TextEncoder().encode(secret),
+		{ name: "HMAC", hash: "SHA-512" },
+		false,
+		["sign"],
+	);
+	return hex(
+		await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message)),
+	);
+}
+
 async function digestHex(message: string) {
 	return hex(
 		await crypto.subtle.digest("SHA-256", new TextEncoder().encode(message)),
@@ -49,6 +62,41 @@ function safeEqual(a: string, b: string) {
 	for (let i = 0; i < a.length; i += 1)
 		out |= a.charCodeAt(i) ^ b.charCodeAt(i);
 	return out === 0;
+}
+
+function oxapayField(body: Record<string, unknown>, key: string) {
+	const direct = body[key];
+	if (direct !== undefined) return direct;
+	const data = body.data;
+	if (data !== null && typeof data === "object" && !Array.isArray(data)) {
+		return (data as Record<string, unknown>)[key];
+	}
+	return undefined;
+}
+
+function oxapayStatus(body: Record<string, unknown>) {
+	const value = oxapayField(body, "status");
+	if (typeof value !== "string") return null;
+	const normalized = value.trim().toLowerCase();
+	if (
+		normalized === "new" ||
+		normalized === "waiting" ||
+		normalized === "paying" ||
+		normalized === "paid" ||
+		normalized === "manual_accept" ||
+		normalized === "underpaid" ||
+		normalized === "expired" ||
+		normalized === "refunding" ||
+		normalized === "refunded"
+	) {
+		return normalized;
+	}
+	return null;
+}
+
+function oxapayTrackId(body: Record<string, unknown>) {
+	const value = oxapayField(body, "track_id");
+	return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
 http.route({
@@ -218,6 +266,89 @@ http.route({
 			},
 			{ status: 200 },
 		);
+	}),
+});
+
+http.route({
+	path: "/v1/webhooks/oxapay",
+	method: "POST",
+	handler: httpAction(async (ctx, req) => {
+		const rawBody = await req.text();
+		const received = (req.headers.get("hmac") ?? "").trim().toLowerCase();
+		if (received === "") {
+			return Response.json(
+				{ error: "webhook_invalid_signature", message: "missing HMAC header" },
+				{ status: 401 },
+			);
+		}
+
+		const secret = (
+			process.env.OXAPAY_WEBHOOK_SECRET ??
+			process.env.OXAPAY_MERCHANT_API_KEY ??
+			""
+		).trim();
+		if (secret === "") {
+			return Response.json(
+				{
+					error: "webhook_invalid_signature",
+					message: "OxaPay webhook secret is not configured",
+				},
+				{ status: 401 },
+			);
+		}
+
+		const expected = await hmacSha512Hex(secret, rawBody);
+		if (!safeEqual(expected, received)) {
+			return Response.json(
+				{ error: "webhook_invalid_signature", message: "HMAC verification failed" },
+				{ status: 401 },
+			);
+		}
+
+		let body: Record<string, unknown>;
+		try {
+			const parsed = JSON.parse(rawBody) as unknown;
+			if (
+				parsed === null ||
+				typeof parsed !== "object" ||
+				Array.isArray(parsed)
+			) {
+				throw new Error("body must be a JSON object");
+			}
+			body = parsed as Record<string, unknown>;
+		} catch {
+			return Response.json(
+				{ error: "webhook_body_invalid", message: "invalid JSON object" },
+				{ status: 422 },
+			);
+		}
+
+		const status = oxapayStatus(body);
+		const trackId = oxapayTrackId(body);
+		if (!status || !trackId) {
+			return Response.json(
+				{
+					error: "webhook_body_invalid",
+					message: "track_id and supported status are required",
+				},
+				{ status: 422 },
+			);
+		}
+
+		try {
+			await ctx.runMutation(internal.billing.fulfillOxaPayWebhook, {
+				provider_track_id: trackId,
+				status,
+				raw_payload: body,
+			});
+		} catch {
+			return Response.json(
+				{ error: "webhook_body_invalid", message: "checkout session not found" },
+				{ status: 422 },
+			);
+		}
+
+		return new Response("ok", { status: 200 });
 	}),
 });
 

@@ -38,6 +38,9 @@ audit events, and future orchestration.
   `scan_order_id`, terminal `status`, `completed_at`, and
   `X-Tensol-Signature: t=<sec>, v1=<hex>` signed with Convex `WEBHOOK_SECRET`
   (the fleet `TENSOL_WEBHOOK_SECRET`), then resolves the linked Convex `scan_id`.
+- `billing.ts` creates OxaPay merchant invoices for Starter/Team/Pro scan-credit
+  products. `http.ts` accepts signed OxaPay callbacks at
+  `/v1/webhooks/oxapay`; paid callbacks grant scan credits exactly once.
 - Real-GCP `gcloud.provisionScanVm` now stores the VM row, waits for a public IP,
   dispatches signed V2 `POST /scan` to the vps-agent, and fails plus tears down
   on provisioning/dispatch errors.

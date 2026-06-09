@@ -5,7 +5,7 @@ export const getFeatureFlags = query({
   handler: async () => ({
     yookassa_live: false,
     billing_live: true,
-    billing_provider: "manual" as const,
+    billing_provider: "oxapay" as const,
     research_enabled: true,
     exploit_enabled: true,
   }),

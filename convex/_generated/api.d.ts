@@ -10,6 +10,7 @@
 
 import type * as agentTokens from "../agentTokens.js";
 import type * as auth from "../auth.js";
+import type * as billing from "../billing.js";
 import type * as config from "../config.js";
 import type * as crons from "../crons.js";
 import type * as deepInquiries from "../deepInquiries.js";
@@ -17,6 +18,7 @@ import type * as gcloud from "../gcloud.js";
 import type * as github from "../github.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_billingCatalog from "../lib/billingCatalog.js";
 import type * as lib_gcloudProvisioning from "../lib/gcloudProvisioning.js";
 import type * as lib_quota from "../lib/quota.js";
 import type * as lib_webhook from "../lib/webhook.js";
@@ -37,6 +39,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   agentTokens: typeof agentTokens;
   auth: typeof auth;
+  billing: typeof billing;
   config: typeof config;
   crons: typeof crons;
   deepInquiries: typeof deepInquiries;
@@ -44,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   github: typeof github;
   http: typeof http;
   "lib/auth": typeof lib_auth;
+  "lib/billingCatalog": typeof lib_billingCatalog;
   "lib/gcloudProvisioning": typeof lib_gcloudProvisioning;
   "lib/quota": typeof lib_quota;
   "lib/webhook": typeof lib_webhook;

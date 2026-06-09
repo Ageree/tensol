@@ -18,20 +18,20 @@
 // Constitution IX: server-side Zod canonical; UI mirrors snake_case.
 
 import {
+  type CSSProperties,
+  type ReactElement,
   useEffect,
   useMemo,
   useState,
-  type CSSProperties,
-  type ReactElement,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Btn, Mono } from '../../components/primitives.tsx';
 import { TENSOL_I18N } from '../../i18n.ts';
 import {
   ApiError,
+  type FeatureFlags,
   config,
   scanOrders,
-  type FeatureFlags,
 } from '../../lib/api-client.ts';
 import type { ScanWizardStateApi } from './useScanWizardState.ts';
 
@@ -97,6 +97,7 @@ export const Step4Review = ({ api }: Step4ReviewProps): ReactElement => {
   const [flagsError, setFlagsError] = useState<string | null>(null);
   const [launching, setLaunching] = useState<boolean>(false);
   const [launchErr, setLaunchErr] = useState<string | null>(null);
+  const [paymentRequired, setPaymentRequired] = useState<boolean>(false);
 
   // ── Feature-flag fetch (one-shot, on mount) ──
   useEffect(() => {
@@ -125,11 +126,13 @@ export const Step4Review = ({ api }: Step4ReviewProps): ReactElement => {
     return true; // MVP default — first scan is free.
   }, []);
 
+  const oxapayBilling = flags?.billing_provider === 'oxapay';
   const legacyPaidFlag = flags?.yookassa_live === true;
   // CTA mode: paid only when feature-flag is live AND quota exhausted.
   const ctaMode: 'free' | 'paid' = legacyPaidFlag && !quotaAvailable
     ? 'paid'
     : 'free';
+  const showPaidCta = ctaMode === 'paid' || (oxapayBilling && paymentRequired);
 
   // ── Launch handler ──
   const onLaunch = async (): Promise<void> => {
@@ -146,9 +149,14 @@ export const Step4Review = ({ api }: Step4ReviewProps): ReactElement => {
     } catch (err) {
       const code = err instanceof ApiError ? err.code : 'unknown_error';
       setLaunchErr(code);
+      if (code === 'free_quota_exhausted') setPaymentRequired(true);
     } finally {
       setLaunching(false);
     }
+  };
+
+  const onCheckout = (): void => {
+    navigate('/billing?product=starter&return_to=scan');
   };
 
   // ── Render ──
@@ -241,12 +249,12 @@ export const Step4Review = ({ api }: Step4ReviewProps): ReactElement => {
         ) : null}
 
         <div>
-          {ctaMode === 'paid' ? (
+          {showPaidCta ? (
             <Btn
               kind="primary"
               size="lg"
-              disabled
-              title={t.wizard.step4.paidNotYet}
+              onClick={onCheckout}
+              data-testid="wizard-step4-checkout-btn"
             >
               {t.wizard.step4.launchPaid}
             </Btn>
@@ -265,9 +273,11 @@ export const Step4Review = ({ api }: Step4ReviewProps): ReactElement => {
           )}
         </div>
 
-        {ctaMode === 'paid' ? (
+        {showPaidCta ? (
           <Mono size={11} color="var(--fg-3)">
-            {t.wizard.step4.paidNotYet}
+            {oxapayBilling
+              ? t.wizard.step4.paidWithOxaPay
+              : t.wizard.step4.paidNotYet}
           </Mono>
         ) : null}
 

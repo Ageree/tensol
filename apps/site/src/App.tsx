@@ -1,5 +1,5 @@
 import { useAuth } from '@clerk/react';
-import { Suspense, lazy, type ComponentType } from 'react';
+import { type ComponentType, Suspense, lazy } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Placeholder } from './components/Placeholder.tsx';
 import { ProtectedRoute } from './components/ProtectedRoute.tsx';
@@ -25,6 +25,7 @@ const Settings = lazy(() => safeImport(() => import('./pages/Settings.tsx'), 'se
 const ErrorScreen = lazy(() => safeImport(() => import('./pages/ErrorScreen.tsx'), 'errors'));
 const Contact = lazy(() => safeImport(() => import('./pages/Contact.tsx'), 'contact'));
 const Pricing = lazy(() => safeImport(() => import('./pages/Pricing.tsx'), 'pricing'));
+const Billing = lazy(() => safeImport(() => import('./pages/Billing.tsx'), 'billing'));
 const Trust = lazy(() => safeImport(() => import('./pages/Trust.tsx'), 'trust'));
 const Legal = lazy(() => safeImport(() => import('./pages/Legal.tsx'), 'legal'));
 const Blog = lazy(() => safeImport(() => import('./pages/Blog.tsx'), 'blog'));
@@ -144,6 +145,7 @@ export const App = () => (
         <Route path="/err/:kind" element={<ErrorScreen />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/pricing" element={<Pricing />} />
+        <Route path="/billing" element={authed(<Billing />)} />
         <Route path="/about" element={<Trust />} />
         <Route path="/trust" element={<Trust />} />
         <Route path="/legal/:kind" element={<Legal />} />

@@ -21,6 +21,9 @@ deployment.
 - Dashboard/settings free-Quick quota derivation treats `cancelled` and
   `failed` free-Quick scan orders as refunded terminal states; only non-refunded
   fresh free-Quick orders consume the visible slot.
+- `/billing` is the authenticated OxaPay checkout surface for buying Sthrip
+  scan credits; public pricing CTAs for Starter/Team/Pro should point there and
+  stay aligned with the Convex billing catalog.
 - `e2e/first-scan.spec.ts` is quarantined as legacy 001 API coverage. Current
   first-scan coverage should use `e2e/scan-wizard.spec.ts` and the
   `/v1/webhooks/scan-complete` specs.

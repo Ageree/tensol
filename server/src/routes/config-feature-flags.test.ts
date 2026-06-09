@@ -9,12 +9,13 @@
  * Env var management: each test snapshots & restores the env vars so the
  * tests are order-independent and don't leak state into other suites.
  */
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 
 import { createConfigFeatureFlagsRouter } from "./config-feature-flags.ts";
 
 const FLAG_ENVS = [
   "TENSOL_YOOKASSA_LIVE",
+  "TENSOL_BILLING_PROVIDER",
   "TENSOL_RESEARCH_ENABLED",
   "TENSOL_EXPLOIT_ENABLED",
 ] as const;
@@ -38,7 +39,7 @@ async function withEnv(
   }
 }
 
-async function getFlags(): Promise<Record<string, boolean>> {
+async function getFlags(): Promise<Record<string, boolean | string>> {
   const router = createConfigFeatureFlagsRouter();
   const resp = await router.request("/");
   expect(resp.status).toBe(200);
@@ -49,6 +50,8 @@ test("GET / returns all flags false by default", async () => {
   await withEnv({}, async () => {
     expect(await getFlags()).toEqual({
       yookassa_live: false,
+      billing_live: true,
+      billing_provider: "manual",
       research_enabled: false,
       exploit_enabled: false,
     });
@@ -59,6 +62,20 @@ test("GET / returns legacy yookassa_live:true when env=true (others false)", asy
   await withEnv({ TENSOL_YOOKASSA_LIVE: "true" }, async () => {
     expect(await getFlags()).toEqual({
       yookassa_live: true,
+      billing_live: true,
+      billing_provider: "manual",
+      research_enabled: false,
+      exploit_enabled: false,
+    });
+  });
+});
+
+test("GET / exposes oxapay billing provider when configured", async () => {
+  await withEnv({ TENSOL_BILLING_PROVIDER: "oxapay" }, async () => {
+    expect(await getFlags()).toEqual({
+      yookassa_live: false,
+      billing_live: true,
+      billing_provider: "oxapay",
       research_enabled: false,
       exploit_enabled: false,
     });
@@ -71,6 +88,8 @@ test("GET / exposes F1/F2 gates: research_enabled + exploit_enabled", async () =
     async () => {
       expect(await getFlags()).toEqual({
         yookassa_live: false,
+        billing_live: true,
+        billing_provider: "manual",
         research_enabled: true,
         exploit_enabled: true,
       });

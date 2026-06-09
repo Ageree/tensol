@@ -273,7 +273,8 @@ export interface FeatureFlags {
 		| "lemonsqueezy"
 		| "polar"
 		| "stripe"
-		| "clerk_billing";
+		| "clerk_billing"
+		| "oxapay";
 	/** F1 — when true the dashboard offers a per-review "deep research" toggle. */
 	research_enabled?: boolean;
 	/** F2 — when true the dashboard surfaces exploit-lab verdicts on findings. */

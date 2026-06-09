@@ -217,7 +217,10 @@ log "9/9  Caddy config"
 install -m 0644 "$CADDYFILE_SRC" "$CADDYFILE_DST"
 caddy validate --config "$CADDYFILE_DST"
 systemctl enable --now caddy
-systemctl reload caddy
+if ! systemctl reload caddy; then
+    log "  caddy reload failed; restarting service instead"
+    systemctl restart caddy
+fi
 
 log "Done."
 cat <<EOF

@@ -68,6 +68,46 @@ export default defineSchema({
     updated_at: v.number(),
   }).index("by_userId", ["userId"]),
 
+  billingCheckoutSessions: defineTable({
+    userId: v.id("users"),
+    provider: v.literal("oxapay"),
+    product_key: v.union(
+      v.literal("starter"),
+      v.literal("team"),
+      v.literal("pro"),
+    ),
+    product_name: v.string(),
+    status: v.union(
+      v.literal("new"),
+      v.literal("waiting"),
+      v.literal("pending"),
+      v.literal("provider_created"),
+      v.literal("paying"),
+      v.literal("paid"),
+      v.literal("manual_accept"),
+      v.literal("underpaid"),
+      v.literal("expired"),
+      v.literal("refunding"),
+      v.literal("refunded"),
+      v.literal("failed"),
+    ),
+    amount_usd_cents: v.number(),
+    currency: v.literal("USD"),
+    scan_credits: v.number(),
+    return_path: v.string(),
+    provider_track_id: v.optional(v.string()),
+    provider_payment_url: v.optional(v.string()),
+    raw_provider_response: v.optional(v.any()),
+    raw_webhook_payload: v.optional(v.any()),
+    expires_at: v.optional(v.number()),
+    paid_at: v.optional(v.number()),
+    last_error: v.optional(v.string()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_userId_and_created_at", ["userId", "created_at"])
+    .index("by_provider_track_id", ["provider_track_id"]),
+
   scanOrders: defineTable({
     userId: v.id("users"),
     status: scanOrderStatus,

@@ -20,6 +20,10 @@ settings, and operations.
 - Failed or cancelled terminal scan states that had debited quota must call
   `refundQuotaIfDebited`; completed scans, including zero-finding completions,
   do not refund quota.
+- OxaPay billing secrets must stay in Convex environment variables only:
+  `OXAPAY_MERCHANT_API_KEY`, `OXAPAY_WEBHOOK_SECRET`,
+  `OXAPAY_CALLBACK_URL`, and `STHRIP_BILLING_RETURN_URL`. Signed OxaPay
+  webhooks are the only automatic path that grants paid scan credits.
 - The Convex `POST /v1/webhooks/scan-complete` HTTP route must stay compatible
   with the production vps-agent V2 callback: body carries `scan_order_id`, and
   `X-Tensol-Signature` is signed with the fleet `TENSOL_WEBHOOK_SECRET` /

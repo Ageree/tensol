@@ -36,3 +36,34 @@ export function isResearchEnabled(): boolean {
 export function isExploitEnabled(): boolean {
   return envFlag(process.env.TENSOL_EXPLOIT_ENABLED);
 }
+
+export type BillingProvider =
+  | "none"
+  | "manual"
+  | "paddle"
+  | "lemonsqueezy"
+  | "polar"
+  | "stripe"
+  | "clerk_billing"
+  | "oxapay";
+
+export function billingProvider(): BillingProvider {
+  const value = process.env.TENSOL_BILLING_PROVIDER?.trim().toLowerCase();
+  if (
+    value === "none" ||
+    value === "manual" ||
+    value === "paddle" ||
+    value === "lemonsqueezy" ||
+    value === "polar" ||
+    value === "stripe" ||
+    value === "clerk_billing" ||
+    value === "oxapay"
+  ) {
+    return value;
+  }
+  return "manual";
+}
+
+export function isBillingLive(): boolean {
+  return billingProvider() !== "none";
+}

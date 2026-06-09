@@ -208,9 +208,9 @@ this script; see Timeweb's snapshot feature for a no-effort option.)
 - [ ] `/opt/tensol/.env.prod` is `chmod 600` and owned by `root`.
 - [ ] No `REPLACE_ME` left in `/opt/tensol/.env.prod`.
 - [ ] `TENSOL_DEV_DNS_BYPASS=false`.
-- [ ] Provider-agnostic billing is disabled unless explicitly approved
-      (`TENSOL_BILLING_LIVE=false`; legacy `TENSOL_YOOKASSA_LIVE` unset/false
-      while old compatibility code exists).
+- [ ] Provider-agnostic billing is explicitly set to the approved provider
+      (`TENSOL_BILLING_PROVIDER=oxapay`; legacy `TENSOL_YOOKASSA_LIVE`
+      unset/false while old compatibility code exists).
 - [ ] `TENSOL_OPERATOR_EMAILS` actually maps to admin accounts you control.
 - [ ] Outbound firewall allows GCP APIs, `api.telegram.org`, GitHub API, and
       whichever explicit GCP/GCS-compatible object-storage endpoint is approved.

@@ -51,7 +51,7 @@ own `.env` must include:
 | `DECEPTICON_IMAGE` | Pullable Decepticon prefetch image / mirror marker | server env |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3-compatible evidence bucket | server env |
 | `TENSOL_EVIDENCE_BUCKET` | Bucket name | server env |
-| `TENSOL_BILLING_LIVE` / `TENSOL_BILLING_PROVIDER` | Future international billing toggle/provider; off in MVP | server env |
+| `TENSOL_BILLING_PROVIDER` | Public billing-provider flag; use `oxapay` for self-serve scan-credit checkout | server env |
 | `TENSOL_YOOKASSA_LIVE` | Legacy pre-pivot compatibility flag; keep unset/false | server env |
 | `DATABASE_URL` | SQLite path or Postgres URI | server env |
 

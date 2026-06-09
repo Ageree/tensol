@@ -2,6 +2,7 @@ import { Show, UserButton } from "@clerk/react";
 import {
 	Activity,
 	Code2,
+	CreditCard,
 	FileText,
 	Gauge,
 	GitBranch,
@@ -37,6 +38,7 @@ export type AppRoute =
 	| "whitebox"
 	| "connect"
 	| "repositories"
+	| "billing"
 	| "settings";
 
 export type AppRole =
@@ -69,6 +71,7 @@ const ROUTE_PATHS: Record<AppRoute, string> = {
 	whitebox: "/whitebox",
 	connect: "/connect",
 	repositories: "/repositories",
+	billing: "/billing",
 	settings: "/settings",
 };
 
@@ -650,6 +653,14 @@ export function AppShell({
 						label={t.navRepositories}
 						active={route === "repositories"}
 						onClick={() => go("repositories")}
+						collapsed={sidebarCollapsed}
+						tone={navTone}
+					/>
+					<NavItem
+						icon={<CreditCard {...navIconProps} />}
+						label="Billing"
+						active={route === "billing"}
+						onClick={() => go("billing")}
 						collapsed={sidebarCollapsed}
 						tone={navTone}
 					/>
