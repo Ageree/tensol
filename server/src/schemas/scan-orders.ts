@@ -39,22 +39,22 @@ const CROCKFORD_ULID_REGEX = /^[0-9A-HJKMNP-TV-Z]{26}$/;
  * Pattern enforces:
  *   - Lowercase RFC 1035 labels (a-z, 0-9, hyphen)
  *   - Labels may not start or end with a hyphen
- *   - Optional dot-separated subdomains
- *   - No trailing dot, no scheme prefix, no IP literal
+ *   - At least two dot-separated labels for public DNS scope
+ *   - No trailing dot, no scheme prefix, no IP literal, no single-label host
  *
  * Length cap of 253 bytes matches DNS spec and the openapi `maxLength`.
  */
+const PUBLIC_HOSTNAME_REGEX =
+  /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]([a-z0-9-]{0,61}[a-z0-9])?$/;
+
 export const HostnameSchema = z
   .string()
   .min(1)
   .max(253)
-  .regex(
-    /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/,
-    {
-      message:
-        "Must be a lowercase RFC 1035 hostname (no scheme, no trailing dot, no IP literal)",
-    },
-  );
+  .regex(PUBLIC_HOSTNAME_REGEX, {
+    message:
+      "Must be a public lowercase RFC 1035 hostname (no scheme, no trailing dot, no IP literal)",
+  });
 
 export type Hostname = z.infer<typeof HostnameSchema>;
 

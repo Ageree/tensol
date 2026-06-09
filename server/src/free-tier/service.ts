@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 /**
  * T030 — Free-tier quota service.
  *
@@ -6,7 +7,8 @@
  *     7-day (168h) window.
  *   - FR-014: rapid double-click MUST NOT double-spend — the gate is
  *     enforced atomically at the SQL layer.
- *   - FR-016: caller refunds the quota on timeout/cancel/provision-failure.
+ *   - FR-016: caller refunds the quota on timeout/cancel/provision-failure
+ *     and scanner infrastructure crashes that produce no usable result.
  *   - FR-017: caller does NOT refund on zero-findings (out of scope here;
  *     this module exposes an unconditional refund helper — the policy of
  *     when to call it lives in scan-orders/jobs/webhook handlers).
@@ -51,7 +53,6 @@
  * double-logging and keeps this module a pure quota primitive.
  */
 import { sql } from "drizzle-orm";
-import type { Database } from "bun:sqlite";
 import type { DB } from "../db/client.ts";
 import { users as usersTable } from "../db/schema.ts";
 
@@ -60,8 +61,8 @@ export const FREE_TIER_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Shape bun:sqlite's `.run()` returns (preserved by Drizzle's bun-sqlite). */
 interface RunResult {
-  readonly changes: number;
-  readonly lastInsertRowid: number | bigint;
+	readonly changes: number;
+	readonly lastInsertRowid: number | bigint;
 }
 
 /**
@@ -75,20 +76,20 @@ interface RunResult {
  * `consumeFreeQuickQuota`'s atomic gate for correctness.
  */
 export async function canStartFreeQuick(
-  db: DB,
-  userId: string,
-  now: number = Date.now(),
+	db: DB,
+	userId: string,
+	now: number = Date.now(),
 ): Promise<boolean> {
-  const threshold = now - FREE_TIER_WINDOW_MS;
-  const rows = db
-    .select({ id: usersTable.id })
-    .from(usersTable)
-    .where(
-      sql`${usersTable.id} = ${userId} AND (${usersTable.freeQuickConsumedAt} IS NULL OR ${usersTable.freeQuickConsumedAt} < ${threshold})`,
-    )
-    .limit(1)
-    .all();
-  return rows.length === 1;
+	const threshold = now - FREE_TIER_WINDOW_MS;
+	const rows = db
+		.select({ id: usersTable.id })
+		.from(usersTable)
+		.where(
+			sql`${usersTable.id} = ${userId} AND (${usersTable.freeQuickConsumedAt} IS NULL OR ${usersTable.freeQuickConsumedAt} < ${threshold})`,
+		)
+		.limit(1)
+		.all();
+	return rows.length === 1;
 }
 
 /**
@@ -105,22 +106,22 @@ export async function canStartFreeQuick(
  * observe `changes === 0`. This is the FR-014 guarantee.
  */
 export async function consumeFreeQuickQuota(
-  db: DB,
-  userId: string,
-  now: number = Date.now(),
+	db: DB,
+	userId: string,
+	now: number = Date.now(),
 ): Promise<{ consumed: boolean }> {
-  const threshold = now - FREE_TIER_WINDOW_MS;
-  const res = db
-    .update(usersTable)
-    .set({
-      freeQuickConsumedAt: now,
-      freeQuickConsumedCount: sql`${usersTable.freeQuickConsumedCount} + 1`,
-    })
-    .where(
-      sql`${usersTable.id} = ${userId} AND (${usersTable.freeQuickConsumedAt} IS NULL OR ${usersTable.freeQuickConsumedAt} < ${threshold})`,
-    )
-    .run() as unknown as RunResult;
-  return { consumed: res.changes === 1 };
+	const threshold = now - FREE_TIER_WINDOW_MS;
+	const res = db
+		.update(usersTable)
+		.set({
+			freeQuickConsumedAt: now,
+			freeQuickConsumedCount: sql`${usersTable.freeQuickConsumedCount} + 1`,
+		})
+		.where(
+			sql`${usersTable.id} = ${userId} AND (${usersTable.freeQuickConsumedAt} IS NULL OR ${usersTable.freeQuickConsumedAt} < ${threshold})`,
+		)
+		.run() as unknown as RunResult;
+	return { consumed: res.changes === 1 };
 }
 
 /**
@@ -131,6 +132,7 @@ export async function consumeFreeQuickQuota(
  *   - user-cancelled before significant runtime
  *   - VPS provisioning failure
  *   - scan-timeout with no results
+ *   - scanner infrastructure failure reported by a terminal failed callback
  *
  * Do NOT invoke for zero-findings completion (valid result; quota stays
  * consumed).
@@ -146,18 +148,18 @@ export async function consumeFreeQuickQuota(
  * stored values do not change).
  */
 export async function refundFreeQuickQuota(
-  db: DB,
-  userId: string,
+	db: DB,
+	userId: string,
 ): Promise<{ refunded: boolean }> {
-  const res = db
-    .update(usersTable)
-    .set({
-      freeQuickConsumedAt: null,
-      freeQuickConsumedCount: sql`MAX(${usersTable.freeQuickConsumedCount} - 1, 0)`,
-    })
-    .where(sql`${usersTable.id} = ${userId}`)
-    .run() as unknown as RunResult;
-  return { refunded: res.changes === 1 };
+	const res = db
+		.update(usersTable)
+		.set({
+			freeQuickConsumedAt: null,
+			freeQuickConsumedCount: sql`MAX(${usersTable.freeQuickConsumedCount} - 1, 0)`,
+		})
+		.where(sql`${usersTable.id} = ${userId}`)
+		.run() as unknown as RunResult;
+	return { refunded: res.changes === 1 };
 }
 
 // Suppress unused-import warning when Database type ever becomes load-bearing

@@ -14,20 +14,23 @@ import {
 } from './Step2Safety.tsx';
 
 describe('isValidHostname', () => {
-  test('accepts lowercase RFC 1035 hostnames', () => {
+  test('accepts public lowercase RFC 1035 hostnames', () => {
     expect(isValidHostname('example.com')).toBe(true);
     expect(isValidHostname('api.example.com')).toBe(true);
     expect(isValidHostname('a-1.b-2.c-3.example.io')).toBe(true);
-    expect(isValidHostname('single')).toBe(true);
   });
 
-  test('rejects empty / too-long / uppercase / schemed / trailing-dot', () => {
+  test('rejects empty / too-long / uppercase / schemed / non-public targets', () => {
     expect(isValidHostname('')).toBe(false);
     expect(isValidHostname('Example.com')).toBe(false);
     expect(isValidHostname('https://example.com')).toBe(false);
     expect(isValidHostname('example.com.')).toBe(false);
     expect(isValidHostname('-bad.example.com')).toBe(false);
     expect(isValidHostname('bad-.example.com')).toBe(false);
+    expect(isValidHostname('single')).toBe(false);
+    expect(isValidHostname('localhost')).toBe(false);
+    expect(isValidHostname('127.0.0.1')).toBe(false);
+    expect(isValidHostname('example.123')).toBe(false);
     expect(isValidHostname('a'.repeat(254))).toBe(false);
   });
 });

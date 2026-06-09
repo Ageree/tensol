@@ -459,6 +459,20 @@ export function createScanOrdersService(
 					.run();
 			});
 			// No additional audit — checkVerification already emitted dns_verified.
+		} else if (result.lastError === "timeout") {
+			const ts = nowFn();
+			await withTx(db, async (tx) => {
+				tx.update(scanOrdersTable)
+					.set({
+						status: "failed",
+						failureReason: "timeout",
+						updatedAt: ts,
+					})
+					.where(eq(scanOrdersTable.id, orderId))
+					.run();
+			});
+			// No additional audit — checkVerification already emitted
+			// dns_verify_failed with reason=timeout.
 		}
 
 		return rowToResponse(reloadOrThrow(orderId));

@@ -26,279 +26,292 @@ const HEX_KEY_MIN_LEN = 64;
  * truthy token is `false`.
  */
 const envBool = (def: boolean) =>
-  z
-    .string()
-    .optional()
-    .transform((v) => (v === undefined ? def : /^(1|true|yes|on)$/i.test(v.trim())));
+	z
+		.string()
+		.optional()
+		.transform((v) =>
+			v === undefined ? def : /^(1|true|yes|on)$/i.test(v.trim()),
+		);
 
 const ConfigSchema = z
-  .object({
-    // Audit chain HMAC key (T013/T014). Hex-encoded, ≥64 chars.
-    TENSOL_AUDIT_SIGNING_KEY: z
-      .string({ required_error: "TENSOL_AUDIT_SIGNING_KEY is required" })
-      .min(HEX_KEY_MIN_LEN, {
-        message: `TENSOL_AUDIT_SIGNING_KEY must be at least ${HEX_KEY_MIN_LEN} chars`,
-      }),
+	.object({
+		// Audit chain HMAC key (T013/T014). Hex-encoded, ≥64 chars.
+		TENSOL_AUDIT_SIGNING_KEY: z
+			.string({ required_error: "TENSOL_AUDIT_SIGNING_KEY is required" })
+			.min(HEX_KEY_MIN_LEN, {
+				message: `TENSOL_AUDIT_SIGNING_KEY must be at least ${HEX_KEY_MIN_LEN} chars`,
+			}),
 
-    // Session cookie HMAC secret. Hex-encoded, ≥64 chars.
-    TENSOL_SESSION_COOKIE_SECRET: z
-      .string({ required_error: "TENSOL_SESSION_COOKIE_SECRET is required" })
-      .min(HEX_KEY_MIN_LEN, {
-        message: `TENSOL_SESSION_COOKIE_SECRET must be at least ${HEX_KEY_MIN_LEN} chars`,
-      }),
+		// Session cookie HMAC secret. Hex-encoded, ≥64 chars.
+		TENSOL_SESSION_COOKIE_SECRET: z
+			.string({ required_error: "TENSOL_SESSION_COOKIE_SECRET is required" })
+			.min(HEX_KEY_MIN_LEN, {
+				message: `TENSOL_SESSION_COOKIE_SECRET must be at least ${HEX_KEY_MIN_LEN} chars`,
+			}),
 
-    // Email delivery provider. `stdout` prints magic links to stdout (dev).
-    EMAIL_PROVIDER: z.enum(["stdout", "resend"]).default("stdout"),
+		// Email delivery provider. `stdout` prints magic links to stdout (dev).
+		EMAIL_PROVIDER: z.enum(["stdout", "resend"]).default("stdout"),
 
-    // Required only when EMAIL_PROVIDER=resend (enforced in superRefine).
-    RESEND_API_KEY: z.string().min(1).optional(),
+		// Required only when EMAIL_PROVIDER=resend (enforced in superRefine).
+		RESEND_API_KEY: z.string().min(1).optional(),
 
-    // Hetzner Cloud API token (server provisioning).
-    HETZNER_API_TOKEN: z
-      .string({ required_error: "HETZNER_API_TOKEN is required" })
-      .min(1, { message: "HETZNER_API_TOKEN must not be empty" }),
+		// Hetzner Cloud API token (server provisioning).
+		HETZNER_API_TOKEN: z
+			.string({ required_error: "HETZNER_API_TOKEN is required" })
+			.min(1, { message: "HETZNER_API_TOKEN must not be empty" }),
 
-    HETZNER_LOCATION: z.string().min(1).default("fsn1"),
-    HETZNER_SERVER_TYPE: z.string().min(1).default("cpx21"),
-    HETZNER_IMAGE: z.string().min(1).default("ubuntu-24.04"),
+		HETZNER_LOCATION: z.string().min(1).default("fsn1"),
+		HETZNER_SERVER_TYPE: z.string().min(1).default("cpx21"),
+		HETZNER_IMAGE: z.string().min(1).default("ubuntu-24.04"),
 
-    HETZNER_SSH_KEY_NAME: z
-      .string({ required_error: "HETZNER_SSH_KEY_NAME is required" })
-      .min(1, { message: "HETZNER_SSH_KEY_NAME must not be empty" }),
+		HETZNER_SSH_KEY_NAME: z
+			.string({ required_error: "HETZNER_SSH_KEY_NAME is required" })
+			.min(1, { message: "HETZNER_SSH_KEY_NAME must not be empty" }),
 
-    // Docker image tag for the vps-agent container.
-    TENSOL_VPS_AGENT_IMAGE: z
-      .string({ required_error: "TENSOL_VPS_AGENT_IMAGE is required" })
-      .min(1, { message: "TENSOL_VPS_AGENT_IMAGE must not be empty" }),
+		// Docker image tag for the vps-agent container.
+		TENSOL_VPS_AGENT_IMAGE: z
+			.string({ required_error: "TENSOL_VPS_AGENT_IMAGE is required" })
+			.min(1, { message: "TENSOL_VPS_AGENT_IMAGE must not be empty" }),
 
-    // T128 Bug #7 — OpenRouter API key for the Decepticon LiteLLM proxy
-    // routing all model calls to `openrouter/qwen/qwen3.7-max`. Optional
-    // with empty default so dev boot doesn't halt when the key is absent;
-    // production deployments MUST set it or the spawned VM's LiteLLM
-    // returns 401 on the first agent call and the scan hangs at recon.
-    OPENROUTER_API_KEY: z.string().default(""),
-    TENSOL_OPENROUTER_API_KEY: z.string().default(""),
+		// T128 Bug #7 — OpenRouter API key for the Decepticon LiteLLM proxy
+		// routing all model calls to `openrouter/qwen/qwen3.7-max`. Optional
+		// with empty default so dev boot doesn't halt when the key is absent;
+		// production deployments MUST set it or the spawned VM's LiteLLM
+		// returns 401 on the first agent call and the scan hangs at recon.
+		OPENROUTER_API_KEY: z.string().default(""),
+		TENSOL_OPENROUTER_API_KEY: z.string().default(""),
 
-    // LiteLLM master key (proxy-side auth between langgraph and litellm
-    // containers inside the per-scan VM). The two values must match;
-    // since both containers come from the same /opt/decepticon/.env,
-    // they always do. Default is a safe synthetic constant — not a
-    // secret, just a service-internal token.
-    TENSOL_LITELLM_MASTER_KEY: z.string().default("sk-tensol-litellm-internal"),
+		// LiteLLM master key (proxy-side auth between langgraph and litellm
+		// containers inside the per-scan VM). The two values must match;
+		// since both containers come from the same /opt/decepticon/.env,
+		// they always do. Default is a safe synthetic constant — not a
+		// secret, just a service-internal token.
+		TENSOL_LITELLM_MASTER_KEY: z.string().default("sk-tensol-litellm-internal"),
 
-    // Postgres password for the per-VM litellm-backing DB.
-    TENSOL_POSTGRES_PASSWORD: z
-      .string()
-      .default("tensol-postgres-internal"),
+		// Postgres password for the per-VM litellm-backing DB.
+		TENSOL_POSTGRES_PASSWORD: z.string().default("tensol-postgres-internal"),
 
-    // Neo4j auth password for the per-VM KG (verifier reads it; recon
-    // writes vulnerability nodes via Rule 4b KG_PERSISTENCE).
-    TENSOL_NEO4J_PASSWORD: z.string().default("tensol-neo4j-internal"),
+		// Neo4j auth password for the per-VM KG (verifier reads it; recon
+		// writes vulnerability nodes via Rule 4b KG_PERSISTENCE).
+		TENSOL_NEO4J_PASSWORD: z.string().default("tensol-neo4j-internal"),
 
-    // Public base URL where the server receives webhooks from VPS agents.
-    TENSOL_WEBHOOK_BASE_URL: z
-      .string({ required_error: "TENSOL_WEBHOOK_BASE_URL is required" })
-      .url({ message: "TENSOL_WEBHOOK_BASE_URL must be a valid URL" }),
+		// Public base URL where the server receives webhooks from VPS agents.
+		TENSOL_WEBHOOK_BASE_URL: z
+			.string({ required_error: "TENSOL_WEBHOOK_BASE_URL is required" })
+			.url({ message: "TENSOL_WEBHOOK_BASE_URL must be a valid URL" }),
 
-    // T074 — shared HMAC-SHA256 secret for the V2 `/v1/webhooks/scan-complete`
-    // endpoint (T069). vps-agent signs with this same secret. Optional with
-    // an empty default so dev boot doesn't halt when the env var is absent;
-    // production deployments populate it. When unset, signature verification
-    // simply fails for any inbound webhook (HMAC over an empty key produces
-    // no match against a real signed payload).
-    TENSOL_WEBHOOK_SECRET: z.string().default(""),
+		// T074 — shared HMAC-SHA256 secret for the V2 `/v1/webhooks/scan-complete`
+		// endpoint (T069). vps-agent signs with this same secret. Optional with
+		// an empty default so dev boot doesn't halt when the env var is absent;
+		// production deployments populate it. When unset, the webhook route
+		// fails closed before HMAC verification.
+		TENSOL_WEBHOOK_SECRET: z.string().default(""),
 
-    // Pivot 2026-05-19 — Telegram bot webhook secret. Telegram attaches this
-    // string in the `X-Telegram-Bot-Api-Secret-Token` header when delivering
-    // bot updates; we verify it before parsing the body. Optional with empty
-    // default so dev boot doesn't halt; when unset the `/v1/webhooks/telegram-
-    // update` handler refuses every inbound (Telegram retries, but the
-    // operator notices via the warn-log).
-    TENSOL_TELEGRAM_WEBHOOK_SECRET: z.string().default(""),
+		// Pivot 2026-05-19 — Telegram bot webhook secret. Telegram attaches this
+		// string in the `X-Telegram-Bot-Api-Secret-Token` header when delivering
+		// bot updates; we verify it before parsing the body. Optional with empty
+		// default so dev boot doesn't halt; when unset the `/v1/webhooks/telegram-
+		// update` handler refuses every inbound (Telegram retries, but the
+		// operator notices via the warn-log).
+		TENSOL_TELEGRAM_WEBHOOK_SECRET: z.string().default(""),
 
-    // T121 — comma-separated list of operator emails authorised to use the
-    // `/v1/admin/*` surface (Deep-inquiry triage, etc.). Optional with empty
-    // default so dev boot doesn't halt; the safe default is "no operators
-    // configured, admin routes deny every authenticated user with 403". The
-    // string is parsed into a normalized list at startup via
-    // `parseOperatorEmails` (see `routes/admin/deep-inquiries.ts`).
-    TENSOL_OPERATOR_EMAILS: z.string().default(""),
+		// T121 — comma-separated list of operator emails authorised to use the
+		// `/v1/admin/*` surface (Deep-inquiry triage, etc.). Optional with empty
+		// default so dev boot doesn't halt; the safe default is "no operators
+		// configured, admin routes deny every authenticated user with 403". The
+		// string is parsed into a normalized list at startup via
+		// `parseOperatorEmails` (see `routes/admin/deep-inquiries.ts`).
+		TENSOL_OPERATOR_EMAILS: z.string().default(""),
 
-    // Clerk auth (Vercel Marketplace friendly). The secret stays server-only;
-    // the Vite site reads VITE_CLERK_PUBLISHABLE_KEY / NEXT_PUBLIC_* directly.
-    CLERK_SECRET_KEY: z.string().default(""),
-    // Optional comma-separated allowed frontend origins for Clerk session
-    // tokens (`azp` claim). Empty = Clerk default verification only.
-    CLERK_AUTHORIZED_PARTIES: z.string().default(""),
+		// Clerk auth (Vercel Marketplace friendly). The secret stays server-only;
+		// the Vite site reads VITE_CLERK_PUBLISHABLE_KEY / NEXT_PUBLIC_* directly.
+		CLERK_SECRET_KEY: z.string().default(""),
+		// Optional comma-separated allowed frontend origins for Clerk session
+		// tokens (`azp` claim). Empty = Clerk default verification only.
+		CLERK_AUTHORIZED_PARTIES: z.string().default(""),
 
-    // 003-whitebox / 004-sthrip-pr-review — GitHub App (PR Review). All
-    // optional with empty defaults so dev boot doesn't halt; the review domain
-    // degrades gracefully and the webhook route 503s when unconfigured (no
-    // signature can verify against an empty secret). Production deployments
-    // populate these from the GitHub App settings page.
-    GITHUB_APP_ID: z.string().default(""),
-    // PEM private key (may contain literal `\n` — normalized at read time).
-    GITHUB_APP_PRIVATE_KEY: z.string().default(""),
-    GITHUB_APP_WEBHOOK_SECRET: z.string().default(""),
-    GITHUB_APP_CLIENT_ID: z.string().default(""),
-    // 004-sthrip-pr-review — App slug (used to build install URL) and OAuth
-    // client secret (OAuth flow during connect). Both default to "" so dev
-    // boot never halts when unconfigured.
-    GITHUB_APP_SLUG: z.string().default(""),
-    GITHUB_APP_CLIENT_SECRET: z.string().default(""),
+		// 003-whitebox / 004-sthrip-pr-review — GitHub App (PR Review). All
+		// optional with empty defaults so dev boot doesn't halt; the review domain
+		// degrades gracefully and the webhook route 503s when unconfigured (no
+		// signature can verify against an empty secret). Production deployments
+		// populate these from the GitHub App settings page.
+		GITHUB_APP_ID: z.string().default(""),
+		// PEM private key (may contain literal `\n` — normalized at read time).
+		GITHUB_APP_PRIVATE_KEY: z.string().default(""),
+		GITHUB_APP_WEBHOOK_SECRET: z.string().default(""),
+		GITHUB_APP_CLIENT_ID: z.string().default(""),
+		// 004-sthrip-pr-review — App slug (used to build install URL) and OAuth
+		// client secret (OAuth flow during connect). Both default to "" so dev
+		// boot never halts when unconfigured.
+		GITHUB_APP_SLUG: z.string().default(""),
+		GITHUB_APP_CLIENT_SECRET: z.string().default(""),
 
-    // 004-sthrip-pr-review — review quality / noise-control knobs. All have
-    // safe defaults so dev boot never halts when the env vars are absent.
-    //
-    // STHRIP_REVIEW_CONFIDENCE_FLOOR: findings below this threshold are
-    // dropped before posting. Default "medium" — same as the legacy
-    // LLM-only mode, so existing behaviour is preserved on upgrade.
-    STHRIP_REVIEW_CONFIDENCE_FLOOR: z
-      .enum(["verified", "high", "medium", "low"])
-      .default("medium"),
-    // STHRIP_SUPPRESS_AFTER_N_IGNORES: after N dismissals of the same
-    // category the repo suppresses that category automatically. Must be a
-    // positive integer; coerced from string env value.
-    STHRIP_SUPPRESS_AFTER_N_IGNORES: z.coerce
-      .number({
-        invalid_type_error: "STHRIP_SUPPRESS_AFTER_N_IGNORES must be a number",
-      })
-      .int({ message: "STHRIP_SUPPRESS_AFTER_N_IGNORES must be an integer" })
-      .positive({
-        message: "STHRIP_SUPPRESS_AFTER_N_IGNORES must be a positive integer",
-      })
-      .default(3),
-    // STHRIP_OPENGREP_RULES_DIR: path to the AikidoSec-MIT or self-authored
-    // Opengrep rules directory. Empty string means "use built-in rules only".
-    STHRIP_OPENGREP_RULES_DIR: z.string().default(""),
+		// 004-sthrip-pr-review — review quality / noise-control knobs. All have
+		// safe defaults so dev boot never halts when the env vars are absent.
+		//
+		// STHRIP_REVIEW_CONFIDENCE_FLOOR: findings below this threshold are
+		// dropped before posting. Default "medium" — same as the legacy
+		// LLM-only mode, so existing behaviour is preserved on upgrade.
+		STHRIP_REVIEW_CONFIDENCE_FLOOR: z
+			.enum(["verified", "high", "medium", "low"])
+			.default("medium"),
+		// STHRIP_SUPPRESS_AFTER_N_IGNORES: after N dismissals of the same
+		// category the repo suppresses that category automatically. Must be a
+		// positive integer; coerced from string env value.
+		STHRIP_SUPPRESS_AFTER_N_IGNORES: z.coerce
+			.number({
+				invalid_type_error: "STHRIP_SUPPRESS_AFTER_N_IGNORES must be a number",
+			})
+			.int({ message: "STHRIP_SUPPRESS_AFTER_N_IGNORES must be an integer" })
+			.positive({
+				message: "STHRIP_SUPPRESS_AFTER_N_IGNORES must be a positive integer",
+			})
+			.default(3),
+		// STHRIP_OPENGREP_RULES_DIR: path to the AikidoSec-MIT or self-authored
+		// Opengrep rules directory. Empty string means "use built-in rules only".
+		STHRIP_OPENGREP_RULES_DIR: z.string().default(""),
 
-    // 003-whitebox — Review LLM (OpenRouter/LiteLLM-compatible). When the
-    // review-specific key is unset it falls back to the shared OpenRouter key
-    // (`TENSOL_OPENROUTER_API_KEY`) — resolved in the `.transform()` below, so
-    // every consumer of `config.TENSOL_REVIEW_LLM_API_KEY` sees the effective
-    // key. The default base URL + model already target OpenRouter, so the
-    // shared `sk-or-v1-…` key works unchanged.
-    TENSOL_REVIEW_LLM_API_KEY: z.string().default(""),
-    TENSOL_REVIEW_LLM_BASE_URL: z
-      .string()
-      .default("https://openrouter.ai/api/v1"),
-    TENSOL_REVIEW_LLM_MODEL: z.string().default("qwen/qwen3.7-max"),
+		// 003-whitebox — Review LLM (OpenRouter/LiteLLM-compatible). When the
+		// review-specific key is unset it falls back to the shared OpenRouter key
+		// (`TENSOL_OPENROUTER_API_KEY`) — resolved in the `.transform()` below, so
+		// every consumer of `config.TENSOL_REVIEW_LLM_API_KEY` sees the effective
+		// key. The default base URL + model already target OpenRouter, so the
+		// shared OpenRouter key works unchanged.
+		TENSOL_REVIEW_LLM_API_KEY: z.string().default(""),
+		TENSOL_REVIEW_LLM_BASE_URL: z
+			.string()
+			.default("https://openrouter.ai/api/v1"),
+		TENSOL_REVIEW_LLM_MODEL: z.string().default("qwen/qwen3.7-max"),
 
-    // Exploit Lab + Deep Research feature gates (migration 0013). Both default
-    // OFF so the feature is dark until an operator opts in; the rest tune the
-    // Lab's bounded autonomous loop (model, iteration cap, USD budget, sandbox
-    // isolation, output-token price for budget accounting). The two gates use
-    // the STRICT `envBool` (NOT z.coerce.boolean, which makes "false"/"0"/"off"
-    // truthy — fail-unsafe for a dark gate); the numeric tunables use z.coerce.
-    TENSOL_EXPLOIT_ENABLED: envBool(false),
-    TENSOL_RESEARCH_ENABLED: envBool(false),
-    // Deep Research (F1) cost bound. The multi-agent pipeline makes routing + N
-    // expert + triage LLM calls; without a ceiling a deep scan of a large repo
-    // is unbounded spend. The handler meters the research LLM against a budget
-    // built from these and aborts the scan once the ceiling is hit.
-    TENSOL_RESEARCH_BUDGET_USD: z.coerce.number().positive().default(0.5),
-    TENSOL_RESEARCH_USD_PER_MTOK_OUT: z.coerce.number().positive().default(2.0),
-    TENSOL_EXPLOIT_LLM_MODEL: z.string().default("qwen/qwen3.7-max"),
-    TENSOL_EXPLOIT_MAX_ITERS: z.coerce.number().int().positive().default(4),
-    TENSOL_EXPLOIT_BUDGET_USD: z.coerce.number().positive().default(2.0),
-    TENSOL_EXPLOIT_SANDBOX: z.enum(["vm", "local"]).default("local"),
-    TENSOL_EXPLOIT_USD_PER_MTOK_OUT: z.coerce.number().positive().default(2.0),
-    // SAFETY ACK for running the Exploit Lab on the LOCAL (un-isolated
-    // subprocess) sandbox. The local sandbox has no network/FS namespace, so it
-    // is NOT a production isolation boundary. When TENSOL_EXPLOIT_ENABLED is on,
-    // the server REFUSES to wire the Lab on the local sandbox unless this is
-    // explicitly set true (an operator's eyes-open acknowledgement). The VM
-    // sandbox is the real isolation path (deferred wiring). Default false.
-    TENSOL_EXPLOIT_ALLOW_UNSANDBOXED_LOCAL: envBool(false),
+		// Exploit Lab + Deep Research feature gates (migration 0013). Both default
+		// OFF so the feature is dark until an operator opts in; the rest tune the
+		// Lab's bounded autonomous loop (model, iteration cap, USD budget, sandbox
+		// isolation, output-token price for budget accounting). The two gates use
+		// the STRICT `envBool` (NOT z.coerce.boolean, which makes "false"/"0"/"off"
+		// truthy — fail-unsafe for a dark gate); the numeric tunables use z.coerce.
+		TENSOL_EXPLOIT_ENABLED: envBool(false),
+		TENSOL_RESEARCH_ENABLED: envBool(false),
+		// Deep Research (F1) cost bound. The multi-agent pipeline makes routing + N
+		// expert + triage LLM calls; without a ceiling a deep scan of a large repo
+		// is unbounded spend. The handler meters the research LLM against a budget
+		// built from these and aborts the scan once the ceiling is hit.
+		TENSOL_RESEARCH_BUDGET_USD: z.coerce.number().positive().default(0.5),
+		TENSOL_RESEARCH_USD_PER_MTOK_OUT: z.coerce.number().positive().default(2.0),
+		TENSOL_EXPLOIT_LLM_MODEL: z.string().default("qwen/qwen3.7-max"),
+		TENSOL_EXPLOIT_MAX_ITERS: z.coerce.number().int().positive().default(4),
+		TENSOL_EXPLOIT_BUDGET_USD: z.coerce.number().positive().default(2.0),
+		TENSOL_EXPLOIT_SANDBOX: z.enum(["vm", "local"]).default("local"),
+		TENSOL_EXPLOIT_USD_PER_MTOK_OUT: z.coerce.number().positive().default(2.0),
+		// SAFETY ACK for running the Exploit Lab on the LOCAL (un-isolated
+		// subprocess) sandbox. The local sandbox has no network/FS namespace, so it
+		// is NOT a production isolation boundary. When TENSOL_EXPLOIT_ENABLED is on,
+		// the server REFUSES to wire the Lab on the local sandbox unless this is
+		// explicitly set true (an operator's eyes-open acknowledgement). The VM
+		// sandbox is the real isolation path (deferred wiring). Default false.
+		TENSOL_EXPLOIT_ALLOW_UNSANDBOXED_LOCAL: envBool(false),
 
-    // Agentic tool-use (gpt-5.5) foundation — P0. The agentic loop
-    // (think → call-tool → observe → repeat; src/review/agent/loop.ts) is DARK
-    // by default behind per-service gates, so the existing fixed-prompt
-    // behaviour is unchanged until an operator opts in. The gates use the STRICT
-    // `envBool` (NOT z.coerce.boolean, which makes "false"/"0"/"off" truthy —
-    // fail-unsafe for a dark gate). The numeric tunables use z.coerce.
-    TENSOL_AGENT_PR_ENABLED: envBool(false),
-    TENSOL_AGENT_WHITEBOX_ENABLED: envBool(false),
-    // The tool-using model. gpt-5.5 supports function calling on OpenRouter.
-    TENSOL_AGENT_MODEL: z.string().default("openai/gpt-5.5"),
-    // Hard caps on the loop (defense against runaway tool-calling spend).
-    TENSOL_AGENT_MAX_ROUNDS: z.coerce.number().int().positive().default(12),
-    TENSOL_AGENT_MAX_TOOL_CALLS: z.coerce.number().int().positive().default(48),
-    // Per-loop USD ceiling. gpt-5.5 is ~24× qwen3.7-max, and agentic loops
-    // multiply round-trips, so a hard dollar bound is mandatory.
-    TENSOL_AGENT_BUDGET_USD: z.coerce.number().positive().default(2.0),
-    // gpt-5.5 asymmetric pricing per 1M tokens ($5 in / $30 out). Input pricing
-    // MATTERS for agentic loops (tool results balloon the input side), so the
-    // agent budget counts BOTH sides — see createBudget({usdPerMTokIn}).
-    TENSOL_AGENT_USD_PER_MTOK_IN: z.coerce.number().nonnegative().default(5.0),
-    TENSOL_AGENT_USD_PER_MTOK_OUT: z.coerce.number().positive().default(30.0),
+		// Agentic tool-use (gpt-5.5) foundation — P0. The PR agent loop
+		// (think → call-tool → observe → repeat; src/review/agent/loop.ts) is DARK
+		// by default behind TENSOL_AGENT_PR_ENABLED, so fixed-prompt PR review is
+		// unchanged until an operator opts in. TENSOL_AGENT_WHITEBOX_ENABLED is a
+		// legacy parse-only flag kept for env compatibility; server.ts warns when it
+		// is set and points operators at TENSOL_HARNESS_ENABLED instead. The gates
+		// use the STRICT `envBool` (NOT z.coerce.boolean, which makes
+		// "false"/"0"/"off" truthy — fail-unsafe for a dark gate). The numeric
+		// tunables use z.coerce.
+		TENSOL_AGENT_PR_ENABLED: envBool(false),
+		TENSOL_AGENT_WHITEBOX_ENABLED: envBool(false),
+		// The tool-using model. gpt-5.5 supports function calling on OpenRouter.
+		TENSOL_AGENT_MODEL: z.string().default("openai/gpt-5.5"),
+		// Hard caps on the loop (defense against runaway tool-calling spend).
+		TENSOL_AGENT_MAX_ROUNDS: z.coerce.number().int().positive().default(12),
+		TENSOL_AGENT_MAX_TOOL_CALLS: z.coerce.number().int().positive().default(48),
+		// Per-loop USD ceiling. gpt-5.5 is ~24× qwen3.7-max, and agentic loops
+		// multiply round-trips, so a hard dollar bound is mandatory.
+		TENSOL_AGENT_BUDGET_USD: z.coerce.number().positive().default(2.0),
+		// gpt-5.5 asymmetric pricing per 1M tokens ($5 in / $30 out). Input pricing
+		// MATTERS for agentic loops (tool results balloon the input side), so the
+		// agent budget counts BOTH sides — see createBudget({usdPerMTokIn}).
+		TENSOL_AGENT_USD_PER_MTOK_IN: z.coerce.number().nonnegative().default(5.0),
+		TENSOL_AGENT_USD_PER_MTOK_OUT: z.coerce.number().positive().default(30.0),
 
-    // P1 — Blackbox (Decepticon) on gpt-5.5. Decepticon is ALREADY a tool-using
-    // agent; this only swaps the model driving it. DARK by default: when off,
-    // the per-scan VM's LiteLLM keeps hijacking openai/* → qwen3.7-max (the
-    // cost-safe default, unchanged byte-for-byte). When ON, cloud-init repoints
-    // the openai/* routes to `openrouter/<TENSOL_AGENT_MODEL>` and pins the
-    // Decepticon resolver to the openai auth path so real gpt-5.5 drives the
-    // scan. gpt-5.5 is ~24× qwen, so this is a deliberate per-scan cost increase
-    // — leave OFF unless you've accepted that. LIVE VM verification required
-    // before production (the route rewrite is unit-tested, not E2E here).
-    TENSOL_BLACKBOX_AGENT_ENABLED: envBool(false),
-    // Operator diagnostics: keep failed blackbox scan VMs around long enough to
-    // inspect compose logs. Default OFF so production teardown remains prompt.
-    TENSOL_DIAGNOSTIC_PRESERVE_FAILED_VM: envBool(false),
+		// P1 — Blackbox (Decepticon) on gpt-5.5. Decepticon is ALREADY a tool-using
+		// agent; this only swaps the model driving it. DARK by default: when off,
+		// the per-scan VM's LiteLLM keeps hijacking openai/* → qwen3.7-max (the
+		// cost-safe default, unchanged byte-for-byte). When ON, cloud-init repoints
+		// the openai/* routes to `openrouter/<TENSOL_AGENT_MODEL>` and pins the
+		// Decepticon resolver to the openai auth path so real gpt-5.5 drives the
+		// scan. gpt-5.5 is ~24× qwen, so this is a deliberate per-scan cost increase
+		// — leave OFF unless you've accepted that. LIVE VM verification required
+		// before production (the route rewrite is unit-tested, not E2E here).
+		TENSOL_BLACKBOX_AGENT_ENABLED: envBool(false),
+		// Operator diagnostics: keep failed blackbox scan VMs around long enough to
+		// inspect compose logs. Default OFF so production teardown remains prompt.
+		TENSOL_DIAGNOSTIC_PRESERVE_FAILED_VM: envBool(false),
 
-    // 005-whitebox-mdash — MDASH-style multi-model agentic harness for whitebox
-    // DEEP mode. Default OFF: when off, whitebox deep falls back byte-for-byte to
-    // the existing `runResearch` chain. When ON (+ TENSOL_RESEARCH_ENABLED), deep
-    // mode runs Prepare→Scan(auditors)→Validate(debaters) with per-role models.
-    TENSOL_HARNESS_ENABLED: envBool(false),
-    TENSOL_HARNESS_MODEL_AUDITOR: z.string().default("openai/gpt-5.5"),
-    TENSOL_HARNESS_MODEL_DEBATER: z.string().default("qwen/qwen3.7-max"),
-    // "" → debate counterpoint falls back to the auditor model (models.ts warns).
-    TENSOL_HARNESS_MODEL_COUNTERPOINT: z.string().default(""),
-    TENSOL_HARNESS_MODEL_RECON: z.string().default("qwen/qwen3.7-max"),
-    TENSOL_HARNESS_BUDGET_USD: z.coerce.number().positive().default(2.0),
-    TENSOL_HARNESS_USD_PER_MTOK_IN: z.coerce.number().nonnegative().default(5.0),
-    TENSOL_HARNESS_USD_PER_MTOK_OUT: z.coerce.number().positive().default(30.0),
-    TENSOL_HARNESS_MAX_AUDITORS: z.coerce.number().int().positive().default(12),
-    TENSOL_HARNESS_AUDITOR_MAX_ROUNDS: z.coerce.number().int().positive().default(6),
-    TENSOL_HARNESS_DEBATE_MAX_ROUNDS: z.coerce.number().int().positive().default(3),
+		// 005-whitebox-mdash — MDASH-style multi-model agentic harness for whitebox
+		// DEEP mode. Default OFF: when off, whitebox deep falls back byte-for-byte to
+		// the existing `runResearch` chain. When ON (+ TENSOL_RESEARCH_ENABLED), deep
+		// mode runs Prepare→Scan(auditors)→Validate(debaters) with per-role models.
+		TENSOL_HARNESS_ENABLED: envBool(false),
+		TENSOL_HARNESS_MODEL_AUDITOR: z.string().default("openai/gpt-5.5"),
+		TENSOL_HARNESS_MODEL_DEBATER: z.string().default("qwen/qwen3.7-max"),
+		// "" → debate counterpoint falls back to the auditor model (models.ts warns).
+		TENSOL_HARNESS_MODEL_COUNTERPOINT: z.string().default(""),
+		TENSOL_HARNESS_MODEL_RECON: z.string().default("qwen/qwen3.7-max"),
+		TENSOL_HARNESS_BUDGET_USD: z.coerce.number().positive().default(2.0),
+		TENSOL_HARNESS_USD_PER_MTOK_IN: z.coerce
+			.number()
+			.nonnegative()
+			.default(5.0),
+		TENSOL_HARNESS_USD_PER_MTOK_OUT: z.coerce.number().positive().default(30.0),
+		TENSOL_HARNESS_MAX_AUDITORS: z.coerce.number().int().positive().default(12),
+		TENSOL_HARNESS_AUDITOR_MAX_ROUNDS: z.coerce
+			.number()
+			.int()
+			.positive()
+			.default(6),
+		TENSOL_HARNESS_DEBATE_MAX_ROUNDS: z.coerce
+			.number()
+			.int()
+			.positive()
+			.default(3),
 
-    PORT: z.coerce
-      .number({ invalid_type_error: "PORT must be a number" })
-      .int()
-      .positive()
-      .default(3000),
+		PORT: z.coerce
+			.number({ invalid_type_error: "PORT must be a number" })
+			.int()
+			.positive()
+			.default(3000),
 
-    NODE_ENV: z
-      .enum(["development", "production", "test"])
-      .default("development"),
-  })
-  .superRefine((cfg, ctx) => {
-    if (cfg.EMAIL_PROVIDER === "resend" && !cfg.RESEND_API_KEY) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["RESEND_API_KEY"],
-        message: "RESEND_API_KEY is required when EMAIL_PROVIDER=resend",
-      });
-    }
-  })
-  // Resolve OpenRouter aliases at load time. Prefer the product-specific env
-  // name, but accept the provider-standard OPENROUTER_API_KEY so local and
-  // production environments do not boot with an accidentally blank VM key.
-  .transform((cfg) => {
-    const sharedOpenRouterKey =
-      cfg.TENSOL_OPENROUTER_API_KEY || cfg.OPENROUTER_API_KEY;
-    return {
-      ...cfg,
-      TENSOL_OPENROUTER_API_KEY: sharedOpenRouterKey,
-      // 003-whitebox — when the review-specific key is unset, reuse the shared
-      // OpenRouter key so whitebox scans + PR review activate without a
-      // duplicate credential.
-      TENSOL_REVIEW_LLM_API_KEY:
-        cfg.TENSOL_REVIEW_LLM_API_KEY || sharedOpenRouterKey,
-    };
-  });
+		NODE_ENV: z
+			.enum(["development", "production", "test"])
+			.default("development"),
+	})
+	.superRefine((cfg, ctx) => {
+		if (cfg.EMAIL_PROVIDER === "resend" && !cfg.RESEND_API_KEY) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["RESEND_API_KEY"],
+				message: "RESEND_API_KEY is required when EMAIL_PROVIDER=resend",
+			});
+		}
+	})
+	// Resolve OpenRouter aliases at load time. Prefer the product-specific env
+	// name, but accept the provider-standard OPENROUTER_API_KEY so local and
+	// production environments do not boot with an accidentally blank VM key.
+	.transform((cfg) => {
+		const sharedOpenRouterKey =
+			cfg.TENSOL_OPENROUTER_API_KEY || cfg.OPENROUTER_API_KEY;
+		return {
+			...cfg,
+			TENSOL_OPENROUTER_API_KEY: sharedOpenRouterKey,
+			// 003-whitebox — when the review-specific key is unset, reuse the shared
+			// OpenRouter key so whitebox scans + PR review activate without a
+			// duplicate credential.
+			TENSOL_REVIEW_LLM_API_KEY:
+				cfg.TENSOL_REVIEW_LLM_API_KEY || sharedOpenRouterKey,
+		};
+	});
 
 export type Config = z.infer<typeof ConfigSchema>;
 
@@ -308,17 +321,17 @@ export type Config = z.infer<typeof ConfigSchema>;
  * logs surface the misconfiguration immediately.
  */
 export function loadConfig(env: Record<string, string | undefined>): Config {
-  const parsed = ConfigSchema.safeParse(env);
-  if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((issue) => {
-        const field = issue.path.join(".");
-        return `${field}: ${issue.message}`;
-      })
-      .join("; ");
-    throw new Error(`Invalid environment configuration — ${issues}`);
-  }
-  return parsed.data;
+	const parsed = ConfigSchema.safeParse(env);
+	if (!parsed.success) {
+		const issues = parsed.error.issues
+			.map((issue) => {
+				const field = issue.path.join(".");
+				return `${field}: ${issue.message}`;
+			})
+			.join("; ");
+		throw new Error(`Invalid environment configuration — ${issues}`);
+	}
+	return parsed.data;
 }
 
 let cachedConfig: Config | undefined;
@@ -335,10 +348,10 @@ let cachedConfig: Config | undefined;
  * env record and never touch the singleton.
  */
 export function getConfig(): Config {
-  if (cachedConfig === undefined) {
-    cachedConfig = loadConfig(
-      process.env as Record<string, string | undefined>,
-    );
-  }
-  return cachedConfig;
+	if (cachedConfig === undefined) {
+		cachedConfig = loadConfig(
+			process.env as Record<string, string | undefined>,
+		);
+	}
+	return cachedConfig;
 }

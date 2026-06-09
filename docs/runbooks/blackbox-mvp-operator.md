@@ -57,6 +57,31 @@ own `.env` must include:
 
 Rotation procedures live in `docs/runbooks/secret-rotation.md`.
 
+Webhook acceptance is fail-closed: `TENSOL_WEBHOOK_SECRET` must be non-empty
+on the backend and must match the vps-agent cloud-init secret, or every
+`POST /v1/webhooks/scan-complete` callback returns `401`. For completed
+callbacks with an evidence archive, the backend also checks the
+`evidence_archive_url` bucket against `TENSOL_EVIDENCE_BUCKET`; a different
+bucket returns `422` before dedup rows, findings, or scan state are mutated.
+
+Current production scan dispatch sends the agent `callback_version="v2"` with a
+`/v1/webhooks/scan-complete` callback URL. The per-VM `TENSOL_SIGN_KEY`
+authenticates backend-to-agent `/scan` dispatch; it is distinct from
+`TENSOL_WEBHOOK_SECRET`, which signs the agent-to-backend completion webhook.
+`/api/webhooks/scan-progress` remains a legacy compatibility path only.
+V2 callbacks are terminal: `status="completed"` produces findings/report jobs,
+while `status="failed"` marks the scan/order failed immediately and enqueues
+VM teardown even when no evidence archive was uploaded. Failed V2 callbacks
+also refund free-Quick quota for free orders because no usable scan result was
+produced.
+
+Evidence/report storage is required for real scan launches. Live preflight
+fails when the bucket, explicit S3/GCS-compatible endpoint, access key, or
+secret key is missing; `spawn_scan_vm` also fails fast with
+`storage_not_configured` before creating a VM, refunding free quota and
+enqueueing an operator alert instead of running a scan that cannot upload
+evidence or render a downloadable report.
+
 ### 1.2 Deploy steps (GCP Compute Engine)
 
 ```bash
@@ -221,15 +246,22 @@ sqlite3 /opt/tensol/data/tensol.db \
 ### 4.1 Standard flow (UI)
 
 Customer opens `apps/site/src/pages/Reports.tsx`, picks the scan, clicks
-**Regenerate PDF**. The frontend POSTs to `/v1/scans/:id/regenerate-report`,
+**Regenerate PDF**. The frontend POSTs to `/v1/scans/:id/report/regenerate`,
 which enqueues a `render-pdf` job (`server/src/jobs/handlers/render-pdf.ts`).
+Ready reports are downloaded through a short-lived signed HTTPS URL returned by
+`GET /v1/scans/:id/report`; if `download_url` is null for a ready report, check
+the object-storage signing env (`TENSOL_EVIDENCE_BUCKET`, AWS/GCS-compatible
+access keys, endpoint, and region) before asking the customer to retry.
 
 ### 4.2 When the UI flow fails (artifact deleted, customer can't access)
 
 ```bash
 # 1. Confirm the scan exists and is in 'completed' status
 sqlite3 /opt/tensol/data/tensol.db \
-  "SELECT id, status, completed_at, report_artifact_key FROM scans WHERE id='<scan_id>';"
+  "SELECT s.id, s.status AS scan_status, s.completed_at,
+          r.status AS report_status, r.bucket, r.key, r.byte_size, r.expires_at
+   FROM scans s LEFT JOIN reports r ON r.scan_id = s.id
+   WHERE s.id='<scan_id>';"
 
 # 2. Confirm the source evidence still exists in S3
 aws --endpoint-url=https://storage.googleapis.com \

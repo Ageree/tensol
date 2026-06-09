@@ -31,7 +31,7 @@
  * so we drive the full middleware chain (cookie → user lookup → handler).
  */
 import { test, expect, describe } from "bun:test";
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { Hono } from "hono";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -178,7 +178,7 @@ async function jsonReq(
 async function createDraft(
   app: Hono<{ Variables: AuthVariables }>,
   cookie: string,
-  primaryDomain: string = "example.com",
+  primaryDomain = "example.com",
 ): Promise<string> {
   const res = await jsonReq(app, "POST", "/v1/scan-orders", cookie, {
     tier: "quick",
@@ -247,7 +247,7 @@ describe("GET /v1/scan-orders (list)", () => {
     expect(res.status).toBe(200);
     const list = (await res.json()) as Array<{ primary_domain: string }>;
     expect(list.length).toBe(1);
-    expect(list[0]!.primary_domain).toBe("mine.example");
+    expect(list[0]?.primary_domain).toBe("mine.example");
   });
 });
 
@@ -295,16 +295,19 @@ describe("POST /v1/scan-orders (createDraft)", () => {
     expect(body.error).toBe("validation_error");
   });
 
-  test("invalid hostname (uppercase) → 422", async () => {
-    const db = freshMemDb();
-    const app = buildApp({ db });
-    const { cookie } = seedUserAndSession(db);
-    const res = await jsonReq(app, "POST", "/v1/scan-orders", cookie, {
-      tier: "quick",
-      primary_domain: "EXAMPLE.com",
-    });
-    expect(res.status).toBe(422);
-  });
+  test.each(["EXAMPLE.com", "localhost", "127.0.0.1", "example.123"])(
+    "invalid hostname %s → 422",
+    async (primaryDomain) => {
+      const db = freshMemDb();
+      const app = buildApp({ db });
+      const { cookie } = seedUserAndSession(db);
+      const res = await jsonReq(app, "POST", "/v1/scan-orders", cookie, {
+        tier: "quick",
+        primary_domain: primaryDomain,
+      });
+      expect(res.status).toBe(422);
+    },
+  );
 
   test("invalid tier (deep not allowed on create) → 422", async () => {
     const db = freshMemDb();
@@ -400,7 +403,7 @@ describe("PUT /v1/scan-orders/:id/attack-surface (updateAttackSurface)", () => {
       attack_surface: Array<{ domain: string }>;
     };
     expect(body.attack_surface.length).toBe(2);
-    expect(body.attack_surface[0]!.domain).toBe("example.com");
+    expect(body.attack_surface[0]?.domain).toBe("example.com");
   });
 
   test("empty attack_surface array → 422", async () => {
@@ -594,7 +597,7 @@ describe("POST /v1/scan-orders/:id/launch (launchScan)", () => {
     app: Hono<{ Variables: AuthVariables }>,
     cookie: string,
     tokenRef: { value: string },
-    primary: string = "example.com",
+    primary = "example.com",
   ): Promise<string> {
     const id = await createDraft(app, cookie, primary);
     const reqRes = await jsonReq(

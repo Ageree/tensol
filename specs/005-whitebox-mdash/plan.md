@@ -1283,8 +1283,8 @@ then add to the `createWhiteboxScanHandler({ ... })` call:
 ```
 (import `HarnessSession`/`HarnessRunArgs` types at top.)
 
-- [ ] **Step 5: Run** `bun test server/src/jobs/handlers/whitebox-scan.test.ts` + `bunx tsc --noEmit` → PASS / 0 errors.
-- [ ] **Step 6: Commit** `feat(harness): wire harness + Joern reachability into whitebox deep mode (gated by TENSOL_HARNESS_ENABLED)`
+- [X] **Step 5: Run** `bun test server/src/jobs/handlers/whitebox-scan.test.ts` → 4 pass / 0 fail; `bunx tsc -p server/tsconfig.json --noEmit` → PASS / 0 errors. Follow-up full backend checkpoint: `bun run --cwd server test` → 2017 pass / 1 skip / 0 fail.
+- [ ] **Step 6: Commit** `feat(harness): wire harness + Joern reachability into whitebox deep mode`
 
 ---
 

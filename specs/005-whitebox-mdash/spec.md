@@ -57,7 +57,7 @@ POST /v1/review/whitebox (mode:"deep")
    ReviewResult → finalizeReview → dashboard
 ```
 
-**Why this split:** MDASH stages 4–5 (Dedup, Prove) are exactly Sthrip's existing deterministic layer (`verdictToFinding` fingerprint/dedup, `reachability/joern.ts`, `verifyFindings`, the Exploit Lab F2 hook, `score.ts`). They are *built but unwired for whitebox*. So the harness only needs to build stages **1–3** (the agentic, multi-model verdict generator) and the integration **wires** 4–5 for whitebox. This keeps the moat in one place and honors Generator ≠ Judge.
+**Why this split:** MDASH stages 4–5 (Dedup, Prove) are exactly Sthrip's existing deterministic layer (`verdictToFinding` fingerprint/dedup, `reachability/joern.ts`, `verifyFindings`, the Exploit Lab F2 hook, `score.ts`). They are now wired for whitebox, so the harness only needs to build stages **1–3** (the agentic, multi-model verdict generator). This keeps the moat in one place and honors Generator != Judge.
 
 ---
 
@@ -87,7 +87,7 @@ Repo-scoped agent tools (whitebox has `repoDir`, not a PR), modeled on `pr-tools
 ### Engine / wiring changes
 - `engine.ts`: add optional `deps.harness?: HarnessRunner`. When `mode:"deep"` and `deps.harness` present → produce verdicts via harness; else deep → old `runResearch`; else fast. Downstream dedup/reachability/verify/exploit/score unchanged.
 - `whitebox-scan.ts`: accept `harness?`, `reachability?`, and build a per-review harness session (fresh budget + per-role metered clients). Keep existing exploit hook. Set behavior so the engine's `selfChallenge` is **not** double-run when the harness already debated.
-- `server.ts`: build the harness deps gated by `TENSOL_HARNESS_ENABLED && TENSOL_RESEARCH_ENABLED`; **wire `reachability` (Joern) for whitebox** (currently PR-only). Activate the dead `TENSOL_AGENT_WHITEBOX_ENABLED`? → superseded by `TENSOL_HARNESS_ENABLED` (clearer name); remove or alias the dead flag.
+- `server.ts`: build the harness deps gated by `TENSOL_HARNESS_ENABLED && TENSOL_RESEARCH_ENABLED`; wire `reachability` (Joern) independently for whitebox so the legacy deep `runResearch` path and harness path both pass through the same deterministic proof layer. `TENSOL_AGENT_WHITEBOX_ENABLED` is retained as legacy parse-only compatibility and warns at boot; `TENSOL_HARNESS_ENABLED` is the real whitebox deep-mode harness gate.
 
 ---
 

@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 /**
  * T035 — DNS-verify service tests (token generation + polling state machine).
  *
@@ -29,108 +30,110 @@
  *
  * Mirrors test infra used by `free-tier/service.test.ts`.
  */
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
-import { createDb, type DB } from "../db/client.ts";
+import { type DB, createDb } from "../db/client.ts";
 import {
-  users as usersTable,
-  scanOrders as scanOrdersTable,
-  auditLog as auditLogTable,
+	auditLog as auditLogTable,
+	scanOrders as scanOrdersTable,
+	users as usersTable,
 } from "../db/schema.ts";
 import { ulid } from "../lib/ids.ts";
 import {
-  generateToken,
-  checkVerification,
-  VERIFY_TIMEOUT_MS,
-  DEV_BYPASS_MIN_ELAPSED_MS,
+	DEV_BYPASS_MIN_ELAPSED_MS,
+	VERIFY_TIMEOUT_MS,
+	checkVerification,
+	generateToken,
 } from "./service.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "migrations");
 const KEY = "test-key-dns-verify";
 
 function migrationSql(): string {
-  const files = readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql"))
-    .sort();
-  return files
-    .map((f) =>
-      readFileSync(join(MIGRATIONS_DIR, f), "utf8").replace(
-        /-->\s*statement-breakpoint/g,
-        "",
-      ),
-    )
-    .join("\n");
+	const files = readdirSync(MIGRATIONS_DIR)
+		.filter((f) => f.endsWith(".sql"))
+		.sort();
+	return files
+		.map((f) =>
+			readFileSync(join(MIGRATIONS_DIR, f), "utf8").replace(
+				/-->\s*statement-breakpoint/g,
+				"",
+			),
+		)
+		.join("\n");
 }
 
 function freshMemDb(): DB {
-  const db = createDb(":memory:");
-  (db.$client as Database).exec(migrationSql());
-  return db;
+	const db = createDb(":memory:");
+	(db.$client as Database).exec(migrationSql());
+	return db;
 }
 
 function seedUser(db: DB, ts: number): string {
-  const id = ulid(ts);
-  db.insert(usersTable)
-    .values({ id, email: `${id}@test.local`, createdAt: ts })
-    .run();
-  return id;
+	const id = ulid(ts);
+	db.insert(usersTable)
+		.values({ id, email: `${id}@test.local`, createdAt: ts })
+		.run();
+	return id;
 }
 
 interface SeedOrderArgs {
-  userId: string;
-  ts: number;
-  token: string;
-  domain?: string;
-  requestedAt?: number | null;
-  attempts?: number;
-  verifiedAt?: number | null;
+	userId: string;
+	ts: number;
+	token: string;
+	domain?: string;
+	requestedAt?: number | null;
+	attempts?: number;
+	verifiedAt?: number | null;
 }
 
 function seedScanOrder(db: DB, args: SeedOrderArgs): string {
-  const id = ulid(args.ts);
-  db.insert(scanOrdersTable)
-    .values({
-      id,
-      userId: args.userId,
-      status: "dns_pending",
-      tier: "quick",
-      primaryDomain: args.domain ?? "example.com",
-      dnsVerifyToken: args.token,
-      dnsVerifyRequestedAt: args.requestedAt ?? args.ts,
-      dnsVerifiedAt: args.verifiedAt ?? null,
-      dnsCheckAttempts: args.attempts ?? 0,
-      createdAt: args.ts,
-      updatedAt: args.ts,
-    })
-    .run();
-  return id;
+	const id = ulid(args.ts);
+	db.insert(scanOrdersTable)
+		.values({
+			id,
+			userId: args.userId,
+			status: "dns_pending",
+			tier: "quick",
+			primaryDomain: args.domain ?? "example.com",
+			dnsVerifyToken: args.token,
+			dnsVerifyRequestedAt: args.requestedAt ?? args.ts,
+			dnsVerifiedAt: args.verifiedAt ?? null,
+			dnsCheckAttempts: args.attempts ?? 0,
+			createdAt: args.ts,
+			updatedAt: args.ts,
+		})
+		.run();
+	return id;
 }
 
 function readOrder(db: DB, id: string) {
-  return db
-    .select()
-    .from(scanOrdersTable)
-    .where(eq(scanOrdersTable.id, id))
-    .all()[0];
+	return db
+		.select()
+		.from(scanOrdersTable)
+		.where(eq(scanOrdersTable.id, id))
+		.all()[0];
 }
 
 function readAuditEvents(db: DB, orderId: string): string[] {
-  return db
-    .select({ event: auditLogTable.event, metadata: auditLogTable.metadataJson })
-    .from(auditLogTable)
-    .all()
-    .filter((r) => {
-      try {
-        const m = JSON.parse(r.metadata) as { scan_order_id?: string };
-        return m.scan_order_id === orderId;
-      } catch {
-        return false;
-      }
-    })
-    .map((r) => r.event);
+	return db
+		.select({
+			event: auditLogTable.event,
+			metadata: auditLogTable.metadataJson,
+		})
+		.from(auditLogTable)
+		.all()
+		.filter((r) => {
+			try {
+				const m = JSON.parse(r.metadata) as { scan_order_id?: string };
+				return m.scan_order_id === orderId;
+			} catch {
+				return false;
+			}
+		})
+		.map((r) => r.event);
 }
 
 // ---------------------------------------------------------------------------
@@ -138,22 +141,22 @@ function readAuditEvents(db: DB, orderId: string): string[] {
 // ---------------------------------------------------------------------------
 
 describe("generateToken", () => {
-  test("produces tensol-verify-<26-char-Crockford-32-ulid> shape", () => {
-    const t = generateToken("01HXYZSAMPLEORDERIDFAKE000");
-    expect(t).toMatch(/^tensol-verify-[0-9A-HJKMNP-TV-Z]{26}$/);
-  });
+	test("produces tensol-verify-<26-char-Crockford-32-ulid> shape", () => {
+		const t = generateToken("01HXYZSAMPLEORDERIDFAKE000");
+		expect(t).toMatch(/^tensol-verify-[0-9A-HJKMNP-TV-Z]{26}$/);
+	});
 
-  test("is distinct across calls (fresh ULID, not derived from orderId)", () => {
-    const id = "01HXYZSAMPLEORDERIDFAKE000";
-    const a = generateToken(id);
-    const b = generateToken(id);
-    expect(a).not.toBe(b);
-  });
+	test("is distinct across calls (fresh ULID, not derived from orderId)", () => {
+		const id = "01HXYZSAMPLEORDERIDFAKE000";
+		const a = generateToken(id);
+		const b = generateToken(id);
+		expect(a).not.toBe(b);
+	});
 
-  test("total token length = 'tensol-verify-' (14) + 26 = 40 chars", () => {
-    const t = generateToken("x");
-    expect(t.length).toBe(40);
-  });
+	test("total token length = 'tensol-verify-' (14) + 26 = 40 chars", () => {
+		const t = generateToken("x");
+		expect(t.length).toBe(40);
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -161,36 +164,36 @@ describe("generateToken", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkVerification — already verified", () => {
-  test("returns verified:true immediately, no resolver call, no new audit", async () => {
-    const db = freshMemDb();
-    const ts = 1_700_000_000_000;
-    const userId = seedUser(db, ts);
-    const token = generateToken("seed");
-    const orderId = seedScanOrder(db, {
-      userId,
-      ts,
-      token,
-      verifiedAt: ts + 1_000,
-      attempts: 3,
-    });
+	test("returns verified:true immediately, no resolver call, no new audit", async () => {
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, {
+			userId,
+			ts,
+			token,
+			verifiedAt: ts + 1_000,
+			attempts: 3,
+		});
 
-    let resolverCalls = 0;
-    const result = await checkVerification(db, orderId, {
-      key: KEY,
-      now: () => ts + 5_000,
-      resolver: async () => {
-        resolverCalls++;
-        return [token];
-      },
-    });
+		let resolverCalls = 0;
+		const result = await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + 5_000,
+			resolver: async () => {
+				resolverCalls++;
+				return [token];
+			},
+		});
 
-    expect(result.verified).toBe(true);
-    expect(result.attempts).toBe(3);
-    expect(result.remainingSec).toBe(0);
-    expect(result.lastError).toBeNull();
-    expect(resolverCalls).toBe(0);
-    expect(readAuditEvents(db, orderId)).toEqual([]);
-  });
+		expect(result.verified).toBe(true);
+		expect(result.attempts).toBe(3);
+		expect(result.remainingSec).toBe(0);
+		expect(result.lastError).toBeNull();
+		expect(resolverCalls).toBe(0);
+		expect(readAuditEvents(db, orderId)).toEqual([]);
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -198,117 +201,117 @@ describe("checkVerification — already verified", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkVerification — production success path", () => {
-  test("verified=true when resolver returns TXT containing the token", async () => {
-    const db = freshMemDb();
-    const ts = 1_700_000_000_000;
-    const userId = seedUser(db, ts);
-    const token = generateToken("seed");
-    const orderId = seedScanOrder(db, { userId, ts, token });
+	test("verified=true when resolver returns TXT containing the token", async () => {
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, { userId, ts, token });
 
-    const result = await checkVerification(db, orderId, {
-      key: KEY,
-      now: () => ts + 10_000,
-      resolver: async () => [token, "unrelated=other"],
-    });
+		const result = await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + 10_000,
+			resolver: async () => [token, "unrelated=other"],
+		});
 
-    expect(result.verified).toBe(true);
-    expect(result.attempts).toBe(1);
-    expect(result.lastError).toBeNull();
-  });
+		expect(result.verified).toBe(true);
+		expect(result.attempts).toBe(1);
+		expect(result.lastError).toBeNull();
+	});
 
-  test("persists dns_verified_at and increments dns_check_attempts", async () => {
-    const db = freshMemDb();
-    const ts = 1_700_000_000_000;
-    const userId = seedUser(db, ts);
-    const token = generateToken("seed");
-    const orderId = seedScanOrder(db, { userId, ts, token, attempts: 2 });
+	test("persists dns_verified_at and increments dns_check_attempts", async () => {
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, { userId, ts, token, attempts: 2 });
 
-    await checkVerification(db, orderId, {
-      key: KEY,
-      now: () => ts + 10_000,
-      resolver: async () => [token],
-    });
+		await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + 10_000,
+			resolver: async () => [token],
+		});
 
-    const row = readOrder(db, orderId);
-    expect(row?.dnsVerifiedAt).toBe(ts + 10_000);
-    expect(row?.dnsCheckAttempts).toBe(3);
-  });
+		const row = readOrder(db, orderId);
+		expect(row?.dnsVerifiedAt).toBe(ts + 10_000);
+		expect(row?.dnsCheckAttempts).toBe(3);
+	});
 
-  test("emits signed dns_verified audit on success", async () => {
-    const db = freshMemDb();
-    const ts = 1_700_000_000_000;
-    const userId = seedUser(db, ts);
-    const token = generateToken("seed");
-    const orderId = seedScanOrder(db, { userId, ts, token });
+	test("emits signed dns_verified audit on success", async () => {
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, { userId, ts, token });
 
-    await checkVerification(db, orderId, {
-      key: KEY,
-      now: () => ts + 10_000,
-      resolver: async () => [token],
-    });
+		await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + 10_000,
+			resolver: async () => [token],
+		});
 
-    const events = readAuditEvents(db, orderId);
-    expect(events).toContain("dns_verified");
-  });
+		const events = readAuditEvents(db, orderId);
+		expect(events).toContain("dns_verified");
+	});
 
-  test("verified=false when resolver returns TXT records but token not present", async () => {
-    const db = freshMemDb();
-    const ts = 1_700_000_000_000;
-    const userId = seedUser(db, ts);
-    const token = generateToken("seed");
-    const orderId = seedScanOrder(db, { userId, ts, token });
+	test("verified=false when resolver returns TXT records but token not present", async () => {
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, { userId, ts, token });
 
-    const result = await checkVerification(db, orderId, {
-      key: KEY,
-      now: () => ts + 10_000,
-      resolver: async () => ["v=spf1 -all"],
-    });
+		const result = await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + 10_000,
+			resolver: async () => ["v=spf1 -all"],
+		});
 
-    expect(result.verified).toBe(false);
-    expect(result.attempts).toBe(1);
-    expect(result.lastError).toBeNull();
-    expect(result.remainingSec).toBeGreaterThan(0);
-    expect(readOrder(db, orderId)?.dnsVerifiedAt).toBeNull();
-    expect(readAuditEvents(db, orderId)).not.toContain("dns_verified");
-  });
+		expect(result.verified).toBe(false);
+		expect(result.attempts).toBe(1);
+		expect(result.lastError).toBeNull();
+		expect(result.remainingSec).toBeGreaterThan(0);
+		expect(readOrder(db, orderId)?.dnsVerifiedAt).toBeNull();
+		expect(readAuditEvents(db, orderId)).not.toContain("dns_verified");
+	});
 
-  test("verified=false when resolver returns null (no agreement)", async () => {
-    const db = freshMemDb();
-    const ts = 1_700_000_000_000;
-    const userId = seedUser(db, ts);
-    const token = generateToken("seed");
-    const orderId = seedScanOrder(db, { userId, ts, token });
+	test("verified=false when resolver returns null (no agreement)", async () => {
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, { userId, ts, token });
 
-    const result = await checkVerification(db, orderId, {
-      key: KEY,
-      now: () => ts + 10_000,
-      resolver: async () => null,
-    });
+		const result = await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + 10_000,
+			resolver: async () => null,
+		});
 
-    expect(result.verified).toBe(false);
-    expect(result.attempts).toBe(1);
-    expect(result.lastError).toBeNull();
-  });
+		expect(result.verified).toBe(false);
+		expect(result.attempts).toBe(1);
+		expect(result.lastError).toBeNull();
+	});
 
-  test("surfaces resolver thrown error as lastError without verifying", async () => {
-    const db = freshMemDb();
-    const ts = 1_700_000_000_000;
-    const userId = seedUser(db, ts);
-    const token = generateToken("seed");
-    const orderId = seedScanOrder(db, { userId, ts, token });
+	test("surfaces resolver thrown error as lastError without verifying", async () => {
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, { userId, ts, token });
 
-    const result = await checkVerification(db, orderId, {
-      key: KEY,
-      now: () => ts + 10_000,
-      resolver: async () => {
-        throw new Error("EAI_AGAIN");
-      },
-    });
+		const result = await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + 10_000,
+			resolver: async () => {
+				throw new Error("EAI_AGAIN");
+			},
+		});
 
-    expect(result.verified).toBe(false);
-    expect(result.lastError).toBe("EAI_AGAIN");
-    expect(result.attempts).toBe(1);
-  });
+		expect(result.verified).toBe(false);
+		expect(result.lastError).toBe("EAI_AGAIN");
+		expect(result.attempts).toBe(1);
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -316,60 +319,60 @@ describe("checkVerification — production success path", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkVerification — 30-min timeout", () => {
-  test("returns verified:false and emits dns_verify_failed when window elapsed", async () => {
-    const db = freshMemDb();
-    const ts = 1_700_000_000_000;
-    const userId = seedUser(db, ts);
-    const token = generateToken("seed");
-    const orderId = seedScanOrder(db, {
-      userId,
-      ts,
-      token,
-      requestedAt: ts,
-    });
+	test("returns verified:false and emits dns_verify_failed when window elapsed", async () => {
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, {
+			userId,
+			ts,
+			token,
+			requestedAt: ts,
+		});
 
-    const result = await checkVerification(db, orderId, {
-      key: KEY,
-      now: () => ts + VERIFY_TIMEOUT_MS + 1,
-      resolver: async () => [token], // resolver would say yes, but timeout wins
-    });
+		const result = await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + VERIFY_TIMEOUT_MS + 1,
+			resolver: async () => [token], // resolver would say yes, but timeout wins
+		});
 
-    expect(result.verified).toBe(false);
-    expect(result.remainingSec).toBe(0);
-    expect(result.lastError).toBe("timeout");
+		expect(result.verified).toBe(false);
+		expect(result.remainingSec).toBe(0);
+		expect(result.lastError).toBe("timeout");
 
-    const events = readAuditEvents(db, orderId);
-    expect(events).toContain("dns_verify_failed");
-    expect(events).not.toContain("dns_verified");
+		const events = readAuditEvents(db, orderId);
+		expect(events).toContain("dns_verify_failed");
+		expect(events).not.toContain("dns_verified");
 
-    expect(readOrder(db, orderId)?.dnsVerifiedAt).toBeNull();
-  });
+		expect(readOrder(db, orderId)?.dnsVerifiedAt).toBeNull();
+	});
 
-  test("just inside the window still polls the resolver", async () => {
-    const db = freshMemDb();
-    const ts = 1_700_000_000_000;
-    const userId = seedUser(db, ts);
-    const token = generateToken("seed");
-    const orderId = seedScanOrder(db, {
-      userId,
-      ts,
-      token,
-      requestedAt: ts,
-    });
+	test("just inside the window still polls the resolver", async () => {
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, {
+			userId,
+			ts,
+			token,
+			requestedAt: ts,
+		});
 
-    let calls = 0;
-    const result = await checkVerification(db, orderId, {
-      key: KEY,
-      now: () => ts + VERIFY_TIMEOUT_MS - 1,
-      resolver: async () => {
-        calls++;
-        return [token];
-      },
-    });
+		let calls = 0;
+		const result = await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + VERIFY_TIMEOUT_MS - 1,
+			resolver: async () => {
+				calls++;
+				return [token];
+			},
+		});
 
-    expect(calls).toBe(1);
-    expect(result.verified).toBe(true);
-  });
+		expect(calls).toBe(1);
+		expect(result.verified).toBe(true);
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -377,105 +380,134 @@ describe("checkVerification — 30-min timeout", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkVerification — TENSOL_DEV_DNS_BYPASS", () => {
-  let savedEnv: string | undefined;
+	let savedEnv: string | undefined;
 
-  beforeEach(() => {
-    savedEnv = process.env.TENSOL_DEV_DNS_BYPASS;
-  });
+	beforeEach(() => {
+		savedEnv = process.env.TENSOL_DEV_DNS_BYPASS;
+	});
 
-  afterEach(() => {
-    if (savedEnv === undefined) delete process.env.TENSOL_DEV_DNS_BYPASS;
-    else process.env.TENSOL_DEV_DNS_BYPASS = savedEnv;
-  });
+	afterEach(() => {
+		if (savedEnv === undefined) process.env.TENSOL_DEV_DNS_BYPASS = undefined;
+		else process.env.TENSOL_DEV_DNS_BYPASS = savedEnv;
+	});
 
-  test("auto-verifies after >=5 sec elapsed when env=true (no resolver call)", async () => {
-    process.env.TENSOL_DEV_DNS_BYPASS = "true";
-    const db = freshMemDb();
-    const ts = 1_700_000_000_000;
-    const userId = seedUser(db, ts);
-    const token = generateToken("seed");
-    const orderId = seedScanOrder(db, { userId, ts, token, requestedAt: ts });
+	test("auto-verifies after >=5 sec elapsed when env=true (no resolver call)", async () => {
+		process.env.TENSOL_DEV_DNS_BYPASS = "true";
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, { userId, ts, token, requestedAt: ts });
 
-    let calls = 0;
-    const result = await checkVerification(db, orderId, {
-      key: KEY,
-      now: () => ts + DEV_BYPASS_MIN_ELAPSED_MS,
-      resolver: async () => {
-        calls++;
-        return null;
-      },
-    });
+		let calls = 0;
+		const result = await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + DEV_BYPASS_MIN_ELAPSED_MS,
+			resolver: async () => {
+				calls++;
+				return null;
+			},
+		});
 
-    expect(calls).toBe(0);
-    expect(result.verified).toBe(true);
-    expect(readOrder(db, orderId)?.dnsVerifiedAt).toBe(
-      ts + DEV_BYPASS_MIN_ELAPSED_MS,
-    );
-    expect(readAuditEvents(db, orderId)).toContain("dns_verified");
-  });
+		expect(calls).toBe(0);
+		expect(result.verified).toBe(true);
+		expect(readOrder(db, orderId)?.dnsVerifiedAt).toBe(
+			ts + DEV_BYPASS_MIN_ELAPSED_MS,
+		);
+		expect(readAuditEvents(db, orderId)).toContain("dns_verified");
+	});
 
-  test("does NOT bypass before 5 sec elapsed — real resolver runs", async () => {
-    process.env.TENSOL_DEV_DNS_BYPASS = "true";
-    const db = freshMemDb();
-    const ts = 1_700_000_000_000;
-    const userId = seedUser(db, ts);
-    const token = generateToken("seed");
-    const orderId = seedScanOrder(db, { userId, ts, token, requestedAt: ts });
+	test("does NOT bypass an already-expired verification window", async () => {
+		process.env.TENSOL_DEV_DNS_BYPASS = "true";
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, { userId, ts, token, requestedAt: ts });
 
-    let calls = 0;
-    const result = await checkVerification(db, orderId, {
-      key: KEY,
-      now: () => ts + (DEV_BYPASS_MIN_ELAPSED_MS - 1),
-      resolver: async () => {
-        calls++;
-        return null;
-      },
-    });
+		let calls = 0;
+		const result = await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + VERIFY_TIMEOUT_MS + 1,
+			resolver: async () => {
+				calls++;
+				return [token];
+			},
+		});
 
-    expect(calls).toBe(1);
-    expect(result.verified).toBe(false);
-  });
+		expect(calls).toBe(0);
+		expect(result.verified).toBe(false);
+		expect(result.remainingSec).toBe(0);
+		expect(result.lastError).toBe("timeout");
+		expect(readOrder(db, orderId)?.dnsVerifiedAt).toBeNull();
 
-  test("unset env → real resolver path even at long elapsed time", async () => {
-    delete process.env.TENSOL_DEV_DNS_BYPASS;
-    const db = freshMemDb();
-    const ts = 1_700_000_000_000;
-    const userId = seedUser(db, ts);
-    const token = generateToken("seed");
-    const orderId = seedScanOrder(db, { userId, ts, token, requestedAt: ts });
+		const events = readAuditEvents(db, orderId);
+		expect(events).toContain("dns_verify_failed");
+		expect(events).not.toContain("dns_verified");
+	});
 
-    let calls = 0;
-    const result = await checkVerification(db, orderId, {
-      key: KEY,
-      now: () => ts + 60_000,
-      resolver: async () => {
-        calls++;
-        return null;
-      },
-    });
+	test("does NOT bypass before 5 sec elapsed — real resolver runs", async () => {
+		process.env.TENSOL_DEV_DNS_BYPASS = "true";
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, { userId, ts, token, requestedAt: ts });
 
-    expect(calls).toBe(1);
-    expect(result.verified).toBe(false);
-  });
+		let calls = 0;
+		const result = await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + (DEV_BYPASS_MIN_ELAPSED_MS - 1),
+			resolver: async () => {
+				calls++;
+				return null;
+			},
+		});
 
-  test("env=other-truthy-string is NOT bypass (strict 'true' only)", async () => {
-    process.env.TENSOL_DEV_DNS_BYPASS = "1";
-    const db = freshMemDb();
-    const ts = 1_700_000_000_000;
-    const userId = seedUser(db, ts);
-    const token = generateToken("seed");
-    const orderId = seedScanOrder(db, { userId, ts, token, requestedAt: ts });
+		expect(calls).toBe(1);
+		expect(result.verified).toBe(false);
+	});
 
-    let calls = 0;
-    await checkVerification(db, orderId, {
-      key: KEY,
-      now: () => ts + 30_000,
-      resolver: async () => {
-        calls++;
-        return null;
-      },
-    });
+	test("unset env → real resolver path even at long elapsed time", async () => {
+		process.env.TENSOL_DEV_DNS_BYPASS = undefined;
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, { userId, ts, token, requestedAt: ts });
 
-    expect(calls).toBe(1);
-  });
+		let calls = 0;
+		const result = await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + 60_000,
+			resolver: async () => {
+				calls++;
+				return null;
+			},
+		});
+
+		expect(calls).toBe(1);
+		expect(result.verified).toBe(false);
+	});
+
+	test("env=other-truthy-string is NOT bypass (strict 'true' only)", async () => {
+		process.env.TENSOL_DEV_DNS_BYPASS = "1";
+		const db = freshMemDb();
+		const ts = 1_700_000_000_000;
+		const userId = seedUser(db, ts);
+		const token = generateToken("seed");
+		const orderId = seedScanOrder(db, { userId, ts, token, requestedAt: ts });
+
+		let calls = 0;
+		await checkVerification(db, orderId, {
+			key: KEY,
+			now: () => ts + 30_000,
+			resolver: async () => {
+				calls++;
+				return null;
+			},
+		});
+
+		expect(calls).toBe(1);
+	});
 });

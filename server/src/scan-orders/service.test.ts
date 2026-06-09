@@ -38,6 +38,7 @@ import {
 	scans as scansTable,
 	users as usersTable,
 } from "../db/schema.ts";
+import { VERIFY_TIMEOUT_MS } from "../dns-verify/service.ts";
 import { ulid } from "../lib/ids.ts";
 import { createScanOrdersService } from "./service.ts";
 
@@ -451,6 +452,33 @@ describe("checkDnsAndUnlock", () => {
 		await svc.requestDnsVerify(userId, draft.id);
 		const result = await svc.checkDnsAndUnlock(userId, draft.id);
 		expect(result.status).toBe("dns_pending");
+		expect(countAudit(db, "dns_verified")).toBe(0);
+	});
+
+	test("verification timeout → failed with timeout reason", async () => {
+		const db = freshMemDb();
+		const userId = seedUser(db);
+		const svc = buildSvc(db, { dnsResolver: async () => ["nope"] });
+		const draft = await svc.createDraft(userId, {
+			tier: "quick",
+			primary_domain: "example.com",
+		});
+		await svc.requestDnsVerify(userId, draft.id);
+
+		const requestedAt = readOrder(db, draft.id)?.dnsVerifyRequestedAt;
+		if (requestedAt == null) throw new Error("expected dnsVerifyRequestedAt");
+
+		const timeoutSvc = buildSvc(db, {
+			nowSeq: () => requestedAt + VERIFY_TIMEOUT_MS + 1,
+			dnsResolver: async () => [
+				dnsTokenOf(readOrder(db, draft.id), "draft row"),
+			],
+		});
+		const result = await timeoutSvc.checkDnsAndUnlock(userId, draft.id);
+
+		expect(result.status).toBe("failed");
+		expect(result.failure_reason).toBe("timeout");
+		expect(countAudit(db, "dns_verify_failed")).toBe(1);
 		expect(countAudit(db, "dns_verified")).toBe(0);
 	});
 

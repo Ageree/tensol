@@ -12,7 +12,7 @@
  *   GET    /:id/events?since=<ms>        → polled event stream (Constitution V)
  *   GET    /:id/findings                 → list, severity DESC, created_at ASC
  *   GET    /:id/findings/:findingId      → single finding
- *   GET    /:id/report                   → report meta + placeholder url
+ *   GET    /:id/report                   → report meta + signed download url
  *   POST   /:id/report/regenerate        → enqueues render_pdf, 202
  *
  * Ownership semantics (Constitution II):
@@ -69,6 +69,12 @@ export interface CreateScansRouterDeps {
 	readonly db: DB;
 	readonly auditKey: string;
 	readonly requireAuth: MiddlewareHandler<{ Variables: AuthVariables }>;
+	readonly reportDownloadUrl?: (input: {
+		bucket: string;
+		key: string;
+		expiresAt: number | null;
+		nowMs: number;
+	}) => { url: string; expiresAt: number } | null;
 	readonly now?: () => number;
 }
 
@@ -192,6 +198,7 @@ export function createScansRouter(
 	deps: CreateScansRouterDeps,
 ): Hono<{ Variables: AuthVariables }> {
 	const { db, auditKey, requireAuth } = deps;
+	const reportDownloadUrl = deps.reportDownloadUrl ?? (() => null);
 	const clock = deps.now ?? defaultNow;
 
 	const app = new Hono<{ Variables: AuthVariables }>();
@@ -358,12 +365,7 @@ export function createScansRouter(
 	});
 
 	// -------------------------------------------------------------------------
-	// GET /:id/report — report meta + placeholder download URL
-	//
-	// The actual S3 presign happens in a follow-up task (T070 area). For now
-	// we return the bucket+key plus a placeholder `download_url` that the
-	// frontend treats as "ready when non-null"; the real signed URL will
-	// be wired when the S3 dependency lands in server boot for this route.
+	// GET /:id/report — report meta + signed download URL when storage is wired
 	// -------------------------------------------------------------------------
 	app.get("/:id/report", (c) => {
 		const user = c.get("user");
@@ -382,14 +384,20 @@ export function createScansRouter(
 			report.status === "ready" &&
 			report.bucket !== null &&
 			report.key !== null;
+		const download = isReady
+			? reportDownloadUrl({
+					bucket: report.bucket as string,
+					key: report.key as string,
+					expiresAt: report.expiresAt,
+					nowMs: clock(),
+				})
+			: null;
 		return c.json(
 			{
 				status: report.status,
 				byte_size: report.byteSize,
-				download_url: isReady
-					? `s3://${report.bucket}/${report.key}` // placeholder until presign wiring
-					: null,
-				download_expires_at: isReady ? report.expiresAt : null,
+				download_url: download?.url ?? null,
+				download_expires_at: download?.expiresAt ?? null,
 			},
 			200,
 		);

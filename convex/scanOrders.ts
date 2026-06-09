@@ -17,12 +17,45 @@ import {
 import { orderToWire } from "./lib/wire";
 
 const DNS_VERIFY_WINDOW_MS = 30 * 60 * 1000;
+const PUBLIC_HOSTNAME_REGEX =
+  /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]([a-z0-9-]{0,61}[a-z0-9])?$/;
 
 const attackSurfaceEntry = v.object({
   domain: v.string(),
   primary: v.boolean(),
   headers: v.array(v.object({ k: v.string(), v: v.string() })),
 });
+
+type AttackSurfaceEntry = {
+  domain: string;
+  primary: boolean;
+  headers: Array<{ k: string; v: string }>;
+};
+
+function normalizePublicHostname(value: string, field: string) {
+  const hostname = value.trim().toLowerCase();
+  if (
+    hostname.length < 1 ||
+    hostname.length > 253 ||
+    !PUBLIC_HOSTNAME_REGEX.test(hostname)
+  ) {
+    throw new ConvexError({
+      error: "validation_error",
+      message: `${field} must be a public lowercase DNS hostname`,
+    });
+  }
+  return hostname;
+}
+
+function normalizeAttackSurface(entries: AttackSurfaceEntry[]) {
+  return entries.map((entry, index) => ({
+    ...entry,
+    domain: normalizePublicHostname(
+      entry.domain,
+      `attack_surface[${index}].domain`,
+    ),
+  }));
+}
 
 function tokenFor(host: string) {
   const clean = host.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 16);
@@ -69,14 +102,18 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const { user } = await requireUser(ctx);
     const now = Date.now();
+    const primaryDomain = normalizePublicHostname(
+      args.primary_domain,
+      "primary_domain",
+    );
     const id = await ctx.db.insert("scanOrders", {
       userId: user._id,
       status: "draft",
       tier: args.tier,
-      primary_domain: args.primary_domain.trim().toLowerCase(),
+      primary_domain: primaryDomain,
       attack_surface: [],
       safety_rps: 50,
-      dns_verify_token: tokenFor(args.primary_domain),
+      dns_verify_token: tokenFor(primaryDomain),
       dns_check_attempts: 0,
       vps_provider: "gcp",
       payment_kind: "free_quick",
@@ -88,7 +125,7 @@ export const create = mutation({
       scan_order_id: id,
       event: "scan_order_created",
       outcome: "success",
-      metadata: { primary_domain: args.primary_domain, tier: args.tier },
+      metadata: { primary_domain: primaryDomain, tier: args.tier },
       created_at: now,
     });
     const row = await ctx.db.get(id);
@@ -120,8 +157,9 @@ export const updateAttackSurface = mutation({
       });
     }
     const now = Date.now();
+    const attackSurface = normalizeAttackSurface(args.attack_surface);
     await ctx.db.patch(order._id, {
-      attack_surface: args.attack_surface,
+      attack_surface: attackSurface,
       updated_at: now,
     });
     const row = await ctx.db.get(order._id);

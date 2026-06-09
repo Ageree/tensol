@@ -29,10 +29,10 @@
  */
 
 import { eq, sql } from "drizzle-orm";
+import { emitSignedAudit } from "../audit/emit.ts";
 import type { DB } from "../db/client.ts";
 import { scanOrders } from "../db/schema.ts";
 import { ulid } from "../lib/ids.ts";
-import { emitSignedAudit } from "../audit/emit.ts";
 import { resolveTxtAgreed } from "./resolver.ts";
 
 /** 30-min hard cap per data-model E2 state machine + spec FR-010. */
@@ -49,19 +49,19 @@ export const DEV_BYPASS_MIN_ELAPSED_MS = 5_000;
  *  success / no-error paths; on `timeout` it is the literal string
  *  `"timeout"` so the route layer can branch on it without parsing. */
 export interface CheckVerificationResult {
-  readonly verified: boolean;
-  readonly attempts: number;
-  readonly remainingSec: number;
-  readonly lastError: string | null;
+	readonly verified: boolean;
+	readonly attempts: number;
+	readonly remainingSec: number;
+	readonly lastError: string | null;
 }
 
 /** DI surface for `checkVerification`. `resolver` and `now` are overridable
  *  in tests; `key` is the HMAC signing key for audit rows (caller threads
  *  the boot-time config value in, per emit.ts module-doc rationale). */
 export interface CheckVerificationOpts {
-  readonly key: string;
-  readonly resolver?: typeof resolveTxtAgreed;
-  readonly now?: () => number;
+	readonly key: string;
+	readonly resolver?: typeof resolveTxtAgreed;
+	readonly now?: () => number;
 }
 
 /**
@@ -78,37 +78,37 @@ export interface CheckVerificationOpts {
  * @param _orderId reserved — see rationale above.
  */
 export function generateToken(_orderId: string): string {
-  return `tensol-verify-${ulid()}`;
+	return `tensol-verify-${ulid()}`;
 }
 
 interface OrderRow {
-  readonly id: string;
-  readonly userId: string;
-  readonly primaryDomain: string;
-  readonly dnsVerifyToken: string;
-  readonly dnsVerifyRequestedAt: number | null;
-  readonly dnsVerifiedAt: number | null;
-  readonly dnsCheckAttempts: number;
+	readonly id: string;
+	readonly userId: string;
+	readonly primaryDomain: string;
+	readonly dnsVerifyToken: string;
+	readonly dnsVerifyRequestedAt: number | null;
+	readonly dnsVerifiedAt: number | null;
+	readonly dnsCheckAttempts: number;
 }
 
 function loadOrder(db: DB, orderId: string): OrderRow {
-  const row = db
-    .select({
-      id: scanOrders.id,
-      userId: scanOrders.userId,
-      primaryDomain: scanOrders.primaryDomain,
-      dnsVerifyToken: scanOrders.dnsVerifyToken,
-      dnsVerifyRequestedAt: scanOrders.dnsVerifyRequestedAt,
-      dnsVerifiedAt: scanOrders.dnsVerifiedAt,
-      dnsCheckAttempts: scanOrders.dnsCheckAttempts,
-    })
-    .from(scanOrders)
-    .where(eq(scanOrders.id, orderId))
-    .all()[0];
-  if (!row) {
-    throw new Error(`checkVerification: scan_order not found: ${orderId}`);
-  }
-  return row;
+	const row = db
+		.select({
+			id: scanOrders.id,
+			userId: scanOrders.userId,
+			primaryDomain: scanOrders.primaryDomain,
+			dnsVerifyToken: scanOrders.dnsVerifyToken,
+			dnsVerifyRequestedAt: scanOrders.dnsVerifyRequestedAt,
+			dnsVerifiedAt: scanOrders.dnsVerifiedAt,
+			dnsCheckAttempts: scanOrders.dnsCheckAttempts,
+		})
+		.from(scanOrders)
+		.where(eq(scanOrders.id, orderId))
+		.all()[0];
+	if (!row) {
+		throw new Error(`checkVerification: scan_order not found: ${orderId}`);
+	}
+	return row;
 }
 
 /**
@@ -127,153 +127,153 @@ function loadOrder(db: DB, orderId: string): OrderRow {
  * audit chain free of poll-loop noise.
  */
 export async function checkVerification(
-  db: DB,
-  orderId: string,
-  opts: CheckVerificationOpts,
+	db: DB,
+	orderId: string,
+	opts: CheckVerificationOpts,
 ): Promise<CheckVerificationResult> {
-  const now = opts.now?.() ?? Date.now();
-  const row = loadOrder(db, orderId);
+	const now = opts.now?.() ?? Date.now();
+	const row = loadOrder(db, orderId);
 
-  // Early-return: already verified. No resolver call, no DB write, no
-  // audit row — callers can poll freely.
-  if (row.dnsVerifiedAt !== null) {
-    return {
-      verified: true,
-      attempts: row.dnsCheckAttempts,
-      remainingSec: 0,
-      lastError: null,
-    };
-  }
+	// Early-return: already verified. No resolver call, no DB write, no
+	// audit row — callers can poll freely.
+	if (row.dnsVerifiedAt !== null) {
+		return {
+			verified: true,
+			attempts: row.dnsCheckAttempts,
+			remainingSec: 0,
+			lastError: null,
+		};
+	}
 
-  const started = row.dnsVerifyRequestedAt ?? now;
-  const elapsedMs = now - started;
-  const remainingMs = Math.max(VERIFY_TIMEOUT_MS - elapsedMs, 0);
+	const started = row.dnsVerifyRequestedAt ?? now;
+	const elapsedMs = now - started;
+	const remainingMs = Math.max(VERIFY_TIMEOUT_MS - elapsedMs, 0);
 
-  // Dev bypass: env=true AND ≥5s elapsed → auto-verify.
-  // Strict 'true' match to avoid accidental enabling via `=1`, `=yes`, etc.
-  const bypassEnabled = process.env.TENSOL_DEV_DNS_BYPASS === "true";
-  if (bypassEnabled && elapsedMs >= DEV_BYPASS_MIN_ELAPSED_MS) {
-    const newAttempts = row.dnsCheckAttempts + 1;
-    db.update(scanOrders)
-      .set({
-        dnsVerifiedAt: now,
-        dnsCheckAttempts: newAttempts,
-        updatedAt: now,
-      })
-      .where(eq(scanOrders.id, orderId))
-      .run();
-    await emitSignedAudit(
-      db,
-      {
-        event: "dns_verified",
-        outcome: "success",
-        ts: now,
-        user_id: row.userId,
-        metadata: {
-          scan_order_id: orderId,
-          mode: "dev_bypass",
-          attempts: newAttempts,
-        },
-      },
-      { key: opts.key },
-    );
-    return {
-      verified: true,
-      attempts: newAttempts,
-      remainingSec: 0,
-      lastError: null,
-    };
-  }
+	// Hard timeout: 30 min from dns_verify_requested_at. Emit failure audit
+	// and return without touching the resolver — there is no point checking
+	// a window that has already closed.
+	if (elapsedMs > VERIFY_TIMEOUT_MS) {
+		await emitSignedAudit(
+			db,
+			{
+				event: "dns_verify_failed",
+				outcome: "failure",
+				ts: now,
+				user_id: row.userId,
+				metadata: {
+					scan_order_id: orderId,
+					reason: "timeout",
+					elapsed_ms: elapsedMs,
+				},
+			},
+			{ key: opts.key },
+		);
+		return {
+			verified: false,
+			attempts: row.dnsCheckAttempts,
+			remainingSec: 0,
+			lastError: "timeout",
+		};
+	}
 
-  // Hard timeout: 30 min from dns_verify_requested_at. Emit failure audit
-  // and return without touching the resolver — there is no point checking
-  // a window that has already closed.
-  if (elapsedMs > VERIFY_TIMEOUT_MS) {
-    await emitSignedAudit(
-      db,
-      {
-        event: "dns_verify_failed",
-        outcome: "failure",
-        ts: now,
-        user_id: row.userId,
-        metadata: {
-          scan_order_id: orderId,
-          reason: "timeout",
-          elapsed_ms: elapsedMs,
-        },
-      },
-      { key: opts.key },
-    );
-    return {
-      verified: false,
-      attempts: row.dnsCheckAttempts,
-      remainingSec: 0,
-      lastError: "timeout",
-    };
-  }
+	// Dev bypass: env=true AND ≥5s elapsed → auto-verify.
+	// Strict 'true' match to avoid accidental enabling via `=1`, `=yes`, etc.
+	const bypassEnabled = process.env.TENSOL_DEV_DNS_BYPASS === "true";
+	if (bypassEnabled && elapsedMs >= DEV_BYPASS_MIN_ELAPSED_MS) {
+		const newAttempts = row.dnsCheckAttempts + 1;
+		db.update(scanOrders)
+			.set({
+				dnsVerifiedAt: now,
+				dnsCheckAttempts: newAttempts,
+				updatedAt: now,
+			})
+			.where(eq(scanOrders.id, orderId))
+			.run();
+		await emitSignedAudit(
+			db,
+			{
+				event: "dns_verified",
+				outcome: "success",
+				ts: now,
+				user_id: row.userId,
+				metadata: {
+					scan_order_id: orderId,
+					mode: "dev_bypass",
+					attempts: newAttempts,
+				},
+			},
+			{ key: opts.key },
+		);
+		return {
+			verified: true,
+			attempts: newAttempts,
+			remainingSec: 0,
+			lastError: null,
+		};
+	}
 
-  // Real DNS path. Errors from the resolver are caught and surfaced via
-  // `lastError` rather than re-thrown — the route's poll loop must keep
-  // running across transient DNS hiccups.
-  const resolve = opts.resolver ?? resolveTxtAgreed;
-  let txtRecords: readonly string[] | null = null;
-  let lastError: string | null = null;
-  try {
-    txtRecords = await resolve(row.primaryDomain);
-  } catch (e) {
-    lastError = (e as Error).message;
-  }
+	// Real DNS path. Errors from the resolver are caught and surfaced via
+	// `lastError` rather than re-thrown — the route's poll loop must keep
+	// running across transient DNS hiccups.
+	const resolve = opts.resolver ?? resolveTxtAgreed;
+	let txtRecords: readonly string[] | null = null;
+	let lastError: string | null = null;
+	try {
+		txtRecords = await resolve(row.primaryDomain);
+	} catch (e) {
+		lastError = (e as Error).message;
+	}
 
-  const matched = txtRecords?.some((r) => r === row.dnsVerifyToken) ?? false;
-  const newAttempts = row.dnsCheckAttempts + 1;
+	const matched = txtRecords?.some((r) => r === row.dnsVerifyToken) ?? false;
+	const newAttempts = row.dnsCheckAttempts + 1;
 
-  if (matched) {
-    db.update(scanOrders)
-      .set({
-        dnsVerifiedAt: now,
-        dnsCheckAttempts: newAttempts,
-        updatedAt: now,
-      })
-      .where(eq(scanOrders.id, orderId))
-      .run();
-    await emitSignedAudit(
-      db,
-      {
-        event: "dns_verified",
-        outcome: "success",
-        ts: now,
-        user_id: row.userId,
-        metadata: {
-          scan_order_id: orderId,
-          mode: "real",
-          attempts: newAttempts,
-        },
-      },
-      { key: opts.key },
-    );
-    return {
-      verified: true,
-      attempts: newAttempts,
-      remainingSec: 0,
-      lastError: null,
-    };
-  }
+	if (matched) {
+		db.update(scanOrders)
+			.set({
+				dnsVerifiedAt: now,
+				dnsCheckAttempts: newAttempts,
+				updatedAt: now,
+			})
+			.where(eq(scanOrders.id, orderId))
+			.run();
+		await emitSignedAudit(
+			db,
+			{
+				event: "dns_verified",
+				outcome: "success",
+				ts: now,
+				user_id: row.userId,
+				metadata: {
+					scan_order_id: orderId,
+					mode: "real",
+					attempts: newAttempts,
+				},
+			},
+			{ key: opts.key },
+		);
+		return {
+			verified: true,
+			attempts: newAttempts,
+			remainingSec: 0,
+			lastError: null,
+		};
+	}
 
-  // Not yet — bump attempts, COALESCE the requested_at anchor so a manual
-  // poll on a draft order doesn't permanently lose its timeout origin.
-  db.update(scanOrders)
-    .set({
-      dnsCheckAttempts: newAttempts,
-      dnsVerifyRequestedAt: sql`COALESCE(${scanOrders.dnsVerifyRequestedAt}, ${now})`,
-      updatedAt: now,
-    })
-    .where(eq(scanOrders.id, orderId))
-    .run();
+	// Not yet — bump attempts, COALESCE the requested_at anchor so a manual
+	// poll on a draft order doesn't permanently lose its timeout origin.
+	db.update(scanOrders)
+		.set({
+			dnsCheckAttempts: newAttempts,
+			dnsVerifyRequestedAt: sql`COALESCE(${scanOrders.dnsVerifyRequestedAt}, ${now})`,
+			updatedAt: now,
+		})
+		.where(eq(scanOrders.id, orderId))
+		.run();
 
-  return {
-    verified: false,
-    attempts: newAttempts,
-    remainingSec: Math.floor(remainingMs / 1000),
-    lastError,
-  };
+	return {
+		verified: false,
+		attempts: newAttempts,
+		remainingSec: Math.floor(remainingMs / 1000),
+		lastError,
+	};
 }

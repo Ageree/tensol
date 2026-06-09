@@ -48,9 +48,8 @@
  * Why we keep `notify/telegram-placeholder.ts`:
  *   The legacy `LoggingTelegramNotifier` (T066) is left in place as a
  *   no-op fallback for development boots where no bot token is configured
- *   (`TENSOL_TELEGRAM_BOT_TOKEN` absent). `server.ts` wiring will swap to
- *   `createTelegramNotifier(...)` when a token is present; that wiring
- *   change is the final-polish task, not T096.
+ *   (`TENSOL_TELEGRAM_BOT_TOKEN` absent). `server.ts` already swaps to
+ *   `createTelegramNotifier(...)` when a token is present.
  */
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -70,24 +69,24 @@ const MARKDOWN_V2_RESERVED = /[_*\[\]()~`>#+\-=|{}.!]/g;
 export type TelegramParseMode = "MarkdownV2" | "HTML";
 
 export class TelegramSendError extends Error {
-  public readonly status: number | undefined;
-  public readonly retryAfter: number | undefined;
-  public override readonly cause: unknown;
+	public readonly status: number | undefined;
+	public readonly retryAfter: number | undefined;
+	public override readonly cause: unknown;
 
-  constructor(
-    msg: string,
-    opts: {
-      status?: number;
-      retryAfter?: number;
-      cause?: unknown;
-    } = {},
-  ) {
-    super(msg);
-    this.name = "TelegramSendError";
-    this.status = opts.status;
-    this.retryAfter = opts.retryAfter;
-    this.cause = opts.cause;
-  }
+	constructor(
+		msg: string,
+		opts: {
+			status?: number;
+			retryAfter?: number;
+			cause?: unknown;
+		} = {},
+	) {
+		super(msg);
+		this.name = "TelegramSendError";
+		this.status = opts.status;
+		this.retryAfter = opts.retryAfter;
+		this.cause = opts.cause;
+	}
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -95,19 +94,19 @@ export class TelegramSendError extends Error {
 // ───────────────────────────────────────────────────────────────────────────
 
 export interface SendCommonOpts {
-  /** Defaults to `process.env.TENSOL_TELEGRAM_BOT_TOKEN`. */
-  readonly botToken?: string;
-  /** Numeric chat id. Defaults to `process.env.TENSOL_TELEGRAM_CHAT_ID`. */
-  readonly chatId?: number | string;
-  readonly parseMode?: TelegramParseMode;
-  /** Injectable for tests. Defaults to global `fetch`. */
-  readonly fetcher?: typeof fetch;
-  /** Injectable for tests. Defaults to `setTimeout`-based sleep. */
-  readonly sleep?: (ms: number) => Promise<void>;
+	/** Defaults to `process.env.TENSOL_TELEGRAM_BOT_TOKEN`. */
+	readonly botToken?: string;
+	/** Numeric chat id. Defaults to `process.env.TENSOL_TELEGRAM_CHAT_ID`. */
+	readonly chatId?: number | string;
+	readonly parseMode?: TelegramParseMode;
+	/** Injectable for tests. Defaults to global `fetch`. */
+	readonly fetcher?: typeof fetch;
+	/** Injectable for tests. Defaults to `setTimeout`-based sleep. */
+	readonly sleep?: (ms: number) => Promise<void>;
 }
 
 export interface SendMessageOpts extends SendCommonOpts {
-  readonly disableWebPagePreview?: boolean;
+	readonly disableWebPagePreview?: boolean;
 }
 
 export type SendDocumentOpts = SendCommonOpts;
@@ -122,7 +121,7 @@ export type SendDocumentOpts = SendCommonOpts;
  * intended formatting or triggering a Telegram parse error.
  */
 export function escapeMarkdownV2(s: string): string {
-  return s.replace(MARKDOWN_V2_RESERVED, (m) => `\\${m}`);
+	return s.replace(MARKDOWN_V2_RESERVED, (m) => `\\${m}`);
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -130,59 +129,59 @@ export function escapeMarkdownV2(s: string): string {
 // ───────────────────────────────────────────────────────────────────────────
 
 interface TelegramApiResponse {
-  readonly ok?: boolean;
-  readonly error_code?: number;
-  readonly description?: string;
-  readonly parameters?: { readonly retry_after?: number };
-  readonly result?: { readonly message_id?: number };
+	readonly ok?: boolean;
+	readonly error_code?: number;
+	readonly description?: string;
+	readonly parameters?: { readonly retry_after?: number };
+	readonly result?: { readonly message_id?: number };
 }
 
 function defaultSleep(ms: number): Promise<void> {
-  if (ms <= 0) return Promise.resolve();
-  return new Promise((resolve) => {
-    const t = setTimeout(resolve, ms);
-    // Avoid keeping the event loop alive past test teardown.
-    (t as { unref?: () => void }).unref?.();
-  });
+	if (ms <= 0) return Promise.resolve();
+	return new Promise((resolve) => {
+		const t = setTimeout(resolve, ms);
+		// Avoid keeping the event loop alive past test teardown.
+		(t as { unref?: () => void }).unref?.();
+	});
 }
 
 function resolveToken(opts: SendCommonOpts): string {
-  const token = opts.botToken ?? process.env.TENSOL_TELEGRAM_BOT_TOKEN ?? "";
-  if (!token) {
-    throw new TelegramSendError(
-      "Telegram bot token not configured (TENSOL_TELEGRAM_BOT_TOKEN)",
-    );
-  }
-  return token;
+	const token = opts.botToken ?? process.env.TENSOL_TELEGRAM_BOT_TOKEN ?? "";
+	if (!token) {
+		throw new TelegramSendError(
+			"Telegram bot token not configured (TENSOL_TELEGRAM_BOT_TOKEN)",
+		);
+	}
+	return token;
 }
 
 function resolveChatId(opts: SendCommonOpts): string {
-  const raw =
-    opts.chatId !== undefined && opts.chatId !== ""
-      ? opts.chatId
-      : process.env.TENSOL_TELEGRAM_CHAT_ID ?? "";
-  if (raw === "" || raw === undefined || raw === null) {
-    throw new TelegramSendError("Telegram chat_id required");
-  }
-  return String(raw);
+	const raw =
+		opts.chatId !== undefined && opts.chatId !== ""
+			? opts.chatId
+			: (process.env.TENSOL_TELEGRAM_CHAT_ID ?? "");
+	if (raw === "" || raw === undefined || raw === null) {
+		throw new TelegramSendError("Telegram chat_id required");
+	}
+	return String(raw);
 }
 
 function isTransientHttp(errorCode: number): boolean {
-  if (errorCode === 429) return true;
-  if (errorCode >= 500 && errorCode < 600) return true;
-  return false;
+	if (errorCode === 429) return true;
+	if (errorCode >= 500 && errorCode < 600) return true;
+	return false;
 }
 
 function backoffMs(retryAfter: number | undefined, attempt: number): number {
-  if (typeof retryAfter === "number" && retryAfter > 0) {
-    return retryAfter * 1_000;
-  }
-  // Exponential: 1s, 2s, 4s, 8s before attempts 2..5.
-  return Math.pow(2, attempt - 1) * 1_000;
+	if (typeof retryAfter === "number" && retryAfter > 0) {
+		return retryAfter * 1_000;
+	}
+	// Exponential: 1s, 2s, 4s, 8s before attempts 2..5.
+	return 2 ** (attempt - 1) * 1_000;
 }
 
 interface PostExecuteResult {
-  readonly messageId: number;
+	readonly messageId: number;
 }
 
 /**
@@ -192,57 +191,58 @@ interface PostExecuteResult {
  * per attempt keeps the body safely re-sendable.
  */
 async function executeWithRetry(
-  buildRequest: () => { url: string; init: RequestInit },
-  opts: SendCommonOpts,
-  operationLabel: string,
+	buildRequest: () => { url: string; init: RequestInit },
+	opts: SendCommonOpts,
+	operationLabel: string,
 ): Promise<PostExecuteResult> {
-  const fetcher = opts.fetcher ?? fetch;
-  const sleep = opts.sleep ?? defaultSleep;
+	const fetcher = opts.fetcher ?? fetch;
+	const sleep = opts.sleep ?? defaultSleep;
 
-  let attempt = 0;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    attempt++;
-    const { url, init } = buildRequest();
-    let resp: Response;
-    try {
-      resp = await fetcher(url, init);
-    } catch (err) {
-      // Network errors are treated as transient.
-      if (attempt < MAX_ATTEMPTS) {
-        await sleep(backoffMs(undefined, attempt));
-        continue;
-      }
-      throw new TelegramSendError(
-        `Telegram ${operationLabel} network error after ${attempt} attempts`,
-        { cause: err },
-      );
-    }
+	let attempt = 0;
+	// eslint-disable-next-line no-constant-condition
+	while (true) {
+		attempt++;
+		const { url, init } = buildRequest();
+		let resp: Response;
+		try {
+			resp = await fetcher(url, init);
+		} catch (err) {
+			// Network errors are treated as transient.
+			if (attempt < MAX_ATTEMPTS) {
+				await sleep(backoffMs(undefined, attempt));
+				continue;
+			}
+			throw new TelegramSendError(
+				`Telegram ${operationLabel} network error after ${attempt} attempts`,
+				{ cause: err },
+			);
+		}
 
-    let data: TelegramApiResponse = {};
-    try {
-      data = (await resp.json()) as TelegramApiResponse;
-    } catch {
-      data = {};
-    }
+		let data: TelegramApiResponse = {};
+		try {
+			data = (await resp.json()) as TelegramApiResponse;
+		} catch {
+			data = {};
+		}
 
-    if (resp.ok && data.ok && data.result?.message_id) {
-      return { messageId: data.result.message_id };
-    }
+		if (resp.ok && data.ok && data.result?.message_id) {
+			return { messageId: data.result.message_id };
+		}
 
-    const errorCode = data.error_code ?? resp.status;
-    const retryAfter = data.parameters?.retry_after;
-    if (isTransientHttp(errorCode) && attempt < MAX_ATTEMPTS) {
-      await sleep(backoffMs(retryAfter, attempt));
-      continue;
-    }
+		const errorCode = data.error_code ?? resp.status;
+		const retryAfter = data.parameters?.retry_after;
+		if (isTransientHttp(errorCode) && attempt < MAX_ATTEMPTS) {
+			await sleep(backoffMs(retryAfter, attempt));
+			continue;
+		}
 
-    const msg = `Telegram ${operationLabel} failed: ${errorCode} ${data.description ?? ""}`.trim();
-    throw new TelegramSendError(msg, {
-      status: resp.status,
-      ...(retryAfter !== undefined ? { retryAfter } : {}),
-    });
-  }
+		const msg =
+			`Telegram ${operationLabel} failed: ${errorCode} ${data.description ?? ""}`.trim();
+		throw new TelegramSendError(msg, {
+			status: resp.status,
+			...(retryAfter !== undefined ? { retryAfter } : {}),
+		});
+	}
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -256,33 +256,33 @@ async function executeWithRetry(
  * honored), max 5 attempts. Permanent errors throw immediately.
  */
 export async function sendMessage(
-  text: string,
-  opts: SendMessageOpts = {},
+	text: string,
+	opts: SendMessageOpts = {},
 ): Promise<{ messageId: number }> {
-  const token = resolveToken(opts);
-  const chatId = resolveChatId(opts);
+	const token = resolveToken(opts);
+	const chatId = resolveChatId(opts);
 
-  const url = `${TELEGRAM_API_BASE}/bot${token}/sendMessage`;
-  const buildRequest = () => {
-    const body: Record<string, unknown> = {
-      chat_id: chatId,
-      text,
-    };
-    if (opts.parseMode) body.parse_mode = opts.parseMode;
-    if (opts.disableWebPagePreview !== undefined) {
-      body.disable_web_page_preview = opts.disableWebPagePreview;
-    }
-    return {
-      url,
-      init: {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      } satisfies RequestInit,
-    };
-  };
+	const url = `${TELEGRAM_API_BASE}/bot${token}/sendMessage`;
+	const buildRequest = () => {
+		const body: Record<string, unknown> = {
+			chat_id: chatId,
+			text,
+		};
+		if (opts.parseMode) body.parse_mode = opts.parseMode;
+		if (opts.disableWebPagePreview !== undefined) {
+			body.disable_web_page_preview = opts.disableWebPagePreview;
+		}
+		return {
+			url,
+			init: {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			} satisfies RequestInit,
+		};
+	};
 
-  return executeWithRetry(buildRequest, opts, "sendMessage");
+	return executeWithRetry(buildRequest, opts, "sendMessage");
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -297,38 +297,38 @@ export async function sendMessage(
  * input.
  */
 export async function sendDocument(
-  buffer: Buffer | Uint8Array,
-  filename: string,
-  caption: string | undefined,
-  opts: SendDocumentOpts = {},
+	buffer: Buffer | Uint8Array,
+	filename: string,
+	caption: string | undefined,
+	opts: SendDocumentOpts = {},
 ): Promise<{ messageId: number }> {
-  const token = resolveToken(opts);
-  const chatId = resolveChatId(opts);
+	const token = resolveToken(opts);
+	const chatId = resolveChatId(opts);
 
-  const url = `${TELEGRAM_API_BASE}/bot${token}/sendDocument`;
-  const buildRequest = () => {
-    const form = new FormData();
-    form.append("chat_id", chatId);
-    if (caption !== undefined) form.append("caption", caption);
-    if (opts.parseMode) form.append("parse_mode", opts.parseMode);
-    // Blob from Buffer; `application/pdf` is reasonable for our use case
-    // but Telegram inspects content-type from filename too.
-    const blob = new Blob([new Uint8Array(buffer)], {
-      type: "application/pdf",
-    });
-    form.append("document", blob, filename);
-    return {
-      url,
-      init: {
-        method: "POST",
-        body: form,
-        // Note: do NOT set Content-Type — fetch sets the multipart
-        // boundary automatically when body is FormData.
-      } satisfies RequestInit,
-    };
-  };
+	const url = `${TELEGRAM_API_BASE}/bot${token}/sendDocument`;
+	const buildRequest = () => {
+		const form = new FormData();
+		form.append("chat_id", chatId);
+		if (caption !== undefined) form.append("caption", caption);
+		if (opts.parseMode) form.append("parse_mode", opts.parseMode);
+		// Blob from Buffer; `application/pdf` is reasonable for our use case
+		// but Telegram inspects content-type from filename too.
+		const blob = new Blob([new Uint8Array(buffer)], {
+			type: "application/pdf",
+		});
+		form.append("document", blob, filename);
+		return {
+			url,
+			init: {
+				method: "POST",
+				body: form,
+				// Note: do NOT set Content-Type — fetch sets the multipart
+				// boundary automatically when body is FormData.
+			} satisfies RequestInit,
+		};
+	};
 
-  return executeWithRetry(buildRequest, opts, "sendDocument");
+	return executeWithRetry(buildRequest, opts, "sendDocument");
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -343,28 +343,28 @@ export async function sendDocument(
  * them in lockstep.
  */
 export interface NotifierTelegramNotifier {
-  sendScanComplete(input: {
-    chatId: number;
-    scanOrderId: string;
-    scanId: string;
-    primaryDomain: string;
-    findingsCount: {
-      critical: number;
-      high: number;
-      medium: number;
-      low: number;
-      informational: number;
-    };
-    reportPdfBuffer?: Buffer | null;
-    reportPdfFilename?: string;
-  }): Promise<{ messageId: number | null }>;
+	sendScanComplete(input: {
+		chatId: number;
+		scanOrderId: string;
+		scanId: string;
+		primaryDomain: string;
+		findingsCount: {
+			critical: number;
+			high: number;
+			medium: number;
+			low: number;
+			informational: number;
+		};
+		reportPdfBuffer?: Buffer | null;
+		reportPdfFilename?: string;
+	}): Promise<{ messageId: number | null }>;
 }
 
 export interface CreateTelegramNotifierOpts {
-  /** Defaults to `process.env.TENSOL_TELEGRAM_BOT_TOKEN`. */
-  readonly botToken?: string;
-  readonly fetcher?: typeof fetch;
-  readonly sleep?: (ms: number) => Promise<void>;
+	/** Defaults to `process.env.TENSOL_TELEGRAM_BOT_TOKEN`. */
+	readonly botToken?: string;
+	readonly fetcher?: typeof fetch;
+	readonly sleep?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -372,37 +372,37 @@ export interface CreateTelegramNotifierOpts {
  * testability of the formatting rules; the function is pure.
  */
 function buildScanCompleteText(input: {
-  scanOrderId: string;
-  scanId: string;
-  primaryDomain: string;
-  findingsCount: {
-    critical: number;
-    high: number;
-    medium: number;
-    low: number;
-    informational: number;
-  };
+	scanOrderId: string;
+	scanId: string;
+	primaryDomain: string;
+	findingsCount: {
+		critical: number;
+		high: number;
+		medium: number;
+		low: number;
+		informational: number;
+	};
 }): string {
-  const domain = escapeMarkdownV2(input.primaryDomain);
-  const orderId = escapeMarkdownV2(input.scanOrderId);
-  const scanId = escapeMarkdownV2(input.scanId);
-  const f = input.findingsCount;
-  // Severity counts are integers — no escaping needed. The `:` separator
-  // is not in the MarkdownV2 reserved set.
-  const lines = [
-    `*Scan complete: ${domain}*`,
-    "",
-    `Order: \`${orderId}\``,
-    `Scan: \`${scanId}\``,
-    "",
-    "Findings:",
-    `• Critical: ${f.critical}`,
-    `• High: ${f.high}`,
-    `• Medium: ${f.medium}`,
-    `• Low: ${f.low}`,
-    `• Info: ${f.informational}`,
-  ];
-  return lines.join("\n");
+	const domain = escapeMarkdownV2(input.primaryDomain);
+	const orderId = escapeMarkdownV2(input.scanOrderId);
+	const scanId = escapeMarkdownV2(input.scanId);
+	const f = input.findingsCount;
+	// Severity counts are integers — no escaping needed. The `:` separator
+	// is not in the MarkdownV2 reserved set.
+	const lines = [
+		`*Scan complete: ${domain}*`,
+		"",
+		`Order: \`${orderId}\``,
+		`Scan: \`${scanId}\``,
+		"",
+		"Findings:",
+		`• Critical: ${f.critical}`,
+		`• High: ${f.high}`,
+		`• Medium: ${f.medium}`,
+		`• Low: ${f.low}`,
+		`• Info: ${f.informational}`,
+	];
+	return lines.join("\n");
 }
 
 /**
@@ -417,34 +417,34 @@ function buildScanCompleteText(input: {
  * transient-retry loop can classify them.
  */
 export function createTelegramNotifier(
-  opts: CreateTelegramNotifierOpts = {},
+	opts: CreateTelegramNotifierOpts = {},
 ): NotifierTelegramNotifier {
-  return {
-    async sendScanComplete(input) {
-      const text = buildScanCompleteText(input);
-      const baseOpts: SendCommonOpts = {
-        chatId: input.chatId,
-        parseMode: "MarkdownV2",
-        ...(opts.botToken !== undefined ? { botToken: opts.botToken } : {}),
-        ...(opts.fetcher !== undefined ? { fetcher: opts.fetcher } : {}),
-        ...(opts.sleep !== undefined ? { sleep: opts.sleep } : {}),
-      };
+	return {
+		async sendScanComplete(input) {
+			const text = buildScanCompleteText(input);
+			const baseOpts: SendCommonOpts = {
+				chatId: input.chatId,
+				parseMode: "MarkdownV2",
+				...(opts.botToken !== undefined ? { botToken: opts.botToken } : {}),
+				...(opts.fetcher !== undefined ? { fetcher: opts.fetcher } : {}),
+				...(opts.sleep !== undefined ? { sleep: opts.sleep } : {}),
+			};
 
-      if (input.reportPdfBuffer && input.reportPdfFilename) {
-        const result = await sendDocument(
-          input.reportPdfBuffer,
-          input.reportPdfFilename,
-          text,
-          baseOpts,
-        );
-        return { messageId: result.messageId };
-      }
+			if (input.reportPdfBuffer && input.reportPdfFilename) {
+				const result = await sendDocument(
+					input.reportPdfBuffer,
+					input.reportPdfFilename,
+					text,
+					baseOpts,
+				);
+				return { messageId: result.messageId };
+			}
 
-      const result = await sendMessage(text, {
-        ...baseOpts,
-        disableWebPagePreview: true,
-      });
-      return { messageId: result.messageId };
-    },
-  };
+			const result = await sendMessage(text, {
+				...baseOpts,
+				disableWebPagePreview: true,
+			});
+			return { messageId: result.messageId };
+		},
+	};
 }

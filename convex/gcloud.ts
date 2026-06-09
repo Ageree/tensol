@@ -4,6 +4,13 @@ import { createHash, createSign, randomBytes } from "node:crypto";
 import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import {
+  buildAgentDispatchBody,
+  buildStartupScript,
+  requiredEnvAny,
+  signAgentDispatchBody,
+  type DispatchMaterial,
+} from "./lib/gcloudProvisioning";
 
 const COMPUTE_BASE_URL = "https://compute.googleapis.com/compute/v1";
 const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -85,24 +92,7 @@ function zoneToRegion(zone: string) {
 }
 
 function startupScript(scanId: string, signKey: string) {
-  const backendUrl = process.env.CONVEX_SITE_URL ?? process.env.PUBLIC_CONVEX_SITE_URL ?? "";
-  const image = process.env.VPS_AGENT_IMAGE ?? "ghcr.io/tensol/vps-agent:latest";
-  return `#!/usr/bin/env bash
-set -euo pipefail
-if ! command -v docker >/dev/null 2>&1; then
-  apt-get update
-  apt-get install -y docker.io
-  systemctl enable --now docker
-fi
-docker rm -f sthrip-vps-agent || true
-docker run -d --restart unless-stopped --name sthrip-vps-agent -p 8080:8080 \\
-  -e TENSOL_SCAN_ID=${scanId} \\
-  -e TENSOL_BACKEND_URL=${backendUrl} \\
-  -e TENSOL_WEBHOOK_SECRET=${process.env.WEBHOOK_SECRET ?? ""} \\
-  -e TENSOL_SIGN_KEY=${signKey} \\
-  -v /var/run/docker.sock:/var/run/docker.sock \\
-  ${image}
-`;
+  return buildStartupScript({ scanId, signKey });
 }
 
 async function insertGcpInstance(scanId: string, signKey: string) {
@@ -145,6 +135,81 @@ async function insertGcpInstance(scanId: string, signKey: string) {
   return { instanceName: name, operationId: op.name, zone: cfg.zone };
 }
 
+async function getGcpInstancePublicIp(instanceName: string, zone: string) {
+  const cfg = gcpConfig();
+  const token = await getGcpAccessToken();
+  const url = `${COMPUTE_BASE_URL}/projects/${cfg.projectId}/zones/${zone}/instances/${instanceName}`;
+  const res = await fetch(url, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`gcp instances.get failed: HTTP ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as {
+    networkInterfaces?: Array<{
+      accessConfigs?: Array<{ natIP?: string }>;
+    }>;
+  };
+  return body.networkInterfaces?.[0]?.accessConfigs?.[0]?.natIP;
+}
+
+async function waitForGcpInstancePublicIp(instanceName: string, zone: string) {
+  const deadline = Date.now() + Number.parseInt(process.env.GCP_AGENT_WAIT_MS ?? "480000", 10);
+  const intervalMs = Number.parseInt(process.env.GCP_AGENT_POLL_MS ?? "5000", 10);
+  let lastError = "missing public IP";
+  while (Date.now() < deadline) {
+    try {
+      const publicIp = await getGcpInstancePublicIp(instanceName, zone);
+      if (publicIp) return publicIp;
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`gcp instance public IP did not become available: ${lastError}`);
+}
+
+async function dispatchAgentScan(args: {
+  publicIp: string;
+  signKey: string;
+  scanId: string;
+  material: DispatchMaterial;
+}) {
+  const siteUrl = requiredEnvAny(process.env, "CONVEX_SITE_URL", "PUBLIC_CONVEX_SITE_URL");
+  const evidenceBucket = requiredEnvAny(process.env, "TENSOL_EVIDENCE_BUCKET", "EVIDENCE_BUCKET");
+  const port = Number.parseInt(process.env.VPS_AGENT_PORT ?? "8080", 10);
+  const body = buildAgentDispatchBody({
+    siteUrl,
+    evidenceBucket,
+    scanId: args.scanId,
+    material: args.material,
+  });
+  const rawBody = JSON.stringify(body);
+  const signature = signAgentDispatchBody(args.signKey, rawBody);
+  const url = `http://${args.publicIp}:${port}/scan`;
+  const deadline = Date.now() + Number.parseInt(process.env.GCP_AGENT_WAIT_MS ?? "480000", 10);
+  const intervalMs = Number.parseInt(process.env.GCP_AGENT_POLL_MS ?? "5000", 10);
+  let lastError = "agent not reached";
+
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Tensol-Signature": signature,
+        },
+        body: rawBody,
+        signal: AbortSignal.timeout(Number.parseInt(process.env.GCP_AGENT_PROBE_TIMEOUT_MS ?? "8000", 10)),
+      });
+      if (res.ok) return;
+      throw new Error(`agent dispatch failed: HTTP ${res.status} ${await res.text()}`);
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  }
+  throw new Error(`vps-agent dispatch timed out: ${lastError}`);
+}
+
 async function deleteGcpInstance(instanceName: string, zone: string, requestKey: string) {
   const cfg = gcpConfig();
   const token = await getGcpAccessToken();
@@ -178,8 +243,11 @@ export const provisionScanVm = internalAction({
         await ctx.scheduler.runAfter(1500, internal.gcloud.completeDryRunScan, { scanId: args.scanId });
         return null;
       }
+      const material = await ctx.runQuery(internal.ops.getScanDispatchMaterial, {
+        scanId: args.scanId,
+      });
       const result = await insertGcpInstance(args.scanId, signKey);
-      await ctx.runMutation(internal.ops.markVmRunning, {
+      const running = await ctx.runMutation(internal.ops.markVmRunning, {
         scanId: args.scanId,
         provider: "gcp",
         providerServerId: result.instanceName,
@@ -187,12 +255,25 @@ export const provisionScanVm = internalAction({
         operationId: result.operationId,
         signKey,
       });
+      if (running.status !== "running") return null;
+      const publicIp = await waitForGcpInstancePublicIp(result.instanceName, result.zone);
+      await ctx.runMutation(internal.ops.markVmPublicIp, {
+        scanId: args.scanId,
+        publicIp,
+      });
+      await dispatchAgentScan({
+        publicIp,
+        signKey,
+        scanId: args.scanId,
+        material,
+      });
       return null;
     } catch (err) {
       await ctx.runMutation(internal.ops.failScan, {
         scanId: args.scanId,
         reason: err instanceof Error ? err.message : "gcp_provision_failed",
       });
+      await ctx.runAction(internal.gcloud.teardownScanVm, { scanId: args.scanId });
       return null;
     }
   },
