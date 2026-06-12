@@ -45,8 +45,14 @@ const RESOURCE_ITEMS: readonly DropdownItem[] = [
   {
     label: 'Legal',
     href: '/legal/terms',
-    description: 'Acceptable use, terms, and data processing',
+    description: 'Terms, refunds, privacy, and data processing',
     icon: '§',
+  },
+  {
+    label: 'Refunds',
+    href: '/legal/refund',
+    description: 'Refund, cancellation, and service-credit policy',
+    icon: '$',
   },
 ] as const;
 
@@ -237,7 +243,12 @@ export function MarketingFooter() {
   return (
     <footer className="minimal-footer">
       <span>STHRIP</span>
-      <span>(c) 2026</span>
+      <nav className="minimal-footer-links" aria-label="Footer legal links">
+        <Link to="/pricing">Pricing</Link>
+        <Link to="/legal/terms">Terms</Link>
+        <Link to="/legal/privacy">Privacy</Link>
+        <Link to="/legal/refund">Refunds</Link>
+      </nav>
       <a href="mailto:hello@sthrip.dev">hello@sthrip.dev</a>
     </footer>
   );

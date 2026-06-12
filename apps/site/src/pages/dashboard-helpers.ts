@@ -86,9 +86,8 @@ export function mapStatusToAction(status: ScanOrderStatus): ActionMapping {
  * Stable, locale-agnostic "Xm ago" / "Xh ago" / "Xd ago" formatter.
  *
  * We intentionally don't use `Intl.RelativeTimeFormat` here because the
- * dashboard table reads better with terse, monospaced units and because the
- * RU pluralization rules for "минуту/минуты/минут" would force a separate
- * dictionary — the unit suffix is just `m|h|d` for both locales.
+ * dashboard table reads better with terse, monospaced units. The product UI is
+ * English-only, so the unit suffix is fixed as `m|h|d`.
  *
  * - `< 60s`  → `now`
  * - `< 60m`  → `Nm ago`

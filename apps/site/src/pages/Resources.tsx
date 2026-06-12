@@ -26,6 +26,12 @@ const RESOURCE_CARDS = [
     body: 'Acceptable use, service terms, and DPA references for procurement.',
     href: '/legal/terms',
   },
+  {
+    label: 'REFUNDS',
+    title: 'Refund policy',
+    body: 'Cancellation, refund, service-credit, and Paddle payment support rules.',
+    href: '/legal/refund',
+  },
 ];
 
 export default function Resources() {

@@ -5,8 +5,7 @@
  * in the current 7-day window (`users.free_quick_consumed_at = now()`).
  * Expectation: clicking "Launch free Quick" returns 429 from
  * `POST /v1/scan-orders/:id/launch` and the wizard surfaces an inline
- * error + a contact CTA (per T089: Deep audit lands on /contact in MVP;
- * a dedicated `/deep-inquiry` page is US2 scope).
+ * error + a contact CTA.
  *
  * Service contract referenced (`server/src/scan-orders/service.ts`):
  *   - `launchScan` throws `QUOTA_EXHAUSTED` (line 488) when
@@ -102,16 +101,15 @@ test.describe("T092 — free-quota exhausted (US1)", () => {
 			// 5. Click Launch — server returns 429, UI surfaces the error in
 			//    the launchError block (`t.wizard.step4.launchError`).
 			//
-			//    Match either locale: EN "Launch failed" / RU "Не удалось
-			//    запустить". The launchErr code from ApiError is rendered
+			//    Match the English label. The launchErr code from ApiError is rendered
 			//    right next to the label as `: quota_exhausted`.
 			// ───────────────────────────────────────────────────────────────
 			await page.locator('[data-testid="wizard-step4-launch-btn"]').click();
 
-			await expect(page.locator("body")).toContainText(
-				/Launch failed|Не удалось запустить/i,
-				{ timeout: 10_000 },
-			);
+	await expect(page.locator("body")).toContainText(
+					/Launch failed/i,
+					{ timeout: 10_000 },
+				);
 			// The mapped error code from the 429 response must surface.
 			await expect(page.locator("body")).toContainText(/quota[_ ]exhausted/i);
 
@@ -122,9 +120,8 @@ test.describe("T092 — free-quota exhausted (US1)", () => {
 			);
 
 			// ───────────────────────────────────────────────────────────────
-			// 6. Contact CTA must remain reachable. Per T089 the Deep audit
-			//    page is /contact in MVP (US2 will introduce /deep-inquiry).
-			//    The marketing footer + global nav both link to /contact, so
+			// 6. Contact CTA must remain reachable. The marketing footer and
+			//    global nav both link to /contact, so
 			//    we navigate there and confirm the page renders.
 			// ───────────────────────────────────────────────────────────────
 			await page.goto("/contact");

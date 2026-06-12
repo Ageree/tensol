@@ -238,8 +238,8 @@ export default function Contact() {
     setSubmitState('error');
   };
 
-  const mailto = useMemo(() => {
-    const to = import.meta.env.VITE_CONTACT_MAILTO ?? 'nikto256@gmail.com';
+	const mailto = useMemo(() => {
+		const to = import.meta.env.VITE_CONTACT_MAILTO ?? 'hello@sthrip.dev';
     const subject = encodeURIComponent('Sthrip assessment request');
     const body = encodeURIComponent(formatPayloadMessage(form));
     return `mailto:${to}?subject=${subject}&body=${body}`;

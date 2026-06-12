@@ -13,6 +13,7 @@ const MARKETING_PAGES = [
   '/resources',
   '/legal/privacy',
   '/legal/terms',
+  '/legal/refund',
   '/legal/dpa',
 ] as const;
 
@@ -58,7 +59,7 @@ test.describe('/contact', () => {
     await gotoDomReady(page, '/contact');
 
     await expectSingleVisiblePageH1(page);
-    await expect(page.getByText(/152-FZ|152-ФЗ/i)).toHaveCount(0);
+    await expect(page.getByText(/152-FZ/i)).toHaveCount(0);
 
     console$.assertClean();
   });

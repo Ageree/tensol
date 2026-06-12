@@ -13,6 +13,7 @@ export const MARKETING_ROUTES = [
 export const LEGAL_ROUTES = [
   '/legal/privacy',
   '/legal/terms',
+  '/legal/refund',
   '/legal/dpa',
 ] as const;
 

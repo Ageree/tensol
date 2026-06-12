@@ -54,7 +54,7 @@ function PricingPlans() {
             <button
               type="button"
               className="minimal-button minimal-button-secondary"
-              onClick={() => navigate(plan.ctaHref ?? '/deep-inquiry')}
+              onClick={() => navigate(plan.ctaHref ?? '/contact')}
             >
               {brandText(plan.ctaLabel ?? t.pricing.contactCta)}
               <ArrowIcon />
@@ -95,7 +95,7 @@ function PricingCta() {
         <p>{brandText(t.pricing.ctaTitle)}</p>
         <span>{brandText(t.pricing.ctaBody)}</span>
       </div>
-      <button type="button" className="minimal-button minimal-button-secondary" onClick={() => navigate('/deep-inquiry')}>
+      <button type="button" className="minimal-button minimal-button-secondary" onClick={() => navigate('/contact')}>
         {brandText(t.pricing.ctaBtn)}
         <ArrowIcon />
       </button>

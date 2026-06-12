@@ -1,5 +1,6 @@
 import { execSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const SCRIPT_PATH = '/tmp/start-tensol-qa-dev.sh';
 const SESSION = 'qa-dev';
@@ -7,6 +8,8 @@ const PORT = 5175;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const POLL_INTERVAL_MS = 1000;
 const TIMEOUT_MS = 90_000;
+const APP_DIR = fileURLToPath(new URL('../..', import.meta.url));
+const shellQuote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
 
 export async function startDevServer(): Promise<void> {
   if (process.env.PW_BASE_URL) return;
@@ -26,10 +29,10 @@ export async function startDevServer(): Promise<void> {
     : '';
   fs.writeFileSync(
     SCRIPT_PATH,
-    [
-      '#!/usr/bin/env bash',
-      `cd /Users/saveliy/Documents/пентест\\ ИИ/apps/site`,
-      ...(exportApi ? [exportApi] : []),
+		[
+			'#!/usr/bin/env bash',
+			`cd ${shellQuote(APP_DIR)}`,
+			...(exportApi ? [exportApi] : []),
       ...(exportAuthBypass ? [exportAuthBypass] : []),
       'exec npx vite',
     ].join('\n'),

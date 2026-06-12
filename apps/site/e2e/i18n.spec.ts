@@ -1,10 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { KNOWN_NATURAL_WORDS } from "./fixtures/i18n-allowlist.ts";
 import { escapeRegex, i18nKeys } from "./fixtures/i18n-keys.ts";
-import { switchLang } from "./helpers/i18n.ts";
 
-// Routes that have a lang switcher directly available without navigating.
-// Strategy: switch lang on a "hub" route, then navigate to the target — TensolProvider is global.
+// Route hubs keep TensolProvider mounted while the target page loads.
 const HUB_MARKETING = "/";
 const HUB_APP = "/dashboard";
 const HUB_AUTH = "/login";
@@ -41,6 +39,7 @@ const ALL_ROUTES = [
 	"/contact",
 	"/legal/privacy",
 	"/legal/terms",
+	"/legal/refund",
 	"/legal/dpa",
 	"/login",
 	"/bootstrap",
@@ -84,26 +83,17 @@ async function assertNoKeyLeaks(
 test.describe("i18n — no key leaks on any route", () => {
 	for (const route of ALL_ROUTES) {
 		test(
-			`${route} — en and ru both clean`,
+			`${route} — en is clean`,
 			{ timeout: 60000 },
 			async ({ page }) => {
 				const hub = hubFor(route);
 
-				// Switch to EN via hub
 				await page.goto(hub);
 				await page.waitForLoadState("networkidle");
-				await switchLang(page, "en");
-
-				if (route !== hub) {
-					await page.goto(route);
-					await page.waitForLoadState("networkidle");
-				}
-				await assertNoKeyLeaks(page);
-
-				// Switch to RU via hub
-				await page.goto(hub);
-				await page.waitForLoadState("networkidle");
-				await switchLang(page, "ru");
+				await page.evaluate(() => {
+					window.localStorage.setItem("tensol.lang", "en");
+					document.documentElement.lang = "en";
+				});
 
 				if (route !== hub) {
 					await page.goto(route);
@@ -115,15 +105,14 @@ test.describe("i18n — no key leaks on any route", () => {
 	}
 });
 
-test.describe("i18n — lang switch toggles aria-checked", () => {
-	test("EN/RU selection persists on /", async ({ page }) => {
+test.describe("i18n — English-only language state", () => {
+	test("stored non-English locale is normalized to en on /", async ({ page }) => {
+		await page.addInitScript(() => {
+			window.localStorage.setItem("tensol.lang", "fr");
+		});
 		await page.goto("/");
 		await page.waitForLoadState("networkidle");
 
-		await switchLang(page, "en");
 		await expect(page.locator("html")).toHaveAttribute("lang", "en");
-
-		await switchLang(page, "ru");
-		await expect(page.locator("html")).toHaveAttribute("lang", "ru");
 	});
 });

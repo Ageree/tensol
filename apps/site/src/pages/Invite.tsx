@@ -167,13 +167,13 @@ export default function Invite() {
         style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
       >
         <Field label={t.fEmail} hint={t.fEmailVerified}>
-          <Input value="alex.k@acme.com" disabled readOnly />
+          <Input value="alex.r@acme.example" disabled readOnly />
         </Field>
         <Field label={t.fName}>
           <Input
             value={v.name}
             onChange={(e) => setV({ ...v, name: e.target.value })}
-            placeholder="A. Kovalev"
+            placeholder="A. Rivera"
           />
         </Field>
         <Field label={t.fPassword} hint={t.fPwHint}>

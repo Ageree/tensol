@@ -159,7 +159,7 @@ test.describe("T091 — scan wizard happy path (US1)", () => {
 			);
 			await expect(
 				page.locator('[data-testid="wizard-step4-dns-verified"]'),
-			).not.toHaveText(/false|нет/i);
+			).not.toHaveText(/false/i);
 
 			await page.locator('[data-testid="wizard-step4-launch-btn"]').click();
 
@@ -221,7 +221,7 @@ test.describe("T091 — scan wizard happy path (US1)", () => {
 			await pollUntil(
 				async () => {
 					const text = await page.locator("body").innerText();
-					return /ready|готов/i.test(text) ? true : undefined;
+					return /ready/i.test(text) ? true : undefined;
 				},
 				{ intervalMs: 1_000, timeoutMs: 60_000, label: "report→ready" },
 			);
@@ -229,7 +229,7 @@ test.describe("T091 — scan wizard happy path (US1)", () => {
 			// Download CTA must be visible once the report is ready.
 			await expect(
 				page
-					.locator('a[download], a:has-text("Download"), a:has-text("Скачать")')
+					.locator('a[download], a:has-text("Download")')
 					.first(),
 			).toBeVisible({ timeout: 10_000 });
 		} finally {

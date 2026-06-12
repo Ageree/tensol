@@ -14,6 +14,9 @@ deployment.
 
 - Brand new user-facing work as Sthrip, not legacy Tensol/CyberStrike, unless a
   task explicitly targets legacy compatibility.
+- User-facing product and marketing UI is English-only. Do not reintroduce the
+  RU locale, visible language switcher, Cyrillic copy, or region-coded sample
+  domains/names.
 - Keep REST wire shapes snake_case in `src/lib/api-client.ts`; page components
   may read wire fields directly.
 - Clerk is the target auth provider. `VITE_E2E_AUTH_BYPASS=true` is for local
@@ -24,6 +27,10 @@ deployment.
 - `/billing` is the authenticated OxaPay checkout surface for buying Sthrip
   scan credits; public pricing CTAs for Starter/Team/Pro should point there and
   stay aligned with the Convex billing catalog.
+- Public legal surfaces must stay reachable for billing/domain review:
+  `/legal/terms`, `/legal/privacy`, `/legal/refund`, and `/legal/dpa`.
+- The old `/deep-inquiry` booking page is retired from the frontend. Do not add
+  public "Book a scope call" CTAs unless the funnel is explicitly revived.
 - `e2e/first-scan.spec.ts` is quarantined as legacy 001 API coverage. Current
   first-scan coverage should use `e2e/scan-wizard.spec.ts` and the
   `/v1/webhooks/scan-complete` specs.

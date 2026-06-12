@@ -1,4 +1,4 @@
-// Sthrip legal pages — privacy, terms, dpa.
+// Sthrip legal pages — privacy, terms, refund, dpa.
 import { useEffect } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -10,12 +10,13 @@ import {
 import { RouteHead } from '../components/RouteHead.tsx';
 import { useTensol } from '../context.tsx';
 
-type LegalKind = 'privacy' | 'terms' | 'dpa';
-const VALID_KINDS: ReadonlyArray<LegalKind> = ['privacy', 'terms', 'dpa'];
+type LegalKind = 'privacy' | 'terms' | 'refund' | 'dpa';
+const VALID_KINDS: ReadonlyArray<LegalKind> = ['privacy', 'terms', 'refund', 'dpa'];
 
 const LEGAL_TITLES: Record<LegalKind, string> = {
   privacy: 'Privacy Policy — Sthrip',
   terms: 'Terms of Service — Sthrip',
+  refund: 'Refund Policy — Sthrip',
   dpa: 'Data Processing Agreement — Sthrip',
 };
 
@@ -70,7 +71,7 @@ function LegalBody({ kind }: { readonly kind: LegalKind }) {
           <LegalKindNav kind={kind} />
           <div className="legal-rail-note">
             <span>CONTACT</span>
-            <a href="mailto:nikto256@gmail.com">nikto256@gmail.com</a>
+            <a href="mailto:hello@sthrip.dev">hello@sthrip.dev</a>
           </div>
         </aside>
 
@@ -93,7 +94,7 @@ function LegalBody({ kind }: { readonly kind: LegalKind }) {
             <p>{doc.tail}</p>
             <p>
               {t.footerLinks.contactQuestion}{' '}
-              <a href="mailto:nikto256@gmail.com">nikto256@gmail.com</a>
+              <a href="mailto:hello@sthrip.dev">hello@sthrip.dev</a>
             </p>
           </div>
         </article>

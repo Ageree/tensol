@@ -21,8 +21,7 @@
  *   3. Backdate `dns_verify_requested_at` via /__test/v2/expire-dns-verify.
  *   4. Navigate to /scan/new/:orderId/verify (Step 3).
  *   5. Wait for the wizard's poll to trip the timeout — assert the
- *      "Время истекло" / "Verification window expired" copy + the
- *      support-Telegram link.
+ *      "Verification window expired" copy and the support-Telegram link.
  *
  * Backend env requirements (provided by Playwright global setup):
  *   - Test-only endpoints under /__test/v2/:
@@ -99,12 +98,10 @@ test.describe("T093 — DNS verify 30-min timeout (US1)", () => {
 			// 5. Wait for the timeout copy to appear. Step3DnsVerify renders
 			//    either `t.wizard.step3.statusExpired` or the local
 			//    `expired` branch when the countdown hits zero. We match
-			//    both locales' literal strings from i18n.ts:
-			//      EN: "Verification window expired."
-			//      RU: "Окно подтверждения истекло."
+			//    the English literal string from i18n.ts.
 			// ───────────────────────────────────────────────────────────────
 			await expect(page.locator("body")).toContainText(
-				/Verification window expired|Окно подтверждения истекло/i,
+				/Verification window expired/i,
 				{ timeout: 30_000 },
 			);
 
@@ -123,7 +120,7 @@ test.describe("T093 — DNS verify 30-min timeout (US1)", () => {
 			// The "Check now" button must be disabled once the window expired
 			// (see Step3DnsVerify.tsx: `disabled={expired || state.dnsVerified}`).
 			const checkNowBtn = page.locator("button", {
-				hasText: /Check now|Проверить/i,
+				hasText: /Check now/i,
 			});
 			await expect(checkNowBtn.first()).toBeDisabled({ timeout: 5_000 });
 

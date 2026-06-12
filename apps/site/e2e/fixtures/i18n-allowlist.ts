@@ -7,13 +7,13 @@ export const KNOWN_NATURAL_WORDS: ReadonlySet<string> = new Set([
 	"submit", // appears as button label text on forms
 	"view", // appears as link text ("view details")
 	"terms", // appears in legal pages ("terms of service")
+	"refund", // appears in legal pages ("refund policy")
 	"trust", // appears in marketing nav ("Trust") and as a route name
 	"scope", // appears in marketing copy ("scope")
 	"live", // appears in marketing copy and nav ("live")
 	"steps", // appears in marketing pipeline section
 	"nav", // internal key name; short
-	"en", // locale code, appears in LangSwitcher
-	"ru", // locale code, appears in LangSwitcher
+	"en", // locale code
 	"legal", // appears in footer nav link text ("Legal")
 	"dpa", // appears in legal pages ("DPA")
 	"compliance", // appears in /trust compliance grid section headings

@@ -31,15 +31,6 @@ const Legal = lazy(() => safeImport(() => import('./pages/Legal.tsx'), 'legal'))
 const Blog = lazy(() => safeImport(() => import('./pages/Blog.tsx'), 'blog'));
 const Solutions = lazy(() => safeImport(() => import('./pages/Solutions.tsx'), 'solutions'));
 const Resources = lazy(() => safeImport(() => import('./pages/Resources.tsx'), 'resources'));
-const DeepInquiry = lazy(() =>
-  safeImport(() => import('./pages/DeepInquiry.tsx'), 'deep-inquiry'),
-);
-const DeepInquiryThankYou = lazy(() =>
-  safeImport(
-    () => import('./pages/DeepInquiryThankYou.tsx'),
-    'deep-inquiry-thank-you',
-  ),
-);
 const Reviews = lazy(() => safeImport(() => import('./pages/Reviews.tsx'), 'reviews'));
 const ReviewDetail = lazy(() =>
   safeImport(() => import('./pages/ReviewDetail.tsx'), 'review-detail'),
@@ -153,12 +144,6 @@ export const App = () => (
         <Route path="/resources" element={<Resources />} />
         <Route path="/solutions" element={<Solutions />} />
         <Route path="/solutions/:productId" element={<Solutions />} />
-        {/* T108 — US2 Deep audit lead-gen funnel. */}
-        <Route path="/deep-inquiry" element={<DeepInquiry />} />
-        <Route
-          path="/deep-inquiry/thank-you"
-          element={<DeepInquiryThankYou />}
-        />
         {/* Reviews — PR Review + Whitebox Pentest (003-whitebox). */}
         <Route path="/reviews" element={authed(<Reviews />)} />
         <Route path="/reviews/:id" element={authed(<ReviewDetail />)} />

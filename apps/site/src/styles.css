@@ -648,6 +648,13 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
   font-size: 12px;
 }
 
+.minimal-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+}
+
 .minimal-footer span:first-child {
   color: var(--minimal-fg);
   font-size: 16px;
@@ -3306,6 +3313,15 @@ button:not(:disabled) { transition: transform 140ms cubic-bezier(.22,1,.36,1), b
     margin-left: 18px;
     padding-right: 0;
     padding-left: 0;
+  }
+
+  .minimal-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .minimal-footer-links {
+    justify-content: flex-start;
   }
 
   .minimal-proof h2 {

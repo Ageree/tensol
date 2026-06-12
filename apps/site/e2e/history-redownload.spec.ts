@@ -103,7 +103,7 @@ test.describe("T120 — history re-download (US3)", () => {
 			const reportHref = `/scan/${history.scan_id}/report`;
 			const reportRowLink = scansTable.locator(`a[href="${reportHref}"]`);
 			await expect(reportRowLink).toBeVisible({ timeout: 10_000 });
-			await expect(reportRowLink).toContainText(/Report|Отчет/i);
+			await expect(reportRowLink).toContainText(/Report/i);
 
 			// ─────────────────────────────────────────────────────────────────
 			// 4. Click the row's CTA → /scan/:scan_id/report.
@@ -119,11 +119,11 @@ test.describe("T120 — history re-download (US3)", () => {
 			//    Reports.tsx renders the StatusChip + Btn["Download PDF"]
 			//    only when status='ready' (or "Regenerate" on 'failed').
 			// ─────────────────────────────────────────────────────────────────
-			await expect(page.locator("body")).toContainText(/ready|готов/i, {
+			await expect(page.locator("body")).toContainText(/ready/i, {
 				timeout: 15_000,
 			});
 			const downloadCta = page
-				.locator('a:has-text("Download PDF"), a:has-text("Скачать PDF")')
+				.locator('a:has-text("Download PDF")')
 				.first();
 			await expect(downloadCta).toBeVisible({ timeout: 10_000 });
 
@@ -168,19 +168,17 @@ test.describe("T120 — history re-download (US3)", () => {
 			);
 
 			const regenerateBtn = page
-				.locator(
-					'button:has-text("Regenerate"), button:has-text("Перегенерировать")',
-				)
+				.locator('button:has-text("Regenerate")')
 				.first();
 			await expect(regenerateBtn).toBeVisible({ timeout: 15_000 });
 
 			// Download CTA is gone on `failed`.
 			await expect(
-				page.locator('a:has-text("Download PDF"), a:has-text("Скачать PDF")'),
+				page.locator('a:has-text("Download PDF")'),
 			).toHaveCount(0);
 
 			// Status chip flipped to "failed".
-			await expect(page.locator("body")).toContainText(/failed|ошибка/i, {
+			await expect(page.locator("body")).toContainText(/failed/i, {
 				timeout: 10_000,
 			});
 		} finally {

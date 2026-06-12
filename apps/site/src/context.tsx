@@ -14,7 +14,7 @@ const readStoredLang = (fallback: TensolLang): TensolLang => {
   if (typeof window === 'undefined') return fallback;
   try {
     const v = window.localStorage.getItem(LANG_KEY);
-    return v === 'en' || v === 'ru' ? v : fallback;
+    return v === 'en' ? v : fallback;
   } catch {
     return fallback;
   }
@@ -22,7 +22,7 @@ const readStoredLang = (fallback: TensolLang): TensolLang => {
 
 export const TensolProvider = ({
   children,
-  defaultLang = 'ru',
+  defaultLang = 'en',
 }: {
   children: ReactNode;
   defaultLang?: TensolLang;
