@@ -39,6 +39,23 @@ const severity = v.union(
   v.literal("informational"),
 );
 
+const reviewExecutionStatus = v.union(
+  v.literal("skipped"),
+  v.literal("running"),
+  v.literal("passed"),
+  v.literal("failed"),
+  v.literal("error"),
+);
+
+const reviewExecutionArtifactKind = v.union(
+  v.literal("log"),
+  v.literal("screenshot"),
+  v.literal("api_trace"),
+  v.literal("generated_test"),
+  v.literal("video"),
+  v.literal("file"),
+);
+
 const attackSurfaceEntry = v.object({
   domain: v.string(),
   primary: v.boolean(),
@@ -286,6 +303,7 @@ export default defineSchema({
     default_branch: v.string(),
     status: v.union(v.literal("active"), v.literal("paused"), v.literal("revoked")),
     installation_id: v.optional(v.string()),
+    pr_execution_enabled: v.optional(v.boolean()),
     created_at: v.number(),
     updated_at: v.number(),
   }).index("by_userId_and_created_at", ["userId", "created_at"]),
@@ -297,12 +315,27 @@ export default defineSchema({
     status: v.union(v.literal("queued"), v.literal("running"), v.literal("completed"), v.literal("failed"), v.literal("cancelled")),
     score_0_5: v.optional(v.number()),
     summary_md: v.optional(v.string()),
+    execution_status: v.optional(reviewExecutionStatus),
+    execution_summary_md: v.optional(v.string()),
     pr_number: v.optional(v.number()),
     repo: v.optional(v.string()),
     findings: v.array(v.any()),
     created_at: v.number(),
     completed_at: v.optional(v.number()),
   }).index("by_userId_and_created_at", ["userId", "created_at"]),
+
+  reviewExecutionArtifacts: defineTable({
+    reviewId: v.id("reviews"),
+    kind: reviewExecutionArtifactKind,
+    label: v.string(),
+    summary_md: v.string(),
+    storage_key: v.optional(v.string()),
+    inline_body: v.optional(v.string()),
+    mime_type: v.optional(v.string()),
+    sha256: v.optional(v.string()),
+    byte_size: v.optional(v.number()),
+    created_at: v.number(),
+  }).index("by_reviewId_and_created_at", ["reviewId", "created_at"]),
 
   githubInstallations: defineTable({
     userId: v.id("users"),

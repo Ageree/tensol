@@ -37,6 +37,10 @@ export function isExploitEnabled(): boolean {
   return envFlag(process.env.TENSOL_EXPLOIT_ENABLED);
 }
 
+export function isPrExecutionEnabled(): boolean {
+  return envFlag(process.env.STHRIP_PR_EXECUTION_ENABLED);
+}
+
 export type BillingProvider =
   | "none"
   | "manual"

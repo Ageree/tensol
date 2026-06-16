@@ -104,6 +104,7 @@ import {
 import { buildHarnessModels } from "./review/harness/models.ts";
 import { runHarness } from "./review/harness/orchestrator.ts";
 import type { HarnessRunArgs, HarnessSession } from "./review/harness/types.ts";
+import { createRemotePrExecutionRunner } from "./review/execution/runner.ts";
 import { createOpenRouterClient } from "./review/llm/openrouter.ts";
 import { createJoernClient } from "./review/reachability/joern.ts";
 import { createGitRepoFetcher } from "./review/repo-fetch.ts";
@@ -806,6 +807,12 @@ function legacyMigrationAlreadyPresent(raw: Database, tag: string): boolean {
 				tableExists(raw, "agent_api_tokens") &&
 				indexExists(raw, "agent_api_tokens_token_hash_uq")
 			);
+		case "0017_pr_execution_artifacts":
+			return (
+				columnExists(raw, "review_repos", "pr_execution_enabled") &&
+				columnExists(raw, "reviews", "execution_status") &&
+				tableExists(raw, "review_execution_artifacts")
+			);
 		default:
 			return false;
 	}
@@ -1208,6 +1215,36 @@ export async function main(): Promise<{
 		);
 	}
 
+	const prExecutionRunner = (() => {
+		if (!config.STHRIP_PR_EXECUTION_ENABLED) return undefined;
+		if (
+			!config.STHRIP_PR_EXECUTION_WORKER_URL ||
+			!config.STHRIP_PR_EXECUTION_WORKER_SECRET
+		) {
+			// eslint-disable-next-line no-console
+			console.warn(
+				"[sthrip] PR execution is enabled but no worker URL/secret is configured — runtime evidence is not wired.",
+			);
+			return undefined;
+		}
+		try {
+			return createRemotePrExecutionRunner({
+				url: config.STHRIP_PR_EXECUTION_WORKER_URL,
+				secret: config.STHRIP_PR_EXECUTION_WORKER_SECRET,
+				timeoutMs: config.STHRIP_PR_EXECUTION_TIMEOUT_MS,
+				maxArtifacts: config.STHRIP_PR_EXECUTION_MAX_ARTIFACTS,
+				maxInlineBytes: config.STHRIP_PR_EXECUTION_MAX_INLINE_ARTIFACT_BYTES,
+			});
+		} catch (err) {
+			// eslint-disable-next-line no-console
+			console.warn(
+				"[sthrip] PR execution worker configuration is invalid:",
+				err instanceof Error ? err.message : err,
+			);
+			return undefined;
+		}
+	})();
+
 	const prReviewHandler: (
 		payload: unknown,
 		ctx: { jobId: string; attempts: number },
@@ -1219,6 +1256,7 @@ export async function main(): Promise<{
 						github: githubReviewClient,
 						llm: reviewLlm,
 						...(prAgentDeps ? { agent: prAgentDeps } : {}),
+						...(prExecutionRunner ? { execution: prExecutionRunner } : {}),
 					}),
 				)
 			: async () => {

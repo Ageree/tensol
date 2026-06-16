@@ -126,21 +126,38 @@ function repoStatusTone(status: ReviewRepoWire['status']): KindTone {
   return 'warn';
 }
 
+function executionTone(status: ReviewListItemWire['execution_status']): KindTone {
+  if (status === 'passed') return 'ok';
+  if (status === 'failed' || status === 'error') return 'danger';
+  if (status === 'running') return 'warn';
+  return 'muted';
+}
+
 // ─── Repo row (per-repo whitebox launch — Task B) ──────────────────────────────
 
 interface RepoRowProps {
   repo: ReviewRepoWire;
   /** F1 — only render the "Deep research" toggle when the server flag is on. */
   researchEnabled: boolean;
+  prExecutionEnabled: boolean;
 }
 
-function RepoRow({ repo, researchEnabled }: RepoRowProps): ReactElement {
+function RepoRow({ repo, researchEnabled, prExecutionEnabled }: RepoRowProps): ReactElement {
   const tr = TENSOL_I18N.en.reviews;
   const navigate = useNavigate();
 
   const [deep, setDeep] = useState<boolean>(false);
+  const [runtimeExecution, setRuntimeExecution] = useState<boolean>(
+    repo.pr_execution_enabled === true,
+  );
+  const [savingRuntimeExecution, setSavingRuntimeExecution] = useState<boolean>(false);
   const [launching, setLaunching] = useState<boolean>(false);
   const [launchErr, setLaunchErr] = useState<string | null>(null);
+  const [settingsErr, setSettingsErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRuntimeExecution(repo.pr_execution_enabled === true);
+  }, [repo.pr_execution_enabled]);
 
   // Only allow launching against a healthy connection.
   const canLaunch = repo.status === 'active' && !launching;
@@ -166,6 +183,25 @@ function RepoRow({ repo, researchEnabled }: RepoRowProps): ReactElement {
       }
     } finally {
       setLaunching(false);
+    }
+  };
+
+  const onRuntimeExecutionChange = async (next: boolean): Promise<void> => {
+    if (savingRuntimeExecution) return;
+    const prev = runtimeExecution;
+    setRuntimeExecution(next);
+    setSavingRuntimeExecution(true);
+    setSettingsErr(null);
+    try {
+      const updated = await apiClient.github.updateRepoSettings(repo.id, {
+        pr_execution_enabled: next,
+      });
+      setRuntimeExecution(updated.pr_execution_enabled ?? next);
+    } catch {
+      setRuntimeExecution(prev);
+      setSettingsErr(tr.settingsError);
+    } finally {
+      setSavingRuntimeExecution(false);
     }
   };
 
@@ -195,10 +231,23 @@ function RepoRow({ repo, researchEnabled }: RepoRowProps): ReactElement {
         {researchEnabled && (
           <Checkbox checked={deep} onChange={setDeep} label={tr.deepResearch} />
         )}
+        {prExecutionEnabled && (
+          <Checkbox
+            checked={runtimeExecution}
+            onChange={(next) => void onRuntimeExecutionChange(next)}
+            label={savingRuntimeExecution ? tr.runtimeExecutionSaving : tr.runtimeExecution}
+          />
+        )}
         <Btn kind="secondary" size="sm" onClick={() => void onRun()} disabled={!canLaunch}>
           {launching ? tr.runningScan : tr.runScan}
         </Btn>
       </div>
+
+      {settingsErr && (
+        <Mono size={11} color="var(--red)">
+          {settingsErr}
+        </Mono>
+      )}
 
       {launchErr && (
         <Mono size={11} color="var(--red)">
@@ -217,6 +266,7 @@ interface ReposSectionProps {
   error: string | null;
   /** F1 — passed through to each row to gate the "Deep research" toggle. */
   researchEnabled: boolean;
+  prExecutionEnabled: boolean;
 }
 
 function ReposSection({
@@ -224,6 +274,7 @@ function ReposSection({
   loading,
   error,
   researchEnabled,
+  prExecutionEnabled,
 }: ReposSectionProps): ReactElement {
   const tr = TENSOL_I18N.en.reviews;
   return (
@@ -259,7 +310,12 @@ function ReposSection({
       {!loading && !error && repos.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {repos.map((repo) => (
-            <RepoRow key={repo.id} repo={repo} researchEnabled={researchEnabled} />
+            <RepoRow
+              key={repo.id}
+              repo={repo}
+              researchEnabled={researchEnabled}
+              prExecutionEnabled={prExecutionEnabled}
+            />
           ))}
         </div>
       )}
@@ -280,6 +336,7 @@ function ReviewsTable({ reviews, loading, error }: ReviewsTableProps): ReactElem
   const columns = [
     tr.colKind,
     tr.colMode,
+    tr.colExecution,
     tr.colRepo,
     tr.colScore,
     tr.colStatus,
@@ -315,7 +372,7 @@ function ReviewsTable({ reviews, loading, error }: ReviewsTableProps): ReactElem
           <table
             style={{
               width: '100%',
-              minWidth: 760,
+              minWidth: 860,
               borderCollapse: 'collapse',
               background: 'transparent',
             }}
@@ -364,6 +421,17 @@ function ReviewsTable({ reviews, loading, error }: ReviewsTableProps): ReactElem
                         <StatusChip
                           status={r.mode === 'deep' ? tr.modeDeep : tr.modeFast}
                           tone={r.mode === 'deep' ? 'warn' : 'muted'}
+                          size="sm"
+                        />
+                      )}
+                    </td>
+                    <td style={{ padding: '14px 4px', verticalAlign: 'top' }}>
+                      {r.execution_status == null ? (
+                        <Mono size={11} color="var(--fg-3)">—</Mono>
+                      ) : (
+                        <StatusChip
+                          status={r.execution_status}
+                          tone={executionTone(r.execution_status)}
                           size="sm"
                         />
                       )}
@@ -498,6 +566,7 @@ export default function Reviews(): ReactElement {
           loading={reposLoading}
           error={reposErr}
           researchEnabled={flags?.research_enabled === true}
+          prExecutionEnabled={flags?.pr_execution_enabled === true}
         />
 
         <ReviewsTable

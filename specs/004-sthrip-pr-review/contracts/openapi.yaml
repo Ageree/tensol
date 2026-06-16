@@ -63,6 +63,9 @@ components:
         covered_branches: { type: array, items: { type: string } }
         status_check_enabled: { type: boolean }
         merge_block_on_critical: { type: boolean }
+        pr_execution_enabled:
+          type: boolean
+          description: Enables isolated runtime PR execution evidence for this repository.
         last_review:
           type: object
           nullable: true
@@ -81,6 +84,7 @@ components:
           items: { type: string, maxLength: 255 }
         status_check_enabled: { type: boolean }
         merge_block_on_critical: { type: boolean }
+        pr_execution_enabled: { type: boolean }
 
 security:
   - sessionCookie: []

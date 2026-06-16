@@ -61,6 +61,10 @@ database migrations, and cloud/VM integrations.
   independently of the MDASH harness gate. `createJoernClient` must degrade to
   an empty result when Joern is absent; `TENSOL_HARNESS_ENABLED` controls only
   the multi-model verdict generator.
+- PR runtime execution is control-plane only in the API server. When
+  `STHRIP_PR_EXECUTION_ENABLED` is on, dispatch only to an explicitly configured
+  isolated worker (`STHRIP_PR_EXECUTION_WORKER_URL` + secret); never add an
+  API-server fallback that executes customer branch code locally.
 - `TENSOL_AGENT_WHITEBOX_ENABLED` is legacy parse-only compatibility, not a
   runtime whitebox gate. Do not alias it to harness automatically; use
   `TENSOL_HARNESS_ENABLED` plus `TENSOL_RESEARCH_ENABLED` for MDASH deep mode.

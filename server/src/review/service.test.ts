@@ -12,6 +12,7 @@ import { type DB, createDb } from "../db/client.ts";
 import {
 	auditLog as auditLogTable,
 	installations as installationsTable,
+	reviewExecutionArtifacts as reviewExecutionArtifactsTable,
 	reviewFindings as reviewFindingsTable,
 	reviewRepos as reviewReposTable,
 	reviewSuppressions as reviewSuppressionsTable,
@@ -171,6 +172,48 @@ describe("review service", () => {
 			.select()
 			.from(auditLogTable)
 			.where(eq(auditLogTable.event, "review_completed"))
+			.all();
+		expect(audits.length).toBe(1);
+	});
+
+	test("recordExecutionResult persists status, summary, artifacts, and audit", async () => {
+		const svc = makeSvc(db);
+		const review = await svc.createReview({ kind: "pr", userId: "user_1" });
+
+		const updated = await svc.recordExecutionResult(review.id, {
+			status: "passed",
+			summaryMd: "## Runtime evidence\n\nHeadless smoke passed.",
+			artifacts: [
+				{
+					kind: "log",
+					label: "Unit tests",
+					summaryMd: "Generated tests passed.",
+					inlineBody: "bun test ok",
+					mimeType: "text/plain",
+					byteSize: 11,
+				},
+			],
+		});
+
+		expect(updated.executionStatus).toBe("passed");
+		expect(updated.executionSummaryMd).toContain("Headless smoke");
+
+		const artifacts = await svc.getReviewExecutionArtifacts(review.id);
+		expect(artifacts.length).toBe(1);
+		expect(artifacts[0]?.kind).toBe("log");
+		expect(artifacts[0]?.inlineBody).toBe("bun test ok");
+
+		const rows = db
+			.select()
+			.from(reviewExecutionArtifactsTable)
+			.where(eq(reviewExecutionArtifactsTable.reviewId, review.id))
+			.all();
+		expect(rows.length).toBe(1);
+
+		const audits = db
+			.select()
+			.from(auditLogTable)
+			.where(eq(auditLogTable.event, "review_execution_recorded"))
 			.all();
 		expect(audits.length).toBe(1);
 	});

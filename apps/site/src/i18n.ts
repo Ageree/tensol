@@ -1456,6 +1456,7 @@ const en = {
     sectionRecent: 'Recent reviews',
     colKind: 'Kind',
     colMode: 'Mode',
+    colExecution: 'Runtime',
     colRepo: 'Repository',
     colScore: 'Score',
     colStatus: 'Status',
@@ -1516,6 +1517,11 @@ const en = {
     deepResearch: 'Deep research',
     runScanError: 'Could not start scan',
     featureDisabled: 'Deep research is not available on your plan.',
+    runtimeExecution: 'Runtime execution',
+    runtimeExecutionSaving: 'Saving runtime…',
+    settingsError: 'Could not save repository settings',
+    sectionRuntimeEvidence: 'Runtime evidence',
+    runtimeArtifacts: 'Artifacts',
   },
   // ── END:reviews ───────────────────────────────────────────────────────
 

@@ -617,6 +617,7 @@ export const reviewRepos = sqliteTable(
 		mergeBlockOnCritical: integer("merge_block_on_critical")
 			.notNull()
 			.default(0),
+		prExecutionEnabled: integer("pr_execution_enabled").notNull().default(0),
 		lastReviewId: text("last_review_id"),
 		installationRowId: text("installation_row_id"),
 		createdAt: integer("created_at").notNull(),
@@ -664,6 +665,10 @@ export const reviews = sqliteTable(
 			.default("queued"),
 		score0to5: real("score_0_5"),
 		summaryMd: text("summary_md"),
+		executionStatus: text("execution_status").$type<
+			"skipped" | "running" | "passed" | "failed" | "error" | null
+		>(),
+		executionSummaryMd: text("execution_summary_md"),
 		githubReviewId: text("github_review_id"),
 		findingsCount: integer("findings_count").notNull().default(0),
 		startedAt: integer("started_at"),
@@ -677,6 +682,37 @@ export const reviews = sqliteTable(
 		userIdx: index("reviews_user_idx").on(t.userId, t.createdAt),
 		statusIdx: index("reviews_status_idx").on(t.status, t.updatedAt),
 		repoPrIdx: index("reviews_repo_pr_idx").on(t.repoId, t.prNumber),
+	}),
+);
+
+// ---------------------------------------------------------------------------
+// review_execution_artifacts — bounded runtime evidence for PR execution.
+// ---------------------------------------------------------------------------
+export const reviewExecutionArtifacts = sqliteTable(
+	"review_execution_artifacts",
+	{
+		id: text("id").primaryKey(),
+		reviewId: text("review_id")
+			.notNull()
+			.references(() => reviews.id, { onDelete: "cascade" }),
+		kind: text("kind")
+			.$type<"log" | "screenshot" | "api_trace" | "generated_test" | "video" | "file">()
+			.notNull(),
+		label: text("label").notNull(),
+		summaryMd: text("summary_md").notNull(),
+		storageKey: text("storage_key"),
+		inlineBody: text("inline_body"),
+		mimeType: text("mime_type"),
+		sha256: text("sha256"),
+		byteSize: integer("byte_size"),
+		createdAt: integer("created_at").notNull(),
+	},
+	(t) => ({
+		reviewIdx: index("review_execution_artifacts_review_idx").on(
+			t.reviewId,
+			t.createdAt,
+		),
+		kindIdx: index("review_execution_artifacts_kind_idx").on(t.kind),
 	}),
 );
 
@@ -889,6 +925,10 @@ export type ReviewRepo = typeof reviewRepos.$inferSelect;
 export type NewReviewRepo = typeof reviewRepos.$inferInsert;
 export type Review = typeof reviews.$inferSelect;
 export type NewReview = typeof reviews.$inferInsert;
+export type ReviewExecutionArtifact =
+	typeof reviewExecutionArtifacts.$inferSelect;
+export type NewReviewExecutionArtifact =
+	typeof reviewExecutionArtifacts.$inferInsert;
 export type ReviewFinding = typeof reviewFindings.$inferSelect;
 export type NewReviewFinding = typeof reviewFindings.$inferInsert;
 export type ReviewThread = typeof reviewThreads.$inferSelect;

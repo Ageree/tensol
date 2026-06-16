@@ -13,6 +13,7 @@ import { FakeSastRunner } from "../../review/sast/runner.ts";
 import { FakeRepoFetcher } from "../../review/repo-fetch.ts";
 import type { DiffFile, RawFinding } from "../../review/types.ts";
 import type { ReachabilityClient } from "../../review/reachability/joern.ts";
+import type { PrExecutionRunner } from "../../review/execution/runner.ts";
 import { createPrReviewHandler } from "./pr-review.ts";
 import { createWhiteboxScanHandler } from "./whitebox-scan.ts";
 
@@ -145,6 +146,122 @@ describe("createPrReviewHandler", () => {
     // Thread mapping recorded for the posted fingerprint
     const open = await svc.getOpenThread(repo.id, findings[0]!.fingerprint);
     expect(open).not.toBeNull();
+  });
+
+  test("runs PR execution when repo flag is enabled and persists runtime evidence", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      owner: "acme",
+      name: "web",
+      installationId: "inst-1",
+    });
+    await svc.updateRepoSettings({
+      repoId: repo.id,
+      userId: "user_1",
+      prExecutionEnabled: true,
+    });
+    const review = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "deadbeef",
+    });
+
+    const executionInputs: string[] = [];
+    const execution: PrExecutionRunner = {
+      async run(input) {
+        executionInputs.push(input.headSha);
+        return {
+          status: "passed",
+          summaryMd: "## Runtime evidence\n\nHeadless UI smoke and generated tests passed.",
+          artifacts: [
+            {
+              kind: "generated_test",
+              label: "Generated regression test",
+              summaryMd: "The sandbox wrote and ran a regression test.",
+              inlineBody: "expect(login()).toBeAccessible();",
+              mimeType: "text/plain",
+              byteSize: 31,
+            },
+          ],
+        };
+      },
+    };
+    const github = new FakeGitHubClient({ files: [sqliFile] });
+    const handler = createPrReviewHandler({
+      service: svc,
+      github,
+      llm: new FakeLlmClient(sqliResponder),
+      execution,
+    });
+
+    await handler("job-1", { reviewId: review.id });
+
+    expect(executionInputs).toEqual(["deadbeef"]);
+    expect(github.createCheckRunCalls[0]?.summary).toContain("Runtime evidence");
+    const finalized = await svc.getReview(review.id);
+    expect(finalized?.summaryMd).not.toContain("Runtime evidence");
+    expect(finalized?.executionStatus).toBe("passed");
+    expect(finalized?.executionSummaryMd).toContain("Headless UI smoke");
+    const artifacts = await svc.getReviewExecutionArtifacts(review.id);
+    expect(artifacts.length).toBe(1);
+    expect(artifacts[0]?.kind).toBe("generated_test");
+  });
+
+  test("runtime failures fail the posted check without overwriting the static review score", async () => {
+    const db = freshMemDb();
+    const svc = makeSvc(db);
+    const repo = await svc.upsertRepo({
+      userId: "user_1",
+      owner: "acme",
+      name: "web",
+      installationId: "inst-1",
+    });
+    await svc.updateRepoSettings({
+      repoId: repo.id,
+      userId: "user_1",
+      prExecutionEnabled: true,
+    });
+    const review = await svc.createReview({
+      repoId: repo.id,
+      userId: "user_1",
+      kind: "pr",
+      prNumber: 7,
+      headSha: "deadbeef",
+    });
+
+    const execution: PrExecutionRunner = {
+      async run() {
+        return {
+          status: "failed",
+          summaryMd: "## Runtime evidence\n\nGenerated checkout test failed.",
+          artifacts: [],
+        };
+      },
+    };
+    const github = new FakeGitHubClient({ files: [sqliFile] });
+    const handler = createPrReviewHandler({
+      service: svc,
+      github,
+      llm: new FakeLlmClient(() =>
+        JSON.stringify({ summary: "clean", verdicts: [] }),
+      ),
+      execution,
+    });
+
+    await handler("job-1", { reviewId: review.id });
+
+    expect(github.createCheckRunCalls[0]?.title).toBe("Sthrip 2/5");
+    expect(github.createCheckRunCalls[0]?.conclusion).toBe("failure");
+    expect(github.createCheckRunCalls[0]?.summary).toContain(
+      "Generated checkout test failed",
+    );
+    const finalized = await svc.getReview(review.id);
+    expect(finalized?.score0to5).toBe(5);
+    expect(finalized?.executionStatus).toBe("failed");
   });
 
   test("re-review skips findings that already have an open thread", async () => {

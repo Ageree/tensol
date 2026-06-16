@@ -26,6 +26,7 @@ import {
   billingProvider,
   isBillingLive,
   isExploitEnabled,
+  isPrExecutionEnabled,
   isResearchEnabled,
   isYookassaLive,
 } from "../lib/feature-flags.ts";
@@ -46,6 +47,7 @@ export function createConfigFeatureFlagsRouter(): Hono {
         // exploit-verdict section on findings. Both default false.
         research_enabled: isResearchEnabled(),
         exploit_enabled: isExploitEnabled(),
+        pr_execution_enabled: isPrExecutionEnabled(),
       },
       200,
     ),

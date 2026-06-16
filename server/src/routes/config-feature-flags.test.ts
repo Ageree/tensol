@@ -5,6 +5,7 @@
  *   1. Default response: all gates unset → every flag false.
  *   2. legacy paid flag enabled → yookassa_live:true (others still false).
  *   3. F1/F2 enabled → research_enabled / exploit_enabled true.
+ *   4. PR execution enabled → pr_execution_enabled true.
  *
  * Env var management: each test snapshots & restores the env vars so the
  * tests are order-independent and don't leak state into other suites.
@@ -18,6 +19,7 @@ const FLAG_ENVS = [
   "TENSOL_BILLING_PROVIDER",
   "TENSOL_RESEARCH_ENABLED",
   "TENSOL_EXPLOIT_ENABLED",
+  "STHRIP_PR_EXECUTION_ENABLED",
 ] as const;
 
 /** Run `fn` with the three flag envs set to `overrides`, restoring after. */
@@ -54,6 +56,7 @@ test("GET / returns all flags false by default", async () => {
       billing_provider: "manual",
       research_enabled: false,
       exploit_enabled: false,
+      pr_execution_enabled: false,
     });
   });
 });
@@ -66,6 +69,7 @@ test("GET / returns legacy yookassa_live:true when env=true (others false)", asy
       billing_provider: "manual",
       research_enabled: false,
       exploit_enabled: false,
+      pr_execution_enabled: false,
     });
   });
 });
@@ -78,6 +82,7 @@ test("GET / exposes oxapay billing provider when configured", async () => {
       billing_provider: "oxapay",
       research_enabled: false,
       exploit_enabled: false,
+      pr_execution_enabled: false,
     });
   });
 });
@@ -92,7 +97,21 @@ test("GET / exposes F1/F2 gates: research_enabled + exploit_enabled", async () =
         billing_provider: "manual",
         research_enabled: true,
         exploit_enabled: true,
+        pr_execution_enabled: false,
       });
     },
   );
+});
+
+test("GET / exposes PR execution gate", async () => {
+  await withEnv({ STHRIP_PR_EXECUTION_ENABLED: "yes" }, async () => {
+    expect(await getFlags()).toEqual({
+      yookassa_live: false,
+      billing_live: true,
+      billing_provider: "manual",
+      research_enabled: false,
+      exploit_enabled: false,
+      pr_execution_enabled: true,
+    });
+  });
 });

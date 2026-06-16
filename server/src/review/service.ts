@@ -22,12 +22,14 @@ import { withTx } from "../db/client.ts";
 import {
 	type Installation,
 	type Review,
+	type ReviewExecutionArtifact as ReviewExecutionArtifactRow,
 	type ReviewFeedback,
 	type ReviewFinding as ReviewFindingRow,
 	type ReviewRepo,
 	type ReviewSuppression,
 	type ReviewThread,
 	jobs as jobsTable,
+	reviewExecutionArtifacts as reviewExecutionArtifactsTable,
 	reviewFeedback as reviewFeedbackTable,
 	reviewFindings as reviewFindingsTable,
 	reviewRepos as reviewReposTable,
@@ -38,6 +40,7 @@ import {
 } from "../db/schema.ts";
 import { ulid } from "../lib/ids.ts";
 import { now as defaultNow } from "../lib/time.ts";
+import type { PrExecutionResult } from "./execution/types.ts";
 import { NEVER_SUPPRESS } from "./learning.ts";
 import {
 	type ReconcileInstallationReposArgs,
@@ -164,6 +167,13 @@ export interface ReviewService {
 		opts?: { readonly limit?: number; readonly kind?: Review["kind"] },
 	): Promise<Review[]>;
 	getReviewFindings(reviewId: string): Promise<ReviewFindingRow[]>;
+	recordExecutionResult(
+		reviewId: string,
+		result: PrExecutionResult,
+	): Promise<Review>;
+	getReviewExecutionArtifacts(
+		reviewId: string,
+	): Promise<ReviewExecutionArtifactRow[]>;
 	countFindingsByReviewIds(
 		reviewIds: string[],
 	): Promise<Record<string, number>>;
@@ -410,6 +420,8 @@ export function createReviewService(
 				score0to5: null,
 				summaryMd: null,
 				githubReviewId: null,
+				executionStatus: null,
+				executionSummaryMd: null,
 				findingsCount: 0,
 				startedAt: null,
 				completedAt: null,
@@ -439,6 +451,8 @@ export function createReviewService(
 				score0to5: null,
 				summaryMd: null,
 				githubReviewId: null,
+				executionStatus: null,
+				executionSummaryMd: null,
 				findingsCount: 0,
 				startedAt: null,
 				completedAt: null,
@@ -645,6 +659,67 @@ export function createReviewService(
 				.from(reviewFindingsTable)
 				.where(eq(reviewFindingsTable.reviewId, reviewId))
 				.all() as ReviewFindingRow[];
+		},
+
+		async recordExecutionResult(reviewId, result) {
+			const ts = clock();
+			await withTx(db, (tx) => {
+				tx.delete(reviewExecutionArtifactsTable)
+					.where(eq(reviewExecutionArtifactsTable.reviewId, reviewId))
+					.run();
+				let offset = 0;
+				for (const artifact of result.artifacts) {
+					tx.insert(reviewExecutionArtifactsTable)
+						.values({
+							id: ulid(ts + offset),
+							reviewId,
+							kind: artifact.kind,
+							label: artifact.label,
+							summaryMd: artifact.summaryMd,
+							storageKey: artifact.storageKey ?? null,
+							inlineBody: artifact.inlineBody ?? null,
+							mimeType: artifact.mimeType ?? null,
+							sha256: artifact.sha256 ?? null,
+							byteSize: artifact.byteSize ?? null,
+							createdAt: artifact.createdAt ?? ts,
+						})
+						.run();
+					offset += 1;
+				}
+				tx.update(reviewsTable)
+					.set({
+						executionStatus: result.status,
+						executionSummaryMd: result.summaryMd,
+						updatedAt: ts,
+					})
+					.where(eq(reviewsTable.id, reviewId))
+					.run();
+			});
+			const review = db
+				.select()
+				.from(reviewsTable)
+				.where(eq(reviewsTable.id, reviewId))
+				.get() as Review;
+			await emit(
+				"review_execution_recorded",
+				result.status === "error" ? "failure" : "success",
+				{
+					review_id: reviewId,
+					status: result.status,
+					artifacts: result.artifacts.length,
+				},
+				review.userId,
+			);
+			return review;
+		},
+
+		async getReviewExecutionArtifacts(reviewId) {
+			return db
+				.select()
+				.from(reviewExecutionArtifactsTable)
+				.where(eq(reviewExecutionArtifactsTable.reviewId, reviewId))
+				.orderBy(desc(reviewExecutionArtifactsTable.createdAt))
+				.all() as ReviewExecutionArtifactRow[];
 		},
 
 		async countFindingsByReviewIds(reviewIds) {
