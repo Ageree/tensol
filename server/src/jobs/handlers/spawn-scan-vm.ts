@@ -6,8 +6,8 @@
  *      longer `vm_provisioning` (cancelled / already running / already
  *      failed) → no-op return. This makes retries from the runner safe.
  *   2. Build the cloud-init userdata via `buildCloudInit(...)` (T044) using
- *      the deps-injected env-contract values (backend URL, AWS keys,
- *      bucket, sign key, decepticon image …) + the per-scan IDs.
+ *      the deps-injected env-contract values (backend URL, evidence bucket,
+ *      sign key, decepticon image …) + the per-scan IDs.
  *   3. Provider call with retry-on-transient: up to `MAX_RETRIES` attempts
  *      around `provider.spawnVm({ scanId, userData })`. Transient errors
  *      (rate limit, timeout, 5xx, network) trigger a small backoff and a
@@ -153,10 +153,6 @@ export interface SpawnScanVmHandlerDeps {
 	readonly webhookSecret: string;
 	readonly evidenceBucket: string;
 	readonly evidencePrefix: string;
-	readonly awsAccessKeyId: string;
-	readonly awsSecretAccessKey: string;
-	readonly awsEndpoint: string;
-	readonly awsRegion: string;
 	/**
 	 * Legacy/static backend -> agent dispatch key. Prefer
 	 * `createDispatchSignKey` so production does not reuse a long-lived process
@@ -256,10 +252,6 @@ export function createSpawnScanVmHandler(deps: SpawnScanVmHandlerDeps) {
 		webhookSecret,
 		evidenceBucket,
 		evidencePrefix,
-		awsAccessKeyId,
-		awsSecretAccessKey,
-		awsEndpoint,
-		awsRegion,
 		signKey,
 		createDispatchSignKey = () => {
 			if (!signKey) {
@@ -317,10 +309,6 @@ export function createSpawnScanVmHandler(deps: SpawnScanVmHandlerDeps) {
 		if (
 			!isEvidenceStorageConfigured({
 				bucket: evidenceBucket,
-				region: awsRegion,
-				endpoint: awsEndpoint,
-				accessKeyId: awsAccessKeyId,
-				secretAccessKey: awsSecretAccessKey,
 				prefix: evidencePrefix,
 			})
 		) {
@@ -350,10 +338,6 @@ export function createSpawnScanVmHandler(deps: SpawnScanVmHandlerDeps) {
 			webhookSecret,
 			evidenceBucket,
 			evidencePrefix,
-			awsAccessKeyId,
-			awsSecretAccessKey,
-			awsEndpoint,
-			awsRegion,
 			signKey: dispatchSignKey,
 			decepticonImage,
 			openrouterApiKey,

@@ -49,5 +49,6 @@ external/
 # Playwright build artifacts
 playwright-report/
 test-results/
+reports/
 .gcp/
 server/.gcp/

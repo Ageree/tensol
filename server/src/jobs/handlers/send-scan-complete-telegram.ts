@@ -17,7 +17,7 @@
  *      equals the chat id for 1:1 conversations). If `telegramUserId` is
  *      null → permanent failure with `reason='missing_telegram_user_id'`.
  *   3. If `reportId` is supplied AND `reports.status='ready'` → download
- *      the PDF from S3 to a Buffer. Otherwise pass `reportPdfBuffer: null`
+ *      the PDF from Object Storage to a Buffer. Otherwise pass `reportPdfBuffer: null`
  *      to the notifier (the user still receives a dashboard link in the
  *      message body — the notifier is responsible for that copy).
  *   4. Call the injected `TelegramNotifier.sendScanComplete(...)`.
@@ -57,8 +57,6 @@
  * `emitSignedAudit` opens its own `BEGIN IMMEDIATE`.
  */
 import { eq, and } from "drizzle-orm";
-import { GetObjectCommand, type S3Client } from "@aws-sdk/client-s3";
-
 import type { DB } from "../../db/client.ts";
 import {
   auditLog,
@@ -70,6 +68,7 @@ import {
 import { ulid } from "../../lib/ids.ts";
 import { now as defaultNow } from "../../lib/time.ts";
 import { emitSignedAudit } from "../../audit/emit.ts";
+import type { ObjectStorageClient } from "../../storage/gcs.ts";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Public types
@@ -107,7 +106,7 @@ export interface TelegramNotifier {
 
 export interface SendScanCompleteTelegramHandlerDeps {
   readonly db: DB;
-  readonly s3: S3Client;
+  readonly storage: ObjectStorageClient;
   readonly telegramNotifier: TelegramNotifier;
   readonly auditKey: string;
   readonly now?: () => number;
@@ -191,44 +190,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Collect a Node Readable / WebStream / Uint8Array body into a Buffer. */
-async function collectBody(body: unknown): Promise<Buffer> {
-  if (!body) return Buffer.alloc(0);
-  // Buffer / Uint8Array
-  if (Buffer.isBuffer(body)) return body;
-  if (body instanceof Uint8Array) return Buffer.from(body);
-  // Node Readable (async-iterable)
-  const maybeAsyncIter = body as AsyncIterable<unknown>;
-  if (typeof maybeAsyncIter[Symbol.asyncIterator] === "function") {
-    const chunks: Buffer[] = [];
-    for await (const chunk of maybeAsyncIter) {
-      if (Buffer.isBuffer(chunk)) chunks.push(chunk);
-      else if (chunk instanceof Uint8Array) chunks.push(Buffer.from(chunk));
-      else if (typeof chunk === "string") chunks.push(Buffer.from(chunk));
-      else chunks.push(Buffer.from(String(chunk)));
-    }
-    return Buffer.concat(chunks);
-  }
-  // Web ReadableStream
-  const maybeWebStream = body as {
-    getReader?: () => {
-      read: () => Promise<{ done: boolean; value?: Uint8Array }>;
-    };
-  };
-  if (typeof maybeWebStream.getReader === "function") {
-    const reader = maybeWebStream.getReader();
-    const chunks: Buffer[] = [];
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) chunks.push(Buffer.from(value));
-    }
-    return Buffer.concat(chunks);
-  }
-  // Unknown shape — best-effort string coerce.
-  return Buffer.from(String(body));
-}
-
 // ───────────────────────────────────────────────────────────────────────────
 // Handler factory
 // ───────────────────────────────────────────────────────────────────────────
@@ -238,7 +199,7 @@ export function createSendScanCompleteTelegramHandler(
 ) {
   const {
     db,
-    s3,
+    storage,
     telegramNotifier,
     auditKey,
     now = defaultNow,
@@ -342,13 +303,10 @@ export function createSendScanCompleteTelegramHandler(
         reportRow.key
       ) {
         try {
-          const res = (await s3.send(
-            new GetObjectCommand({
-              Bucket: reportRow.bucket,
-              Key: reportRow.key,
-            }),
-          )) as { Body?: unknown };
-          pdfBuffer = await collectBody(res.Body);
+          pdfBuffer = await storage.getObject({
+            bucket: reportRow.bucket,
+            key: reportRow.key,
+          });
           pdfFilename = `tensol-report-${reportId}.pdf`;
         } catch (err) {
           // If the PDF fetch fails we still try to send the message without

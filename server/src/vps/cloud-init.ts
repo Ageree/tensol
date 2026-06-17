@@ -12,7 +12,7 @@
  *   1. Install Docker (idempotent — no-op if present in the base image).
  *   2. Pull the vps-agent image and all Decepticon compose images before the
  *      agent starts, so first compose-up does not block inside vps-agent.
- *   3. Export the full TENSOL_* + AWS_* env contract that vps-agent reads
+ *   3. Export the full TENSOL_* env contract that vps-agent reads
  *      at startup (`vps-agent/src/agent.ts → readRequiredEnv`) and during
  *      Decepticon dispatch (`decepticon-runner.ts → buildEnv`).
  *   4. [T128 Bug #7] Lay down the Decepticon compose stack at
@@ -65,20 +65,8 @@ export interface BuildCloudInitArgs {
 	webhookSecret: string;
 	/** Google Cloud Storage bucket name for evidence uploads. */
 	evidenceBucket: string;
-	/** Per-scan S3 key prefix, e.g. `evidence/`. */
+	/** Per-scan object key prefix, e.g. `evidence/`. */
 	evidencePrefix: string;
-	/** GCP static-access-key ID, scoped to the per-scan SA. */
-	awsAccessKeyId: string;
-	/** GCP static-access-key secret. */
-	awsSecretAccessKey: string;
-	/**
-	 * S3-compatible endpoint URL, e.g. `https://storage.googleapis.com`.
-	 * Named `AWS_ENDPOINT` per `vps-agent/.env.example` (not
-	 * `AWS_ENDPOINT_URL` — the contract picks the shorter form).
-	 */
-	awsEndpoint: string;
-	/** GCP region, e.g. `ru-central1`. */
-	awsRegion: string;
 	/** 32-byte HMAC sign key for vps-agent → backend webhook signing. */
 	signKey: string;
 	/** Decepticon image reference (pinned digest preferred). */
@@ -266,10 +254,6 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
 		webhookSecret: shEsc(args.webhookSecret),
 		evidenceBucket: shEsc(args.evidenceBucket),
 		evidencePrefix: shEsc(args.evidencePrefix),
-		awsAccessKeyId: shEsc(args.awsAccessKeyId),
-		awsSecretAccessKey: shEsc(args.awsSecretAccessKey),
-		awsEndpoint: shEsc(args.awsEndpoint),
-		awsRegion: shEsc(args.awsRegion),
 		signKey: shEsc(args.signKey),
 		openrouterApiKey: shEsc(args.openrouterApiKey),
 		litellmMasterKey: shEsc(args.litellmMasterKey),
@@ -291,10 +275,6 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
 		`export TENSOL_WEBHOOK_SECRET=${e.webhookSecret}`,
 		`export TENSOL_EVIDENCE_BUCKET=${e.evidenceBucket}`,
 		`export TENSOL_EVIDENCE_PREFIX=${e.evidencePrefix}`,
-		`export AWS_ACCESS_KEY_ID=${e.awsAccessKeyId}`,
-		`export AWS_SECRET_ACCESS_KEY=${e.awsSecretAccessKey}`,
-		`export AWS_ENDPOINT=${e.awsEndpoint}`,
-		`export AWS_REGION=${e.awsRegion}`,
 		`export OPENROUTER_API_KEY=${e.openrouterApiKey}`,
 		`export LITELLM_MASTER_KEY=${e.litellmMasterKey}`,
 		`export POSTGRES_PASSWORD=${e.postgresPassword}`,
@@ -368,10 +348,6 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
 		"  -e TENSOL_WEBHOOK_SECRET \\",
 		"  -e TENSOL_EVIDENCE_BUCKET \\",
 		"  -e TENSOL_EVIDENCE_PREFIX \\",
-		"  -e AWS_ACCESS_KEY_ID \\",
-		"  -e AWS_SECRET_ACCESS_KEY \\",
-		"  -e AWS_ENDPOINT \\",
-		"  -e AWS_REGION \\",
 		"  -e OPENROUTER_API_KEY \\",
 		"  -e LITELLM_MASTER_KEY \\",
 		"  -e POSTGRES_PASSWORD \\",

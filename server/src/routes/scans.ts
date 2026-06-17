@@ -63,6 +63,9 @@ import {
 import type { RenderPdfJob } from "../jobs/types.ts";
 import { ulid } from "../lib/ids.ts";
 import { now as defaultNow } from "../lib/time.ts";
+import type { PresignedDownloadUrl } from "../storage/presign.ts";
+
+type MaybePromise<T> = T | Promise<T>;
 
 /** DI surface — server.ts wires concrete instances; tests inject stubs. */
 export interface CreateScansRouterDeps {
@@ -74,7 +77,7 @@ export interface CreateScansRouterDeps {
 		key: string;
 		expiresAt: number | null;
 		nowMs: number;
-	}) => { url: string; expiresAt: number } | null;
+	}) => MaybePromise<PresignedDownloadUrl | null>;
 	readonly now?: () => number;
 }
 
@@ -367,7 +370,7 @@ export function createScansRouter(
 	// -------------------------------------------------------------------------
 	// GET /:id/report — report meta + signed download URL when storage is wired
 	// -------------------------------------------------------------------------
-	app.get("/:id/report", (c) => {
+	app.get("/:id/report", async (c) => {
 		const user = c.get("user");
 		const scanId = c.req.param("id");
 		const scan = loadOwnedScan(scanId, user.id);
@@ -385,7 +388,7 @@ export function createScansRouter(
 			report.bucket !== null &&
 			report.key !== null;
 		const download = isReady
-			? reportDownloadUrl({
+			? await reportDownloadUrl({
 					bucket: report.bucket as string,
 					key: report.key as string,
 					expiresAt: report.expiresAt,

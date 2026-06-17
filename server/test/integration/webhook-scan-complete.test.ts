@@ -732,7 +732,7 @@ describe("POST /v1/webhooks/scan-complete — body validation (422)", () => {
 		const body = JSON.stringify({
 			...JUICE_SHOP_FIXTURE,
 			evidence_archive_url:
-				"s3://attacker-controlled-bucket/evidence/archive.tar.gz",
+				"gs://attacker-controlled-bucket/evidence/archive.tar.gz",
 		});
 
 		const res = await postSigned(app, body, { nowMs: fixedNow });

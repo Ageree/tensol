@@ -6,30 +6,20 @@ import {
 } from "./live-scan-preflight.ts";
 
 describe("storageEnvChecks", () => {
-	test("fails when storage endpoint is missing even if bucket and keys are set", () => {
-		const checks = storageEnvChecks({
-			TENSOL_EVIDENCE_BUCKET: "bucket",
-			AWS_ACCESS_KEY_ID: "key",
-			AWS_SECRET_ACCESS_KEY: "secret",
-		});
+	test("fails when bucket is missing", () => {
+		const checks = storageEnvChecks({});
 
-		expect(checks.find((c) => c.name.includes("ENDPOINT"))).toMatchObject({
+		expect(checks.find((c) => c.name.includes("BUCKET"))).toMatchObject({
 			ok: false,
 		});
 	});
 
-	test("accepts explicit server storage aliases and defaults region detail to auto", () => {
+	test("accepts a GCS evidence bucket without S3 keys", () => {
 		const checks = storageEnvChecks({
 			TENSOL_EVIDENCE_BUCKET: "bucket",
-			TENSOL_EVIDENCE_S3_ENDPOINT: "https://storage.example",
-			TENSOL_EVIDENCE_S3_ACCESS_KEY_ID: "key",
-			TENSOL_EVIDENCE_S3_SECRET_KEY: "secret",
 		});
 
 		expect(checks.every((c) => c.ok)).toBe(true);
-		expect(checks.find((c) => c.name.includes("AWS_REGION"))?.detail).toBe(
-			"auto",
-		);
 	});
 });
 

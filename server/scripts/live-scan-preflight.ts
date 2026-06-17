@@ -3,7 +3,7 @@
  *
  * This is intentionally a read-only operator check. It catches the external
  * prerequisites that unit/E2E tests cannot prove: public callback reachability,
- * GCP credential presence, and whether a fresh scan VM can pull the worker
+ * GCP credential presence, GCS bucket name, and whether a fresh scan VM can pull the worker
  * images that cloud-init asks Docker to run.
  */
 
@@ -176,43 +176,15 @@ export function storageEnvChecks(
 	source: NodeJS.ProcessEnv = process.env,
 ): Check[] {
 	const bucket = envFrom(source, "TENSOL_EVIDENCE_BUCKET");
-	const endpoint = envAnyFrom(source, [
-		"AWS_ENDPOINT_URL",
-		"TENSOL_EVIDENCE_S3_ENDPOINT",
-	]);
-	const accessKeyId = envAnyFrom(source, [
-		"AWS_ACCESS_KEY_ID",
-		"TENSOL_EVIDENCE_S3_ACCESS_KEY_ID",
-	]);
-	const secretAccessKey = envAnyFrom(source, [
-		"AWS_SECRET_ACCESS_KEY",
-		"TENSOL_EVIDENCE_S3_SECRET_KEY",
-	]);
-	const region =
-		envAnyFrom(source, ["AWS_REGION", "TENSOL_EVIDENCE_S3_REGION"]) || "auto";
 
 	return [
 		check(
 			"env.TENSOL_EVIDENCE_BUCKET",
 			Boolean(bucket),
-			bucket ? "set" : "missing; evidence/report storage disabled",
+			bucket
+				? "set; runtime service accounts must have storage.objects permissions"
+				: "missing; evidence/report storage disabled",
 		),
-		check(
-			"env.AWS_ENDPOINT_URL|TENSOL_EVIDENCE_S3_ENDPOINT",
-			Boolean(endpoint),
-			endpoint ? endpoint : "missing; signed report downloads will be disabled",
-		),
-		check(
-			"env.AWS_ACCESS_KEY_ID|TENSOL_EVIDENCE_S3_ACCESS_KEY_ID",
-			Boolean(accessKeyId),
-			accessKeyId ? "set" : "missing; evidence upload will fail",
-		),
-		check(
-			"env.AWS_SECRET_ACCESS_KEY|TENSOL_EVIDENCE_S3_SECRET_KEY",
-			Boolean(secretAccessKey),
-			secretAccessKey ? "set" : "missing; evidence upload will fail",
-		),
-		check("env.AWS_REGION|TENSOL_EVIDENCE_S3_REGION", true, region),
 	];
 }
 

@@ -101,7 +101,8 @@ sudo nano /opt/tensol/.env.prod
 #   GCP_PROD_SUBNET_ID             gcloud compute networks subnets list --project=tensol-scanners
 #   GCP_PROD_SSH_PUBLIC_KEY        single-line OpenSSH public key
 #   GCP_BOOT_DISK_IMAGE_ID         gcloud compute images describe-from-family ubuntu-2404-lts --project=ubuntu-os-cloud
-#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY   GCP IAM static keys
+#   TENSOL_EVIDENCE_BUCKET       GCS bucket; grant runtime service accounts IAM
+#   GCP_SCAN_VM_SERVICE_ACCOUNT_EMAIL   optional scanner VM service account
 
 # 4. Re-run deploy (now succeeds).
 sudo /opt/tensol/repo/infra/prod/deploy.sh
@@ -213,7 +214,7 @@ this script; see Timeweb's snapshot feature for a no-effort option.)
       unset/false while old compatibility code exists).
 - [ ] `TENSOL_OPERATOR_EMAILS` actually maps to admin accounts you control.
 - [ ] Outbound firewall allows GCP APIs, `api.telegram.org`, GitHub API, and
-      whichever explicit GCP/GCS-compatible object-storage endpoint is approved.
+      `storage.googleapis.com`.
 - [ ] Inbound firewall: only 22 (SSH, ideally IP-restricted), 80, 443.
 
 ## Files in this directory

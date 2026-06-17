@@ -779,9 +779,9 @@ const en = {
         focus: 'Scope design, customer trust, executive reporting',
       },
       {
-        name: 'Mira "patchdiff" Orlova',
+        name: 'Maya "patchdiff" Bennett',
         role: 'Co-Founder, Research Lead',
-        bio: 'Exploit developer focused on authz, SSRF, injection chains, and source-backed proof paths. Mira owns the validation gate: if the path cannot be replayed, it does not reach the customer.',
+        bio: 'Exploit developer focused on authz, SSRF, injection chains, and source-backed proof paths. Maya owns the validation gate: if the path cannot be replayed, it does not reach the customer.',
         focus: 'Exploit validation, whitebox review, safe PoCs',
       },
       {
@@ -791,9 +791,9 @@ const en = {
         focus: 'Repo indexing, agent orchestration, evaluator design',
       },
       {
-        name: 'Lena "evidence" Karimova',
+        name: 'Emma "evidence" Carter',
         role: 'Head of Delivery',
-        bio: 'Pentest operator turned product lead. Lena makes sure every finding has the evidence, reproduction path, owner context, and remediation narrative a real engineering team needs to move.',
+        bio: 'Pentest operator turned product lead. Emma makes sure every finding has the evidence, reproduction path, owner context, and remediation narrative a real engineering team needs to move.',
         focus: 'Evidence packs, triage flow, remediation quality',
       },
     ],

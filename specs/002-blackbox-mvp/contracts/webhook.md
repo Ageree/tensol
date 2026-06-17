@@ -49,7 +49,7 @@ provisioned into the VM via cloud-init at spawn time.
       ]
     }
   ],
-  "evidence_archive_url": "s3://tensol-evidence-prod/scans/01ARZ.../evidence.tar.gz",
+  "evidence_archive_url": "gs://tensol-evidence-prod/scans/01ARZ.../evidence.tar.gz",
   "duration_seconds": 2280
 }
 ```
@@ -103,7 +103,7 @@ Failed terminal callback example:
 | `findings[].raw_yaml_frontmatter` | object | yes | must contain `id`, `severity`, `title` |
 | `findings[].body_md` | string | yes | markdown body of the finding |
 | `findings[].evidence_keys` | array of strings | yes | may be empty |
-| `evidence_archive_url` | string (URI) or null | required when completed | `s3://...` format, must match expected bucket |
+| `evidence_archive_url` | string (URI) or null | required when completed | `gs://...` format, must match expected bucket |
 | `duration_seconds` | integer | yes | ≥ 0 |
 
 ## Required YAML frontmatter fields per finding

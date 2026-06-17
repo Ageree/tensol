@@ -33,7 +33,7 @@
  *      reserved chars before embedding the value into the message body.
  *
  * Why this differs from T063 (send-scan-complete-telegram):
- *   - The user-facing scan-complete handler reads PDF from S3 and uses the
+ *   - The user-facing scan-complete handler reads PDF from Object Storage and uses the
  *     higher-level `TelegramNotifier.sendScanComplete(...)`. This operator-
  *     facing inquiry handler sends raw text via `sendText` (low-level).
  *   - Retry policy: scan-complete uses 3 in-process attempts with backoff

@@ -62,6 +62,10 @@ subtree.
 - Use Dox for this project going forward.
 - Keep the Dox tree current as the project structure, workflows, and local
   contracts change.
+- Use current Codex app features during development when they reduce manual
+  context passing: in-app browser for local/public previews, Chrome extension
+  for signed-in browser state, Computer Use for GUI-only flows, and
+  Memories/Chronicle as local recall rather than binding project rules.
 
 ## Child DOX Index
 
@@ -82,10 +86,30 @@ subtree.
 
 <!-- dox:end -->
 
+<!-- ponytail:start -->
+# Ponytail — Minimal Correct Code
+
+`ponytail@ponytail` is installed for Codex and applies to this workspace. All
+agents should use Ponytail mode by default: skip unnecessary code, prefer the
+standard library, native platform features, and already-installed dependencies,
+then write the smallest correct implementation.
+
+- Do not add dependencies, abstractions, wrappers, scaffolding, or boilerplate
+  unless explicitly requested or required for correctness.
+- Prefer deletion, reuse, boring code, and the fewest touched files that solve
+  the task.
+- Mark intentional simplifications with a `ponytail:` comment that names the
+  ceiling and upgrade path.
+- Do not weaken trust-boundary validation, security, data-loss handling,
+  accessibility, hardware calibration, explicit user requirements, or the
+  smallest runnable check needed for non-trivial logic.
+
+<!-- ponytail:end -->
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **пентест ИИ** (6146 symbols, 13053 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **пентест ИИ** (6289 symbols, 13494 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

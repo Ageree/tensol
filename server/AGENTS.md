@@ -21,9 +21,9 @@ database migrations, and cloud/VM integrations.
   the task explicitly includes coordinated frontend/server changes.
 - Keep secrets out of source, docs, fixtures, logs, and Dox files.
 - Prefer GCP scanner VM rails for current production scan provisioning.
-- Live-scan preflight and `spawn_scan_vm` runtime must fail missing explicit
-  evidence/report storage env; do not treat object-storage endpoint or
-  credentials as optional for real production scans. Preflight must also fail
+- Live-scan preflight and `spawn_scan_vm` runtime must fail missing
+  `TENSOL_EVIDENCE_BUCKET`; evidence/report storage is GCS-native through
+  runtime service-account IAM, not S3/HMAC env. Preflight must also fail
   when `TENSOL_WEBHOOK_SECRET` equals `TENSOL_AUDIT_SIGNING_KEY`.
 - `spawn_scan_vm` dispatches the scanner with `callback_version="v2"` and the
   `/v1/webhooks/scan-complete` contract. Treat `/api/webhooks/scan-progress`

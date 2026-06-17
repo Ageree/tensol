@@ -22,7 +22,7 @@
 | `TENSOL_TELEGRAM_BOT_TOKEN`     | `server/src/notify/telegram.ts` (notifications + magic-link auth)    | §2      |
 | `TENSOL_TELEGRAM_WEBHOOK_SECRET`| `POST /v1/webhooks/telegram-update` (`X-Telegram-Bot-Api-Secret-Token`) | §3   |
 | `GOOGLE_APPLICATION_CREDENTIALS` | GCP service-account JSON for Compute Engine scan VM lifecycle       | §4      |
-| `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | Explicit GCP/GCS-compatible object storage for evidence bucket | §5 |
+| GCS service-account IAM | Evidence/report bucket access and signed URLs | §5 |
 | `TENSOL_AUDIT_SIGNING_KEY`      | Append-only signed audit chain (`audit/emit.ts`, `verify-chain.ts`)  | §6      |
 | Billing provider secrets        | Future international billing provider (manual/MoR/Stripe later)      | §7      |
 
@@ -166,18 +166,12 @@ Docs: https://cloud.google.com/iam/docs/keys-create-delete
 
 ---
 
-## §5 object-storage access-key rotation
+## §5 GCS storage IAM rotation
 
-Current production must use an explicit GCP/GCS-compatible object-storage
-configuration or a native GCS adapter. Do not rotate generic S3 keys into
-production until that storage rail has been explicitly approved.
-
-If the approved storage rail uses S3-compatible HMAC credentials, rotate
-`AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` at the selected provider and
-update both the server env and the vps-agent cloud-init/env surface in the
-same maintenance window. If the approved rail uses native GCS, rotate the
-service-account key or workload identity binding according to Google Cloud IAM
-policy instead.
+Current production uses native GCS, not S3-compatible HMAC credentials. Rotate
+the API/scanner service-account key, attached VM service account, or workload
+identity binding according to Google Cloud IAM policy. Do not add
+`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` back into evidence/report rails.
 
 ### Procedure
 

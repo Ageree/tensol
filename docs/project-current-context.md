@@ -123,10 +123,9 @@ Read it before relying on older specs, runbooks, or drafts.
   `127.0.0.1:3000`.
 - Ephemeral scan VM lifecycle should use the GCP rail (`server/src/vps/gcp.ts`)
   and GCP service-account credentials. Do not add new cloud provider behavior.
-- Evidence/report object storage is not yet fully migrated to a verified GCP
-  storage adapter/configuration. Do not assume any S3-compatible object-storage
-  default; configure an explicit GCS-compatible endpoint or implement a native
-  GCS adapter before treating evidence/PDF/report rails as production-complete.
+- Evidence/report object storage is GCS-native: runtime service accounts write,
+  read, delete, and sign objects through Google IAM/metadata tokens. Do not add
+  new S3-compatible HMAC credentials for evidence/report rails.
 - Future deployment docs should support customer-selected regions/providers and
   explicit data-processing terms per engagement.
 

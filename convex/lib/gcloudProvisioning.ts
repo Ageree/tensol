@@ -15,10 +15,6 @@ export type ProvisioningEnv = {
 	readonly webhookSecret: string;
 	readonly evidenceBucket: string;
 	readonly evidencePrefix: string;
-	readonly awsEndpoint: string;
-	readonly awsAccessKeyId: string;
-	readonly awsSecretAccessKey: string;
-	readonly awsRegion: string;
 	readonly image: string;
 };
 
@@ -55,24 +51,6 @@ export function resolveProvisioningEnv(
 		evidencePrefix:
 			firstNonEmpty(env.TENSOL_EVIDENCE_PREFIX, env.EVIDENCE_PREFIX) ||
 			"scans/",
-		awsEndpoint: requiredEnvAny(
-			env,
-			"AWS_ENDPOINT",
-			"AWS_ENDPOINT_URL",
-			"TENSOL_EVIDENCE_S3_ENDPOINT",
-		),
-		awsAccessKeyId: requiredEnvAny(
-			env,
-			"AWS_ACCESS_KEY_ID",
-			"TENSOL_EVIDENCE_S3_ACCESS_KEY_ID",
-		),
-		awsSecretAccessKey: requiredEnvAny(
-			env,
-			"AWS_SECRET_ACCESS_KEY",
-			"TENSOL_EVIDENCE_S3_SECRET_KEY",
-		),
-		awsRegion:
-			firstNonEmpty(env.AWS_REGION, env.TENSOL_EVIDENCE_S3_REGION) || "auto",
 		image: env.VPS_AGENT_IMAGE ?? "ghcr.io/tensol/vps-agent:latest",
 	};
 }
@@ -102,10 +80,6 @@ docker run -d --restart unless-stopped --name sthrip-vps-agent -p 8080:8080 \\
   -e TENSOL_SIGN_KEY=${shQuote(args.signKey)} \\
   -e TENSOL_EVIDENCE_BUCKET=${shQuote(env.evidenceBucket)} \\
   -e TENSOL_EVIDENCE_PREFIX=${shQuote(env.evidencePrefix)} \\
-  -e AWS_ENDPOINT=${shQuote(env.awsEndpoint)} \\
-  -e AWS_ACCESS_KEY_ID=${shQuote(env.awsAccessKeyId)} \\
-  -e AWS_SECRET_ACCESS_KEY=${shQuote(env.awsSecretAccessKey)} \\
-  -e AWS_REGION=${shQuote(env.awsRegion)} \\
   -v /var/run/docker.sock:/var/run/docker.sock \\
   ${env.image}
 `;

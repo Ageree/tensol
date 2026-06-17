@@ -79,7 +79,25 @@ Acceptance to assert (maps to spec SCs):
 ## 7. License audit (SC-008 gate)
 
 ```bash
-# fail CI if any shippable dep / vendored rule set carries a forbidden license
-grep -rin "gitnexus" server/src && echo "FAIL: gitnexus must not be in product runtime" || echo "ok"
-# verify opengrep rules source is AikidoSec(MIT)/self-authored, NOT semgrep-registry or opengrep-rules(Commons-Clause)
+cd /path/to/repo
+bash server/scripts/license-audit.sh
 ```
+
+The script is wired into `.github/workflows/ci.yml` before server tests. It
+fails on shippable `server/src` GitNexus references, known forbidden package
+names in `server/package.json`, and forbidden Opengrep/Semgrep rule sources
+when `STHRIP_OPENGREP_RULES_DIR` is configured.
+
+## 8. Audit-chain gate (Constitution X)
+
+```bash
+cd /path/to/repo
+TENSOL_AUDIT_SIGNING_KEY=0000000000000000000000000000000000000000000000000000000000000000 \
+  bun run --cwd server verify-chain --db :memory:
+
+bun test server/test/audit/new-events.test.ts server/src/audit/verify-chain.test.ts
+```
+
+CI runs the `verify-chain --db :memory:` smoke before the server test suite.
+The focused tests seed every feature-004 audit event literal, verify each can
+be emitted, and run `verifyChain` against the seeded in-memory test DB.

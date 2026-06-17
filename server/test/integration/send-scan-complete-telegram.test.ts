@@ -6,7 +6,7 @@
  *
  * What this pins down:
  *   1. HAPPY WITH PDF — `reports.status='ready'` → handler downloads PDF
- *      from S3 → calls `TelegramNotifier.sendScanComplete` with the buffer
+ *      from Object Storage → calls `TelegramNotifier.sendScanComplete` with the buffer
  *      + filename → audit `email_sent` (channel='telegram') emitted →
  *      handler returns cleanly.
  *   2. HAPPY WITHOUT PDF — report row missing or status!='ready' → notifier
@@ -45,11 +45,6 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
-import {
-  GetObjectCommand,
-  type S3Client,
-} from "@aws-sdk/client-s3";
-import { Readable } from "node:stream";
 
 import { createDb, type DB } from "../../src/db/client.ts";
 import {
@@ -66,6 +61,7 @@ import {
   type SendScanCompleteTelegramJobPayload,
   type TelegramNotifier,
 } from "../../src/jobs/handlers/send-scan-complete-telegram.ts";
+import type { ObjectStorageClient } from "../../src/storage/gcs.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "migrations");
 
@@ -203,40 +199,29 @@ const BASE_PAYLOAD: SendScanCompleteTelegramJobPayload = {
 };
 
 // ───────────────────────────────────────────────────────────────────────────
-// S3 fake — supports GetObject; record gets, throw if asked.
+// Storage fake — supports getObject; records gets, throws if asked.
 // ───────────────────────────────────────────────────────────────────────────
-interface S3Capture {
+interface StorageCapture {
   readonly gets: Array<{ readonly bucket: string; readonly key: string }>;
 }
 
-function makeFakeS3(opts: {
+function makeFakeStorage(opts: {
   pdfBytes?: Buffer;
   failGet?: boolean;
   failError?: Error;
-}): { client: S3Client; capture: S3Capture } {
-  const capture: S3Capture = { gets: [] };
+}): { client: ObjectStorageClient; capture: StorageCapture } {
+  const capture: StorageCapture = { gets: [] };
   const client = {
-    async send(command: unknown) {
-      if (command instanceof GetObjectCommand) {
-        const input = (command as GetObjectCommand).input;
-        capture.gets.push({
-          bucket: String(input.Bucket ?? ""),
-          key: String(input.Key ?? ""),
-        });
-        if (opts.failGet) {
-          throw opts.failError ?? new Error("S3: HTTP 500 internal server error");
-        }
-        const body = opts.pdfBytes ?? Buffer.from("%PDF-1.4 fake");
-        // The SDK's GetObject returns a Readable stream in Body. We construct
-        // one from the buffer; the handler will collect it.
-        return {
-          Body: Readable.from([body]),
-          ContentLength: body.byteLength,
-        };
+    async putObject() {},
+    async getObject(input) {
+      capture.gets.push(input);
+      if (opts.failGet) {
+        throw opts.failError ?? new Error("storage: HTTP 500 internal server error");
       }
-      return {};
+      return opts.pdfBytes ?? Buffer.from("%PDF-1.4 fake");
     },
-  } as unknown as S3Client;
+    async deleteObject() {},
+  } satisfies ObjectStorageClient;
   return { client, capture };
 }
 
@@ -297,20 +282,20 @@ afterEach(() => {
 // ───────────────────────────────────────────────────────────────────────────
 // Test 1 — HAPPY WITH PDF
 // ───────────────────────────────────────────────────────────────────────────
-test("happy with PDF: S3.GetObject called → notifier called w/ buffer → email_sent (channel=telegram) audit", async () => {
+test("happy with PDF: storage get called → notifier called w/ buffer → email_sent (channel=telegram) audit", async () => {
   const db = createDb(":memory:");
   applyMigrations(db);
   const ts = 1_700_000_000_000;
   seedCompletedScan(db, ts, { reportStatus: "ready" });
 
   const pdfBytes = Buffer.from("%PDF-1.4 real-report-content");
-  const { client: s3, capture: s3Capture } = makeFakeS3({ pdfBytes });
+  const { client: storage, capture: storageCapture } = makeFakeStorage({ pdfBytes });
   const { notifier, capture: nCapture } = makeFakeNotifier({});
 
   let clock = ts + 1;
   const handler = createSendScanCompleteTelegramHandler({
     db,
-    s3,
+    storage,
     telegramNotifier: notifier,
     auditKey: TEST_AUDIT_KEY,
     now: () => clock++,
@@ -319,10 +304,10 @@ test("happy with PDF: S3.GetObject called → notifier called w/ buffer → emai
 
   await handler(FIXED_JOB_ID, BASE_PAYLOAD);
 
-  // S3 GetObject called once with the correct key.
-  expect(s3Capture.gets).toHaveLength(1);
-  expect(s3Capture.gets[0]!.bucket).toBe(TEST_BUCKET);
-  expect(s3Capture.gets[0]!.key).toBe(`reports/${FIXED_REPORT_ID}.pdf`);
+  // Storage get called once with the correct key.
+  expect(storageCapture.gets).toHaveLength(1);
+  expect(storageCapture.gets[0]!.bucket).toBe(TEST_BUCKET);
+  expect(storageCapture.gets[0]!.key).toBe(`reports/${FIXED_REPORT_ID}.pdf`);
 
   // Notifier called once with buffer + filename.
   expect(nCapture.calls).toHaveLength(1);
@@ -372,13 +357,13 @@ test("happy without PDF: report status=failed → notifier called with null buff
   const ts = 1_700_000_000_000;
   seedCompletedScan(db, ts, { reportStatus: "failed" });
 
-  const { client: s3, capture: s3Capture } = makeFakeS3({});
+  const { client: storage, capture: storageCapture } = makeFakeStorage({});
   const { notifier, capture: nCapture } = makeFakeNotifier({});
 
   let clock = ts + 1;
   const handler = createSendScanCompleteTelegramHandler({
     db,
-    s3,
+    storage,
     telegramNotifier: notifier,
     auditKey: TEST_AUDIT_KEY,
     now: () => clock++,
@@ -387,8 +372,8 @@ test("happy without PDF: report status=failed → notifier called with null buff
 
   await handler(FIXED_JOB_ID, BASE_PAYLOAD);
 
-  // No S3 download attempted (report not ready).
-  expect(s3Capture.gets).toHaveLength(0);
+  // No storage download attempted (report not ready).
+  expect(storageCapture.gets).toHaveLength(0);
 
   // Notifier still called, with null buffer.
   expect(nCapture.calls).toHaveLength(1);
@@ -419,13 +404,13 @@ test("transient retry: notifier throws TIMEOUT once then succeeds → email_sent
   const ts = 1_700_000_000_000;
   seedCompletedScan(db, ts, { reportStatus: "ready" });
 
-  const { client: s3 } = makeFakeS3({ pdfBytes: Buffer.from("%PDF-1.4 ok") });
+  const { client: storage } = makeFakeStorage({ pdfBytes: Buffer.from("%PDF-1.4 ok") });
   const { notifier, capture: nCapture } = makeFakeNotifier({ failTimes: 1 });
 
   let clock = ts + 1;
   const handler = createSendScanCompleteTelegramHandler({
     db,
-    s3,
+    storage,
     telegramNotifier: notifier,
     auditKey: TEST_AUDIT_KEY,
     now: () => clock++,
@@ -466,7 +451,7 @@ test("permanent failure: notifier always throws → 3 attempts → email_send_fa
   const ts = 1_700_000_000_000;
   seedCompletedScan(db, ts, { reportStatus: "ready" });
 
-  const { client: s3 } = makeFakeS3({ pdfBytes: Buffer.from("%PDF-1.4 ok") });
+  const { client: storage } = makeFakeStorage({ pdfBytes: Buffer.from("%PDF-1.4 ok") });
   const { notifier, capture: nCapture } = makeFakeNotifier({
     alwaysFail: true,
     failError: new Error("telegram: 400 bad request (chat blocked)"),
@@ -475,7 +460,7 @@ test("permanent failure: notifier always throws → 3 attempts → email_send_fa
   let clock = ts + 1;
   const handler = createSendScanCompleteTelegramHandler({
     db,
-    s3,
+    storage,
     telegramNotifier: notifier,
     auditKey: TEST_AUDIT_KEY,
     now: () => clock++,
@@ -533,7 +518,7 @@ test("transient-but-persistent failure: 5xx every time → 3 attempts → email_
   const ts = 1_700_000_000_000;
   seedCompletedScan(db, ts, { reportStatus: "ready" });
 
-  const { client: s3 } = makeFakeS3({ pdfBytes: Buffer.from("%PDF-1.4 ok") });
+  const { client: storage } = makeFakeStorage({ pdfBytes: Buffer.from("%PDF-1.4 ok") });
   const { notifier, capture: nCapture } = makeFakeNotifier({
     alwaysFail: true,
     failError: new Error("telegram: 503 service unavailable"),
@@ -542,7 +527,7 @@ test("transient-but-persistent failure: 5xx every time → 3 attempts → email_
   let clock = ts + 1;
   const handler = createSendScanCompleteTelegramHandler({
     db,
-    s3,
+    storage,
     telegramNotifier: notifier,
     auditKey: TEST_AUDIT_KEY,
     now: () => clock++,
@@ -574,12 +559,12 @@ test("idempotent re-run: prior email_sent audit for this scan → no notifier ca
   seedCompletedScan(db, ts, { reportStatus: "ready" });
 
   // Pre-seed a prior success audit row by invoking the handler once.
-  const { client: s3 } = makeFakeS3({ pdfBytes: Buffer.from("%PDF-1.4 ok") });
+  const { client: storage } = makeFakeStorage({ pdfBytes: Buffer.from("%PDF-1.4 ok") });
   const { notifier: firstNotifier } = makeFakeNotifier({});
   let clock = ts + 1;
   const handler = createSendScanCompleteTelegramHandler({
     db,
-    s3,
+    storage,
     telegramNotifier: firstNotifier,
     auditKey: TEST_AUDIT_KEY,
     now: () => clock++,
@@ -602,7 +587,7 @@ test("idempotent re-run: prior email_sent audit for this scan → no notifier ca
   });
   const handler2 = createSendScanCompleteTelegramHandler({
     db,
-    s3,
+    storage,
     telegramNotifier: secondNotifier,
     auditKey: TEST_AUDIT_KEY,
     now: () => clock++,
@@ -633,13 +618,13 @@ test("missing telegram_user_id: user has no telegramUserId → permanent failure
   const ts = 1_700_000_000_000;
   seedCompletedScan(db, ts, { reportStatus: "ready", telegramUserId: null });
 
-  const { client: s3 } = makeFakeS3({ pdfBytes: Buffer.from("%PDF-1.4 ok") });
+  const { client: storage } = makeFakeStorage({ pdfBytes: Buffer.from("%PDF-1.4 ok") });
   const { notifier, capture: nCapture } = makeFakeNotifier({});
 
   let clock = ts + 1;
   const handler = createSendScanCompleteTelegramHandler({
     db,
-    s3,
+    storage,
     telegramNotifier: notifier,
     auditKey: TEST_AUDIT_KEY,
     now: () => clock++,

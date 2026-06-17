@@ -6,8 +6,9 @@
  *      the operation to completion (or returns immediately if no operationId),
  *      and emits a signed `vm_teardown` audit row. The scan_orders row is
  *      NOT mutated — teardown is reactive after an already-terminal order
- *      (cancelled/completed/failed). The jobs row stays as-is (the runner
- *      flips status='done' on handler success).
+ *      (cancelled/completed/failed). The linked vps_instances row is marked
+ *      destroyed for operator diagnostics. The jobs row stays as-is (the
+ *      runner flips status='done' on handler success).
  *   2. IDEMPOTENT 404 — provider.teardownVm returns `{operationId: undefined}`
  *      (per gcp.ts:160-162, 404 is treated as "already-gone"). The handler
  *      still emits the `vm_teardown` audit (with metadata flagging the
@@ -53,6 +54,7 @@ import {
   scanOrders,
   scans,
   users,
+  vpsInstances,
 } from "../../src/db/schema.ts";
 import { verifyChain } from "../../src/audit/verify-chain.ts";
 import { FakeCloudProvider } from "../../src/vps/fake-provider.ts";
@@ -88,6 +90,7 @@ const FIXED_USER_ID = "01H0USER00000000000000000T";
 const FIXED_ORDER_ID = "01H0ORD000000000000000000T";
 const FIXED_SCAN_ID = "01H0SCAN00000000000000000T";
 const FIXED_JOB_ID = "01H0JOB000000000000000000T";
+const FIXED_VPS_ROW_ID = "01H0VPS000000000000000000T";
 
 const DOMAIN = "example.test";
 const VPS_INSTANCE_ID = "fake-vm-1";
@@ -144,6 +147,19 @@ function seedTerminalOrderWithVm(db: DB, now: number): void {
     })
     .run();
 
+  db.insert(vpsInstances)
+    .values({
+      id: FIXED_VPS_ROW_ID,
+      scanId: FIXED_SCAN_ID,
+      provider: "gcp",
+      providerServerId: VPS_INSTANCE_ID,
+      ipv4: "203.0.113.10",
+      status: "alive",
+      signKey: "test-dispatch-sign-key",
+      createdAt: now,
+    })
+    .run();
+
   db.insert(jobs)
     .values({
       id: FIXED_JOB_ID,
@@ -185,7 +201,7 @@ afterEach(() => {
 // ───────────────────────────────────────────────────────────────────────────
 // Test 1 — HAPPY PATH
 // ───────────────────────────────────────────────────────────────────────────
-test("happy path: teardownVm called → vm_teardown audit emitted, order status unchanged", async () => {
+test("happy path: teardownVm called → VPS row destroyed, vm_teardown audit emitted, order status unchanged", async () => {
   const db = createDb(":memory:");
   applyMigrations(db);
   const ts = 1_700_000_000_000;
@@ -233,6 +249,14 @@ test("happy path: teardownVm called → vm_teardown audit emitted, order status 
     .get();
   expect(orderRow!.status).toBe("cancelled");
   expect(orderRow!.vpsInstanceId).toBe(VPS_INSTANCE_ID); // preserved
+
+  const vpsRow = db
+    .select()
+    .from(vpsInstances)
+    .where(eq(vpsInstances.id, FIXED_VPS_ROW_ID))
+    .get();
+  expect(vpsRow?.status).toBe("destroyed");
+  expect(vpsRow?.destroyedAt).toBeGreaterThan(ts);
 
   // vm_teardown audit row emitted.
   const auditRows = db
@@ -309,6 +333,14 @@ test("idempotent 404: provider.teardownVm returns {} (already gone) → vm_teard
   expect(meta.vps_instance_id).toBe(VPS_INSTANCE_ID);
   expect(meta.already_gone).toBe(true);
 
+  const vpsRow = db
+    .select()
+    .from(vpsInstances)
+    .where(eq(vpsInstances.id, FIXED_VPS_ROW_ID))
+    .get();
+  expect(vpsRow?.status).toBe("destroyed");
+  expect(vpsRow?.destroyedAt).toBeGreaterThan(ts);
+
   const chain = verifyChain(db, TEST_AUDIT_KEY);
   expect(chain.ok).toBe(true);
 });
@@ -365,6 +397,13 @@ test("re-run no-op: second invocation with existing vm_teardown audit → no pro
     .where(eq(auditLog.event, "vm_teardown"))
     .all();
   expect(auditRows).toHaveLength(1);
+
+  const vpsRow = db
+    .select()
+    .from(vpsInstances)
+    .where(eq(vpsInstances.id, FIXED_VPS_ROW_ID))
+    .get();
+  expect(vpsRow?.status).toBe("destroyed");
 
   const chain = verifyChain(db, TEST_AUDIT_KEY);
   expect(chain.ok).toBe(true);
@@ -484,6 +523,14 @@ test("permanent failure: teardownVm always throws non-transient → no vm_teardo
     .where(eq(scanOrders.id, FIXED_ORDER_ID))
     .get();
   expect(orderRow!.status).toBe("cancelled");
+
+  const vpsRow = db
+    .select()
+    .from(vpsInstances)
+    .where(eq(vpsInstances.id, FIXED_VPS_ROW_ID))
+    .get();
+  expect(vpsRow?.status).toBe("alive");
+  expect(vpsRow?.destroyedAt).toBeNull();
 
   // retry_telegram_notification job enqueued (operator alert per pivot doc).
   const telJobs = db

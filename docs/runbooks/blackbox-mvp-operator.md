@@ -46,11 +46,11 @@ own `.env` must include:
 | `TENSOL_TELEGRAM_WEBHOOK_SECRET` | Validates inbound Telegram updates | server env |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Service-account JSON for GCP VM lifecycle | server env / mounted secret file |
 | `GCP_PROJECT_ID` / `GCP_ZONE` | GCP project and zone for ephemeral scan VMs | server env |
+| `GCP_SCAN_VM_SERVICE_ACCOUNT_EMAIL` | Optional scanner VM service account; default Compute SA if empty | server env |
 | `TENSOL_WEBHOOK_BASE_URL` | Public HTTPS callback base URL reachable from scan VMs | server env |
 | `TENSOL_VPS_AGENT_IMAGE` | Pullable vps-agent image for each scan VM | server env |
 | `DECEPTICON_IMAGE` | Pullable Decepticon prefetch image / mirror marker | server env |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3-compatible evidence bucket | server env |
-| `TENSOL_EVIDENCE_BUCKET` | Bucket name | server env |
+| `TENSOL_EVIDENCE_BUCKET` | GCS bucket name for evidence and reports | server env |
 | `TENSOL_BILLING_PROVIDER` | Public billing-provider flag; use `oxapay` for self-serve scan-credit checkout | server env |
 | `TENSOL_YOOKASSA_LIVE` | Legacy pre-pivot compatibility flag; keep unset/false | server env |
 | `DATABASE_URL` | SQLite path or Postgres URI | server env |
@@ -76,11 +76,12 @@ also refund free-Quick quota for free orders because no usable scan result was
 produced.
 
 Evidence/report storage is required for real scan launches. Live preflight
-fails when the bucket, explicit S3/GCS-compatible endpoint, access key, or
-secret key is missing; `spawn_scan_vm` also fails fast with
+fails when `TENSOL_EVIDENCE_BUCKET` is missing; `spawn_scan_vm` also fails fast with
 `storage_not_configured` before creating a VM, refunding free quota and
 enqueueing an operator alert instead of running a scan that cannot upload
-evidence or render a downloadable report.
+evidence or render a downloadable report. GCS access uses runtime service
+accounts; grant the API service account read/write/delete/signing permissions
+and the scanner VM service account `storage.objects.create`.
 
 ### 1.2 Deploy steps (GCP Compute Engine)
 
@@ -250,8 +251,8 @@ Customer opens `apps/site/src/pages/Reports.tsx`, picks the scan, clicks
 which enqueues a `render-pdf` job (`server/src/jobs/handlers/render-pdf.ts`).
 Ready reports are downloaded through a short-lived signed HTTPS URL returned by
 `GET /v1/scans/:id/report`; if `download_url` is null for a ready report, check
-the object-storage signing env (`TENSOL_EVIDENCE_BUCKET`, AWS/GCS-compatible
-access keys, endpoint, and region) before asking the customer to retry.
+`TENSOL_EVIDENCE_BUCKET` and the API service account's GCS/IAM signing
+permissions before asking the customer to retry.
 
 ### 4.2 When the UI flow fails (artifact deleted, customer can't access)
 
@@ -263,9 +264,8 @@ sqlite3 /opt/tensol/data/tensol.db \
    FROM scans s LEFT JOIN reports r ON r.scan_id = s.id
    WHERE s.id='<scan_id>';"
 
-# 2. Confirm the source evidence still exists in S3
-aws --endpoint-url=https://storage.googleapis.com \
-  s3 ls s3://${TENSOL_EVIDENCE_BUCKET}/scans/<scan_id>/
+# 2. Confirm the source evidence still exists in GCS
+gcloud storage ls gs://${TENSOL_EVIDENCE_BUCKET}/scans/<scan_id>/
 
 # 3. Manually enqueue a regen job (server-side, via Bun REPL or admin script)
 ssh tensol-server-prod 'cd /opt/tensol && bun -e "
@@ -433,22 +433,20 @@ sqlite3 /opt/tensol/data/tensol.db \
   "UPDATE target_verifications SET expires_at = datetime('now', '+24 hours') WHERE id='<verify_id>';"
 ```
 
-### 7.2 S3 quota exceeded
+### 7.2 GCS quota exceeded
 
-**Symptom**: `operator_alert_vm_spawn_failed` with `s3_quota_exceeded` in
+**Symptom**: `operator_alert_vm_spawn_failed` with `gcs_quota_exceeded` in
 the cloudError field, or PDF jobs failing on upload.
 
-**Fix**: GCS-compatible object storage default quota is 1 TB per bucket; if hit,
-request quota increase via GCP console support. Short-term: run
+**Fix**: If the GCS bucket quota is hit, request quota increase via GCP console
+support. Short-term: run
 the manual purge of artifacts older than 30 days (lifecycle should handle
 this, but if it lagged):
 
 ```bash
-aws --endpoint-url=https://storage.googleapis.com \
-  s3api list-objects-v2 --bucket ${TENSOL_EVIDENCE_BUCKET} \
-  --query "Contents[?LastModified<='$(date -u -d '30 days ago' +%Y-%m-%d)'].[Key]" \
-  --output text | xargs -I {} aws --endpoint-url=https://storage.googleapis.com \
-  s3 rm s3://${TENSOL_EVIDENCE_BUCKET}/{}
+gcloud storage ls "gs://${TENSOL_EVIDENCE_BUCKET}/scans/"
+# Then remove only operator-approved expired prefixes:
+gcloud storage rm -r "gs://${TENSOL_EVIDENCE_BUCKET}/scans/<expired_scan_id>/"
 ```
 
 ### 7.3 Telegram bot down (revoked token)
@@ -468,7 +466,7 @@ itself is unreachable (rare), wait for Telegram-side recovery.
 ### 7.4 cloud IAM exchange failures
 
 **Symptom**: server logs show `cloud_iam_exchange_failed` repeatedly;
-all compute/S3 calls return `401`.
+GCP Compute or GCS calls return `401`.
 
 **Diagnosis**: SA key expired or service account permissions changed.
 
@@ -519,7 +517,7 @@ heartbeat lease expires (typically 60s).
 
 ### 9.1 DB restore from backup
 
-Assumption: nightly `sqlite3 .backup` to a separate volume + weekly S3
+Assumption: nightly `sqlite3 .backup` to a separate volume + weekly GCS
 upload. Adjust if operator uses Postgres + pgdump.
 
 ```bash
@@ -528,9 +526,8 @@ ssh tensol-server-prod 'sudo systemctl stop tensol-server'
 
 # 2. Locate the latest known-good backup
 ls -lh /var/backups/tensol/  # local
-# or fetch from S3:
-aws --endpoint-url=https://storage.googleapis.com \
-  s3 ls s3://tensol-backups/db/ | sort | tail -5
+# or fetch from GCS:
+gcloud storage ls gs://tensol-backups/db/ | sort | tail -5
 
 # 3. Restore
 cp /opt/tensol/data/tensol.db /opt/tensol/data/tensol.db.broken-$(date +%s)

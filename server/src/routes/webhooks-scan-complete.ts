@@ -96,7 +96,7 @@ import { and, eq } from "drizzle-orm";
  *     one that flips the vps_instances row to `tearing_down`.
  *   - Render PDFs / send Telegram — those happen via the enqueued jobs.
  *   - Store the evidence archive itself — the agent uploads the object before
- *     calling us. We only verify the `s3://` URI belongs to the configured
+ *     calling us. We only verify the object URI belongs to the configured
  *     evidence bucket before accepting a completed callback with an archive.
  */
 import { Hono } from "hono";
@@ -239,8 +239,8 @@ function isUniqueViolation(err: unknown): boolean {
 	return false;
 }
 
-function bucketFromS3Uri(uri: string): string {
-	return uri.slice("s3://".length).split("/", 1)[0] ?? "";
+function bucketFromStorageUri(uri: string): string {
+	return uri.replace(/^(gs|s3):\/\//, "").split("/", 1)[0] ?? "";
 }
 
 /**
@@ -409,7 +409,7 @@ export function createWebhookScanCompleteRouter(
 		const evidenceBucket =
 			body.evidence_archive_url === null
 				? ""
-				: bucketFromS3Uri(body.evidence_archive_url);
+				: bucketFromStorageUri(body.evidence_archive_url);
 		if (
 			body.evidence_archive_url !== null &&
 			expectedEvidenceBucket !== "" &&

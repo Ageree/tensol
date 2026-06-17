@@ -698,7 +698,7 @@ paths:
                       enum: [completed]
                     evidence_archive_url:
                       type: string
-                      pattern: '^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/.+$'
+                      pattern: '^(gs|s3)://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/.+$'
                 - required: [status, failure_reason]
                   properties:
                     status:
@@ -742,7 +742,7 @@ paths:
                 evidence_archive_url:
                   type: string
                   format: uri
-                  pattern: '^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/.+$'
+                  pattern: '^(gs|s3)://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/.+$'
                   nullable: true
                   description: Required when status is completed; omitted/null when failure occurs before evidence upload.
                 duration_seconds: { type: integer, minimum: 0 }

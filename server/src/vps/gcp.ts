@@ -37,6 +37,9 @@ import type {
 
 const COMPUTE_BASE_URL = "https://compute.googleapis.com/compute/v1";
 const DEFAULT_OAUTH_SCOPE = "https://www.googleapis.com/auth/compute";
+const DEFAULT_VM_SERVICE_ACCOUNT_SCOPES = [
+  "https://www.googleapis.com/auth/devstorage.read_write",
+];
 const DEFAULT_OP_POLL_INTERVAL_MS = 2_000;
 const DEFAULT_OP_POLL_TIMEOUT_MS = 10 * 60 * 1_000;
 
@@ -86,6 +89,10 @@ export type GcpProviderConfig = {
   agentFirewallPort: number;
   /** Source CIDR ranges allowed to reach the agent port. */
   agentFirewallSourceRanges: readonly string[];
+  /** Service account email attached to scanner VMs. Empty = Compute default. */
+  vmServiceAccountEmail: string;
+  /** OAuth scopes exposed through scanner VM metadata tokens. */
+  vmServiceAccountScopes: readonly string[];
 };
 
 export type CreateGcpProviderOpts = {
@@ -314,6 +321,10 @@ type InstanceInsertBody = {
   metadata: {
     items: Array<{ key: string; value: string }>;
   };
+  serviceAccounts: Array<{
+    email: string;
+    scopes: readonly string[];
+  }>;
   labels: Record<string, string>;
   scheduling: { preemptible?: boolean };
 };
@@ -369,6 +380,12 @@ function buildInstanceCreateBody(
         ...sshKeyItem,
       ],
     },
+    serviceAccounts: [
+      {
+        email: cfg.vmServiceAccountEmail || "default",
+        scopes: cfg.vmServiceAccountScopes,
+      },
+    ],
     labels: sanitizeLabels(input.metadata ?? {}),
     scheduling: { preemptible: false },
   };
@@ -535,6 +552,17 @@ function resolveConfig(
             .map((s) => s.trim())
             .filter(Boolean)
         : ["0.0.0.0/0"]),
+    vmServiceAccountEmail:
+      override?.vmServiceAccountEmail ??
+      process.env.GCP_SCAN_VM_SERVICE_ACCOUNT_EMAIL ??
+      "",
+    vmServiceAccountScopes:
+      override?.vmServiceAccountScopes ??
+      (process.env.GCP_SCAN_VM_SERVICE_ACCOUNT_SCOPES
+        ? process.env.GCP_SCAN_VM_SERVICE_ACCOUNT_SCOPES.split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : DEFAULT_VM_SERVICE_ACCOUNT_SCOPES),
   };
 }
 

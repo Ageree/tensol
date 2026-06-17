@@ -22,10 +22,6 @@ const STABLE_ARGS: BuildCloudInitArgs = {
   webhookSecret: "deadbeef-test-secret",
   evidenceBucket: "tensol-test-bucket",
   evidencePrefix: "evidence/",
-  awsAccessKeyId: "YCAJEtestaccesskeyABCDEFG",
-  awsSecretAccessKey: "ycSecretKey-test-1234567",
-  awsEndpoint: "https://storage.googleapis.com",
-  awsRegion: "ru-central1",
   signKey: "hex-sign-key-abc123",
   decepticonImage: "ghcr.io/purpleailab/decepticon:latest",
   vpsAgentImage: "ghcr.io/tensol/vps-agent:1.0.0",
@@ -61,16 +57,16 @@ describe("buildCloudInit", () => {
     expect(out).toContain("evidence/");
   });
 
-  test("substitutes all AWS_* env vars for S3 evidence upload", () => {
+  test("does not require AWS_* env vars for GCS evidence upload", () => {
     const out = buildCloudInit(STABLE_ARGS);
-    expect(out).toMatch(/export AWS_ACCESS_KEY_ID=/);
-    expect(out).toMatch(/export AWS_SECRET_ACCESS_KEY=/);
-    expect(out).toMatch(/export AWS_ENDPOINT=/);
-    expect(out).toMatch(/export AWS_REGION=/);
-    expect(out).toContain("YCAJEtestaccesskeyABCDEFG");
-    expect(out).toContain("ycSecretKey-test-1234567");
-    expect(out).toContain("https://storage.googleapis.com");
-    expect(out).toContain("ru-central1");
+    expect(out).not.toMatch(/export AWS_ACCESS_KEY_ID=/);
+    expect(out).not.toMatch(/export AWS_SECRET_ACCESS_KEY=/);
+    expect(out).not.toMatch(/export AWS_ENDPOINT=/);
+    expect(out).not.toMatch(/export AWS_REGION=/);
+    expect(out).not.toMatch(/-e AWS_ACCESS_KEY_ID/);
+    expect(out).not.toMatch(/-e AWS_SECRET_ACCESS_KEY/);
+    expect(out).not.toMatch(/-e AWS_ENDPOINT/);
+    expect(out).not.toMatch(/-e AWS_REGION/);
   });
 
   test("does NOT leave any unsubstituted Mustache-style placeholders", () => {

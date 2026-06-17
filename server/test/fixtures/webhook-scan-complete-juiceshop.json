@@ -3,7 +3,7 @@
   "completed_at": 1716114000000,
   "duration_seconds": 2280,
   "decepticon_events_count": 759,
-  "evidence_archive_url": "s3://tensol-test-bucket/evidence/01JJUICESHOPTESTSCANORDER01/archive.tar.gz",
+  "evidence_archive_url": "gs://tensol-test-bucket/evidence/01JJUICESHOPTESTSCANORDER01/archive.tar.gz",
   "findings": [
     {
       "raw_yaml_frontmatter": {

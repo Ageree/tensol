@@ -15,6 +15,7 @@ import {
 const COMPUTE_BASE_URL = "https://compute.googleapis.com/compute/v1";
 const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const COMPUTE_SCOPE = "https://www.googleapis.com/auth/compute";
+const VM_STORAGE_SCOPE = "https://www.googleapis.com/auth/devstorage.read_write";
 
 type ServiceAccount = {
   client_email: string;
@@ -84,6 +85,7 @@ function gcpConfig() {
     bootDiskSizeGB: Number.parseInt(process.env.GCP_BOOT_DISK_SIZE_GB ?? "30", 10),
     networkName: process.env.GCP_NETWORK_NAME ?? "default",
     subnetName: process.env.GCP_SUBNET_NAME ?? "default",
+    scanVmServiceAccountEmail: process.env.GCP_SCAN_VM_SERVICE_ACCOUNT_EMAIL ?? "",
   };
 }
 
@@ -121,6 +123,12 @@ async function insertGcpInstance(scanId: string, signKey: string) {
       },
     ],
     metadata: { items: [{ key: "startup-script", value: startupScript(scanId, signKey) }] },
+    serviceAccounts: [
+      {
+        email: cfg.scanVmServiceAccountEmail || "default",
+        scopes: [VM_STORAGE_SCOPE],
+      },
+    ],
     labels: { app: "sthrip", scan_id: scanId.toLowerCase().replace(/[^a-z0-9_-]/g, "_").slice(0, 63) },
     scheduling: { preemptible: false },
   };

@@ -66,7 +66,7 @@ function safeImport<T extends { default: React.ComponentType<unknown> }>(
         <Placeholder
           route={route}
           title="Port pending"
-          hint={`This screen has not been ported yet. The design lives at tensol-platform-design/project/src/. Source key: ${route}.`}
+          hint={`This Sthrip screen is temporarily unavailable. Source key: ${route}.`}
         />
       ),
     };

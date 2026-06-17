@@ -41,14 +41,14 @@ import { z } from "zod";
 const CROCKFORD_ULID_REGEX = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 /**
- * S3-style object storage URI used for the evidence tarball reference.
+ * Object storage URI used for the evidence tarball reference.
  *
- * `s3://<bucket>/<key>` — bucket validated as 3–63 chars (S3 / GCP
+ * `gs://<bucket>/<key>` — bucket validated as 3–63 chars (GCS-compatible
  * Object Storage convention), key as any non-empty path. The exact bucket
  * name match (against `tensol-evidence-*`) happens in the route handler,
  * not the schema, so test fixtures can use synthetic bucket names.
  */
-const S3_URI_REGEX = /^s3:\/\/[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\/.+$/;
+const STORAGE_URI_REGEX = /^(gs|s3):\/\/[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\/.+$/;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Enums
@@ -291,7 +291,7 @@ export type WebhookTerminalStatus = z.infer<typeof WebhookTerminalStatusEnum>;
  *     capped at 1000 to bound the per-request memory + DB write budget
  *   - `status` defaults to `completed` for legacy payloads; `failed` is a
  *     terminal runner-failure callback
- *   - `evidence_archive_url` is an `s3://` URI when present; completed
+ *   - `evidence_archive_url` is a `gs://`/legacy `s3://` URI when present; completed
  *     callbacks require it and bucket-name policy enforcement is in the route
  *     handler. Failed callbacks may omit it.
  *   - `duration_seconds` is a non-negative integer
@@ -309,8 +309,8 @@ export const WebhookScanCompleteBodySchema = z
 		findings: z.array(FindingFromAgentSchema).max(1000),
 		evidence_archive_url: z
 			.string()
-			.regex(S3_URI_REGEX, {
-				message: "evidence_archive_url must be an s3:// URI",
+			.regex(STORAGE_URI_REGEX, {
+				message: "evidence_archive_url must be a gs:// URI",
 			})
 			.nullable()
 			.optional(),

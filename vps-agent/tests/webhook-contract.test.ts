@@ -197,7 +197,7 @@ describe("webhook contract: Juice-Shop-shape payload (realistic body)", () => {
 			duration_seconds: 2280,
 			decepticon_events_count: 759,
 			evidence_archive_url:
-				"s3://tensol-evidence/01JJCSHPTESTSCANRDER000001.tar.gz",
+				"gs://tensol-evidence/01JJCSHPTESTSCANRDER000001.tar.gz",
 			findings: [
 				{
 					slug: "sqli-login-admin-bypass",

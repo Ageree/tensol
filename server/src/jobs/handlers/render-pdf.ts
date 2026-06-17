@@ -9,7 +9,7 @@
  *   2. Load scan + findings via Drizzle. The findings are mapped into the
  *      `ReportTemplateInput` shape consumed by `renderReportHtml` (T051).
  *   3. Retry-on-transient loop, up to MAX_RETRIES attempts, around the
- *      composite step "renderPdf(html) → S3 PutObject". Either failure is
+ *      composite step "renderPdf(html) → Object Storage put". Either failure is
  *      classified the same way: transient (TIMEOUT, 5xx, RATE_LIMIT,
  *      ECONN*, PDFRenderError) triggers backoff + retry; non-transient
  *      breaks out immediately. We re-render on every attempt rather than
@@ -45,8 +45,6 @@
  * the runner's retry / permanent-failure logic catches them.
  */
 import { eq } from "drizzle-orm";
-import { PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
-
 import type { DB } from "../../db/client.ts";
 import { withTx } from "../../db/client.ts";
 import {
@@ -69,6 +67,7 @@ import {
   type ReportSeverity,
   type ReportTemplateInput,
 } from "../../reports/template.html.ts";
+import type { ObjectStorageClient } from "../../storage/gcs.ts";
 
 /**
  * Job payload shape — tolerant of both snake_case (DB-emitted) and camelCase
@@ -108,7 +107,7 @@ function normalizePayload(raw: unknown): NormalizedPayload {
 
 export interface RenderPdfHandlerDeps {
   readonly db: DB;
-  readonly s3: S3Client;
+  readonly storage: ObjectStorageClient;
   /** Object Storage bucket for finished PDFs (e.g. `tensol-reports`). */
   readonly bucket: string;
   /** Key prefix inside the bucket. Defaults to `"reports/"`. */
@@ -168,7 +167,7 @@ function severityFromRow(s: string): ReportSeverity {
 export function createRenderPdfHandler(deps: RenderPdfHandlerDeps) {
   const {
     db,
-    s3,
+    storage,
     bucket,
     keyPrefix = "reports/",
     auditKey,
@@ -274,7 +273,7 @@ export function createRenderPdfHandler(deps: RenderPdfHandlerDeps) {
     };
     const html = renderHtml(templateInput);
 
-    // 4. Retry-on-transient loop around (renderPdf → S3 PutObject).
+    // 4. Retry-on-transient loop around (renderPdf → Object Storage put).
     const key = `${keyPrefix}${reportId}.pdf`;
     let pdfBytes: Buffer | null = null;
     let lastErr: Error | null = null;
@@ -284,14 +283,12 @@ export function createRenderPdfHandler(deps: RenderPdfHandlerDeps) {
       try {
         const buf = await renderPdf(html);
         pdfBytes = buf;
-        await s3.send(
-          new PutObjectCommand({
-            Bucket: bucket,
-            Key: key,
-            Body: buf,
-            ContentType: "application/pdf",
-          }),
-        );
+        await storage.putObject({
+          bucket,
+          key,
+          body: buf,
+          contentType: "application/pdf",
+        });
         break;
       } catch (err) {
         const e = err instanceof Error ? err : new Error(String(err));

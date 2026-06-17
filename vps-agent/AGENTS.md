@@ -14,8 +14,8 @@ and agent runtime.
 
 - Preserve callback and webhook-signing contracts with the API server.
 - Keep evidence and finding formats compatible with server ingestion.
-- Evidence upload must use explicit S3/GCS-compatible storage env; do not add
-  silent provider, endpoint, region, or credential defaults.
+- Evidence upload must use native Google Cloud Storage through the scanner VM
+  metadata service account; do not reintroduce S3/HMAC key env.
 - Production `/scan` dispatch uses `callback_version="v2"`: `TENSOL_SIGN_KEY`
   authenticates backend-to-agent dispatch, while `TENSOL_WEBHOOK_SECRET` signs
   the outbound `/v1/webhooks/scan-complete` callback.
