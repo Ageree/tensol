@@ -249,7 +249,7 @@ describe("POST /v1/review (sync)", () => {
 describe("GET /v1/review/:id + list + repos", () => {
 	test("returns the review with findings, and lists reviews/repos", async () => {
 		const db = freshMemDb();
-		const { app } = makeReviewApp(db);
+		const { app, service } = makeReviewApp(db);
 		const created = await app.request("/", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
@@ -259,12 +259,37 @@ describe("GET /v1/review/:id + list + repos", () => {
 			}),
 		});
 		const { review_id } = (await created.json()) as { review_id: string };
+		await service.recordExecutionResult(review_id, {
+			status: "passed",
+			summaryMd: "## Runtime evidence\n\nHeadless smoke passed.",
+			artifacts: [
+				{
+					kind: "log",
+					label: "Headless smoke",
+					summaryMd: "Clicked the primary flow.",
+					inlineBody: "ok",
+					mimeType: "text/plain",
+					byteSize: 2,
+				},
+			],
+		});
 
 		const detail = await app.request(`/${review_id}`);
 		expect(detail.status).toBe(200);
-		const dj = (await detail.json()) as { status: string; findings: unknown[] };
+		const dj = (await detail.json()) as {
+			status: string;
+			findings: unknown[];
+			execution_status: string | null;
+			execution_summary_md: string | null;
+			execution_artifacts: Array<{ kind: string; inline_body: string | null }>;
+		};
 		expect(dj.status).toBe("completed");
 		expect(dj.findings.length).toBe(1);
+		expect(dj.execution_status).toBe("passed");
+		expect(dj.execution_summary_md).toContain("Headless smoke");
+		expect(dj.execution_artifacts.length).toBe(1);
+		expect(dj.execution_artifacts[0]?.kind).toBe("log");
+		expect(dj.execution_artifacts[0]?.inline_body).toBe("ok");
 
 		const list = await app.request("/");
 		expect(list.status).toBe(200);
@@ -276,13 +301,18 @@ describe("GET /v1/review/:id + list + repos", () => {
 		if (item === undefined) throw new Error("expected one review list item");
 		expect(item.review_id).toBe(review_id);
 		expect(item.findings_count).toBe(1);
+		expect(item.execution_status).toBe("passed");
 		expect(item.findings).toBeUndefined();
 		expect(item.repo).toBe("acme/web");
 
 		const repos = await app.request("/repos");
 		expect(repos.status).toBe(200);
-		const rj = (await repos.json()) as { full_name: string }[];
+		const rj = (await repos.json()) as {
+			full_name: string;
+			pr_execution_enabled: boolean;
+		}[];
 		expect(rj[0]?.full_name).toBe("acme/web");
+		expect(rj[0]?.pr_execution_enabled).toBe(false);
 	});
 
 	test("list endpoints honor limit query params", async () => {
@@ -768,7 +798,7 @@ describe("PATCH /v1/review/repos/:id/settings", () => {
 		return service.upsertRepo({ userId, owner: "acme", name: "api" });
 	}
 
-	test("updates enabled, covered_branches, status_check, merge_block and returns InstallationRepo wire shape", async () => {
+	test("updates enabled, covered_branches, status_check, merge_block, PR execution and returns InstallationRepo wire shape", async () => {
 		const db = freshMemDb();
 		const { app, service } = makeReviewApp(db);
 		const repo = await seedRepo(service, "user_1");
@@ -781,6 +811,7 @@ describe("PATCH /v1/review/repos/:id/settings", () => {
 				covered_branches: ["main", "dev"],
 				status_check_enabled: false,
 				merge_block_on_critical: true,
+				pr_execution_enabled: true,
 			}),
 		});
 
@@ -792,6 +823,7 @@ describe("PATCH /v1/review/repos/:id/settings", () => {
 			covered_branches: string[];
 			status_check_enabled: boolean;
 			merge_block_on_critical: boolean;
+			pr_execution_enabled: boolean;
 			last_review: null;
 		};
 		expect(json.owner).toBe("acme");
@@ -800,6 +832,7 @@ describe("PATCH /v1/review/repos/:id/settings", () => {
 		expect(json.covered_branches).toEqual(["main", "dev"]);
 		expect(json.status_check_enabled).toBe(false);
 		expect(json.merge_block_on_critical).toBe(true);
+		expect(json.pr_execution_enabled).toBe(true);
 		expect(json.last_review).toBeNull();
 	});
 

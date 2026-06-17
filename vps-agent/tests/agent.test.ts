@@ -26,11 +26,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
 	type AgentState,
 	type CreateCompleteScanDepsArgs,
 	createAgent,
+	readAgentRuntimeConfig,
 } from "../src/agent.ts";
 import type { CallbackResult } from "../src/callback.ts";
 import type { RunScanResult, SpawnImpl } from "../src/decepticon-runner.ts";
@@ -38,8 +39,14 @@ import type {
 	RunScanResult as CompleteRunScanResult,
 	RunnerDeps,
 } from "../src/runner.ts";
+import {
+	type PrExecutionResult,
+	signPrExecutionPayload,
+} from "../src/pr-execution.ts";
 
 const SIGN_KEY = "test-sign-key-do-not-use-in-prod";
+const PR_EXECUTION_SECRET = "test-pr-execution-secret";
+const PR_EXECUTION_HEAD_SHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const SCAN_ID = "01JBVPSCAN0000000000000001";
 
 type RunCall = {
@@ -146,6 +153,28 @@ function makeScanRequest(
 		headers: {
 			"Content-Type": "application/json",
 			"X-Tensol-Signature": opts.tamperSig ? "deadbeef".repeat(8) : sig,
+		},
+		body: raw,
+	});
+}
+
+function makePrExecutionRequest(
+	body: object,
+	opts: { secret?: string; tamperSig?: boolean; nonce?: string } = {},
+): Request {
+	const raw = JSON.stringify({
+		iat: 1700000000,
+		exp: 1700000300,
+		nonce: opts.nonce ?? `nonce-${randomUUID()}`,
+		aud: "sthrip-pr-worker",
+		...body,
+	});
+	const sig = signPrExecutionPayload(raw, opts.secret ?? PR_EXECUTION_SECRET);
+	return new Request("http://agent.local/pr-execution", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			"X-Sthrip-Execution-Signature": opts.tamperSig ? "sha256=bad" : sig,
 		},
 		body: raw,
 	});
@@ -488,6 +517,237 @@ describe("createAgent — GET /healthz", () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body).toEqual({ ok: true });
+	});
+});
+
+describe("createAgent — POST /pr-execution", () => {
+	const body = {
+		type: "pr_execution",
+		input: {
+			reviewId: "review-1",
+			repoId: "repo-1",
+			owner: "acme",
+			name: "web",
+			prNumber: 7,
+			headSha: PR_EXECUTION_HEAD_SHA,
+			files: [],
+		},
+	};
+
+	test("requires worker secret configuration", async () => {
+		const { deps } = makeDeps();
+		const { app } = createAgent(deps);
+
+		const res = await app.fetch(makePrExecutionRequest(body));
+
+		expect(res.status).toBe(503);
+		expect(await res.json()).toMatchObject({ error: "not_configured" });
+	});
+
+	test("rejects invalid execution signatures", async () => {
+		const { deps } = makeDeps();
+		const calls: string[] = [];
+		const { app } = createAgent({
+			...deps,
+			prExecutionSecret: PR_EXECUTION_SECRET,
+			runPrExecution: async (opts) => {
+				calls.push(opts.input.headSha);
+				return { status: "passed", summaryMd: "ok", artifacts: [] };
+			},
+		});
+
+		const res = await app.fetch(makePrExecutionRequest(body, { tamperSig: true }));
+
+		expect(res.status).toBe(401);
+		expect(calls).toEqual([]);
+	});
+
+	test("rejects non-immutable short head SHAs before execution", async () => {
+		const { deps } = makeDeps();
+		const calls: string[] = [];
+		const { app } = createAgent({
+			...deps,
+			prExecutionSecret: PR_EXECUTION_SECRET,
+			runPrExecution: async (opts) => {
+				calls.push(opts.input.headSha);
+				return { status: "passed", summaryMd: "ok", artifacts: [] };
+			},
+		});
+
+		const res = await app.fetch(
+			makePrExecutionRequest({
+				...body,
+				input: { ...body.input, headSha: "deadbeef" },
+			}),
+		);
+
+		expect(res.status).toBe(400);
+		expect(await res.json()).toMatchObject({ error: "validation_error" });
+		expect(calls).toEqual([]);
+	});
+
+	test("runs the injected PR execution worker and returns evidence", async () => {
+		const { deps } = makeDeps();
+		const calls: string[] = [];
+		const result: PrExecutionResult = {
+			status: "passed",
+			summaryMd: "## Runtime evidence\n\nBranch command suite passed.",
+			artifacts: [
+				{
+					kind: "log",
+					label: "npm test",
+					summaryMd: "Command completed successfully.",
+					inlineBody: "ok",
+					mimeType: "text/plain",
+					byteSize: 2,
+				},
+			],
+		};
+		const { app } = createAgent({
+			...deps,
+			prExecutionSecret: PR_EXECUTION_SECRET,
+			runPrExecution: async (opts) => {
+				calls.push(opts.input.headSha);
+				return result;
+			},
+		});
+
+		const res = await app.fetch(makePrExecutionRequest(body));
+
+		expect(res.status).toBe(200);
+		expect(calls).toEqual([PR_EXECUTION_HEAD_SHA]);
+		expect(await res.json()).toEqual(result);
+	});
+
+	test("rejects expired and replayed PR execution envelopes", async () => {
+		const { deps } = makeDeps();
+		const calls: string[] = [];
+		const { app } = createAgent({
+			...deps,
+			prExecutionSecret: PR_EXECUTION_SECRET,
+			runPrExecution: async (opts) => {
+				calls.push(opts.input.headSha);
+				return { status: "passed", summaryMd: "ok", artifacts: [] };
+			},
+		});
+
+		const expired = await app.fetch(
+			makePrExecutionRequest({
+				...body,
+				iat: 1699999000,
+				exp: 1699999100,
+			}),
+		);
+		expect(expired.status).toBe(401);
+
+		const nonce = "nonce-replay-123456";
+		const first = await app.fetch(makePrExecutionRequest(body, { nonce }));
+		expect(first.status).toBe(200);
+		const replay = await app.fetch(makePrExecutionRequest(body, { nonce }));
+		expect(replay.status).toBe(409);
+		expect(calls).toEqual([PR_EXECUTION_HEAD_SHA]);
+	});
+
+	test("passes Vercel Sandbox provider config to the PR execution worker", async () => {
+		const { deps } = makeDeps();
+		const calls: Parameters<typeof import("../src/pr-execution.ts").runPrExecution>[0][] =
+			[];
+		const { app } = createAgent({
+			...deps,
+			prExecutionSecret: PR_EXECUTION_SECRET,
+			prExecutionSandboxProvider: "vercel-sandbox",
+			prExecutionVercelRuntime: "node24",
+			prExecutionVercelVcpus: 4,
+			runPrExecution: async (opts) => {
+				calls.push(opts);
+				return { status: "passed", summaryMd: "ok", artifacts: [] };
+			},
+		});
+
+		const res = await app.fetch(makePrExecutionRequest(body));
+
+		expect(res.status).toBe(200);
+		const call = expectSingle(calls);
+		expect(call.sandboxProvider).toBe("vercel-sandbox");
+		expect(call.vercelSandbox).toMatchObject({
+			runtime: "node24",
+			vcpus: 4,
+		});
+	});
+
+	test("pr-execution-only mode keeps /pr-execution available while /scan returns 503", async () => {
+		const { deps } = makeDeps();
+		const calls: string[] = [];
+		const { app } = createAgent({
+			...deps,
+			signKey: "",
+			scanId: "",
+			prExecutionSecret: PR_EXECUTION_SECRET,
+			runPrExecution: async (opts) => {
+				calls.push(opts.input.headSha);
+				return { status: "passed", summaryMd: "ok", artifacts: [] };
+			},
+		});
+
+		const scanRes = await app.fetch(makeScanRequest(VALID_BODY, { signKey: "" }));
+		expect(scanRes.status).toBe(503);
+		expect(await scanRes.json()).toMatchObject({ error: "not_configured" });
+
+		const execRes = await app.fetch(makePrExecutionRequest(body));
+		expect(execRes.status).toBe(200);
+		expect(calls).toEqual([PR_EXECUTION_HEAD_SHA]);
+
+		const statusRes = await app.fetch(new Request("http://agent.local/status"));
+		expect(statusRes.status).toBe(200);
+		expect(await statusRes.json()).toEqual({ phase: "idle" });
+
+		const healthRes = await app.fetch(new Request("http://agent.local/healthz"));
+		expect(healthRes.status).toBe(200);
+		expect(await healthRes.json()).toEqual({ ok: true });
+	});
+});
+
+describe("readAgentRuntimeConfig", () => {
+	test("requires worker secret in pr-execution-only mode", () => {
+		expect(() =>
+			readAgentRuntimeConfig({
+				STHRIP_PR_EXECUTION_ONLY: "true",
+			}),
+		).toThrow(/STHRIP_PR_EXECUTION_WORKER_SECRET/);
+	});
+
+	test("allows pr-execution-only mode without scan env", () => {
+		const config = readAgentRuntimeConfig({
+			STHRIP_PR_EXECUTION_ONLY: "true",
+			STHRIP_PR_EXECUTION_WORKER_SECRET: PR_EXECUTION_SECRET,
+		});
+
+		expect(config.signKey).toBe("");
+		expect(config.scanId).toBe("");
+		expect(config.prExecutionSecret).toBe(PR_EXECUTION_SECRET);
+	});
+
+	test("rejects partial explicit Vercel Sandbox credentials without leaking the token", () => {
+		expect(() =>
+			readAgentRuntimeConfig({
+				STHRIP_PR_EXECUTION_ONLY: "true",
+				STHRIP_PR_EXECUTION_WORKER_SECRET: PR_EXECUTION_SECRET,
+				STHRIP_PR_EXECUTION_SANDBOX_PROVIDER: "vercel-sandbox",
+				VERCEL_TOKEN: "vercel_token_bootstrap_secret",
+			}),
+		).toThrow(/VERCEL_TEAM_ID/);
+
+		try {
+			readAgentRuntimeConfig({
+				STHRIP_PR_EXECUTION_ONLY: "true",
+				STHRIP_PR_EXECUTION_WORKER_SECRET: PR_EXECUTION_SECRET,
+				STHRIP_PR_EXECUTION_SANDBOX_PROVIDER: "vercel-sandbox",
+				VERCEL_TOKEN: "vercel_token_bootstrap_secret",
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			expect(message).not.toContain("vercel_token_bootstrap_secret");
+		}
 	});
 });
 

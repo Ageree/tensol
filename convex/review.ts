@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { type QueryCtx, mutation, query } from "./_generated/server";
 import { requireUser } from "./lib/auth";
 
 function reviewListItem(row: {
@@ -9,6 +10,8 @@ function reviewListItem(row: {
   status: "queued" | "running" | "completed" | "failed" | "cancelled";
   score_0_5?: number;
   summary_md?: string;
+  execution_status?: "skipped" | "running" | "passed" | "failed" | "error";
+  execution_summary_md?: string;
   pr_number?: number;
   repo?: string;
   created_at: number;
@@ -26,14 +29,36 @@ function reviewListItem(row: {
     created_at: row.created_at,
     completed_at: row.completed_at ?? null,
     findings_count: row.findings.length,
+    execution_status: row.execution_status ?? null,
   };
 }
 
-function reviewDetail(row: Parameters<typeof reviewListItem>[0]) {
+async function reviewDetail(
+  ctx: QueryCtx,
+  row: Doc<"reviews">,
+) {
+  const artifacts = await ctx.db
+    .query("reviewExecutionArtifacts")
+    .withIndex("by_reviewId_and_created_at", (q) => q.eq("reviewId", row._id))
+    .order("desc")
+    .take(50);
   return {
     ...reviewListItem(row),
     review_id: row._id,
     summary_md: row.summary_md ?? null,
+    execution_summary_md: row.execution_summary_md ?? null,
+    execution_artifacts: artifacts.map((a) => ({
+      id: a._id,
+      kind: a.kind,
+      label: a.label,
+      summary_md: a.summary_md,
+      storage_key: a.storage_key ?? null,
+      inline_body: a.inline_body ?? null,
+      mime_type: a.mime_type ?? null,
+      sha256: a.sha256 ?? null,
+      byte_size: a.byte_size ?? null,
+      created_at: a.created_at,
+    })),
     findings: row.findings,
   };
 }
@@ -59,7 +84,7 @@ export const get = query({
     if (!row || row.userId !== user._id) {
       throw new ConvexError({ error: "not_found", message: "review not found" });
     }
-    return reviewDetail(row);
+    return await reviewDetail(ctx, row);
   },
 });
 
@@ -105,7 +130,7 @@ export const create = mutation({
     });
     const row = await ctx.db.get(id);
     if (!row) throw new Error("created review vanished");
-    return reviewDetail(row);
+    return await reviewDetail(ctx, row);
   },
 });
 

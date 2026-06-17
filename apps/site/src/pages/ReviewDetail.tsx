@@ -24,6 +24,7 @@ import {
   ApiError,
   type ExploitStatus,
   type FindingConfidence,
+  type ReviewExecutionArtifactWire,
   type ReviewFindingWire,
   type ReviewKind,
   type ReviewResultWire,
@@ -75,6 +76,13 @@ function statusTone(status: ReviewRunStatus): KindTone {
 
 function isTerminal(status: ReviewRunStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+function byteLabel(bytes: number | null | undefined): string {
+  if (bytes == null) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function findingCountLabel(count: number): string {
@@ -500,6 +508,119 @@ function ReviewSummary({
   );
 }
 
+function RuntimeArtifactCard({
+  artifact,
+}: {
+  artifact: ReviewExecutionArtifactWire;
+}): ReactElement {
+  return (
+    <div
+      style={{
+        border: '1px solid var(--line-soft)',
+        background: 'var(--bg)',
+        padding: '14px 16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+      }}
+    >
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <InlineBadge label="Kind" value={artifact.kind} tone="strong" />
+        <InlineBadge label="Size" value={byteLabel(artifact.byte_size)} />
+        {artifact.mime_type && <InlineBadge label="MIME" value={artifact.mime_type} />}
+      </div>
+      <div>
+        <Mono size={13} color="var(--fg)" style={{ display: 'block', fontWeight: 600 }}>
+          {artifact.label}
+        </Mono>
+        {artifact.summary_md.trim().length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <MarkdownRenderer source={artifact.summary_md} variant="detail" />
+          </div>
+        )}
+      </div>
+      {artifact.inline_body != null && artifact.inline_body.trim().length > 0 && (
+        <Collapsible label="Artifact body">
+          <pre
+            style={{
+              margin: 0,
+              maxHeight: 360,
+              overflow: 'auto',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              background: 'var(--bg-2)',
+              border: '1px solid var(--line-soft)',
+              padding: 12,
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 11,
+              lineHeight: 1.55,
+              color: 'var(--fg-2)',
+            }}
+          >
+            {artifact.inline_body}
+          </pre>
+        </Collapsible>
+      )}
+    </div>
+  );
+}
+
+function RuntimeEvidenceSection({ data }: { data: ReviewResultWire }): ReactElement | null {
+  const tr = TENSOL_I18N.en.reviews;
+  const artifacts = data.execution_artifacts ?? [];
+  const hasSummary =
+    data.execution_summary_md != null && data.execution_summary_md.trim().length > 0;
+  if (data.execution_status == null && !hasSummary && artifacts.length === 0) {
+    return null;
+  }
+  const tone =
+    data.execution_status === 'passed'
+      ? 'ok'
+      : data.execution_status === 'failed' || data.execution_status === 'error'
+        ? 'danger'
+        : data.execution_status === 'running'
+          ? 'warn'
+          : 'muted';
+  return (
+    <section
+      style={{
+        padding: '18px 22px',
+        border: '1px solid var(--line-soft)',
+        borderLeft: '5px solid #1F7A3A',
+        background: 'var(--bg)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          marginBottom: 12,
+        }}
+      >
+        <Eyebrow>{tr.sectionRuntimeEvidence}</Eyebrow>
+        {data.execution_status != null && (
+          <StatusChip status={data.execution_status} tone={tone} size="sm" />
+        )}
+      </div>
+      {hasSummary && (
+        <MarkdownRenderer source={data.execution_summary_md ?? ''} variant="detail" />
+      )}
+      {artifacts.length > 0 && (
+        <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <Mono size={11} color="var(--fg-3)" style={{ textTransform: 'uppercase' }}>
+            {tr.runtimeArtifacts} {artifacts.length}
+          </Mono>
+          {artifacts.map((artifact) => (
+            <RuntimeArtifactCard key={artifact.id} artifact={artifact} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ─── Finding card ─────────────────────────────────────────────────────────────
 
 function FindingCard({ f }: { f: ReviewFindingWire }): ReactElement {
@@ -879,6 +1000,8 @@ export default function ReviewDetail(): ReactElement {
                 </Mono>
               </div>
             )}
+
+            <RuntimeEvidenceSection data={data} />
 
             {/* Summary */}
             {data.summary_md != null && data.summary_md.trim().length > 0 && (

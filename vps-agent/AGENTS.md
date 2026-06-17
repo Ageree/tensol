@@ -13,6 +13,17 @@ and agent runtime.
 # Local Contracts
 
 - Preserve callback and webhook-signing contracts with the API server.
+- `/pr-execution` is the isolated PR runtime worker endpoint. It must verify
+  `X-Sthrip-Execution-Signature`, run pinned `headSha` checkouts in an isolated
+  workspace, cap returned artifacts, run PR-controlled install/test commands
+  inside the configured sandbox backend (`docker` locally or
+  `vercel-sandbox` managed Firecracker microVMs), switch branch-controlled
+  runtime commands to default-deny egress after dependency setup, avoid writing
+  GitHub tokens into `.git/config`, avoid host reads from branch-writable
+  artifact paths, and never run inside the API server. Dedicated PR workers may
+  run with `STHRIP_PR_EXECUTION_ONLY=true`; in that mode `/scan` stays
+  unavailable and explicit `VERCEL_TOKEN` auth must be all-or-nothing with
+  `VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID`.
 - Keep evidence and finding formats compatible with server ingestion.
 - Evidence upload must use native Google Cloud Storage through the scanner VM
   metadata service account; do not reintroduce S3/HMAC key env.

@@ -19,8 +19,14 @@
 #
 #   sudo REPO_REF=<reviewed-tag-or-commit-sha> /opt/tensol/repo/infra/prod/deploy.sh
 #
-# Required env file: /opt/tensol/.env.prod  (template: .env.prod.example).
-# The script aborts if it is missing or unfilled.
+# Required env file:
+#   /opt/tensol/.env.prod
+#
+# Optional until enabled:
+#   /opt/tensol/.env.pr-execution-worker
+#
+# The worker env file is required only when STHRIP_PR_EXECUTION_WORKER_ENABLED
+# or STHRIP_PR_EXECUTION_ENABLED is true.
 
 set -euo pipefail
 
@@ -31,6 +37,7 @@ ALLOW_MOVING_PROD_REF="${ALLOW_MOVING_PROD_REF:-false}"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/tensol}"
 REPO_DIR="$DEPLOY_DIR/repo"
 ENV_FILE="$DEPLOY_DIR/.env.prod"
+WORKER_ENV_FILE="$DEPLOY_DIR/.env.pr-execution-worker"
 SITE_DIST="$DEPLOY_DIR/site-dist"
 COMPOSE_FILE="$REPO_DIR/infra/prod/docker-compose.prod.yml"
 CADDYFILE_SRC="$REPO_DIR/infra/prod/Caddyfile"
@@ -42,7 +49,7 @@ die() { printf '\n\033[1;31m[deploy:ERROR]\033[0m %s\n' "$*" >&2; exit 1; }
 [[ $EUID -eq 0 ]] || die "Run as root (or with sudo)."
 
 # -------------------------------------------------------------
-log "1/8  System packages (docker, caddy, git, rsync, curl)"
+log "1/10  System packages (docker, caddy, git, rsync, curl)"
 # -------------------------------------------------------------
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
@@ -78,7 +85,7 @@ fi
 
 # -------------------------------------------------------------
 DEPLOY_REF_LABEL="${REPO_REF:-origin/$REPO_BRANCH}"
-log "2/8  Repo sync ($REPO_URL @ $DEPLOY_REF_LABEL -> $REPO_DIR)"
+log "2/10  Repo sync ($REPO_URL @ $DEPLOY_REF_LABEL -> $REPO_DIR)"
 # -------------------------------------------------------------
 mkdir -p "$DEPLOY_DIR"
 if [[ ! -d $REPO_DIR/.git ]]; then
@@ -97,20 +104,18 @@ else
 fi
 
 # -------------------------------------------------------------
-log "3/8  Env-file check ($ENV_FILE)"
+log "3/10  Env-file check ($ENV_FILE)"
 # -------------------------------------------------------------
 if [[ ! -f $ENV_FILE ]]; then
     install -m 600 "$REPO_DIR/infra/prod/.env.prod.example" "$ENV_FILE"
     chown root:root "$ENV_FILE"
     die "Created $ENV_FILE from template. Edit it (fill REPLACE_ME values) and re-run."
 fi
-if grep -q 'REPLACE_ME' "$ENV_FILE"; then
-    die "$ENV_FILE still contains REPLACE_ME placeholders. Fill them and re-run."
-fi
 chmod 600 "$ENV_FILE"
 
-read_env_value() {
-    local key="$1"
+read_env_file_value() {
+    local file="$1"
+    local key="$2"
     awk -F= -v key="$key" '
         $1 == key {
             value = substr($0, length(key) + 2)
@@ -120,8 +125,61 @@ read_env_value() {
             print value
             exit
         }
-    ' "$ENV_FILE"
+    ' "$file"
 }
+
+read_env_value() {
+    local key="$1"
+    read_env_file_value "$ENV_FILE" "$key"
+}
+
+read_worker_env_value() {
+    local key="$1"
+    read_env_file_value "$WORKER_ENV_FILE" "$key"
+}
+
+env_value_is_true() {
+    local value="${1:-}"
+    case "${value,,}" in
+        1|true|yes|on) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+PR_EXECUTION_ENABLED=false
+if env_value_is_true "$(read_env_value STHRIP_PR_EXECUTION_ENABLED)"; then
+    PR_EXECUTION_ENABLED=true
+fi
+
+WORKER_PROFILE_ENABLED=false
+if [[ $PR_EXECUTION_ENABLED == "true" ]] || env_value_is_true "$(read_env_value STHRIP_PR_EXECUTION_WORKER_ENABLED)"; then
+    WORKER_PROFILE_ENABLED=true
+fi
+
+if [[ $WORKER_PROFILE_ENABLED == "true" ]]; then
+    if grep -q 'REPLACE_ME' "$ENV_FILE"; then
+        die "$ENV_FILE still contains REPLACE_ME placeholders. Fill them and re-run."
+    fi
+else
+    if grep -v -E '^STHRIP_PR_EXECUTION_WORKER_SECRET=REPLACE_ME' "$ENV_FILE" | grep -q 'REPLACE_ME'; then
+        die "$ENV_FILE still contains REPLACE_ME placeholders outside disabled PR execution. Fill them and re-run."
+    fi
+    log "  PR execution worker disabled: worker env, image, credentials, and compose profile are skipped"
+fi
+
+if [[ $WORKER_PROFILE_ENABLED == "true" ]]; then
+    if [[ ! -f $WORKER_ENV_FILE ]]; then
+        install -m 600 "$REPO_DIR/infra/prod/.env.pr-execution-worker.example" "$WORKER_ENV_FILE"
+        chown root:root "$WORKER_ENV_FILE"
+        die "Created $WORKER_ENV_FILE from template. Edit it (fill REPLACE_ME values) and re-run."
+    fi
+    if grep -q 'REPLACE_ME' "$WORKER_ENV_FILE"; then
+        die "$WORKER_ENV_FILE still contains REPLACE_ME placeholders. Fill them and re-run."
+    fi
+    chmod 600 "$WORKER_ENV_FILE"
+elif [[ -f $WORKER_ENV_FILE ]]; then
+    chmod 600 "$WORKER_ENV_FILE"
+fi
 
 CLERK_SECRET_KEY_VALUE="$(read_env_value CLERK_SECRET_KEY)"
 CLERK_AUTHORIZED_PARTIES_VALUE="$(read_env_value CLERK_AUTHORIZED_PARTIES)"
@@ -140,8 +198,30 @@ if [[ $CLERK_AUTHORIZED_PARTIES_VALUE != *"https://sthrip.dev"* ]]; then
     die "CLERK_AUTHORIZED_PARTIES must include https://sthrip.dev."
 fi
 
+if [[ $WORKER_PROFILE_ENABLED == "true" ]]; then
+    API_PR_EXECUTION_SECRET_VALUE="$(read_env_value STHRIP_PR_EXECUTION_WORKER_SECRET)"
+    WORKER_PR_EXECUTION_SECRET_VALUE="$(read_worker_env_value STHRIP_PR_EXECUTION_WORKER_SECRET)"
+    if [[ -z $API_PR_EXECUTION_SECRET_VALUE || -z $WORKER_PR_EXECUTION_SECRET_VALUE ]]; then
+        die "STHRIP_PR_EXECUTION_WORKER_SECRET is required in both $ENV_FILE and $WORKER_ENV_FILE when PR execution is enabled."
+    fi
+    if [[ $API_PR_EXECUTION_SECRET_VALUE != "$WORKER_PR_EXECUTION_SECRET_VALUE" ]]; then
+        die "STHRIP_PR_EXECUTION_WORKER_SECRET must match in $ENV_FILE and $WORKER_ENV_FILE."
+    fi
+
+    PR_EXECUTION_PROVIDER_VALUE="$(read_worker_env_value STHRIP_PR_EXECUTION_SANDBOX_PROVIDER)"
+    VERCEL_TOKEN_VALUE="$(read_worker_env_value VERCEL_TOKEN)"
+    VERCEL_TEAM_ID_VALUE="$(read_worker_env_value VERCEL_TEAM_ID)"
+    VERCEL_PROJECT_ID_VALUE="$(read_worker_env_value VERCEL_PROJECT_ID)"
+    if [[ $PR_EXECUTION_PROVIDER_VALUE != "vercel-sandbox" ]]; then
+        die "$WORKER_ENV_FILE: production PR execution requires STHRIP_PR_EXECUTION_SANDBOX_PROVIDER=vercel-sandbox."
+    fi
+    if [[ -z $VERCEL_TOKEN_VALUE || -z $VERCEL_TEAM_ID_VALUE || -z $VERCEL_PROJECT_ID_VALUE ]]; then
+        die "$WORKER_ENV_FILE: the GCP-hosted worker requires the complete VERCEL_TOKEN + VERCEL_TEAM_ID + VERCEL_PROJECT_ID triple."
+    fi
+fi
+
 # -------------------------------------------------------------
-log "4/9  GCP service-account credential perms"
+log "4/10  GCP service-account credential perms"
 # -------------------------------------------------------------
 # The server container runs as the oven/bun image's `bun` user (uid 1000) and
 # mounts /opt/tensol/.gcp read-only (see docker-compose.prod.yml). On the
@@ -167,7 +247,7 @@ else
 fi
 
 # -------------------------------------------------------------
-log "5/9  Build apps/site (static SPA) -> $SITE_DIST"
+log "5/10  Build apps/site (static SPA) -> $SITE_DIST"
 # -------------------------------------------------------------
 mkdir -p "$SITE_DIST" "$DEPLOY_DIR/data" "$DEPLOY_DIR/chrome-cache"
 docker run --rm \
@@ -179,7 +259,7 @@ docker run --rm \
 rsync -a --delete "$REPO_DIR/apps/site/dist/" "$SITE_DIST/"
 
 # -------------------------------------------------------------
-log "6/9  Build server image (tensol-server:latest)"
+log "6/10  Build server image (tensol-server:latest)"
 # -------------------------------------------------------------
 docker build \
     -t tensol-server:latest \
@@ -187,7 +267,19 @@ docker build \
     "$REPO_DIR"
 
 # -------------------------------------------------------------
-log "7/9  DB migrate"
+log "7/10  Build PR execution worker image"
+# -------------------------------------------------------------
+if [[ $WORKER_PROFILE_ENABLED == "true" ]]; then
+    docker build \
+        -t tensol-pr-execution-worker:latest \
+        -f "$REPO_DIR/vps-agent/Dockerfile" \
+        "$REPO_DIR/vps-agent"
+else
+    log "  skipped: STHRIP_PR_EXECUTION_WORKER_ENABLED=false"
+fi
+
+# -------------------------------------------------------------
+log "8/10  DB migrate"
 # -------------------------------------------------------------
 # Use the bun-native migrator (server/scripts/migrate.ts), NOT
 # `drizzle-kit migrate`. The drizzle-kit migrator relies on
@@ -206,13 +298,20 @@ docker run --rm \
     bun run scripts/migrate.ts
 
 # -------------------------------------------------------------
-log "8/9  Start server stack (docker compose up -d)"
+log "9/10  Start server stack (docker compose up -d)"
 # -------------------------------------------------------------
 cd "$REPO_DIR/infra/prod"
-docker compose -f docker-compose.prod.yml up -d --build
+COMPOSE_PROFILE_ARGS=()
+if [[ $WORKER_PROFILE_ENABLED == "true" ]]; then
+    COMPOSE_PROFILE_ARGS+=(--profile pr-execution)
+fi
+docker compose -f docker-compose.prod.yml "${COMPOSE_PROFILE_ARGS[@]}" up -d --build
+if [[ $WORKER_PROFILE_ENABLED != "true" ]]; then
+    docker rm -f tensol-pr-execution-worker >/dev/null 2>&1 || true
+fi
 
 # -------------------------------------------------------------
-log "9/9  Caddy config"
+log "10/10  Caddy config"
 # -------------------------------------------------------------
 install -m 0644 "$CADDYFILE_SRC" "$CADDYFILE_DST"
 caddy validate --config "$CADDYFILE_DST"
@@ -242,3 +341,21 @@ cat <<EOF
     sudo /opt/tensol/repo/infra/prod/deploy.sh
 
 EOF
+
+if [[ $WORKER_PROFILE_ENABLED == "true" ]]; then
+    cat <<EOF
+  PR execution worker:
+    docker exec tensol-pr-execution-worker bun -e "const r=await fetch('http://127.0.0.1:8080/healthz'); console.log(await r.text()); process.exit(r.ok?0:1)"
+    docker logs -f tensol-pr-execution-worker
+
+EOF
+else
+    cat <<EOF
+  PR execution worker:
+    disabled. Fill /opt/tensol/.env.pr-execution-worker, set
+    STHRIP_PR_EXECUTION_WORKER_ENABLED=true, and re-run deploy.sh to start the
+    pr-execution compose profile for smoke testing. Enable
+    STHRIP_PR_EXECUTION_ENABLED only after the worker smoke passes.
+
+EOF
+fi
