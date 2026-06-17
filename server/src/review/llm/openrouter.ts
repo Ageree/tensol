@@ -7,7 +7,7 @@
  *  - `complete()` — the text-only path. The model is asked to return a JSON
  *    object via `response_format: json_object`, and the reviewer's prompt
  *    enforces the strict schema on top of that.
- *  - `chat()` — the agentic (tool-calling) path used by gpt-5.5. Sends a
+ *  - `chat()` — the agentic (tool-calling) path. Sends a
  *    multi-turn message history plus a `tools` catalog (+ optional `tool_choice`)
  *    and parses `choices[0].message.tool_calls` / `finish_reason` / `usage`.
  *    `response_format` is NEVER sent here — it is mutually exclusive with tools

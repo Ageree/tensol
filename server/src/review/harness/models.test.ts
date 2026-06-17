@@ -11,9 +11,9 @@ const fakeFactory = (a: { model: string }): LlmClient => ({
 const base = () => ({
   apiKey: "k",
   baseUrl: "u",
-  auditorModel: "openai/gpt-5.5",
-  debaterModel: "qwen/qwen3.7-max",
-  reconModel: "qwen/qwen3.7-max",
+  auditorModel: "z-ai/glm-5.2",
+  debaterModel: "z-ai/glm-5.2",
+  reconModel: "z-ai/glm-5.2",
   budget: createBudget({ ceilingUsd: 2, usdPerMTokOut: 30, usdPerMTokIn: 5 }),
   makeClient: fakeFactory,
 });
@@ -27,7 +27,7 @@ test("counterpoint distinct when set", () => {
 test("counterpoint falls back to auditor model when empty", () => {
   const s = buildHarnessModels({ ...base(), counterpointModel: "" });
   expect(s.counterpointDistinct).toBe(false);
-  expect(s.modelNames.counterpoint).toBe("openai/gpt-5.5");
+  expect(s.modelNames.counterpoint).toBe("z-ai/glm-5.2");
 });
 
 test("role transports are chat-capable and share one budget", () => {
@@ -37,5 +37,5 @@ test("role transports are chat-capable and share one budget", () => {
   expect(typeof s.models.counterpoint.chat).toBe("function");
   expect(typeof s.models.recon.complete).toBe("function");
   expect(s.budget).toBeDefined();
-  expect(s.modelNames.auditor).toBe("openai/gpt-5.5");
+  expect(s.modelNames.auditor).toBe("z-ai/glm-5.2");
 });

@@ -10,7 +10,7 @@
  *     `/opt/decepticon/docker-compose.yml` on the VM.
  *
  *   - `litellm.yaml` — LiteLLM proxy config routing every Decepticon
- *     model name through `openrouter/qwen/qwen3.7-max`. Dropped at
+ *     model name through `openrouter/z-ai/glm-5.2`. Dropped at
  *     `/opt/decepticon/config/litellm.yaml`.
  *
  *   - `recon.md` — Decepticon recon-agent prompt with the Tensol Rule 4b

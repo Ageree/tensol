@@ -1,6 +1,6 @@
 /**
  * Tool-calling chat types — the shared vocabulary for the agentic (function-
- * calling) path that powers gpt-5.5 across PR Review / Whitebox / Blackbox.
+ * calling) path that powers PR Review / Whitebox / Blackbox.
  *
  * These model the OpenAI/OpenRouter function-calling wire shape in our own terms
  * so the rest of the codebase never depends on a provider's exact JSON. The

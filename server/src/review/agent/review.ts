@@ -48,7 +48,7 @@ export interface AgentReviewResult {
 export async function agentReview(args: {
   context: ContextBundle;
   candidates: Candidate[];
-  /** An `LlmClient.chat`-capable transport (gpt-5.5). */
+  /** An `LlmClient.chat`-capable transport. */
   transport: ChatTransport;
   tools: AgentTool[];
   maxRounds: number;

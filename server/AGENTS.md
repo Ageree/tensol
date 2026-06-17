@@ -64,6 +64,9 @@ database migrations, and cloud/VM integrations.
 - `TENSOL_AGENT_WHITEBOX_ENABLED` is legacy parse-only compatibility, not a
   runtime whitebox gate. Do not alias it to harness automatically; use
   `TENSOL_HARNESS_ENABLED` plus `TENSOL_RESEARCH_ENABLED` for MDASH deep mode.
+- Runtime LLM defaults use OpenRouter `z-ai/glm-5.2` with GLM-5.2 pricing.
+  Keep model-id and price defaults in `config.ts`, manual E2E scripts, and
+  tests in sync when changing the backbone.
 
 # Work Guidance
 

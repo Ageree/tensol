@@ -58,7 +58,7 @@ export interface PrReviewHandlerDeps {
    */
   readonly repoDir?: string;
   /**
-   * Optional agentic (gpt-5.5) review. When present, each review builds a fresh
+   * Optional agentic review. When present, each review builds a fresh
    * metered session (`makeSession`) — a chat transport whose token usage meters
    * into a per-review spend `budget` — and the engine runs the tool-using
    * {@link agentReview} fast path. The PR tools (read_file / get_pr_diff) are
@@ -202,7 +202,7 @@ export function createPrReviewHandler(deps: PrReviewHandlerDeps) {
       const suppressions = await service.listSuppressions(repo.id);
       const suppressedCategories = new Set(suppressions.map((s) => s.category));
 
-      // Agentic fast path (gpt-5.5): build a fresh per-review metered session +
+      // Agentic fast path: build a fresh per-review metered session +
       // tools bound to THIS PR head. Only when the agent dep is wired (flag on)
       // and we have a head SHA to read files at.
       const agentDeps =

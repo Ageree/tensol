@@ -34,8 +34,8 @@ if (!apiKey) {
 console.log("Precondition: OPENROUTER_API_KEY present — proceeding.\n");
 
 const BASE_URL = "https://openrouter.ai/api/v1";
-const PRIMARY_MODEL = "openai/gpt-5.5";
-const FALLBACK_MODELS = ["openai/gpt-5.4", "anthropic/claude-sonnet-4-6"];
+const PRIMARY_MODEL = "z-ai/glm-5.2";
+const FALLBACK_MODELS = ["z-ai/glm-5.1", "z-ai/glm-5-turbo"];
 
 // ---------------------------------------------------------------------------
 // Helper: try models in fallback order for a given async action
@@ -86,8 +86,8 @@ async function runTest1(): Promise<{ pass: boolean; details: string }> {
   const { result, modelUsed: mu } = await withModelFallback(async (model) => {
     const budget = createBudget({
       ceilingUsd: 0.25,
-      usdPerMTokOut: 30,
-      usdPerMTokIn: 5,
+      usdPerMTokOut: 4.4,
+      usdPerMTokIn: 1.4,
     });
 
     const inner = createOpenRouterClient({ apiKey, baseUrl: BASE_URL, model, jsonMode: false });

@@ -11,8 +11,8 @@
 #     not needed for autonomous recon).
 #   - Drops the `./containers/postgres-init` bind-mount (web/cli's
 #     decepticon_web DB init — unused without those services).
-#   - Drops the optional Claude/Codex OAuth credential mounts (Tensol routes
-#     entirely through OpenRouter qwen3.7-max — see config/litellm.yaml).
+#   - Drops the optional Claude/Codex OAuth credential mounts (Sthrip routes
+#     entirely through OpenRouter GLM-5.2 — see config/litellm.yaml).
 #   - Reads secrets from a sibling `.env` (POSTGRES_PASSWORD, NEO4J_PASSWORD,
 #     LITELLM_MASTER_KEY, OPENROUTER_API_KEY, DECEPTICON_VERSION).
 #   - Loopback-only port bindings preserved (the VM has no inbound traffic
@@ -96,8 +96,8 @@ services:
       LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-sk-decepticon-salt}
       DATABASE_URL: postgresql://decepticon:${POSTGRES_PASSWORD:-decepticon}@postgres:5432/litellm
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      # Qwen3.7-max with reasoning_effort=high on OpenRouter regularly
-      # exceeds the default httpx 60s read timeout — E2E #24 manifested as
+      # GLM-5.2 with reasoning_effort=high on OpenRouter can exceed
+      # the default httpx 60s read timeout — E2E #24 manifested as
       # `task=tools: CancelledError()` cascading from the inner LLM call.
       # LITELLM_REQUEST_TIMEOUT bounds litellm's outbound httpx client; set
       # to 600s (10 min) to match the recon agent's worst-case turn budget.
@@ -156,24 +156,24 @@ services:
       DECEPTICON_MODEL_PROFILE: ${DECEPTICON_MODEL_PROFILE:-eco}
       # [TENSOL FIX A 2026-05-25] Pin Decepticon's credential resolver to a
       # SINGLE provider so every tier/role resolves to anthropic/* model
-      # names — which litellm.yaml hijacks to openrouter/qwen3.7-max. Without
+      # names — which litellm.yaml hijacks to openrouter/z-ai/glm-5.2. Without
       # this, the resolver (decepticon/llm/factory.py) sees no creds + empty
       # AUTH_PRIORITY, defaults to ALL providers, and builds a fallback chain
       # whose tail is the UNAUTHED nvidia_nim/meta/llama-3.2-3b-instruct. On
-      # any transient qwen hiccup ModelFallbackMiddleware walks to that tail
+      # any transient GLM hiccup ModelFallbackMiddleware walks to that tail
       # and the run dies with "no provider fallback" (prod scan 01KSF7X1…,
       # 2026-05-25). The ANTHROPIC_API_KEY is a synthetic sk-ant- placeholder
       # that only satisfies the resolver's _is_real_key gate — it is NEVER
-      # sent upstream (every anthropic/* name is rerouted to qwen at litellm).
+      # sent upstream (every anthropic/* name is rerouted to GLM at litellm).
       DECEPTICON_AUTH_PRIORITY: ${DECEPTICON_AUTH_PRIORITY:-anthropic_api}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-sk-ant-tensol-routes-via-litellm-qwen}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-sk-ant-tensol-routes-via-litellm-glm52}
       # assistant_id is now driven by the HTTP run payload from vps-agent
       # (see vps-agent/src/decepticon-runner.ts), not from this env var.
       DECEPTICON_DOCKER__SANDBOX_CONTAINER_NAME: decepticon-sandbox
       # Bound the Decepticon LiteLLM client's per-call timeout to match
       # the litellm proxy's 600s — without this `DECEPTICON_LLM__TIMEOUT`
       # falls back to the in-source default of 120s which can fire on a
-      # slow Qwen3.7-max turn and surface as a tools-node CancelledError.
+      # slow GLM-5.2 turn and surface as a tools-node CancelledError.
       DECEPTICON_LLM__TIMEOUT: "600"
       # Disable any cooperative drain timer the langgraph dev queue might
       # apply to idle in-flight runs (we hold the run for the full scan

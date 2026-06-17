@@ -2,7 +2,7 @@
  * P2 — agent tools for PR Review.
  *
  * These adapt the GitHub capabilities the reviewer already has (`getFileContents`,
- * `getPullRequestFiles`) into {@link AgentTool}s the gpt-5.5 agent loop can call
+ * `getPullRequestFiles`) into {@link AgentTool}s the agent loop can call
  * to gather context on demand — reading whole files beyond the diff and
  * inspecting hunks — BEFORE it commits to a verdict. The fixed-prompt path packs
  * a fixed context bundle up front; the agentic path lets the model pull exactly

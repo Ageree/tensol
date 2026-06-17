@@ -1,7 +1,7 @@
 /**
  * Tests for {@link runAgentLoop} — the domain-agnostic agentic orchestrator.
  *
- * The loop is the heart of the gpt-5.5 tool-using capability shared across PR
+ * The loop is the heart of the tool-using capability shared across PR
  * Review / Whitebox / Blackbox. These tests pin its guarantees:
  *   - it runs tools the model requests and feeds results back, until a final
  *     answer or a hard cap;

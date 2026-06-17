@@ -1,6 +1,6 @@
 /**
  * ZERO-DAY E2E proof harness — a STRICTER, on-the-fly companion to
- * `e2e-exploit-lab.ts`. Run against a REAL model (qwen via OpenRouter). MANUAL
+ * `e2e-exploit-lab.ts`. Run against a REAL model (GLM via OpenRouter). MANUAL
  * dev script, NOT part of `bun test` / CI (paid network calls + live targets).
  *
  *   F1 — Deep Whitebox Research on FRESH, realistic code the model was never
@@ -61,11 +61,11 @@ if (!apiKey) {
 	);
 	process.exit(1);
 }
-const model = process.env.TENSOL_EXPLOIT_LLM_MODEL || "qwen/qwen3.7-max";
+const model = process.env.TENSOL_EXPLOIT_LLM_MODEL || "z-ai/glm-5.2";
 const baseUrl =
 	process.env.TENSOL_REVIEW_LLM_BASE_URL || "https://openrouter.ai/api/v1";
 const pricePerMTok = Number(
-	process.env.TENSOL_EXPLOIT_USD_PER_MTOK_OUT || "3.75",
+	process.env.TENSOL_EXPLOIT_USD_PER_MTOK_OUT || "4.4",
 );
 
 const args = new Set(process.argv.slice(2));
@@ -214,7 +214,7 @@ export async function readDoc(req: { params: { name: string } }, res: any) {
 
 async function f1DeepResearch(): Promise<boolean> {
 	console.log(
-		"\n=== F1: Deep Whitebox Research — 7 fresh vulns + 3 safe decoys (real qwen) ===",
+		"\n=== F1: Deep Whitebox Research — 7 fresh vulns + 3 safe decoys (real GLM) ===",
 	);
 	const budget = createBudget({
 		ceilingUsd: 1_000,
@@ -307,6 +307,7 @@ function startSqliTarget(canary: string): LiveTarget {
 	db.query("INSERT INTO secrets (flag) VALUES (?)").run(canary);
 	let injected = false;
 	const server = Bun.serve({
+		hostname: "127.0.0.1",
 		port: 0,
 		fetch(req) {
 			const url = new URL(req.url);
@@ -347,6 +348,7 @@ return Response.json({ rows });`,
 function startCmdiTarget(canary: string): LiveTarget {
 	let exploited = false;
 	const server = Bun.serve({
+		hostname: "127.0.0.1",
 		port: 0,
 		async fetch(req) {
 			const url = new URL(req.url);
@@ -394,6 +396,7 @@ function startPathTraversalTarget(canary: string): {
 	writeFileSync(join(root, "secret.txt"), canary);
 	let exploited = false;
 	const server = Bun.serve({
+		hostname: "127.0.0.1",
 		port: 0,
 		fetch(req) {
 			const url = new URL(req.url);
@@ -442,6 +445,7 @@ function startIdorTarget(canary: string): LiveTarget {
 	};
 	let exploited = false;
 	const server = Bun.serve({
+		hostname: "127.0.0.1",
 		port: 0,
 		fetch(req) {
 			const url = new URL(req.url);
@@ -618,7 +622,7 @@ async function f2OneTarget(
 
 async function f2ExploitLab(): Promise<boolean> {
 	console.log(
-		"\n=== F2: Autonomous Exploit Lab — 4 classes, server-confirmed (real qwen) ===",
+		"\n=== F2: Autonomous Exploit Lab — 4 classes, server-confirmed (real GLM) ===",
 	);
 	// ONE shared spend ceiling across all four targets.
 	const budget = createBudget({ ceilingUsd: 3.0, usdPerMTokOut: pricePerMTok });

@@ -74,7 +74,7 @@ const ConfigSchema = z
 			.min(1, { message: "TENSOL_VPS_AGENT_IMAGE must not be empty" }),
 
 		// T128 Bug #7 — OpenRouter API key for the Decepticon LiteLLM proxy
-		// routing all model calls to `openrouter/qwen/qwen3.7-max`. Optional
+		// routing all model calls to `openrouter/z-ai/glm-5.2`. Optional
 		// with empty default so dev boot doesn't halt when the key is absent;
 		// production deployments MUST set it or the spawned VM's LiteLLM
 		// returns 401 on the first agent call and the scan hangs at recon.
@@ -181,7 +181,7 @@ const ConfigSchema = z
 		TENSOL_REVIEW_LLM_BASE_URL: z
 			.string()
 			.default("https://openrouter.ai/api/v1"),
-		TENSOL_REVIEW_LLM_MODEL: z.string().default("qwen/qwen3.7-max"),
+		TENSOL_REVIEW_LLM_MODEL: z.string().default("z-ai/glm-5.2"),
 
 		// Exploit Lab + Deep Research feature gates (migration 0013). Both default
 		// OFF so the feature is dark until an operator opts in; the rest tune the
@@ -196,12 +196,12 @@ const ConfigSchema = z
 		// is unbounded spend. The handler meters the research LLM against a budget
 		// built from these and aborts the scan once the ceiling is hit.
 		TENSOL_RESEARCH_BUDGET_USD: z.coerce.number().positive().default(0.5),
-		TENSOL_RESEARCH_USD_PER_MTOK_OUT: z.coerce.number().positive().default(2.0),
-		TENSOL_EXPLOIT_LLM_MODEL: z.string().default("qwen/qwen3.7-max"),
+		TENSOL_RESEARCH_USD_PER_MTOK_OUT: z.coerce.number().positive().default(4.4),
+		TENSOL_EXPLOIT_LLM_MODEL: z.string().default("z-ai/glm-5.2"),
 		TENSOL_EXPLOIT_MAX_ITERS: z.coerce.number().int().positive().default(4),
 		TENSOL_EXPLOIT_BUDGET_USD: z.coerce.number().positive().default(2.0),
 		TENSOL_EXPLOIT_SANDBOX: z.enum(["vm", "local"]).default("local"),
-		TENSOL_EXPLOIT_USD_PER_MTOK_OUT: z.coerce.number().positive().default(2.0),
+		TENSOL_EXPLOIT_USD_PER_MTOK_OUT: z.coerce.number().positive().default(4.4),
 		// SAFETY ACK for running the Exploit Lab on the LOCAL (un-isolated
 		// subprocess) sandbox. The local sandbox has no network/FS namespace, so it
 		// is NOT a production isolation boundary. When TENSOL_EXPLOIT_ENABLED is on,
@@ -210,7 +210,7 @@ const ConfigSchema = z
 		// sandbox is the real isolation path (deferred wiring). Default false.
 		TENSOL_EXPLOIT_ALLOW_UNSANDBOXED_LOCAL: envBool(false),
 
-		// Agentic tool-use (gpt-5.5) foundation — P0. The PR agent loop
+		// Agentic tool-use foundation — P0. The PR agent loop
 		// (think → call-tool → observe → repeat; src/review/agent/loop.ts) is DARK
 		// by default behind TENSOL_AGENT_PR_ENABLED, so fixed-prompt PR review is
 		// unchanged until an operator opts in. TENSOL_AGENT_WHITEBOX_ENABLED is a
@@ -221,28 +221,26 @@ const ConfigSchema = z
 		// tunables use z.coerce.
 		TENSOL_AGENT_PR_ENABLED: envBool(false),
 		TENSOL_AGENT_WHITEBOX_ENABLED: envBool(false),
-		// The tool-using model. gpt-5.5 supports function calling on OpenRouter.
-		TENSOL_AGENT_MODEL: z.string().default("openai/gpt-5.5"),
+		// The tool-using model. GLM-5.2 supports function calling on OpenRouter.
+		TENSOL_AGENT_MODEL: z.string().default("z-ai/glm-5.2"),
 		// Hard caps on the loop (defense against runaway tool-calling spend).
 		TENSOL_AGENT_MAX_ROUNDS: z.coerce.number().int().positive().default(12),
 		TENSOL_AGENT_MAX_TOOL_CALLS: z.coerce.number().int().positive().default(48),
-		// Per-loop USD ceiling. gpt-5.5 is ~24× qwen3.7-max, and agentic loops
-		// multiply round-trips, so a hard dollar bound is mandatory.
+		// Per-loop USD ceiling. Agentic loops multiply round-trips, so a hard
+		// dollar bound is mandatory.
 		TENSOL_AGENT_BUDGET_USD: z.coerce.number().positive().default(2.0),
-		// gpt-5.5 asymmetric pricing per 1M tokens ($5 in / $30 out). Input pricing
+		// GLM-5.2 OpenRouter pricing per 1M tokens ($1.40 in / $4.40 out). Input pricing
 		// MATTERS for agentic loops (tool results balloon the input side), so the
 		// agent budget counts BOTH sides — see createBudget({usdPerMTokIn}).
-		TENSOL_AGENT_USD_PER_MTOK_IN: z.coerce.number().nonnegative().default(5.0),
-		TENSOL_AGENT_USD_PER_MTOK_OUT: z.coerce.number().positive().default(30.0),
+		TENSOL_AGENT_USD_PER_MTOK_IN: z.coerce.number().nonnegative().default(1.4),
+		TENSOL_AGENT_USD_PER_MTOK_OUT: z.coerce.number().positive().default(4.4),
 
-		// P1 — Blackbox (Decepticon) on gpt-5.5. Decepticon is ALREADY a tool-using
+		// P1 — Blackbox (Decepticon) on an explicit agent model. Decepticon is ALREADY a tool-using
 		// agent; this only swaps the model driving it. DARK by default: when off,
-		// the per-scan VM's LiteLLM keeps hijacking openai/* → qwen3.7-max (the
-		// cost-safe default, unchanged byte-for-byte). When ON, cloud-init repoints
+		// the per-scan VM's LiteLLM keeps hijacking routes → GLM-5.2. When ON, cloud-init repoints
 		// the openai/* routes to `openrouter/<TENSOL_AGENT_MODEL>` and pins the
-		// Decepticon resolver to the openai auth path so real gpt-5.5 drives the
-		// scan. gpt-5.5 is ~24× qwen, so this is a deliberate per-scan cost increase
-		// — leave OFF unless you've accepted that. LIVE VM verification required
+		// Decepticon resolver to the openai auth path so the configured model drives
+		// the scan. LIVE VM verification required
 		// before production (the route rewrite is unit-tested, not E2E here).
 		TENSOL_BLACKBOX_AGENT_ENABLED: envBool(false),
 		// Operator diagnostics: keep failed blackbox scan VMs around long enough to
@@ -254,17 +252,17 @@ const ConfigSchema = z
 		// the existing `runResearch` chain. When ON (+ TENSOL_RESEARCH_ENABLED), deep
 		// mode runs Prepare→Scan(auditors)→Validate(debaters) with per-role models.
 		TENSOL_HARNESS_ENABLED: envBool(false),
-		TENSOL_HARNESS_MODEL_AUDITOR: z.string().default("openai/gpt-5.5"),
-		TENSOL_HARNESS_MODEL_DEBATER: z.string().default("qwen/qwen3.7-max"),
+		TENSOL_HARNESS_MODEL_AUDITOR: z.string().default("z-ai/glm-5.2"),
+		TENSOL_HARNESS_MODEL_DEBATER: z.string().default("z-ai/glm-5.2"),
 		// "" → debate counterpoint falls back to the auditor model (models.ts warns).
 		TENSOL_HARNESS_MODEL_COUNTERPOINT: z.string().default(""),
-		TENSOL_HARNESS_MODEL_RECON: z.string().default("qwen/qwen3.7-max"),
+		TENSOL_HARNESS_MODEL_RECON: z.string().default("z-ai/glm-5.2"),
 		TENSOL_HARNESS_BUDGET_USD: z.coerce.number().positive().default(2.0),
 		TENSOL_HARNESS_USD_PER_MTOK_IN: z.coerce
 			.number()
 			.nonnegative()
-			.default(5.0),
-		TENSOL_HARNESS_USD_PER_MTOK_OUT: z.coerce.number().positive().default(30.0),
+			.default(1.4),
+		TENSOL_HARNESS_USD_PER_MTOK_OUT: z.coerce.number().positive().default(4.4),
 		TENSOL_HARNESS_MAX_AUDITORS: z.coerce.number().int().positive().default(12),
 		TENSOL_HARNESS_AUDITOR_MAX_ROUNDS: z.coerce
 			.number()
