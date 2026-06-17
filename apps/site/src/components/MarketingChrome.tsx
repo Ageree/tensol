@@ -34,7 +34,7 @@ const RESOURCE_ITEMS: readonly DropdownItem[] = [
     label: 'Resources',
     href: '/resources',
     description: 'Security notes, trust docs, and legal references',
-    icon: '//',
+    icon: 'RS',
   },
   {
     label: 'Team',

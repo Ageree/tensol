@@ -1562,4 +1562,24 @@ const en = {
 
 export type TensolDict = typeof en;
 
-export const TENSOL_I18N: Record<TensolLang, TensolDict> = { en };
+const withoutDecorativeLabels = <T,>(value: T): T => {
+  if (typeof value === 'string') {
+    return (value.trimStart().startsWith('//') ? '' : value) as T;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => withoutDecorativeLabels(item)) as T;
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, withoutDecorativeLabels(item)]),
+    ) as T;
+  }
+
+  return value;
+};
+
+export const TENSOL_I18N: Record<TensolLang, TensolDict> = {
+  en: withoutDecorativeLabels(en),
+};

@@ -215,12 +215,8 @@ export function Btn({
 /* ─────────────────────────────────────────────────────────────────────
    Eyebrow / Mono
    ───────────────────────────────────────────────────────────────────── */
-function removeDecorativePrefix(children: ReactNode): ReactNode {
-  if (typeof children === 'string') {
-    return children.replace(/^\/\/\s*/, '');
-  }
-
-  return children;
+function isDecorativeLabel(children: ReactNode) {
+  return typeof children === 'string' && children.trimStart().startsWith('//');
 }
 
 export function Eyebrow({
@@ -232,6 +228,16 @@ export function Eyebrow({
   color?: string;
   style?: CSSProperties;
 }) {
+  if (
+    children === null ||
+    children === undefined ||
+    children === false ||
+    children === '' ||
+    isDecorativeLabel(children)
+  ) {
+    return null;
+  }
+
   return (
     <div
       style={{
@@ -243,7 +249,7 @@ export function Eyebrow({
         ...style,
       }}
     >
-      {removeDecorativePrefix(children)}
+      {children}
     </div>
   );
 }

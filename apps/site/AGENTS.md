@@ -46,6 +46,7 @@ deployment.
 
 - Match the existing HackTron-inspired dashboard style: quiet light workspace,
   compact panels, square/low-radius controls, dense operational information.
+- Do not add visible decorative `// ...` labels to site pages.
 - For UI changes, verify desktop and mobile layout; avoid whole-page horizontal
   overflow.
 - Use lucide icons when an icon is needed and already available.
