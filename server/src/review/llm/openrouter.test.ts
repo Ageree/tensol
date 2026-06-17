@@ -33,7 +33,7 @@ describe("createOpenRouterClient", () => {
     const client = createOpenRouterClient({
       apiKey: "sk-test-123",
       baseUrl: "https://openrouter.ai/api/v1",
-      model: "qwen/qwen3.7-max",
+      model: "z-ai/glm-5.2",
       fetchImpl: fakeFetch,
     });
 
@@ -48,7 +48,7 @@ describe("createOpenRouterClient", () => {
     expect(headers["Content-Type"]).toBe("application/json");
 
     const body = JSON.parse(String(capturedInit?.body));
-    expect(body.model).toBe("qwen/qwen3.7-max");
+    expect(body.model).toBe("z-ai/glm-5.2");
     expect(body.temperature).toBe(0.1);
     expect(body.response_format).toEqual({ type: "json_object" });
     expect(body.messages).toEqual([
@@ -238,7 +238,7 @@ describe("createOpenRouterClient.chat (tool calling)", () => {
     const client = createOpenRouterClient({
       apiKey: "k",
       baseUrl: "https://x/v1",
-      model: "openai/gpt-5.5",
+      model: "z-ai/glm-5.2",
       fetchImpl: fakeFetch,
     });
 
@@ -254,7 +254,7 @@ describe("createOpenRouterClient.chat (tool calling)", () => {
       toolChoice: "auto",
     });
 
-    expect(body.model).toBe("openai/gpt-5.5");
+    expect(body.model).toBe("z-ai/glm-5.2");
     expect(body.response_format).toBeUndefined(); // tools ⇒ never json_object
     expect(body.tool_choice).toBe("auto");
     expect(body.tools).toEqual([

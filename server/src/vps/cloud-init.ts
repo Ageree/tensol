@@ -18,7 +18,7 @@
  *   4. [T128 Bug #7] Lay down the Decepticon compose stack at
  *      `/opt/decepticon/`: minimal 5-service docker-compose.yml, our
  *      LiteLLM override routing every model through OpenRouter
- *      qwen3.7-max, the Rule 4b KG_PERSISTENCE recon-prompt override,
+ *      GLM-5.2, the Rule 4b KG_PERSISTENCE recon-prompt override,
  *      and a sibling `.env` carrying OPENROUTER_API_KEY +
  *      DB passwords. Symlink compose + env files into `/opt/tensol/` (where
  *      vps-agent's runner expects them).
@@ -86,7 +86,7 @@ export interface BuildCloudInitArgs {
 	/**
 	 * OpenRouter API key. Routed by the embedded LiteLLM
 	 * config (`infra/decepticon-overrides/litellm.yaml`) to
-	 * `openrouter/qwen/qwen3.7-max` for every Decepticon model name.
+	 * `openrouter/z-ai/glm-5.2` for every Decepticon model name.
 	 * REQUIRED — without it the LiteLLM proxy returns 401 on the first call
 	 * and the entire scan hangs at recon-step-1.
 	 */
@@ -102,14 +102,12 @@ export interface BuildCloudInitArgs {
 	/** Port the vps-agent Hono server binds to. Defaults to 8080. */
 	agentPort?: number;
 	/**
-	 * P1 — OpenRouter model id to drive the Decepticon scan with real tool-using
-	 * gpt-5.5 (e.g. `"openai/gpt-5.5"`). When set, the embedded LiteLLM config's
-	 * `openai/*` routes are repointed from the qwen hijack to
+	 * P1 — OpenRouter model id to drive the Decepticon scan with an explicit
+	 * tool-using model (e.g. `"z-ai/glm-5.2"`). When set, the embedded LiteLLM config's
+	 * `openai/*` routes are repointed from the default GLM hijack to
 	 * `openrouter/<model>`, and the Decepticon resolver is pinned to the openai
 	 * auth path so agents resolve to those (now-real) routes. Omit (default) to
-	 * keep the cost-safe qwen3.7-max hijack unchanged — output is then byte-
-	 * identical to before this field existed. gpt-5.5 is ~24× qwen; enable only
-	 * deliberately (gated by `TENSOL_BLACKBOX_AGENT_ENABLED`).
+	 * keep the default GLM-5.2 hijack.
 	 */
 	blackboxAgentModel?: string;
 }
@@ -140,9 +138,9 @@ const DECEPTICON_COMPOSE_PREPULL_IMAGES = [
 	"ghcr.io/purpleailab/decepticon-langgraph:latest",
 ];
 
-/** The qwen target the embedded litellm.yaml hijacks every model name to. */
-const QWEN_HIJACK_TARGET = "openrouter/qwen/qwen3.7-max";
-/** OpenAI route names whose target is repointed when running blackbox on gpt-5.5. */
+/** The default target the embedded litellm.yaml hijacks every model name to. */
+const DEFAULT_HIJACK_TARGET = "openrouter/z-ai/glm-5.2";
+/** OpenAI route names whose target is repointed when overriding the blackbox model. */
 const OPENAI_ROUTE_NAMES = [
 	"openai/gpt-5.5",
 	"openai/gpt-5.4",
@@ -155,10 +153,10 @@ function reEscape(s: string): string {
 }
 
 /**
- * Repoint the embedded LiteLLM config's `openai/*` routes from the qwen hijack
+ * Repoint the embedded LiteLLM config's `openai/*` routes from the default hijack
  * to `openrouter/<model>`, so a Decepticon scan pinned to the openai auth path
- * actually reaches real gpt-5.5. Anchored on each exact `model_name:` block so
- * the anthropic/* and nvidia_nim/* qwen hijacks are left untouched. Pure: returns
+ * reaches the requested model. Anchored on each exact `model_name:` block so
+ * the anthropic/* and nvidia_nim/* default hijacks are left untouched. Pure: returns
  * a new string; the embedded constant is never mutated.
  */
 function repointOpenAiRoutesToRealModel(yaml: string, model: string): string {
@@ -167,7 +165,7 @@ function repointOpenAiRoutesToRealModel(yaml: string, model: string): string {
 	for (const name of OPENAI_ROUTE_NAMES) {
 		const re = new RegExp(
 			`(- model_name: ${reEscape(name)}\\n\\s+litellm_params:\\n\\s+model: )${reEscape(
-				QWEN_HIJACK_TARGET,
+				DEFAULT_HIJACK_TARGET,
 			)}`,
 		);
 		out = out.replace(re, `$1${target}`);
@@ -229,27 +227,27 @@ export function buildCloudInit(args: BuildCloudInitArgs): string {
 	);
 
 	// P1 — when a blackbox agent model is set, repoint the openai/* LiteLLM routes
-	// to real gpt-5.5 and pin Decepticon to the openai auth path; otherwise keep
-	// the cost-safe qwen hijack + anthropic auth path (byte-identical to before).
+	// to that model and pin Decepticon to the openai auth path; otherwise keep
+	// the default GLM hijack + anthropic auth path.
 	const blackboxModel = args.blackboxAgentModel?.trim();
 	const litellmYaml = blackboxModel
 		? repointOpenAiRoutesToRealModel(DECEPTICON_LITELLM_YAML, blackboxModel)
 		: DECEPTICON_LITELLM_YAML;
 	const anthropicSyntheticKey =
-		"ANTHROPIC_API_KEY=" + "sk-" + "ant-tensol-routes-via-litellm-qwen";
+		"ANTHROPIC_API_KEY=" + "sk-" + "ant-tensol-routes-via-litellm-glm52";
 	const decepticonAuthEnvLines = blackboxModel
 		? [
 				// Pin to the openai auth path so the resolver produces openai/* names →
-				// the (now-real) gpt-5.5 routes above. The synthetic key only satisfies
+				// the requested routes above. The synthetic key only satisfies
 				// Decepticon's _is_real_key gate; the real call goes via litellm →
 				// OpenRouter using OPENROUTER_API_KEY (never sent upstream), mirroring
 				// the anthropic synthetic-key pattern.
 				"DECEPTICON_AUTH_PRIORITY=openai_api",
-				"OPENAI_API_KEY=sk-tensol-routes-via-litellm-gpt55",
+				"OPENAI_API_KEY=sk-tensol-routes-via-litellm-model",
 			]
 		: [
 				// [FIX A 2026-05-25] Pin the resolver to a single provider so all tiers
-				// resolve to anthropic/* names → litellm hijacks them to qwen3.7-max.
+				// resolve to anthropic/* names → litellm hijacks them to GLM-5.2.
 				// Avoids the unauthed nvidia_nim fallback tail that crashed prod scan
 				// 01KSF7X1… The synthetic key only satisfies Decepticon's _is_real_key
 				// gate; it is never sent upstream. These also feed the compose

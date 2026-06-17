@@ -16,6 +16,10 @@ Compose, Caddy, deployment scripts, and Decepticon scanner override assets.
   references are historical unless the task explicitly targets them.
 - Keep Caddy/Docker changes compatible with the production API and scanner VM
   expectations.
+- Decepticon LiteLLM override assets route current scanner model calls through
+  OpenRouter GLM-5.2 (`openrouter/z-ai/glm-5.2`). Preserve Decepticon-facing
+  alias names when changing targets; upstream route names are part of its
+  resolver contract.
 
 # Work Guidance
 

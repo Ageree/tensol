@@ -1039,8 +1039,8 @@ export async function main(): Promise<{
 			postgresPassword: config.TENSOL_POSTGRES_PASSWORD,
 			neo4jPassword: config.TENSOL_NEO4J_PASSWORD,
 			vpsAgentImage: config.TENSOL_VPS_AGENT_IMAGE,
-			// P1 — drive the Decepticon scan with real gpt-5.5 only when explicitly
-			// enabled; default (omitted) keeps the cost-safe qwen hijack.
+			// P1 — drive the Decepticon scan with an explicit model only when
+			// enabled; default (omitted) keeps the GLM hijack.
 			...(config.TENSOL_BLACKBOX_AGENT_ENABLED
 				? { blackboxAgentModel: config.TENSOL_AGENT_MODEL }
 				: {}),
@@ -1167,11 +1167,11 @@ export async function main(): Promise<{
 		);
 	}
 
-	// 2026-06-02 — Agentic PR review (gpt-5.5 tool-use). DARK unless
+	// 2026-06-02 — Agentic PR review (tool-use). DARK unless
 	// TENSOL_AGENT_PR_ENABLED. The chat-capable client is built once (stateless);
 	// each review gets a FRESH metered session so its per-review budget actually
-	// accumulates and bounds spend (gpt-5.5 is ~24× the qwen reviewer + agentic
-	// loops multiply round-trips, so a hard dollar ceiling is mandatory). The base
+	// accumulates and bounds spend (agentic loops multiply round-trips, so a hard
+	// dollar ceiling is mandatory). The base
 	// URL + key are the shared OpenRouter creds; only the model id differs.
 	const prAgentBaseClient: LlmClient | null =
 		config.TENSOL_AGENT_PR_ENABLED && config.TENSOL_REVIEW_LLM_API_KEY

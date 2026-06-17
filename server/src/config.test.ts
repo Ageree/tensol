@@ -182,7 +182,7 @@ describe("loadConfig", () => {
 		expect(cfg.TENSOL_EXPLOIT_MAX_ITERS).toBe(4);
 		// Deep Research cost bound defaults.
 		expect(cfg.TENSOL_RESEARCH_BUDGET_USD).toBe(0.5);
-		expect(cfg.TENSOL_RESEARCH_USD_PER_MTOK_OUT).toBe(2);
+		expect(cfg.TENSOL_RESEARCH_USD_PER_MTOK_OUT).toBe(4.4);
 	});
 
 	test("feature gates FAIL SAFE: falsey strings stay OFF (not z.coerce.boolean)", () => {
@@ -213,16 +213,16 @@ describe("loadConfig", () => {
 		).toBe(false);
 	});
 
-	test("agentic (gpt-5.5) knobs default off with sane values", () => {
+	test("agentic knobs default off with sane values", () => {
 		const cfg = loadConfig(validEnv);
 		expect(cfg.TENSOL_AGENT_PR_ENABLED).toBe(false);
 		expect(cfg.TENSOL_AGENT_WHITEBOX_ENABLED).toBe(false);
-		expect(cfg.TENSOL_AGENT_MODEL).toBe("openai/gpt-5.5");
+		expect(cfg.TENSOL_AGENT_MODEL).toBe("z-ai/glm-5.2");
 		expect(cfg.TENSOL_AGENT_MAX_ROUNDS).toBe(12);
 		expect(cfg.TENSOL_AGENT_MAX_TOOL_CALLS).toBe(48);
 		expect(cfg.TENSOL_AGENT_BUDGET_USD).toBe(2);
-		expect(cfg.TENSOL_AGENT_USD_PER_MTOK_IN).toBe(5);
-		expect(cfg.TENSOL_AGENT_USD_PER_MTOK_OUT).toBe(30);
+		expect(cfg.TENSOL_AGENT_USD_PER_MTOK_IN).toBe(1.4);
+		expect(cfg.TENSOL_AGENT_USD_PER_MTOK_OUT).toBe(4.4);
 	});
 
 	test("agentic gates FAIL SAFE: falsey strings stay OFF", () => {
@@ -258,7 +258,7 @@ describe("loadConfig", () => {
 		expect(cfg.TENSOL_HARNESS_ENABLED).toBe(false);
 	});
 
-	test("blackbox gpt-5.5 gate defaults off and fails safe", () => {
+	test("blackbox agent model gate defaults off and fails safe", () => {
 		expect(loadConfig(validEnv).TENSOL_BLACKBOX_AGENT_ENABLED).toBe(false);
 		for (const falsey of ["false", "0", "off", ""]) {
 			expect(
@@ -407,10 +407,10 @@ describe("loadConfig", () => {
 		test("defaults are off and conservative", () => {
 			const c = loadConfig(validEnv);
 			expect(c.TENSOL_HARNESS_ENABLED).toBe(false);
-			expect(c.TENSOL_HARNESS_MODEL_AUDITOR).toBe("openai/gpt-5.5");
-			expect(c.TENSOL_HARNESS_MODEL_DEBATER).toBe("qwen/qwen3.7-max");
+			expect(c.TENSOL_HARNESS_MODEL_AUDITOR).toBe("z-ai/glm-5.2");
+			expect(c.TENSOL_HARNESS_MODEL_DEBATER).toBe("z-ai/glm-5.2");
 			expect(c.TENSOL_HARNESS_MODEL_COUNTERPOINT).toBe("");
-			expect(c.TENSOL_HARNESS_MODEL_RECON).toBe("qwen/qwen3.7-max");
+			expect(c.TENSOL_HARNESS_MODEL_RECON).toBe("z-ai/glm-5.2");
 			expect(c.TENSOL_HARNESS_BUDGET_USD).toBe(2.0);
 			expect(c.TENSOL_HARNESS_MAX_AUDITORS).toBe(12);
 			expect(c.TENSOL_HARNESS_AUDITOR_MAX_ROUNDS).toBe(6);

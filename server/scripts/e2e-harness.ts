@@ -5,8 +5,7 @@
  * set of FRESH, comment-free fixtures (no "VULNERABLE" giveaways) spanning
  * several vuln classes PLUS safe decoys that *look* dangerous — so we measure
  * BOTH recall on real vulns AND false-positive resistance on decoys, with a REAL
- * 3-model ensemble (gpt-5.5 auditor + qwen debater + an independent SOTA
- * counterpoint). Spend is hard-capped by the shared per-scan budget.
+ * GLM-5.2-backed harness. Spend is hard-capped by the shared per-scan budget.
  *
  * MANUAL dev script — NOT part of `bun test` / CI (paid network calls).
  *
@@ -43,10 +42,10 @@ if (!apiKey) {
 const baseUrl =
 	process.env.TENSOL_REVIEW_LLM_BASE_URL || "https://openrouter.ai/api/v1";
 const auditorModel =
-	process.env.TENSOL_HARNESS_MODEL_AUDITOR || "openai/gpt-5.5";
+	process.env.TENSOL_HARNESS_MODEL_AUDITOR || "z-ai/glm-5.2";
 const debaterModel =
-	process.env.TENSOL_HARNESS_MODEL_DEBATER || "qwen/qwen3.7-max";
-const reconModel = process.env.TENSOL_HARNESS_MODEL_RECON || "qwen/qwen3.7-max";
+	process.env.TENSOL_HARNESS_MODEL_DEBATER || "z-ai/glm-5.2";
+const reconModel = process.env.TENSOL_HARNESS_MODEL_RECON || "z-ai/glm-5.2";
 const budgetUsd = Number(process.env.TENSOL_HARNESS_BUDGET_USD || "2");
 const maxAuditors = Number(process.env.TENSOL_HARNESS_MAX_AUDITORS || "6");
 
@@ -135,38 +134,15 @@ export function runJob(req: { query: Record<string, string> }) {
 ];
 
 // ---------------------------------------------------------------------------
-// Resolve an independent SOTA counterpoint model (non-openai, non-qwen).
+// Resolve the counterpoint model. Default stays on GLM-5.2; operators can set
+// TENSOL_HARNESS_MODEL_COUNTERPOINT explicitly when they want a heterogeneous run.
 // ---------------------------------------------------------------------------
 async function resolveCounterpoint(): Promise<{
 	model: string;
 	distinct: boolean;
 }> {
 	const fromEnv = process.env.TENSOL_HARNESS_MODEL_COUNTERPOINT?.trim();
-	if (fromEnv) return { model: fromEnv, distinct: true };
-	const prefer = [
-		/^anthropic\/claude.*sonnet/i,
-		/^anthropic\/claude/i,
-		/^google\/gemini.*pro/i,
-		/^google\/gemini/i,
-		/^deepseek\/deepseek/i,
-		/^x-ai\/grok/i,
-	];
-	try {
-		const res = await fetch(`${baseUrl}/models`, {
-			headers: { Authorization: `Bearer ${apiKey}` },
-		});
-		const body = (await res.json()) as { data?: Array<{ id: string }> };
-		const ids = (body.data ?? []).map((m) => m.id);
-		for (const rx of prefer) {
-			const hit = ids.find((id) => rx.test(id));
-			if (hit) return { model: hit, distinct: true };
-		}
-	} catch (e) {
-		console.warn(`  (could not list models: ${(e as Error).message})`);
-	}
-	console.warn(
-		"  ⚠ no independent counterpoint model found — falling back to the auditor model.",
-	);
+	if (fromEnv) return { model: fromEnv, distinct: fromEnv !== auditorModel };
 	return { model: auditorModel, distinct: false };
 }
 
@@ -199,8 +175,8 @@ async function main() {
 
 	const budget = createBudget({
 		ceilingUsd: budgetUsd,
-		usdPerMTokOut: 30,
-		usdPerMTokIn: 5,
+		usdPerMTokOut: 4.4,
+		usdPerMTokIn: 1.4,
 	});
 	const session = buildHarnessModels({
 		apiKey,

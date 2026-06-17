@@ -177,10 +177,10 @@ export interface SpawnScanVmHandlerDeps {
 	readonly vpsAgentImage?: string;
 	readonly agentPort?: number;
 	/**
-	 * P1 — OpenRouter model id to drive the Decepticon scan with real gpt-5.5
-	 * tool-use (e.g. `"openai/gpt-5.5"`). When set, cloud-init repoints the VM's
+	 * P1 — OpenRouter model id to drive the Decepticon scan with an explicit
+	 * tool-use model (e.g. `"z-ai/glm-5.2"`). When set, cloud-init repoints the VM's
 	 * openai/* LiteLLM routes to it + pins the openai auth path. Omit (default) →
-	 * the cost-safe qwen hijack. Wired from `TENSOL_BLACKBOX_AGENT_ENABLED`.
+	 * the default GLM hijack. Wired from `TENSOL_BLACKBOX_AGENT_ENABLED`.
 	 */
 	readonly blackboxAgentModel?: string;
 	/**

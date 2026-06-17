@@ -1,6 +1,6 @@
 /**
  * The agentic orchestrator — a domain-agnostic think→call-tool→observe→repeat
- * loop shared by every gpt-5.5-powered service (PR Review / Whitebox / Blackbox).
+ * loop shared by every tool-using service (PR Review / Whitebox / Blackbox).
  *
  * Given a chat transport (an `LlmClient.chat`), a catalog of {@link AgentTool}s,
  * and an initial message history, it drives the model: each round it asks the

@@ -102,7 +102,7 @@ export interface RunReviewDeps {
    */
   readonly reachability?: ReachabilityClient;
   /**
-   * Optional agentic (gpt-5.5 tool-using) review configuration for the FAST
+   * Optional agentic tool-using review configuration for the FAST
    * path. When present, the fast path runs {@link agentReview} — the model may
    * call tools (read_file / get_pr_diff) to investigate before answering —
    * instead of one blind `review()` pass. The output flows through the IDENTICAL

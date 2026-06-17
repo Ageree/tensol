@@ -119,8 +119,8 @@ describe("buildCloudInit", () => {
     // Compose YAML actually present in the payload (sniff for our header).
     expect(out).toContain("services:");
     expect(out).toContain("langgraph:");
-    // LiteLLM override actually present (sniff for OpenRouter qwen route).
-    expect(out).toContain("openrouter/qwen/qwen3.7-max");
+    // LiteLLM override actually present (sniff for OpenRouter GLM route).
+    expect(out).toContain("openrouter/z-ai/glm-5.2");
     // recon.md override actually present (Rule 4b marker).
     expect(out).toContain("TENSOL OVERRIDE");
     // Symlink to where vps-agent's runner expects compose.
@@ -218,48 +218,57 @@ describe("buildCloudInit", () => {
     expect(a).toBe(b);
   });
 
-  // --- P1: blackbox on gpt-5.5 (opt-in, cost-safe default) ---
+  // --- P1: blackbox explicit model override (opt-in) ---
 
-  test("default (no blackboxAgentModel) keeps the cost-safe qwen hijack + anthropic auth", () => {
+  test("default (no blackboxAgentModel) keeps the GLM hijack + anthropic auth", () => {
     const out = buildCloudInit(STABLE_ARGS);
-    // openai/* routes still hijacked to qwen.
+    // openai/* routes still hijacked to GLM.
     expect(out).toContain("model_name: openai/gpt-5.5");
-    expect(out).toContain("openrouter/qwen/qwen3.7-max");
+    expect(out).toContain("openrouter/z-ai/glm-5.2");
+    for (const name of [
+      "auth/claude-opus-4-7",
+      "openrouter/anthropic/claude-opus-4-7",
+    ]) {
+      const block = new RegExp(
+        `- model_name: ${name.replace(/[/.]/g, "\\$&")}\\n\\s+litellm_params:\\n\\s+model: openrouter/z-ai/glm-5\\.2`,
+      );
+      expect(block.test(out)).toBe(true);
+    }
     // Auth path pinned to anthropic (synthetic key), not openai.
     expect(out).toContain("DECEPTICON_AUTH_PRIORITY=anthropic_api");
     expect(out).not.toContain("DECEPTICON_AUTH_PRIORITY=openai_api");
   });
 
-  test("blackboxAgentModel repoints ONLY the openai/* routes to real gpt-5.5", () => {
-    const out = buildCloudInit({ ...STABLE_ARGS, blackboxAgentModel: "openai/gpt-5.5" });
+  test("blackboxAgentModel repoints ONLY the openai/* routes to the requested model", () => {
+    const out = buildCloudInit({ ...STABLE_ARGS, blackboxAgentModel: "z-ai/glm-5.2" });
     // The three openai routes now point to the real OpenRouter model.
-    expect(out).toContain("model: openrouter/openai/gpt-5.5");
-    // …and no longer to qwen under an openai model_name. Assert each openai
+    expect(out).toContain("model: openrouter/z-ai/glm-5.2");
+    // …and no longer to the default hijack under an openai model_name. Assert each openai
     // block's target line is the real model (anchored, structural).
     for (const name of ["openai/gpt-5.5", "openai/gpt-5.4", "openai/gpt-5-nano"]) {
       const block = new RegExp(
-        `- model_name: ${name.replace(/[.]/g, "\\.")}\\n\\s+litellm_params:\\n\\s+model: openrouter/openai/gpt-5\\.5`,
+        `- model_name: ${name.replace(/[.]/g, "\\.")}\\n\\s+litellm_params:\\n\\s+model: openrouter/z-ai/glm-5\\.2`,
       );
       expect(block.test(out)).toBe(true);
     }
-    // The anthropic/* and nvidia_nim/* qwen hijacks remain untouched.
+    // The anthropic/* and nvidia_nim/* GLM hijacks remain untouched.
     expect(out).toContain("model_name: anthropic/claude-opus-4-7");
     expect(out).toMatch(
-      /- model_name: anthropic\/claude-opus-4-7\n\s+litellm_params:\n\s+model: openrouter\/qwen\/qwen3\.7-max/,
+      /- model_name: anthropic\/claude-opus-4-7\n\s+litellm_params:\n\s+model: openrouter\/z-ai\/glm-5\.2/,
     );
   });
 
   test("blackboxAgentModel pins Decepticon to the openai auth path", () => {
-    const out = buildCloudInit({ ...STABLE_ARGS, blackboxAgentModel: "openai/gpt-5.5" });
+    const out = buildCloudInit({ ...STABLE_ARGS, blackboxAgentModel: "z-ai/glm-5.2" });
     expect(out).toContain("DECEPTICON_AUTH_PRIORITY=openai_api");
-    expect(out).toContain("OPENAI_API_KEY=sk-tensol-routes-via-litellm-gpt55");
+    expect(out).toContain("OPENAI_API_KEY=sk-tensol-routes-via-litellm-model");
     // The anthropic synthetic-key path is replaced, not duplicated.
     expect(out).not.toContain("DECEPTICON_AUTH_PRIORITY=anthropic_api");
-    expect(out).not.toContain("ANTHROPIC_API_KEY=sk-ant-tensol-routes-via-litellm-qwen");
+    expect(out).not.toContain("ANTHROPIC_API_KEY=sk-ant-tensol-routes-via-litellm-glm52");
   });
 
   test("blackbox repoint is still deterministic", () => {
-    const args = { ...STABLE_ARGS, blackboxAgentModel: "openai/gpt-5.5" };
+    const args = { ...STABLE_ARGS, blackboxAgentModel: "z-ai/glm-5.2" };
     expect(buildCloudInit(args)).toBe(buildCloudInit(args));
   });
 });
