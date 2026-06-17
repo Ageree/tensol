@@ -27,13 +27,16 @@ GitHub / browser / Vercel frontend
       └─ Vercel DNS A record -> 34.156.105.67
           └─ GCP VM sthrip-api-prod
               └─ Caddy :443 -> 127.0.0.1:3000
-                  └─ Docker container tensol-server
+              └─ Docker container tensol-server
+                    └─ Docker network -> tensol-pr-execution-worker
+                       (only with compose profile `pr-execution`)
 
 Bun server ──> SQLite at /opt/tensol/data/tensol.db
             ──> GCP Compute Engine (per-scan VM lifecycle)
             ──> object storage adapter (GCP migration pending)
             ──> Telegram Bot API   (operator notifications + leads)
             ──> GitHub App API     (PR review webhooks + review artifacts)
+            ──> PR execution worker (internal Docker URL only)
 ```
 
 ## Access
@@ -50,9 +53,81 @@ Important paths on the VM:
 | --- | --- |
 | `/opt/tensol/repo` | Deployed repo bundle. |
 | `/opt/tensol/.env.prod` | Production env file; never copy into git. |
+| `/opt/tensol/.env.pr-execution-worker` | Minimal env for the isolated PR execution worker; required only when enabling PR execution. |
 | `/opt/tensol/.gcp/tensol-vm-spawner.json` | GCP service-account JSON mounted read-only into the container. |
 | `/opt/tensol/data` | SQLite database volume. |
 | `/etc/caddy/Caddyfile` | Live Caddy config. |
+
+## PR execution worker
+
+`docker-compose.prod.yml` defines a second container,
+`tensol-pr-execution-worker`, for TREX-style runtime evidence. It is behind the
+`pr-execution` compose profile, so ordinary dark deploys do not require Vercel
+Sandbox credentials and do not start the worker. When enabled, it is not exposed
+through Caddy and has no host port binding. The API server reaches it through:
+
+```dotenv
+STHRIP_PR_EXECUTION_WORKER_URL=http://pr-execution-worker:8080/pr-execution
+```
+
+Keep the global flag dark until the worker has passed an internal smoke. With
+both `STHRIP_PR_EXECUTION_ENABLED=false` and
+`STHRIP_PR_EXECUTION_WORKER_ENABLED=false`, deploy.sh skips the worker env,
+image, credentials, and compose profile. To smoke the worker without routing
+real PR reviews to it, set only `STHRIP_PR_EXECUTION_WORKER_ENABLED=true`.
+
+`/opt/tensol/.env.prod`:
+
+```dotenv
+STHRIP_PR_EXECUTION_ENABLED=false
+STHRIP_PR_EXECUTION_WORKER_ENABLED=false
+STHRIP_PR_EXECUTION_WORKER_SECRET=
+```
+
+Before enabling the flag, generate one 32-byte secret and copy it into both
+env files:
+
+```bash
+openssl rand -hex 32
+```
+
+`/opt/tensol/.env.pr-execution-worker`:
+
+```dotenv
+STHRIP_PR_EXECUTION_WORKER_SECRET=<same-32-byte-hex>
+STHRIP_PR_EXECUTION_SANDBOX_PROVIDER=vercel-sandbox
+VERCEL_TOKEN=<vercel-access-token>
+VERCEL_TEAM_ID=<team_...>
+VERCEL_PROJECT_ID=<prj_...>
+```
+
+The worker env file is separate on purpose: the isolated execution container
+must not inherit API, Clerk, Telegram, database, or object-storage secrets.
+The GCP-hosted worker is not a Vercel-hosted runtime, so it needs the explicit
+Vercel access-token triple above. Managed `VERCEL_OIDC_TOKEN` is appropriate
+only for Vercel-hosted workers.
+
+Direct internal worker smoke from the VM:
+
+```bash
+source /opt/tensol/.env.prod
+NOW=$(date +%s)
+EXP=$((NOW + 300))
+NONCE=$(openssl rand -hex 16)
+BODY=$(printf '{"type":"pr_execution","iat":%s,"exp":%s,"nonce":"%s","aud":"sthrip-pr-worker","input":{"reviewId":"prod-smoke","repoId":"octocat-hello","owner":"octocat","name":"Hello-World","prNumber":1,"headSha":"7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"}}' "$NOW" "$EXP" "$NONCE")
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$STHRIP_PR_EXECUTION_WORKER_SECRET" -hex | awk '{print "sha256="$2}')
+docker exec tensol-server wget -qO- \
+  --header="content-type: application/json" \
+  --header="x-sthrip-execution-signature: $SIG" \
+  --post-data="$BODY" \
+  http://pr-execution-worker:8080/pr-execution
+```
+
+Expected result: `status` is `passed`, `failed`, or `error` with bounded
+artifacts. For rollout, first set `STHRIP_PR_EXECUTION_WORKER_ENABLED=true`
+and require a `passed` smoke on `octocat/Hello-World`. Only then set
+`STHRIP_PR_EXECUTION_ENABLED=true` and redeploy; repo-level
+`review_repos.pr_execution_enabled` still gates individual repositories.
 
 ## Verifying production
 
@@ -61,6 +136,13 @@ curl -fsS https://api.sthrip.dev/healthz
 docker ps --filter name=tensol-server
 docker logs --tail=80 tensol-server
 journalctl -u caddy --since "1 hour ago"
+```
+
+When PR execution is enabled, also check:
+
+```bash
+docker ps --filter name=tensol-pr-execution-worker
+docker logs --tail=80 tensol-pr-execution-worker
 ```
 
 Expected API health response:
@@ -101,7 +183,8 @@ sudo nano /opt/tensol/.env.prod
 #   GCP_PROD_SUBNET_ID             gcloud compute networks subnets list --project=tensol-scanners
 #   GCP_PROD_SSH_PUBLIC_KEY        single-line OpenSSH public key
 #   GCP_BOOT_DISK_IMAGE_ID         gcloud compute images describe-from-family ubuntu-2404-lts --project=ubuntu-os-cloud
-#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY   GCP IAM static keys
+#   TENSOL_EVIDENCE_BUCKET       GCS bucket; grant runtime service accounts IAM
+#   GCP_SCAN_VM_SERVICE_ACCOUNT_EMAIL   optional scanner VM service account
 
 # 4. Re-run deploy (now succeeds).
 sudo /opt/tensol/repo/infra/prod/deploy.sh
@@ -213,7 +296,7 @@ this script; see Timeweb's snapshot feature for a no-effort option.)
       unset/false while old compatibility code exists).
 - [ ] `TENSOL_OPERATOR_EMAILS` actually maps to admin accounts you control.
 - [ ] Outbound firewall allows GCP APIs, `api.telegram.org`, GitHub API, and
-      whichever explicit GCP/GCS-compatible object-storage endpoint is approved.
+      `storage.googleapis.com`.
 - [ ] Inbound firewall: only 22 (SSH, ideally IP-restricted), 80, 443.
 
 ## Files in this directory
@@ -221,7 +304,8 @@ this script; see Timeweb's snapshot feature for a no-effort option.)
 | File                          | Purpose                                                    |
 |-------------------------------|------------------------------------------------------------|
 | `deploy.sh`                   | Idempotent bootstrap + redeploy script. Run as root.       |
-| `docker-compose.prod.yml`     | Single-service stack — Bun server only.                    |
+| `docker-compose.prod.yml`     | Bun server plus profiled internal PR execution worker.     |
 | `Caddyfile`                   | Reverse-proxy + static SPA + auto-TLS for 4 hostnames.     |
 | `.env.prod.example`           | Annotated env-var template. Copy to `/opt/tensol/.env.prod`. |
+| `.env.pr-execution-worker.example` | Minimal worker env template. Copy to `/opt/tensol/.env.pr-execution-worker`. |
 | `README.md`                   | This file.                                                 |

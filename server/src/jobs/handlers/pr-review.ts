@@ -18,10 +18,15 @@
  * runner may re-dispatch a row after a crash between handler success and the
  * status write.
  */
-import type { GitHubClient } from "../../review/github/client.ts";
-import { runReview } from "../../review/engine.ts";
-import { buildPrAgentTools } from "../../review/agent/tools/pr-tools.ts";
 import type { ChatTransport, LoopBudget } from "../../review/agent/loop.ts";
+import { buildPrAgentTools } from "../../review/agent/tools/pr-tools.ts";
+import { runReview } from "../../review/engine.ts";
+import {
+  type PrExecutionRunner,
+  appendExecutionSummary,
+} from "../../review/execution/runner.ts";
+import type { PrExecutionResult } from "../../review/execution/types.ts";
+import type { GitHubClient } from "../../review/github/client.ts";
 import {
   buildOverCapacityComment,
   fingerprintsFromComments,
@@ -72,6 +77,8 @@ export interface PrReviewHandlerDeps {
     maxRounds: number;
     maxToolCalls: number;
   };
+  /** Optional remote/sandbox PR execution layer. No local execution fallback. */
+  readonly execution?: PrExecutionRunner;
 }
 
 interface NormalizedPayload {
@@ -125,11 +132,37 @@ async function collectPriorThreads(
     if (seen.has(f.fingerprint)) continue;
     seen.add(f.fingerprint);
     const open = await service.getOpenThread(repoId, f.fingerprint);
-    if (open && open.githubThreadId) {
+    if (open?.githubThreadId) {
       out.push({ fingerprint: f.fingerprint, threadId: open.githubThreadId });
     }
   }
   return out;
+}
+
+function executionErrorResult(err: unknown): PrExecutionResult {
+  const message = err instanceof Error ? err.message : String(err);
+  return {
+    status: "error",
+    summaryMd: [
+      "## Runtime evidence",
+      "",
+      "PR execution was attempted, but the isolated worker returned an error.",
+      "",
+      "```text",
+      message,
+      "```",
+    ].join("\n"),
+    artifacts: [
+      {
+        kind: "log",
+        label: "Execution worker error",
+        summaryMd: "The runtime execution worker failed before returning evidence.",
+        inlineBody: message,
+        mimeType: "text/plain",
+        byteSize: Buffer.byteLength(message, "utf8"),
+      },
+    ],
+  };
 }
 
 /** Build a `pr_review` handler closing over injected deps. */
@@ -156,18 +189,20 @@ export function createPrReviewHandler(deps: PrReviewHandlerDeps) {
       if (review.prNumber == null || !review.headSha) {
         throw new Error(`pr_review: review ${reviewId} missing prNumber/headSha`);
       }
+      const prNumber = review.prNumber;
+      const headSha = review.headSha;
       const installationId = repo.installationId ?? undefined;
 
       // Over-capacity / concurrency guard (T025 / FR-017): if another review is
       // already RUNNING for this (repo, PR), do not start a second concurrent
       // engine pass. Post a transparent explanatory comment instead of silently
       // skipping, and finalize this review as completed with no findings.
-      const concurrent = await service.hasRunningReview(repo.id, review.prNumber);
+      const concurrent = await service.hasRunningReview(repo.id, prNumber);
       if (concurrent) {
         await github.postReview({
           owner: repo.owner,
           name: repo.name,
-          pr: review.prNumber,
+          pr: prNumber,
           body: buildOverCapacityComment(),
           event: "COMMENT",
           comments: [],
@@ -188,14 +223,42 @@ export function createPrReviewHandler(deps: PrReviewHandlerDeps) {
       // Derived from the latest COMPLETED review of the same (repo, PR): each of
       // its findings that still has an open thread is a candidate to resolve if
       // the current cycle no longer reports that fingerprint.
-      const priorThreads = await collectPriorThreads(service, repo.id, review.prNumber, reviewId);
+      const priorThreads = await collectPriorThreads(service, repo.id, prNumber, reviewId);
 
       const files = await github.getPullRequestFiles({
         owner: repo.owner,
         name: repo.name,
-        pr: review.prNumber,
+        pr: prNumber,
         ...(installationId !== undefined ? { installationId } : {}),
       });
+
+      let executionResult: PrExecutionResult | null = null;
+      if (deps.execution && repo.prExecutionEnabled !== 0) {
+        await service.recordExecutionResult(reviewId, {
+          status: "running",
+          summaryMd: [
+            "## Runtime evidence",
+            "",
+            `PR execution started for head \`${headSha.slice(0, 12)}\`.`,
+          ].join("\n"),
+          artifacts: [],
+        });
+        try {
+          executionResult = await deps.execution.run({
+            reviewId,
+            repoId: repo.id,
+            owner: repo.owner,
+            name: repo.name,
+            prNumber,
+            headSha,
+            baseSha: review.baseSha,
+            files,
+          });
+        } catch (err) {
+          executionResult = executionErrorResult(err);
+        }
+        await service.recordExecutionResult(reviewId, executionResult);
+      }
 
       // Per-repo learned suppressions (style/nit classes only — the engine's
       // NEVER_SUPPRESS guard re-strips security/correctness as defense in depth).
@@ -205,22 +268,23 @@ export function createPrReviewHandler(deps: PrReviewHandlerDeps) {
       // Agentic fast path: build a fresh per-review metered session +
       // tools bound to THIS PR head. Only when the agent dep is wired (flag on)
       // and we have a head SHA to read files at.
+      const agentConfig = deps.agent;
       const agentDeps =
-        deps.agent && review.headSha
+        agentConfig
           ? (() => {
-              const { transport, budget } = deps.agent!.makeSession();
+              const { transport, budget } = agentConfig.makeSession();
               return {
                 transport,
                 budget,
                 tools: buildPrAgentTools(github, {
                   owner: repo.owner,
                   name: repo.name,
-                  pr: review.prNumber!,
-                  ref: review.headSha,
+                  pr: prNumber,
+                  ref: headSha,
                   ...(installationId !== undefined ? { installationId } : {}),
                 }),
-                maxRounds: deps.agent!.maxRounds,
-                maxToolCalls: deps.agent!.maxToolCalls,
+                maxRounds: agentConfig.maxRounds,
+                maxToolCalls: agentConfig.maxToolCalls,
               };
             })()
           : undefined;
@@ -243,6 +307,7 @@ export function createPrReviewHandler(deps: PrReviewHandlerDeps) {
           ...(agentDeps ? { agent: agentDeps } : {}),
         },
       );
+      const postedResult = appendExecutionSummary(result, executionResult);
 
       // Skip findings that already have an open thread (prior review of this PR).
       const alreadyPosted = new Set<string>();
@@ -258,18 +323,18 @@ export function createPrReviewHandler(deps: PrReviewHandlerDeps) {
       const existing = await github.listReviewComments({
         owner: repo.owner,
         name: repo.name,
-        pr: review.prNumber,
+        pr: prNumber,
         ...(installationId !== undefined ? { installationId } : {}),
       });
       for (const fp of fingerprintsFromComments(existing)) alreadyPosted.add(fp);
 
       const out = await postReviewResult({
-        result,
+        result: postedResult,
         ctx: {
           owner: repo.owner,
           name: repo.name,
-          pr: review.prNumber,
-          headSha: review.headSha,
+          pr: prNumber,
+          headSha,
           statusCheckEnabled: repo.statusCheckEnabled !== 0,
           mergeBlockOnCritical: repo.mergeBlockOnCritical !== 0,
           ...(installationId !== undefined ? { installationId } : {}),

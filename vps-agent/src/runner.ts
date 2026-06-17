@@ -31,7 +31,7 @@
  *   - VII: file ≤ 800 LOC (this file: ~310 LOC).
  *
  * Why DI-heavy:
- *   - Tests stay hermetic — no real docker socket, S3 endpoint, network, or
+ *   - Tests stay hermetic — no real docker socket, GCS endpoint, network, or
  *     filesystem outside the test temp dir is touched.
  *   - Production wiring is a thin adapter layer at the bottom of this file
  *     (`createDefaultRunnerDeps`) that bridges injected interfaces to the
@@ -309,7 +309,7 @@ export async function runScan(deps: RunnerDeps): Promise<RunScanResult> {
 		});
 	}
 
-	// 4. Upload to S3 / Google Cloud Storage.
+	// 4. Upload to Google Cloud Storage.
 	let upload: UploadResult;
 	try {
 		upload = await deps.evidenceUploader.uploadEvidence({
@@ -404,7 +404,7 @@ function buildWebhookBody(args: BuildWebhookBodyArgs): Record<string, unknown> {
 		})),
 	};
 	if (args.evidenceKey !== undefined) {
-		out.evidence_archive_url = `s3://${args.evidenceBucket}/${args.evidenceKey}`;
+		out.evidence_archive_url = `gs://${args.evidenceBucket}/${args.evidenceKey}`;
 	}
 	if (args.decepticonEventsCount !== undefined) {
 		out.decepticon_events_count = args.decepticonEventsCount;

@@ -180,10 +180,10 @@ description: "Task list — Sthrip PR Review (feature 004)"
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T051 [P] Wire `server/scripts/license-audit.sh` into CI (fail on AGPL/BSL/SSPL/Elastic/Commons-Clause/PolyForm-NC in shippable path; assert no `gitnexus` in `server/src`; assert Opengrep rules source) — SC-008.
+- [X] T051 [P] Wire `server/scripts/license-audit.sh` into CI (fail on AGPL/BSL/SSPL/Elastic/Commons-Clause/PolyForm-NC in shippable path; assert no `gitnexus` in `server/src`; assert Opengrep rules source) — SC-008. CI runs `bash server/scripts/license-audit.sh` before server tests.
 - [ ] T052 Run full regression: `cd server && bun test src/` (expect prior 1078+ pass / 0 fail + new tests), `npx tsc --noEmit` 0; `cd apps/site && npx tsc -b` 0 + Playwright `connect-select` E2E green.
-- [ ] T053 [P] Verify all new state changes emit signed audit (Constitution X) and run `verify-audit-chain` against the test DB (CI gate).
-- [ ] T054 [P] Branding/i18n sweep: user-facing strings say "Sthrip"; no English terms in the RU i18n dict; check-run title `Sthrip N/5`.
+- [X] T053 [P] Verify all new state changes emit signed audit (Constitution X) and run `verify-audit-chain` against the test DB (CI gate). `server/test/audit/new-events.test.ts` emits all 38 blackbox + PR-review event literals and verifies the chain; CI also runs `bun run verify-chain --db :memory:`.
+- [X] T054 [P] Branding/i18n sweep: user-facing strings say "Sthrip"; no English terms in the RU i18n dict; check-run title `Sthrip N/5`. Public UI is English-only; legacy `Tensol` identifiers remain internal compatibility names only.
 - [ ] T055 [P] Reindex GitNexus (`npx gitnexus analyze`, add `--embeddings` only if `.gitnexus/meta.json` stats.embeddings>0) after merge; update `docs/` with the connect-flow + skills usage.
 - [ ] T056 Run `quickstart.md` end-to-end against a dev GitHub App; confirm SC-001…SC-009.
 

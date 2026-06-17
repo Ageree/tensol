@@ -17,7 +17,7 @@
  *      excluded — there's nothing in Object Storage to delete; we let those
  *      rows be cleaned up by their owning scan's lifecycle.
  *   2. For each expired row, in any order:
- *        a) call `s3.deleteObject({Bucket, Key})`
+ *        a) call `storage.deleteObject({bucket, key})`
  *        b) if it succeeds → DELETE the row + emit signed audit
  *           (`evidence_pruned` / `report_pruned`) AFTER the DELETE tx commits
  *           (Constitution X: post-commit audit).
@@ -39,8 +39,8 @@
  *
  * Return value: `{ processed, deleted, errors }` for observability.
  *   - `processed` = total rows the handler attempted to prune (succ + fail)
- *   - `deleted`   = rows whose S3 object delete + row DELETE both succeeded
- *   - `errors`    = rows whose S3 delete threw (row left in place for retry)
+ *   - `deleted`   = rows whose object delete + row DELETE both succeeded
+ *   - `errors`    = rows whose object delete threw (row left in place for retry)
  */
 import { and, eq, isNotNull, lt } from "drizzle-orm";
 
@@ -56,19 +56,16 @@ import { emitSignedAudit } from "../../audit/emit.ts";
 /** Hard cap on rows processed per tick. Keeps a single tick bounded. */
 export const PRUNE_BATCH_SIZE = 100;
 
-/** Subset of S3 client surface this handler needs. Matches `@aws-sdk/client-s3`
- *  shape for `send(new DeleteObjectCommand({Bucket, Key}))` callers wrapping
- *  via `deleteObject` adapter, OR a plain test stub. */
-export interface CleanupExpiredS3Client {
+export interface CleanupExpiredStorageClient {
   deleteObject(cmd: {
-    Bucket: string;
-    Key: string;
+    bucket: string;
+    key: string;
   }): Promise<unknown>;
 }
 
 export interface CleanupExpiredReportsDeps {
   readonly db: DB;
-  readonly s3: CleanupExpiredS3Client;
+  readonly storage: CleanupExpiredStorageClient;
   /** Default bucket for `evidence_artifacts` — used when row.bucket is the
    *  short alias and the canonical Object Storage bucket lives in env. The
    *  row's `bucket` column overrides this. */
@@ -109,7 +106,7 @@ export function createCleanupExpiredReportsHandler(
 ): CleanupExpiredReportsHandler {
   const {
     db,
-    s3,
+    storage,
     bucket: defaultBucket,
     auditKey,
     now = defaultNow,
@@ -131,7 +128,7 @@ export function createCleanupExpiredReportsHandler(
       for (const c of candidates) {
         const ok = await pruneOne({
           db,
-          s3,
+          storage,
           defaultBucket,
           auditKey,
           ts,
@@ -232,7 +229,7 @@ function collectCandidates(
 
 interface PruneOneArgs {
   readonly db: DB;
-  readonly s3: CleanupExpiredS3Client;
+  readonly storage: CleanupExpiredStorageClient;
   readonly defaultBucket: string;
   readonly auditKey: string;
   readonly ts: number;
@@ -240,35 +237,35 @@ interface PruneOneArgs {
 }
 
 /**
- * Delete a single candidate. Returns true on success, false on S3 failure.
+ * Delete a single candidate. Returns true on success, false on storage failure.
  *
  * Flow:
- *   1. S3 deleteObject (the slow / failable I/O happens FIRST so we never
+ *   1. Object delete (the slow / failable I/O happens FIRST so we never
  *      leave an orphan object behind a deleted row).
  *   2. DELETE row in a tx.
  *   3. Emit `evidence_pruned` / `report_pruned` audit AFTER tx commits.
  *
- * S3 throws → caller counts as error, row left in place for next-tick retry.
+ * Storage throws → caller counts as error, row left in place for next-tick retry.
  */
 async function pruneOne(args: PruneOneArgs): Promise<boolean> {
-  const { db, s3, defaultBucket, auditKey, ts, candidate } = args;
+  const { db, storage, defaultBucket, auditKey, ts, candidate } = args;
 
   // Row-level bucket overrides the default; default applies if a legacy row
   // wrote an empty string (shouldn't happen per schema, but defensive).
   const bucket = candidate.bucket || defaultBucket;
 
   try {
-    await s3.deleteObject({ Bucket: bucket, Key: candidate.key });
+    await storage.deleteObject({ bucket, key: candidate.key });
   } catch (err) {
-    // S3 failure: leave the row in place; logging surface deferred to caller.
+    // Storage failure: leave the row in place; logging surface deferred to caller.
     // We intentionally do NOT emit a failure audit because the user did not
-    // ask for the prune — this is a backend hygiene op. A failed S3 call is
+    // ask for the prune — this is a backend hygiene op. A failed storage call is
     // an operational error, not a security event.
     void err;
     return false;
   }
 
-  // S3 delete succeeded. Now DELETE the row.
+  // Object delete succeeded. Now DELETE the row.
   await withTx(db, async (tx) => {
     if (candidate.kind === "evidence") {
       tx.delete(evidenceArtifactsTable)

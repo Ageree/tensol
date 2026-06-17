@@ -4,7 +4,7 @@
  * What this pins down (per task brief + research §R7):
  *   1. HAPPY PATH — handler picks up a pending `reports` row, fetches the
  *      scan + findings, calls the injected `renderPdf` (returns a Buffer of
- *      N bytes), uploads that buffer to S3 via the injected `S3Client`,
+ *      N bytes), uploads that buffer to Object Storage via the injected client,
  *      and UPDATEs the row to `status='ready'` with `bucket`, `key`,
  *      `byte_size`, `expires_at` populated. Emits a signed `pdf_rendered`
  *      audit row.
@@ -12,16 +12,16 @@
  *      on every attempt → 3 retries exhausted → `reports.status='failed'`,
  *      `pdf_render_failed` audit emitted, `retry_telegram_notification`
  *      operator-alert job enqueued.
- *   3. PERMANENT S3 FAILURE — `renderPdf` succeeds but `S3Client.send`
+ *   3. PERMANENT STORAGE FAILURE — `renderPdf` succeeds but storage put
  *      throws a non-transient error → 3 retries exhausted → same failure
  *      semantics as #2.
  *   4. IDEMPOTENT RE-RUN — when the `reports` row is already
  *      `status='ready'` (a prior invocation succeeded), the second
- *      invocation is a no-op: no `renderPdf` call, no S3 upload, no
+ *      invocation is a no-op: no `renderPdf` call, no storage upload, no
  *      duplicate audit row.
  *   5. TRANSIENT RETRY — `renderPdf` throws a TIMEOUT once, then succeeds
  *      on the 2nd attempt → ends with `status='ready'`, exactly one
- *      `pdf_rendered` audit row, exactly one S3 upload.
+ *      `pdf_rendered` audit row, exactly one storage upload.
  *
  * Schema notes:
  *   - All three event names (`pdf_render_requested`, `pdf_rendered`,
@@ -38,7 +38,6 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
-import { PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 
 import { createDb, type DB } from "../../src/db/client.ts";
 import {
@@ -56,6 +55,7 @@ import {
   createRenderPdfHandler,
   type RenderPdfJobPayload,
 } from "../../src/jobs/handlers/render-pdf.ts";
+import type { ObjectStorageClient } from "../../src/storage/gcs.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "migrations");
 
@@ -195,7 +195,7 @@ const BASE_PAYLOAD: RenderPdfJobPayload = {
   reportId: FIXED_REPORT_ID,
 };
 
-interface S3Capture {
+interface StorageCapture {
   readonly puts: Array<{
     readonly bucket: string;
     readonly key: string;
@@ -203,35 +203,35 @@ interface S3Capture {
   }>;
 }
 
-/** Build a fake S3 client that records every PutObject + lets tests fail it. */
-function makeFakeS3(opts: {
+/** Build a fake storage client that records every put + lets tests fail it. */
+function makeFakeStorage(opts: {
   failTimes?: number;
   failError?: Error;
   alwaysFail?: boolean;
-}): { client: S3Client; capture: S3Capture } {
-  const capture: S3Capture = { puts: [] };
+}): { client: ObjectStorageClient; capture: StorageCapture } {
+  const capture: StorageCapture = { puts: [] };
   let failsRemaining = opts.failTimes ?? 0;
   const client = {
-    async send(command: unknown) {
+    async putObject(input) {
       if (opts.alwaysFail) {
-        throw opts.failError ?? new Error("S3: HTTP 403 forbidden");
+        throw opts.failError ?? new Error("storage: HTTP 403 forbidden");
       }
       if (failsRemaining > 0) {
         failsRemaining -= 1;
-        throw opts.failError ?? new Error("S3: TIMEOUT");
+        throw opts.failError ?? new Error("storage: TIMEOUT");
       }
-      if (command instanceof PutObjectCommand) {
-        const input = (command as PutObjectCommand).input;
-        const body = input.Body as Buffer | Uint8Array | undefined;
-        capture.puts.push({
-          bucket: String(input.Bucket ?? ""),
-          key: String(input.Key ?? ""),
-          bodySize: body ? (body as Buffer).byteLength : 0,
-        });
-      }
-      return {};
+      const body = input.body as Buffer | Uint8Array | undefined;
+      capture.puts.push({
+        bucket: input.bucket,
+        key: input.key,
+        bodySize: body ? (body as Buffer).byteLength : 0,
+      });
     },
-  } as unknown as S3Client;
+    async getObject() {
+      return Buffer.alloc(0);
+    },
+    async deleteObject() {},
+  } satisfies ObjectStorageClient;
   return { client, capture };
 }
 
@@ -248,7 +248,7 @@ afterEach(() => {
 // ───────────────────────────────────────────────────────────────────────────
 // Test 1 — HAPPY PATH
 // ───────────────────────────────────────────────────────────────────────────
-test("happy path: renderPdf called → S3 PutObject → reports row ready, pdf_rendered audit", async () => {
+test("happy path: renderPdf called → storage put → reports row ready, pdf_rendered audit", async () => {
   const db = createDb(":memory:");
   applyMigrations(db);
   const ts = 1_700_000_000_000;
@@ -261,12 +261,12 @@ test("happy path: renderPdf called → S3 PutObject → reports row ready, pdf_r
     return fakePdf;
   };
 
-  const { client: s3, capture } = makeFakeS3({});
+  const { client: storage, capture } = makeFakeStorage({});
 
   let clock = ts + 1;
   const handler = createRenderPdfHandler({
     db,
-    s3,
+    storage,
     bucket: TEST_BUCKET,
     auditKey: TEST_AUDIT_KEY,
     now: () => clock++,
@@ -279,7 +279,7 @@ test("happy path: renderPdf called → S3 PutObject → reports row ready, pdf_r
   // renderPdf called exactly once.
   expect(renderCalls).toBe(1);
 
-  // Exactly one S3 PUT.
+  // Exactly one storage put.
   expect(capture.puts).toHaveLength(1);
   expect(capture.puts[0]!.bucket).toBe(TEST_BUCKET);
   expect(capture.puts[0]!.key).toContain(FIXED_REPORT_ID);
@@ -337,12 +337,12 @@ test("permanent renderPdf failure: 3 retries exhausted → reports failed, pdf_r
     throw new PDFRenderError("puppeteer launch crashed");
   };
 
-  const { client: s3, capture } = makeFakeS3({});
+  const { client: storage, capture } = makeFakeStorage({});
 
   let clock = ts + 1;
   const handler = createRenderPdfHandler({
     db,
-    s3,
+    storage,
     bucket: TEST_BUCKET,
     auditKey: TEST_AUDIT_KEY,
     now: () => clock++,
@@ -356,7 +356,7 @@ test("permanent renderPdf failure: 3 retries exhausted → reports failed, pdf_r
   // PDFRenderError is treated as transient (retries exhausted) → 3 attempts.
   expect(renderCalls).toBe(3);
 
-  // No S3 uploads.
+  // No storage uploads.
   expect(capture.puts).toHaveLength(0);
 
   // reports row failed.
@@ -407,9 +407,9 @@ test("permanent renderPdf failure: 3 retries exhausted → reports failed, pdf_r
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// Test 3 — PERMANENT S3 FAILURE
+// Test 3 — PERMANENT STORAGE FAILURE
 // ───────────────────────────────────────────────────────────────────────────
-test("permanent S3 failure: 3 retries exhausted → reports failed, pdf_render_failed audit", async () => {
+test("permanent storage failure: 3 retries exhausted → reports failed, pdf_render_failed audit", async () => {
   const db = createDb(":memory:");
   applyMigrations(db);
   const ts = 1_700_000_000_000;
@@ -422,16 +422,16 @@ test("permanent S3 failure: 3 retries exhausted → reports failed, pdf_render_f
     return fakePdf;
   };
 
-  // S3 always fails with a transient-looking 500 → retries exhausted.
-  const { client: s3 } = makeFakeS3({
+  // Storage always fails with a transient-looking 500 → retries exhausted.
+  const { client: storage } = makeFakeStorage({
     alwaysFail: true,
-    failError: new Error("S3: HTTP 500 internal server error"),
+    failError: new Error("storage: HTTP 500 internal server error"),
   });
 
   let clock = ts + 1;
   const handler = createRenderPdfHandler({
     db,
-    s3,
+    storage,
     bucket: TEST_BUCKET,
     auditKey: TEST_AUDIT_KEY,
     now: () => clock++,
@@ -441,7 +441,7 @@ test("permanent S3 failure: 3 retries exhausted → reports failed, pdf_render_f
 
   await handler(FIXED_JOB_ID, BASE_PAYLOAD);
 
-  // S3 retried up to 3 times → renderPdf called up to 3 times too
+  // Storage retried up to 3 times → renderPdf called up to 3 times too
   // (since each attempt is render+upload).
   expect(renderCalls).toBe(3);
 
@@ -492,12 +492,12 @@ test("idempotent re-run: reports already ready → no render, no upload, no dupl
     renderCalls += 1;
     return Buffer.from("should not be called");
   };
-  const { client: s3, capture } = makeFakeS3({});
+  const { client: storage, capture } = makeFakeStorage({});
 
   let clock = ts + 1;
   const handler = createRenderPdfHandler({
     db,
-    s3,
+    storage,
     bucket: TEST_BUCKET,
     auditKey: TEST_AUDIT_KEY,
     now: () => clock++,
@@ -528,7 +528,7 @@ test("idempotent re-run: reports already ready → no render, no upload, no dupl
 // ───────────────────────────────────────────────────────────────────────────
 // Test 5 — TRANSIENT RETRY (renderPdf throws once, then succeeds)
 // ───────────────────────────────────────────────────────────────────────────
-test("transient retry: renderPdf throws TIMEOUT once then succeeds → ready, exactly one S3 upload", async () => {
+test("transient retry: renderPdf throws TIMEOUT once then succeeds → ready, exactly one storage upload", async () => {
   const db = createDb(":memory:");
   applyMigrations(db);
   const ts = 1_700_000_000_000;
@@ -544,12 +544,12 @@ test("transient retry: renderPdf throws TIMEOUT once then succeeds → ready, ex
     return fakePdf;
   };
 
-  const { client: s3, capture } = makeFakeS3({});
+  const { client: storage, capture } = makeFakeStorage({});
 
   let clock = ts + 1;
   const handler = createRenderPdfHandler({
     db,
-    s3,
+    storage,
     bucket: TEST_BUCKET,
     auditKey: TEST_AUDIT_KEY,
     now: () => clock++,

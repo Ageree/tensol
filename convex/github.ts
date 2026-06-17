@@ -41,6 +41,7 @@ function repoToInstallationRepo(repo: Doc<"reviewRepos">) {
 		covered_branches: [repo.default_branch],
 		status_check_enabled: true,
 		merge_block_on_critical: true,
+		pr_execution_enabled: repo.pr_execution_enabled ?? false,
 		last_review: null,
 	};
 }
@@ -145,6 +146,7 @@ export const updateRepoSettings = mutation({
 		covered_branches: v.optional(v.array(v.string())),
 		status_check_enabled: v.optional(v.boolean()),
 		merge_block_on_critical: v.optional(v.boolean()),
+		pr_execution_enabled: v.optional(v.boolean()),
 	},
 	handler: async (ctx, args) => {
 		const { user } = await requireUser(ctx);
@@ -153,7 +155,13 @@ export const updateRepoSettings = mutation({
 			throw new ConvexError({ error: "not_found", message: "repo not found" });
 		}
 		const status = args.enabled === false ? "paused" : "active";
-		await ctx.db.patch(repo._id, { status, updated_at: Date.now() });
+		await ctx.db.patch(repo._id, {
+			status,
+			...(args.pr_execution_enabled !== undefined
+				? { pr_execution_enabled: args.pr_execution_enabled }
+				: {}),
+			updated_at: Date.now(),
+		});
 		return {
 			repo_id: repo._id,
 			owner: repo.owner,
@@ -163,6 +171,8 @@ export const updateRepoSettings = mutation({
 			covered_branches: args.covered_branches ?? [repo.default_branch],
 			status_check_enabled: args.status_check_enabled ?? true,
 			merge_block_on_critical: args.merge_block_on_critical ?? true,
+			pr_execution_enabled:
+				args.pr_execution_enabled ?? repo.pr_execution_enabled ?? false,
 			last_review: null,
 		};
 	},

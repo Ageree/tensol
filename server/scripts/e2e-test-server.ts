@@ -9,7 +9,6 @@ import type { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { S3Client } from "@aws-sdk/client-s3";
 
 import { createDb } from "../src/db/client.ts";
 import { refundFreeQuickQuota } from "../src/free-tier/service.ts";
@@ -23,6 +22,7 @@ import { FakeLlmClient } from "../src/review/reviewer.ts";
 import { createReviewService } from "../src/review/service.ts";
 import type { ReviewResult } from "../src/review/types.ts";
 import { applyMigrationsOnce, createApp } from "../src/server.ts";
+import type { ObjectStorageClient } from "../src/storage/gcs.ts";
 import { FakeCloudProvider } from "../src/vps/fake-provider.ts";
 
 const SIGNING_KEY =
@@ -85,9 +85,11 @@ export async function startTestServer(opts?: {
 	applyMigrationsOnce(db, migrationsDir);
 
 	const cloudProvider = new FakeCloudProvider();
-	const fakeS3 = {
-		send: async () => ({}),
-	} as unknown as S3Client;
+	const fakeStorage: ObjectStorageClient = {
+		putObject: async () => {},
+		getObject: async () => Buffer.from("%PDF-1.4 e2e"),
+		deleteObject: async () => {},
+	};
 	const fakeReviewLlm = new FakeLlmClient(() =>
 		JSON.stringify({
 			summary: "E2E fixture review completed without findings.",
@@ -123,10 +125,6 @@ export async function startTestServer(opts?: {
 			webhookSecret: WEBHOOK_SECRET,
 			evidenceBucket: "tensol-e2e-evidence",
 			evidencePrefix: "scans/",
-			awsAccessKeyId: "e2e-access-key",
-			awsSecretAccessKey: "e2e-secret-key",
-			awsEndpoint: "http://127.0.0.1:9",
-			awsRegion: "e2e",
 			createDispatchSignKey: () => DISPATCH_SIGN_KEY,
 			decepticonImage: "ghcr.io/ageree/decepticon:e2e",
 			openrouterApiKey: "e2e-openrouter-key",
@@ -154,7 +152,7 @@ export async function startTestServer(opts?: {
 	const renderPdf = adaptNewStyle(
 		createRenderPdfHandler({
 			db,
-			s3: fakeS3,
+			storage: fakeStorage,
 			bucket: "tensol-e2e-reports",
 			auditKey: SIGNING_KEY,
 			renderPdf: async () => Buffer.from("%PDF-1.4\n% tensol e2e\n"),

@@ -147,6 +147,7 @@ function repoToInstallationRepoWire(
 		covered_branches: coveredBranches,
 		status_check_enabled: repo.statusCheckEnabled === 1,
 		merge_block_on_critical: repo.mergeBlockOnCritical === 1,
+		pr_execution_enabled: repo.prExecutionEnabled === 1,
 		last_review: null,
 	};
 
@@ -180,6 +181,7 @@ function githubRepoToInstallationRepoWire(repo: {
 		covered_branches: [],
 		status_check_enabled: false,
 		merge_block_on_critical: false,
+		pr_execution_enabled: false,
 		last_review: null,
 	};
 }

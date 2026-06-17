@@ -49,6 +49,7 @@ export interface UpdateRepoSettingsArgs {
   readonly coveredBranches?: string[];
   readonly statusCheckEnabled?: boolean;
   readonly mergeBlockOnCritical?: boolean;
+  readonly prExecutionEnabled?: boolean;
 }
 
 export interface ReconcileInstallationReposArgs {
@@ -343,6 +344,10 @@ export function createInstallationMethods(
         patch.mergeBlockOnCritical = args.mergeBlockOnCritical ? 1 : 0;
       }
 
+      if (args.prExecutionEnabled !== undefined) {
+        patch.prExecutionEnabled = args.prExecutionEnabled ? 1 : 0;
+      }
+
       db.update(reviewReposTable)
         .set(patch)
         .where(eq(reviewReposTable.id, args.repoId))
@@ -373,7 +378,8 @@ export function createInstallationMethods(
       const hasOtherChanges =
         args.coveredBranches !== undefined ||
         args.statusCheckEnabled !== undefined ||
-        args.mergeBlockOnCritical !== undefined;
+        args.mergeBlockOnCritical !== undefined ||
+        args.prExecutionEnabled !== undefined;
 
       if (hasOtherChanges) {
         await emit(
@@ -391,6 +397,9 @@ export function createInstallationMethods(
               : {}),
             ...(args.mergeBlockOnCritical !== undefined
               ? { merge_block_on_critical: args.mergeBlockOnCritical }
+              : {}),
+            ...(args.prExecutionEnabled !== undefined
+              ? { pr_execution_enabled: args.prExecutionEnabled }
               : {}),
           },
           args.userId,

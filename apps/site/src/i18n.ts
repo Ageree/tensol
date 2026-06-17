@@ -641,7 +641,7 @@ const en = {
     navLabel: 'Pricing',
     eyebrow: '// PRICING · ASSESSMENT TRACKS',
     title: 'Start narrow. Expand into continuous coverage.',
-    sub: 'Start with hosted OxaPay checkout for blackbox credits, then expand into source-backed and managed offensive coverage as scope grows.',
+    sub: 'Separate PR review from runtime security testing: buy the subscription that matches the workflow you want covered.',
     mythosPositioning:
       'Sthrip is priced around scope and evidence quality, not alert volume. We quote based on runtime targets, repositories, sensitive flows, authorization model, and whether you need one-time assessment or continuous code-review coverage.',
     contactCta: 'Talk to security →',
@@ -649,7 +649,19 @@ const en = {
     depthLabel: 'Depth of test',
     plans: [
       {
-        name: 'Starter',
+        name: 'PR Review',
+        price: '$29',
+        priceAlt: '100 PR reviews / month',
+        unit: '/mo',
+        claim: 'Continuous AI review for pull requests',
+        bestFor:
+          'Engineering teams that want security feedback on code changes without paying blackbox assessment prices.',
+        depth: 'GitHub PR review · security comments · fix guidance · status-check workflow',
+        ctaLabel: 'Pay with OxaPay →',
+        ctaHref: '/billing?product=pr_review',
+      },
+      {
+        name: 'Blackbox Starter',
         price: '$99',
         priceAlt: '2 tests / month',
         unit: '/mo',
@@ -661,7 +673,7 @@ const en = {
         ctaHref: '/billing?product=starter',
       },
       {
-        name: 'Team',
+        name: 'Attack Surface Team',
         price: '$299',
         priceAlt: '15 tests / month',
         unit: '/mo',
@@ -673,7 +685,7 @@ const en = {
         ctaHref: '/billing?product=team',
       },
       {
-        name: 'Pro',
+        name: 'Offensive Pro',
         price: '$599',
         priceAlt: '50 tests / month',
         unit: '/mo',
@@ -767,9 +779,9 @@ const en = {
         focus: 'Scope design, customer trust, executive reporting',
       },
       {
-        name: 'Mira "patchdiff" Orlova',
+        name: 'Maya "patchdiff" Bennett',
         role: 'Co-Founder, Research Lead',
-        bio: 'Exploit developer focused on authz, SSRF, injection chains, and source-backed proof paths. Mira owns the validation gate: if the path cannot be replayed, it does not reach the customer.',
+        bio: 'Exploit developer focused on authz, SSRF, injection chains, and source-backed proof paths. Maya owns the validation gate: if the path cannot be replayed, it does not reach the customer.',
         focus: 'Exploit validation, whitebox review, safe PoCs',
       },
       {
@@ -779,9 +791,9 @@ const en = {
         focus: 'Repo indexing, agent orchestration, evaluator design',
       },
       {
-        name: 'Lena "evidence" Karimova',
+        name: 'Emma "evidence" Carter',
         role: 'Head of Delivery',
-        bio: 'Pentest operator turned product lead. Lena makes sure every finding has the evidence, reproduction path, owner context, and remediation narrative a real engineering team needs to move.',
+        bio: 'Pentest operator turned product lead. Emma makes sure every finding has the evidence, reproduction path, owner context, and remediation narrative a real engineering team needs to move.',
         focus: 'Evidence packs, triage flow, remediation quality',
       },
     ],
@@ -1456,6 +1468,7 @@ const en = {
     sectionRecent: 'Recent reviews',
     colKind: 'Kind',
     colMode: 'Mode',
+    colExecution: 'Runtime',
     colRepo: 'Repository',
     colScore: 'Score',
     colStatus: 'Status',
@@ -1516,6 +1529,11 @@ const en = {
     deepResearch: 'Deep research',
     runScanError: 'Could not start scan',
     featureDisabled: 'Deep research is not available on your plan.',
+    runtimeExecution: 'Runtime execution',
+    runtimeExecutionSaving: 'Saving runtime…',
+    settingsError: 'Could not save repository settings',
+    sectionRuntimeEvidence: 'Runtime evidence',
+    runtimeArtifacts: 'Artifacts',
   },
   // ── END:reviews ───────────────────────────────────────────────────────
 
@@ -1550,4 +1568,24 @@ const en = {
 
 export type TensolDict = typeof en;
 
-export const TENSOL_I18N: Record<TensolLang, TensolDict> = { en };
+const withoutDecorativeLabels = <T,>(value: T): T => {
+  if (typeof value === 'string') {
+    return (value.trimStart().startsWith('//') ? '' : value) as T;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => withoutDecorativeLabels(item)) as T;
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, withoutDecorativeLabels(item)]),
+    ) as T;
+  }
+
+  return value;
+};
+
+export const TENSOL_I18N: Record<TensolLang, TensolDict> = {
+  en: withoutDecorativeLabels(en),
+};

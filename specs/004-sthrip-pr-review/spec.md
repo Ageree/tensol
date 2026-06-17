@@ -72,6 +72,35 @@ Every finding that reaches the developer has cleared a quality bar that the mark
 
 ---
 
+### User Story 3.5 - Runtime execution evidence for PRs (Priority: P1)
+
+When a repository enables runtime execution, Sthrip runs the pull request's
+immutable branch head in an isolated execution worker before posting the review.
+The worker may run generated tests, mocked API flows, and headless UI smoke
+checks. Sthrip stores bounded evidence artifacts (logs, screenshots, API traces,
+generated tests, videos, files), includes a compact runtime summary in the
+GitHub check-run, and shows the evidence in the dashboard review detail.
+
+**Why this priority**: Static review has a ceiling. Some bugs require executing
+the branch, observing runtime failures, or proving a UI/API path in a sandbox.
+
+**Independent Test**: Enable runtime execution on a connected repository, run a
+PR review against a branch head through a configured isolated worker, and confirm
+the check-run includes runtime evidence while the dashboard detail shows the
+execution status and artifacts. Exercise the local service with a headless
+browser smoke test.
+
+**Acceptance Scenarios**:
+
+1. **Given** runtime execution is globally enabled and enabled for a repository, **When** a pull request review runs, **Then** Sthrip dispatches the immutable head SHA to an isolated execution worker and records the execution status.
+2. **Given** the worker returns logs, screenshots, API traces, or generated tests, **When** the review detail is opened, **Then** those artifacts are visible as bounded runtime evidence.
+3. **Given** the worker fails or times out, **When** the PR review continues, **Then** the static review still posts and the execution failure is recorded as runtime evidence.
+4. **Given** runtime execution is not configured, **When** a repository is reviewed, **Then** no untrusted code is executed inside the API server process.
+5. **Given** a customer repository stores secrets or API tokens, **When** runtime execution runs, **Then** the worker receives only the explicitly required dispatch payload and must not inherit API-server secrets.
+6. **Given** the API server dispatches runtime execution, **When** the worker receives the request, **Then** it verifies the HMAC signature, checks out the immutable head SHA in a temporary workspace, and returns only bounded evidence artifacts.
+
+---
+
 ### User Story 4 - Control the review on the pull request (Priority: P2)
 
 A developer can **re-trigger a review** by commenting `@sthrip review` on the pull request. A maintainer can optionally configure a **status check** (`Sthrip N/5`) that can be made a **required, merge-blocking** check when a verified critical-severity finding is present. When a later commit **remediates** a finding, Sthrip detects the fix and **resolves the corresponding thread automatically**. Re-posting is idempotent: the same finding is never threaded twice.
@@ -168,6 +197,16 @@ A developer using an AI coding assistant can invoke two Sthrip skills locally: *
 - **FR-021**: The reviewer MUST challenge its own hypotheses and drop low-confidence candidates before posting.
 - **FR-022**: The overall 0–5 score MUST be computed deterministically from finding attributes and MUST NOT be a value chosen by the language model.
 
+**Runtime execution validation**
+
+- **FR-022a**: System MUST provide a default-off global runtime-execution gate and a per-repository `pr_execution_enabled` setting.
+- **FR-022b**: System MUST dispatch PR runtime execution only to an isolated worker configured by URL and shared secret; the API server MUST NOT fall back to executing customer branch code locally.
+- **FR-022c**: Runtime execution dispatch MUST include the immutable PR head SHA and review/repository identity so evidence is tied to a specific review cycle.
+- **FR-022d**: System MUST persist execution status and bounded evidence artifacts separately from static findings.
+- **FR-022e**: Runtime execution failure MUST NOT prevent the static review from completing; the failure MUST be recorded and surfaced as runtime evidence.
+- **FR-022f**: Dashboard review detail MUST show execution status, summary, and artifacts when present.
+- **FR-022g**: GitHub review/check-run output SHOULD include a compact runtime evidence summary when runtime execution ran.
+
 **Learning**
 
 - **FR-023**: System MUST learn from triage signals (reactions and dismiss-across-merged-PRs) and suppress a repeatedly-dismissed style/nit category for that repository.
@@ -193,6 +232,7 @@ A developer using an AI coding assistant can invoke two Sthrip skills locally: *
 - **Repository**: a code repository accessible to an installation; attributes include enabled/disabled state, covered target branches, owning account, and last-review status.
 - **Review**: one review cycle for a pull request; attributes include the pull request reference, head commit, computed 0–5 score, status, and timing.
 - **Finding**: one issue in a review; attributes include location (file/line), category, severity, numeric confidence, reachability/exploitability indicator, verification outcome, stable fingerprint (for idempotent threading), and remediation/thread state.
+- **Runtime execution artifact**: bounded evidence from an isolated PR execution worker; attributes include review id, kind, label, markdown summary, optional storage key, optional inline body, MIME type, SHA-256, byte size, and creation time.
 - **Triage signal**: a feedback record (reaction, dismissal, accepted-risk) used by the learning loop, scoped to a repository and finding category.
 - **Repository rules file**: customer-authored, version-controlled guidance (auth patterns, trusted sources, ignored paths) honoured at review time.
 
@@ -204,6 +244,7 @@ A developer using an AI coding assistant can invoke two Sthrip skills locally: *
 - **SC-002**: A pull request opened on an enabled repository receives an inline-plus-summary review with a 0–5 score within a **few minutes** of opening (target: ≤ 5 minutes for a typical change).
 - **SC-003**: **100%** of surfaced findings carry severity, a numeric confidence, and a reachability indicator, and have passed the verification gate.
 - **SC-004**: On a mixed benchmark of genuine reachable vulnerabilities and decoys, the **false-positive rate is materially lower than an LLM-only reviewer** on the same set (target: a measurable, reported reduction, e.g. ≥ 50% fewer false positives).
+- **SC-004a**: With runtime execution enabled and a worker configured, a PR review records execution status plus at least one evidence artifact, and a headless local service smoke test verifies the dashboard renders it.
 - **SC-005**: Across repeated review cycles on the same pull request, **zero duplicate threads** are created for an unchanged unresolved finding.
 - **SC-006**: A remediating commit results in automatic thread resolution on the **next** cycle in **≥ 95%** of cases.
 - **SC-007**: The `sthrip-loop` skill drives a seeded vulnerable pull request to **5/5 within ≤ 5 iterations**.

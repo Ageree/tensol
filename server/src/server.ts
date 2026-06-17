@@ -49,8 +49,6 @@ import { join } from "node:path";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 
-import { DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { S3Client } from "@aws-sdk/client-s3";
 import { eq } from "drizzle-orm";
 import { createClerkAuth, parseClerkAuthorizedParties } from "./auth/clerk.ts";
 import { type ClerkAuth, createRequireAuth } from "./auth/middleware.ts";
@@ -104,6 +102,7 @@ import {
 import { buildHarnessModels } from "./review/harness/models.ts";
 import { runHarness } from "./review/harness/orchestrator.ts";
 import type { HarnessRunArgs, HarnessSession } from "./review/harness/types.ts";
+import { createRemotePrExecutionRunner } from "./review/execution/runner.ts";
 import { createOpenRouterClient } from "./review/llm/openrouter.ts";
 import { createJoernClient } from "./review/reachability/joern.ts";
 import { createGitRepoFetcher } from "./review/repo-fetch.ts";
@@ -138,9 +137,10 @@ import {
 	isEvidenceStorageConfigured,
 	resolveEvidenceStorageEnv,
 } from "./storage/evidence-env.ts";
+import { createGcsObjectStorage } from "./storage/gcs.ts";
 import {
-	type S3CompatiblePresigner,
-	createS3CompatiblePresigner,
+	type GcsSignedUrlPresigner,
+	createGcsSignedUrlPresigner,
 } from "./storage/presign.ts";
 import { createGcpCloudProvider } from "./vps/gcp.ts";
 import { createHetznerProvider } from "./vps/hetzner.ts";
@@ -172,13 +172,13 @@ const CLEANUP_ORPHAN_PROD_MIN_AGE_MS = 120 * 60 * 1_000;
  * T127 — daily cadence for the cleanup-expired-reports cron (T114).
  *
  * The sweeper enumerates `evidence_artifacts` + `reports` rows whose
- * `expires_at < now`, S3-deletes the object, removes the row, and emits a
+ * `expires_at < now`, deletes the object, removes the row, and emits a
  * signed `evidence_pruned` / `report_pruned` audit. Per task brief: daily
  * — once every 24h is sufficient because each row's expiry resolution is
  * already coarse (~hour-scale).
  *
  * Cron-style (no payload job), mirrors the watcher + orphan-VM ticks above.
- * Skipped when S3 / bucket env not configured so the boot path stays
+ * Skipped when the GCS bucket env is not configured so the boot path stays
  * env-light for local dev.
  */
 const CLEANUP_EXPIRED_REPORTS_INTERVAL_MS = 24 * 60 * 60 * 1_000;
@@ -318,7 +318,7 @@ export interface CreateAppDeps {
 	 */
 	readonly reviewLlm?: LlmClient | null;
 	/** Browser-usable report PDF presigner. Null result means storage is unwired. */
-	readonly reportDownloadUrl?: S3CompatiblePresigner;
+	readonly reportDownloadUrl?: GcsSignedUrlPresigner;
 	/** 003-whitebox — GITHUB_APP_WEBHOOK_SECRET (empty → webhook 401s all). */
 	readonly githubAppWebhookSecret?: string;
 	/**
@@ -806,6 +806,12 @@ function legacyMigrationAlreadyPresent(raw: Database, tag: string): boolean {
 				tableExists(raw, "agent_api_tokens") &&
 				indexExists(raw, "agent_api_tokens_token_hash_uq")
 			);
+		case "0017_pr_execution_artifacts":
+			return (
+				columnExists(raw, "review_repos", "pr_execution_enabled") &&
+				columnExists(raw, "reviews", "execution_status") &&
+				tableExists(raw, "review_execution_artifacts")
+			);
 		default:
 			return false;
 	}
@@ -947,8 +953,8 @@ export async function main(): Promise<{
 	// reconciler just enqueued.
 	//
 	// T066 — wire the new 002 handlers alongside the legacy 4. New handlers
-	// require external creds (GCP SA JSON via GOOGLE_APPLICATION_CREDENTIALS,
-	// S3, Telegram); we read each optional env var and degrade gracefully
+	// require external creds (GCP SA JSON / ADC, GCS bucket, Telegram); we read
+	// each optional env var and degrade gracefully
 	// when missing. Boot does NOT fail when a 002 cred is missing; the
 	// handler itself throws at invoke time so the runner's permanent-failure
 	// branch captures it in the audit log.
@@ -960,10 +966,6 @@ export async function main(): Promise<{
 	const cloudProvider = createGcpCloudProvider();
 	const evidenceStorage = resolveEvidenceStorageEnv();
 	const evidenceBucket = evidenceStorage.bucket;
-	const awsRegion = evidenceStorage.region;
-	const awsEndpoint = evidenceStorage.endpoint;
-	const awsAccessKeyId = evidenceStorage.accessKeyId;
-	const awsSecretAccessKey = evidenceStorage.secretAccessKey;
 	const storageReady = isEvidenceStorageConfigured(evidenceStorage);
 	const decepticonImage =
 		process.env.DECEPTICON_IMAGE ??
@@ -974,27 +976,14 @@ export async function main(): Promise<{
 	if (!storageReady) {
 		// eslint-disable-next-line no-console
 		console.warn(
-			"[tensol] T066: S3/Object-Storage env vars missing — render_pdf + " +
+			"[tensol] T066: GCS evidence bucket missing — render_pdf + " +
 				"send_scan_complete_telegram + scan VM evidence upload will fail at invoke time. " +
-				"Set TENSOL_EVIDENCE_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL.",
+				"Set TENSOL_EVIDENCE_BUCKET and grant the runtime service accounts storage object permissions.",
 		);
 	}
 
-	const s3 = new S3Client({
-		region: awsRegion,
-		endpoint: awsEndpoint,
-		forcePathStyle: true,
-		credentials: {
-			accessKeyId: awsAccessKeyId,
-			secretAccessKey: awsSecretAccessKey,
-		},
-	});
-	const reportDownloadUrl = createS3CompatiblePresigner({
-		endpoint: awsEndpoint,
-		region: awsRegion,
-		accessKeyId: awsAccessKeyId,
-		secretAccessKey: awsSecretAccessKey,
-	});
+	const objectStorage = createGcsObjectStorage();
+	const reportDownloadUrl = createGcsSignedUrlPresigner();
 
 	// Post-loop Step 1 — production-wire the real Telegram notifier (T096)
 	// when `TENSOL_TELEGRAM_BOT_TOKEN` is set; otherwise fall back to the
@@ -1028,10 +1017,6 @@ export async function main(): Promise<{
 			webhookSecret: config.TENSOL_WEBHOOK_SECRET,
 			evidenceBucket,
 			evidencePrefix,
-			awsAccessKeyId,
-			awsSecretAccessKey,
-			awsEndpoint,
-			awsRegion,
 			createDispatchSignKey: () => randomBytes(32).toString("hex"),
 			decepticonImage,
 			openrouterApiKey: config.TENSOL_OPENROUTER_API_KEY,
@@ -1056,7 +1041,7 @@ export async function main(): Promise<{
 	const renderPdf = adaptNewStyle(
 		createRenderPdfHandler({
 			db,
-			s3,
+			storage: objectStorage,
 			bucket: evidenceBucket,
 			auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
 		}),
@@ -1064,7 +1049,7 @@ export async function main(): Promise<{
 	const sendScanCompleteTelegram = adaptNewStyle(
 		createSendScanCompleteTelegramHandler({
 			db,
-			s3,
+			storage: objectStorage,
 			telegramNotifier,
 			auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
 		}),
@@ -1208,6 +1193,36 @@ export async function main(): Promise<{
 		);
 	}
 
+	const prExecutionRunner = (() => {
+		if (!config.STHRIP_PR_EXECUTION_ENABLED) return undefined;
+		if (
+			!config.STHRIP_PR_EXECUTION_WORKER_URL ||
+			!config.STHRIP_PR_EXECUTION_WORKER_SECRET
+		) {
+			// eslint-disable-next-line no-console
+			console.warn(
+				"[sthrip] PR execution is enabled but no worker URL/secret is configured — runtime evidence is not wired.",
+			);
+			return undefined;
+		}
+		try {
+			return createRemotePrExecutionRunner({
+				url: config.STHRIP_PR_EXECUTION_WORKER_URL,
+				secret: config.STHRIP_PR_EXECUTION_WORKER_SECRET,
+				timeoutMs: config.STHRIP_PR_EXECUTION_TIMEOUT_MS,
+				maxArtifacts: config.STHRIP_PR_EXECUTION_MAX_ARTIFACTS,
+				maxInlineBytes: config.STHRIP_PR_EXECUTION_MAX_INLINE_ARTIFACT_BYTES,
+			});
+		} catch (err) {
+			// eslint-disable-next-line no-console
+			console.warn(
+				"[sthrip] PR execution worker configuration is invalid:",
+				err instanceof Error ? err.message : err,
+			);
+			return undefined;
+		}
+	})();
+
 	const prReviewHandler: (
 		payload: unknown,
 		ctx: { jobId: string; attempts: number },
@@ -1219,6 +1234,7 @@ export async function main(): Promise<{
 						github: githubReviewClient,
 						llm: reviewLlm,
 						...(prAgentDeps ? { agent: prAgentDeps } : {}),
+						...(prExecutionRunner ? { execution: prExecutionRunner } : {}),
 					}),
 				)
 			: async () => {
@@ -1500,31 +1516,22 @@ export async function main(): Promise<{
 	}
 
 	// T127 — wire the cleanup-expired-reports cron (T114) on a daily cadence.
-	// Skipped when S3 / bucket env vars are missing (dev environments) so the
+	// Skipped when the GCS bucket env var is missing (dev environments) so the
 	// boot path stays env-light. The sweeper is internally idempotent (each
 	// tick re-queries `expires_at < now`); overlapping ticks would be safe but
 	// we still serialize via setInterval + unref to avoid pinning the loop on
-	// graceful shutdown. The handler accepts a narrow `deleteObject` adapter,
-	// so we wrap the AWS-SDK S3Client.send() call here rather than expose the
-	// full client surface inside the handler.
+	// graceful shutdown.
 	let cleanupExpiredReportsTimer: Timer | null = null;
 	if (!storageReady) {
 		// eslint-disable-next-line no-console
 		console.warn(
-			"[tensol] T127: cleanup-expired-reports skipped — S3/Object-Storage env " +
-				"vars missing (TENSOL_EVIDENCE_BUCKET, AWS_ENDPOINT_URL, " +
-				"AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY).",
+			"[tensol] T127: cleanup-expired-reports skipped — GCS storage env " +
+				"vars missing (TENSOL_EVIDENCE_BUCKET).",
 		);
 	} else {
 		const cleanupExpiredReportsHandler = createCleanupExpiredReportsHandler({
 			db,
-			s3: {
-				deleteObject: async (cmd) => {
-					await s3.send(
-						new DeleteObjectCommand({ Bucket: cmd.Bucket, Key: cmd.Key }),
-					);
-				},
-			},
+			storage: objectStorage,
 			bucket: evidenceBucket,
 			auditKey: config.TENSOL_AUDIT_SIGNING_KEY,
 		});

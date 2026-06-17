@@ -115,10 +115,6 @@ const CLOUD_INIT_DEPS = {
 	webhookSecret: "test-webhook-secret-32-bytes-hexxx",
 	evidenceBucket: "tensol-evidence-test",
 	evidencePrefix: "evidence/",
-	awsAccessKeyId: "YCAJxxxxxxxxxxxx",
-	awsSecretAccessKey: "YCxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-	awsEndpoint: "https://storage.googleapis.com",
-	awsRegion: "ru-central1",
 	signKey: "a".repeat(64),
 	decepticonImage: "ghcr.io/tensol/decepticon@sha256:deadbeef",
 	vpsZone: "ru-central1-a",
@@ -608,7 +604,7 @@ test("idempotency: handler is a no-op when order is no longer in vm_provisioning
 // ───────────────────────────────────────────────────────────────────────────
 // Test 4b — STORAGE CONFIG FAIL-FAST
 // ───────────────────────────────────────────────────────────────────────────
-test("missing object-storage endpoint: no VM spawn, order=failed(storage_not_configured), quota refunded", async () => {
+test("missing GCS bucket: no VM spawn, order=failed(storage_not_configured), quota refunded", async () => {
 	const db = createDb(":memory:");
 	applyMigrations(db);
 	const ts = 1_700_000_000_000;
@@ -641,7 +637,7 @@ test("missing object-storage endpoint: no VM spawn, order=failed(storage_not_con
 		pollIntervalMs: 1,
 		pollTimeoutMs: 1_000,
 		...CLOUD_INIT_DEPS,
-		awsEndpoint: "",
+		evidenceBucket: "",
 	});
 
 	await handler(FIXED_JOB_ID, BASE_PAYLOAD);

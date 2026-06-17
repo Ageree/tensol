@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values";
-import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 
 export type AuthUser = {
   identity: NonNullable<Awaited<ReturnType<QueryCtx["auth"]["getUserIdentity"]>>>;
@@ -52,6 +52,7 @@ export async function requireUser(ctx: QueryCtx | MutationCtx): Promise<AuthUser
   await ctx.db.insert("entitlements", {
     userId: id,
     scan_credits: 1,
+    review_credits: 0,
     manual_grant: true,
     created_at: now,
     updated_at: now,

@@ -5,28 +5,28 @@
  *
  *   1. HAPPY PATH (evidence) — one `evidence_artifacts` row whose
  *      `expires_at < now` is detected. The handler:
- *        - calls `s3.deleteObject({Bucket, Key})` with the row's bucket+key
+ *        - calls `storage.deleteObject({bucket, key})` with the row's bucket+key
  *        - DELETEs the row from `evidence_artifacts`
  *        - emits an `evidence_pruned` signed-audit row
  *      Returns `{ processed: 1, deleted: 1, errors: 0 }`.
  *
  *   2. HAPPY PATH (report) — one `reports` row whose `expires_at < now` and
  *      has a non-null bucket+key is detected. The handler:
- *        - calls `s3.deleteObject({Bucket, Key})`
+ *        - calls `storage.deleteObject({bucket, key})`
  *        - DELETEs the row from `reports`
  *        - emits a `report_pruned` signed-audit row
  *      Returns `{ processed: 1, deleted: 1, errors: 0 }`.
  *
  *   3. FUTURE EXPIRY — rows with `expires_at >= now` are NOT processed. No
- *      S3 call, no DELETE, no audit. Returns `{ processed: 0, deleted: 0,
+ *      storage call, no DELETE, no audit. Returns `{ processed: 0, deleted: 0,
  *      errors: 0 }`.
  *
  *   4. REPORT WITH NULL bucket/key — a `reports` row in status='pending'
- *      with `bucket=NULL` AND `expires_at < now` is skipped: no S3 call
+ *      with `bucket=NULL` AND `expires_at < now` is skipped: no storage call
  *      (nothing to delete), no row removal. The handler ONLY touches reports
  *      whose object actually exists in Object Storage.
  *
- *   5. S3 FAILURE — deleteObject throws. The row is NOT deleted (will retry
+ *   5. STORAGE FAILURE — deleteObject throws. The row is NOT deleted (will retry
  *      on next tick). Counter records `errors=1`, `deleted=0`. No audit
  *      emitted for the failed row.
  *
@@ -98,25 +98,25 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DOMAIN = "example.test";
 
 // ───────────────────────────────────────────────────────────────────────────
-// Stub S3 client. Records calls; default behaviour is success.
+// Stub storage client. Records calls; default behaviour is success.
 // ───────────────────────────────────────────────────────────────────────────
-interface StubS3 {
-  readonly calls: Array<{ Bucket: string; Key: string }>;
-  failOn?: (cmd: { Bucket: string; Key: string }) => boolean;
-  deleteObject(cmd: { Bucket: string; Key: string }): Promise<{ ok: true }>;
+interface StubStorage {
+  readonly calls: Array<{ bucket: string; key: string }>;
+  failOn?: (cmd: { bucket: string; key: string }) => boolean;
+  deleteObject(cmd: { bucket: string; key: string }): Promise<{ ok: true }>;
 }
 
-function createStubS3(opts?: {
-  failOn?: (cmd: { Bucket: string; Key: string }) => boolean;
-}): StubS3 {
-  const calls: Array<{ Bucket: string; Key: string }> = [];
+function createStubStorage(opts?: {
+  failOn?: (cmd: { bucket: string; key: string }) => boolean;
+}): StubStorage {
+  const calls: Array<{ bucket: string; key: string }> = [];
   return {
     calls,
     failOn: opts?.failOn,
     async deleteObject(cmd) {
-      calls.push({ Bucket: cmd.Bucket, Key: cmd.Key });
+      calls.push({ bucket: cmd.bucket, key: cmd.key });
       if (opts?.failOn?.(cmd)) {
-        throw new Error(`stub s3 delete failed for ${cmd.Key}`);
+        throw new Error(`stub storage delete failed for ${cmd.key}`);
       }
       return { ok: true };
     },
@@ -241,7 +241,7 @@ afterEach(() => {
 // ───────────────────────────────────────────────────────────────────────────
 // Test 1 — HAPPY PATH (evidence)
 // ───────────────────────────────────────────────────────────────────────────
-test("happy path (evidence): expired row → S3 delete + row removed + evidence_pruned audit", async () => {
+test("happy path (evidence): expired row → storage delete + row removed + evidence_pruned audit", async () => {
   const db = createDb(":memory:");
   applyMigrations(db);
 
@@ -259,10 +259,10 @@ test("happy path (evidence): expired row → S3 delete + row removed + evidence_
     createdAt: NOW - 14 * DAY_MS,
   });
 
-  const s3 = createStubS3();
+  const storage = createStubStorage();
   const handler = createCleanupExpiredReportsHandler({
     db,
-    s3,
+    storage,
     bucket: TEST_BUCKET,
     auditKey: TEST_AUDIT_KEY,
     now: () => NOW,
@@ -273,10 +273,10 @@ test("happy path (evidence): expired row → S3 delete + row removed + evidence_
   expect(res.deleted).toBe(1);
   expect(res.errors).toBe(0);
 
-  expect(s3.calls).toHaveLength(1);
-  expect(s3.calls[0]).toEqual({
-    Bucket: TEST_BUCKET,
-    Key: "evidence/01H0SCAN000000000000000001/payload.json",
+  expect(storage.calls).toHaveLength(1);
+  expect(storage.calls[0]).toEqual({
+    bucket: TEST_BUCKET,
+    key: "evidence/01H0SCAN000000000000000001/payload.json",
   });
 
   const rowsAfter = db
@@ -302,7 +302,7 @@ test("happy path (evidence): expired row → S3 delete + row removed + evidence_
 // ───────────────────────────────────────────────────────────────────────────
 // Test 2 — HAPPY PATH (report)
 // ───────────────────────────────────────────────────────────────────────────
-test("happy path (report): expired ready report → S3 delete + row removed + report_pruned audit", async () => {
+test("happy path (report): expired ready report → storage delete + row removed + report_pruned audit", async () => {
   const db = createDb(":memory:");
   applyMigrations(db);
 
@@ -322,10 +322,10 @@ test("happy path (report): expired ready report → S3 delete + row removed + re
     status: "ready",
   });
 
-  const s3 = createStubS3();
+  const storage = createStubStorage();
   const handler = createCleanupExpiredReportsHandler({
     db,
-    s3,
+    storage,
     bucket: TEST_BUCKET,
     auditKey: TEST_AUDIT_KEY,
     now: () => NOW,
@@ -336,10 +336,10 @@ test("happy path (report): expired ready report → S3 delete + row removed + re
   expect(res.deleted).toBe(1);
   expect(res.errors).toBe(0);
 
-  expect(s3.calls).toHaveLength(1);
-  expect(s3.calls[0]).toEqual({
-    Bucket: TEST_BUCKET,
-    Key: "reports/01H0SCAN000000000000000001.pdf",
+  expect(storage.calls).toHaveLength(1);
+  expect(storage.calls[0]).toEqual({
+    bucket: TEST_BUCKET,
+    key: "reports/01H0SCAN000000000000000001.pdf",
   });
 
   const rowsAfter = db
@@ -392,10 +392,10 @@ test("future expiry: rows with expires_at >= now are NOT processed", async () =>
     status: "ready",
   });
 
-  const s3 = createStubS3();
+  const storage = createStubStorage();
   const handler = createCleanupExpiredReportsHandler({
     db,
-    s3,
+    storage,
     bucket: TEST_BUCKET,
     auditKey: TEST_AUDIT_KEY,
     now: () => NOW,
@@ -406,7 +406,7 @@ test("future expiry: rows with expires_at >= now are NOT processed", async () =>
   expect(res.deleted).toBe(0);
   expect(res.errors).toBe(0);
 
-  expect(s3.calls).toHaveLength(0);
+  expect(storage.calls).toHaveLength(0);
 
   // Both rows still present.
   expect(db.select().from(evidenceArtifacts).all()).toHaveLength(1);
@@ -440,10 +440,10 @@ test("report with null bucket/key: skipped (nothing in object storage to delete)
     status: "pending",
   });
 
-  const s3 = createStubS3();
+  const storage = createStubStorage();
   const handler = createCleanupExpiredReportsHandler({
     db,
-    s3,
+    storage,
     bucket: TEST_BUCKET,
     auditKey: TEST_AUDIT_KEY,
     now: () => NOW,
@@ -454,15 +454,15 @@ test("report with null bucket/key: skipped (nothing in object storage to delete)
   expect(res.deleted).toBe(0);
   expect(res.errors).toBe(0);
 
-  expect(s3.calls).toHaveLength(0);
+  expect(storage.calls).toHaveLength(0);
   expect(db.select().from(reports).all()).toHaveLength(1);
   expect(db.select().from(auditLog).all()).toHaveLength(0);
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// Test 5 — S3 FAILURE: row NOT deleted, errors counter increments
+// Test 5 — STORAGE FAILURE: row NOT deleted, errors counter increments
 // ───────────────────────────────────────────────────────────────────────────
-test("S3 failure: row NOT deleted, errors=1, no audit", async () => {
+test("storage failure: row NOT deleted, errors=1, no audit", async () => {
   const db = createDb(":memory:");
   applyMigrations(db);
 
@@ -480,10 +480,10 @@ test("S3 failure: row NOT deleted, errors=1, no audit", async () => {
     createdAt: NOW - 14 * DAY_MS,
   });
 
-  const s3 = createStubS3({ failOn: () => true });
+  const storage = createStubStorage({ failOn: () => true });
   const handler = createCleanupExpiredReportsHandler({
     db,
-    s3,
+    storage,
     bucket: TEST_BUCKET,
     auditKey: TEST_AUDIT_KEY,
     now: () => NOW,
@@ -494,8 +494,8 @@ test("S3 failure: row NOT deleted, errors=1, no audit", async () => {
   expect(res.deleted).toBe(0);
   expect(res.errors).toBe(1);
 
-  // S3 was called (and threw).
-  expect(s3.calls).toHaveLength(1);
+  // Storage was called (and threw).
+  expect(storage.calls).toHaveLength(1);
 
   // Row STILL present (will retry next tick).
   const rowsAfter = db
@@ -540,10 +540,10 @@ test("batch limit: 150 expired rows → first tick deletes 100, second tick dele
     });
   }
 
-  const s3 = createStubS3();
+  const storage = createStubStorage();
   const handler = createCleanupExpiredReportsHandler({
     db,
-    s3,
+    storage,
     bucket: TEST_BUCKET,
     auditKey: TEST_AUDIT_KEY,
     now: () => NOW,
@@ -552,13 +552,13 @@ test("batch limit: 150 expired rows → first tick deletes 100, second tick dele
   const res1 = await handler.tick();
   expect(res1.deleted).toBe(100);
   expect(res1.errors).toBe(0);
-  expect(s3.calls).toHaveLength(100);
+  expect(storage.calls).toHaveLength(100);
   expect(db.select().from(evidenceArtifacts).all()).toHaveLength(50);
 
   const res2 = await handler.tick();
   expect(res2.deleted).toBe(50);
   expect(res2.errors).toBe(0);
-  expect(s3.calls).toHaveLength(150);
+  expect(storage.calls).toHaveLength(150);
   expect(db.select().from(evidenceArtifacts).all()).toHaveLength(0);
 
   // Audit chain is intact across both batches.
@@ -611,10 +611,10 @@ test("mixed population: expired evidence + expired report + future + null-bucket
   // for the same scan. Test 4 covers null-bucket on its own scan; here we
   // assert the eligible expired report is pruned.
 
-  const s3 = createStubS3();
+  const storage = createStubStorage();
   const handler = createCleanupExpiredReportsHandler({
     db,
-    s3,
+    storage,
     bucket: TEST_BUCKET,
     auditKey: TEST_AUDIT_KEY,
     now: () => NOW,
@@ -655,10 +655,10 @@ test("idempotency: second tick on a clean store is a no-op", async () => {
   const db = createDb(":memory:");
   applyMigrations(db);
 
-  const s3 = createStubS3();
+  const storage = createStubStorage();
   const handler = createCleanupExpiredReportsHandler({
     db,
-    s3,
+    storage,
     bucket: TEST_BUCKET,
     auditKey: TEST_AUDIT_KEY,
     now: () => NOW,
@@ -666,5 +666,5 @@ test("idempotency: second tick on a clean store is a no-op", async () => {
 
   const res = await handler.tick();
   expect(res).toEqual({ processed: 0, deleted: 0, errors: 0 });
-  expect(s3.calls).toHaveLength(0);
+  expect(storage.calls).toHaveLength(0);
 });

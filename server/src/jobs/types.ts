@@ -100,7 +100,7 @@ export interface TeardownScanVmJob {
 	readonly vpsZone?: string;
 }
 
-/** T060 — render the PDF report and upload to S3. */
+/** T060 — render the PDF report and upload to Object Storage. */
 export interface RenderPdfJob {
 	readonly type: "render_pdf";
 	readonly scanId: string;

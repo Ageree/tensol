@@ -26,7 +26,7 @@ const juiceShopFixture = {
 	decepticon_events_count: 759,
 	duration_seconds: 2280,
 	evidence_archive_url:
-		"s3://tensol-evidence-prod/scans/01HZX5QK9V7Y3W2P8N6M4J0KAB/evidence.tar.gz",
+		"gs://tensol-evidence-prod/scans/01HZX5QK9V7Y3W2P8N6M4J0KAB/evidence.tar.gz",
 	findings: [
 		{
 			raw_yaml_frontmatter: {
@@ -484,7 +484,7 @@ describe("WebhookScanCompleteBodySchema", () => {
 		).toThrow();
 	});
 
-	it("rejects evidence_archive_url that is not s3:// URI", () => {
+	it("rejects evidence_archive_url that is not a storage URI", () => {
 		expect(() =>
 			WebhookScanCompleteBodySchema.parse({
 				...juiceShopFixture,

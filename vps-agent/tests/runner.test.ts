@@ -3,7 +3,7 @@
  *
  * Strategy: every external side-effecting dep (`decepticon`, `bundler`,
  * `evidenceUploader`, `findingCollector`, `fetcher`, `shutdown`, `now`) is
- * injected through `RunnerDeps`. No real docker socket, S3 endpoint, or
+ * injected through `RunnerDeps`. No real docker socket, GCS endpoint, or
  * network call is made — the test asserts wiring + signature + retry logic.
  *
  * Constitution II (NON-NEGOTIABLE): the signed webhook header is asserted
@@ -194,7 +194,7 @@ describe("runScan — happy path", () => {
 		expect(body.duration_seconds).toBe(2280);
 		expect(body.decepticon_events_count).toBe(759);
 		expect(body.evidence_archive_url).toBe(
-			`s3://tensol-test-bucket/evidence/${SCAN_ID}/evidence.tar.gz`,
+			`gs://tensol-test-bucket/evidence/${SCAN_ID}/evidence.tar.gz`,
 		);
 		expect(Array.isArray(body.findings)).toBe(true);
 		expect(body.findings).toHaveLength(3);
@@ -422,7 +422,7 @@ describe("runScan — failure paths", () => {
 			fetcher,
 			evidenceUploader: {
 				uploadEvidence: async () => {
-					throw new Error("S3 connection refused");
+					throw new Error("GCS connection refused");
 				},
 			},
 		});
@@ -430,13 +430,13 @@ describe("runScan — failure paths", () => {
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error();
 		expect(result.status).toBe("failed");
-		expect(result.error).toContain("upload_failed: S3 connection refused");
+		expect(result.error).toContain("upload_failed: GCS connection refused");
 		expect(captured).toHaveLength(1);
 		const body = JSON.parse(capturedBody(captured));
 		expect(body).toMatchObject({
 			scan_order_id: SCAN_ORDER_ID,
 			status: "failed",
-			failure_reason: "upload_failed: S3 connection refused",
+			failure_reason: "upload_failed: GCS connection refused",
 			duration_seconds: 2280,
 			findings: [],
 		});
@@ -451,7 +451,7 @@ describe("runScan — failure paths", () => {
 			fetcher,
 			evidenceUploader: {
 				uploadEvidence: async () => {
-					throw new Error(`S3 said ${"x".repeat(400)}`);
+					throw new Error(`GCS said ${"x".repeat(400)}`);
 				},
 			},
 		});
@@ -465,7 +465,7 @@ describe("runScan — failure paths", () => {
 		const body = JSON.parse(capturedBody(captured)) as {
 			failure_reason: string;
 		};
-		expect(body.failure_reason).toStartWith("upload_failed: S3 said ");
+		expect(body.failure_reason).toStartWith("upload_failed: GCS said ");
 		expect(body.failure_reason).toEndWith("...");
 		expect(body.failure_reason.length).toBeLessThanOrEqual(255);
 		expect(result.error).toBe(body.failure_reason);

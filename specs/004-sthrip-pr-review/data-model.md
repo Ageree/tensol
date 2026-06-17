@@ -1,6 +1,6 @@
 # Data Model — Sthrip PR Review (Phase 1)
 
-Migration: **`server/migrations/0013_pr_review_connect.sql`** (+ matching Drizzle defs in `server/src/db/schema.ts`). SQLite, integer epoch timestamps, `text` PKs (ULID). Avoid SQLite-only constructs (PG upgrade path, Constitution).
+Migrations: **`server/migrations/0013_pr_review_connect.sql`** and runtime-execution overlay **`server/migrations/0017_pr_execution_artifacts.sql`** (+ matching Drizzle defs in `server/src/db/schema.ts`). SQLite, integer epoch timestamps, `text` PKs (ULID). Avoid SQLite-only constructs (PG upgrade path, Constitution).
 
 Legend: **EXISTING** = already shipped (migration 0012), shown for reference; **NEW** = added by this feature; **+col** = new column on an existing table.
 
@@ -48,10 +48,24 @@ State transitions: `active → suspended` (GitHub suspend) → `active` (unsuspe
 | `enabled` | integer (bool) | `1` | explicit enable/disable independent of `status` (US1 toggle) |
 | `statusCheckEnabled` | integer (bool) | `1` | post the `Sthrip N/5` check-run (FR-014) |
 | `mergeBlockOnCritical` | integer (bool) | `0` | check-run conclusion = `failure` when a verified critical exists (FR-014) |
+| `prExecutionEnabled` | integer (bool) | `0` | dispatch isolated runtime PR execution evidence for this repo (FR-022a) |
 | `lastReviewId` | text? → reviews.id | null | for the per-repo "last-review status" column (FR-007) |
 | `installationRowId` | text? → installations.id | null | link to the new installations entity (the existing `installationId` string stays for compatibility) |
 
 (`coveredBranchesJson` + `rulesMd` already exist → FR-005/FR-006 need no new columns.)
+
+---
+
+## NEW columns on `reviews` (+col)
+
+| Field | Type | Default | Purpose |
+|---|---|---|---|
+| `executionStatus` | text? | null | `skipped` \| `running` \| `passed` \| `failed` \| `error` for runtime PR execution. |
+| `executionSummaryMd` | text? | null | Compact markdown summary from the isolated execution worker. |
+
+Static review summary remains in `summaryMd`; runtime evidence is stored
+separately so the dashboard can render it as a distinct block while GitHub
+check-runs may include both summaries.
 
 ---
 
@@ -83,9 +97,33 @@ Indexes: unique(`repoId`,`category`); index(`repoId`). **Invariant** (enforced i
 
 ---
 
+## NEW entity: `review_execution_artifacts`
+
+Bounded runtime evidence produced by an isolated PR execution worker. The API
+server stores metadata/inline summaries only; it never executes customer branch
+code locally.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | text PK | ULID |
+| `reviewId` | text → reviews.id (cascade) | owner review cycle |
+| `kind` | text | `log` \| `screenshot` \| `api_trace` \| `generated_test` \| `video` \| `file` |
+| `label` | text | short artifact label |
+| `summaryMd` | text | compact markdown description |
+| `storageKey` | text? | object-storage key for large evidence |
+| `inlineBody` | text? | bounded inline artifact body (≤ 32 KiB) |
+| `mimeType` | text? | content type hint |
+| `sha256` | text? | integrity hash for stored/inline payload |
+| `byteSize` | integer? | payload size when known |
+| `createdAt` | integer | |
+
+Indexes: index(`reviewId`,`createdAt`); index(`kind`).
+
+---
+
 ## Audit events (Constitution X) — emitted via `emitSignedAudit`
 
-New state-changing events this feature must log: `github_app_installed`, `github_app_uninstalled`, `github_app_suspended`, `review_repo_enabled`, `review_repo_disabled`, `review_settings_changed`, `review_finding_verified`, `review_thread_resolved`, `review_category_suppressed`. (Existing `review`/`scan` events unchanged.)
+New state-changing events this feature must log: `github_app_installed`, `github_app_uninstalled`, `github_app_suspended`, `review_repo_enabled`, `review_repo_disabled`, `review_settings_changed`, `review_execution_recorded`, `review_finding_verified`, `review_thread_resolved`, `review_category_suppressed`. (Existing `review`/`scan` events unchanged.)
 
 ---
 
@@ -95,12 +133,14 @@ New state-changing events this feature must log: `github_app_installed`, `github
 users 1───* installations 1───* review_repos 1───* reviews 1───* review_findings
                                    │                   │
                                    │                   └──* review_threads (by fingerprint)
+                                   │                   └──* review_execution_artifacts
                                    └──* review_feedback ──(derive)──> review_suppressions
 ```
 
 ## Validation rules (Zod, at boundaries — Constitution IX)
 
 - Connect callback: `installation_id` (numeric string, required), `setup_action ∈ {install, update}`, `state` (CSRF nonce) validated before persistence.
-- Repo-management body: `enabled: boolean`, `coveredBranches: string[]` (≤ 50, each ≤ 255 chars), `statusCheckEnabled/mergeBlockOnCritical: boolean` — bounded.
+- Repo-management body: `enabled: boolean`, `coveredBranches: string[]` (≤ 50, each ≤ 255 chars), `statusCheckEnabled/mergeBlockOnCritical/prExecutionEnabled: boolean` — bounded.
+- Runtime execution worker response: status enum, artifact kind enum, max artifact count, max inline body bytes, and HMAC-signed worker dispatch.
 - Webhook payloads: each new event variant Zod-validated before processing; HMAC raw-body verify + `webhook_dedup` idempotency (existing) before any write.
 - `.sthrip/rules.md`: size-capped (e.g. ≤ 64 KB) on fetch; treated as untrusted text.

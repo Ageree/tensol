@@ -171,6 +171,28 @@ const ConfigSchema = z
 		// Opengrep rules directory. Empty string means "use built-in rules only".
 		STHRIP_OPENGREP_RULES_DIR: z.string().default(""),
 
+		// PR execution validation (TREX-style runtime evidence). Default OFF.
+		// The API server never executes untrusted customer code locally; when this
+		// gate is on it dispatches to an isolated worker only if URL+secret are set.
+		STHRIP_PR_EXECUTION_ENABLED: envBool(false),
+		STHRIP_PR_EXECUTION_WORKER_URL: z.string().default(""),
+		STHRIP_PR_EXECUTION_WORKER_SECRET: z.string().default(""),
+		STHRIP_PR_EXECUTION_TIMEOUT_MS: z.coerce
+			.number()
+			.int()
+			.positive()
+			.default(11 * 60_000),
+		STHRIP_PR_EXECUTION_MAX_ARTIFACTS: z.coerce
+			.number()
+			.int()
+			.positive()
+			.default(24),
+		STHRIP_PR_EXECUTION_MAX_INLINE_ARTIFACT_BYTES: z.coerce
+			.number()
+			.int()
+			.positive()
+			.default(32_768),
+
 		// 003-whitebox — Review LLM (OpenRouter/LiteLLM-compatible). When the
 		// review-specific key is unset it falls back to the shared OpenRouter key
 		// (`TENSOL_OPENROUTER_API_KEY`) — resolved in the `.transform()` below, so

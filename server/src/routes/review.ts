@@ -29,7 +29,7 @@ import { eq } from "drizzle-orm";
 import type { AuthVariables } from "../auth/middleware.ts";
 import type { DB } from "../db/client.ts";
 import { reviews as reviewsTable } from "../db/schema.ts";
-import type { Review } from "../db/schema.ts";
+import type { Review, ReviewExecutionArtifact } from "../db/schema.ts";
 import { isResearchEnabled } from "../lib/feature-flags.ts";
 import { createRateLimit, defaultKeyFn } from "../lib/rate-limit.ts";
 import { splitUnifiedDiff } from "../review/candidates.ts";
@@ -91,6 +91,7 @@ const RepoSettingsUpdateSchema = z.object({
 	covered_branches: z.array(z.string().max(255)).max(50).optional(),
 	status_check_enabled: z.boolean().optional(),
 	merge_block_on_critical: z.boolean().optional(),
+	pr_execution_enabled: z.boolean().optional(),
 });
 
 type RepoSettingsUpdate = z.infer<typeof RepoSettingsUpdateSchema>;
@@ -109,6 +110,7 @@ function repoToInstallationRepoWire(
 		enabled: number;
 		statusCheckEnabled: number;
 		mergeBlockOnCritical: number;
+		prExecutionEnabled: number;
 		lastReviewId: string | null;
 	},
 	lastReview: Review | null,
@@ -130,6 +132,7 @@ function repoToInstallationRepoWire(
 		covered_branches: coveredBranches,
 		status_check_enabled: repo.statusCheckEnabled === 1,
 		merge_block_on_critical: repo.mergeBlockOnCritical === 1,
+		pr_execution_enabled: repo.prExecutionEnabled === 1,
 		last_review:
 			lastReview !== null
 				? {
@@ -142,10 +145,35 @@ function repoToInstallationRepoWire(
 	};
 }
 
+function executionArtifactRowToWire(row: ReviewExecutionArtifact) {
+	return {
+		id: row.id,
+		kind: row.kind,
+		label: row.label,
+		summary_md: row.summaryMd,
+		storage_key: row.storageKey,
+		inline_body: row.inlineBody,
+		mime_type: row.mimeType,
+		sha256: row.sha256,
+		byte_size: row.byteSize,
+		created_at: row.createdAt,
+	};
+}
+
 /** Split an "owner/name" slug. */
 function splitRepo(slug: string): { owner: string; name: string } {
 	const idx = slug.indexOf("/");
 	return { owner: slug.slice(0, idx), name: slug.slice(idx + 1) };
+}
+
+function parseCoveredBranches(json: string): string[] {
+	try {
+		const parsed = JSON.parse(json);
+		if (Array.isArray(parsed)) return parsed as string[];
+	} catch {
+		// fall through
+	}
+	return [];
 }
 
 /** Map an API body's files/diff into engine `DiffFile`s. */
@@ -424,6 +452,11 @@ export function createReviewRouter(
 				name: r.name,
 				full_name: `${r.owner}/${r.name}`,
 				default_branch: r.defaultBranch,
+				enabled: r.enabled === 1,
+				covered_branches: parseCoveredBranches(r.coveredBranchesJson),
+				status_check_enabled: r.statusCheckEnabled === 1,
+				merge_block_on_critical: r.mergeBlockOnCritical === 1,
+				pr_execution_enabled: r.prExecutionEnabled === 1,
 				status: r.status,
 				created_at: r.createdAt,
 			})),
@@ -477,6 +510,7 @@ export function createReviewRouter(
 				created_at: r.createdAt,
 				completed_at: r.completedAt,
 				findings_count: counts[r.id] ?? 0,
+				execution_status: r.executionStatus,
 			})),
 			200,
 		);
@@ -490,6 +524,7 @@ export function createReviewRouter(
 		const review = await service.getReview(c.req.param("id"));
 		if (!review || review.userId !== user.id) return c.json(NOT_FOUND, 404);
 		const findings = await service.getReviewFindings(review.id);
+		const artifacts = await service.getReviewExecutionArtifacts(review.id);
 		return c.json(
 			{
 				id: review.id,
@@ -501,6 +536,9 @@ export function createReviewRouter(
 				status: review.status,
 				score_0_5: review.score0to5,
 				summary_md: review.summaryMd,
+				execution_status: review.executionStatus,
+				execution_summary_md: review.executionSummaryMd,
+				execution_artifacts: artifacts.map(executionArtifactRowToWire),
 				findings_count: review.findingsCount,
 				error: review.error,
 				created_at: review.createdAt,
@@ -639,6 +677,9 @@ export function createReviewRouter(
 				: {}),
 			...(body.merge_block_on_critical !== undefined
 				? { mergeBlockOnCritical: body.merge_block_on_critical }
+				: {}),
+			...(body.pr_execution_enabled !== undefined
+				? { prExecutionEnabled: body.pr_execution_enabled }
 				: {}),
 		});
 

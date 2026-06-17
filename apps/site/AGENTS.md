@@ -25,8 +25,8 @@ deployment.
   `failed` free-Quick scan orders as refunded terminal states; only non-refunded
   fresh free-Quick orders consume the visible slot.
 - `/billing` is the authenticated OxaPay checkout surface for buying Sthrip
-  scan credits; public pricing CTAs for Starter/Team/Pro should point there and
-  stay aligned with the Convex billing catalog.
+  subscriptions and credits; public pricing CTAs for self-serve paid plans
+  should point there and stay aligned with the Convex billing catalog.
 - Public legal surfaces must stay reachable for billing/domain review:
   `/legal/terms`, `/legal/privacy`, `/legal/refund`, and `/legal/dpa`.
 - The old `/deep-inquiry` booking page is retired from the frontend. Do not add
@@ -46,6 +46,7 @@ deployment.
 
 - Match the existing HackTron-inspired dashboard style: quiet light workspace,
   compact panels, square/low-radius controls, dense operational information.
+- Do not add visible decorative `// ...` labels to site pages.
 - For UI changes, verify desktop and mobile layout; avoid whole-page horizontal
   overflow.
 - Use lucide icons when an icon is needed and already available.

@@ -279,6 +279,8 @@ export interface FeatureFlags {
 	research_enabled?: boolean;
 	/** F2 — when true the dashboard surfaces exploit-lab verdicts on findings. */
 	exploit_enabled?: boolean;
+	/** Runtime PR execution evidence capability. */
+	pr_execution_enabled?: boolean;
 }
 
 // Auth (GET /api/auth/me) — used by US2 deep-inquiry prefill (T106).
@@ -636,6 +638,7 @@ export interface InstallationRepo {
 	covered_branches?: string[];
 	status_check_enabled?: boolean;
 	merge_block_on_critical?: boolean;
+	pr_execution_enabled?: boolean;
 	last_review?: {
 		review_id: string;
 		status: "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -653,6 +656,7 @@ export interface RepoSettingsUpdate {
 	covered_branches?: string[];
 	status_check_enabled?: boolean;
 	merge_block_on_critical?: boolean;
+	pr_execution_enabled?: boolean;
 }
 
 export const github = {
@@ -721,6 +725,34 @@ export type ReviewRunStatus =
 	| "failed"
 	| "cancelled";
 
+export type ReviewExecutionStatus =
+	| "skipped"
+	| "running"
+	| "passed"
+	| "failed"
+	| "error";
+
+export type ReviewExecutionArtifactKind =
+	| "log"
+	| "screenshot"
+	| "api_trace"
+	| "generated_test"
+	| "video"
+	| "file";
+
+export interface ReviewExecutionArtifactWire {
+	id: string;
+	kind: ReviewExecutionArtifactKind;
+	label: string;
+	summary_md: string;
+	storage_key?: string | null;
+	inline_body?: string | null;
+	mime_type?: string | null;
+	sha256?: string | null;
+	byte_size?: number | null;
+	created_at: number;
+}
+
 /**
  * Verification status attached to a finding after the verification gate
  * (server/src/review/verify.ts, T031). Wire value mirrors the DB column.
@@ -785,6 +817,9 @@ export interface ReviewResultWire {
 	repo?: string | null;
 	created_at?: number;
 	completed_at?: number | null;
+	execution_status?: ReviewExecutionStatus | null;
+	execution_summary_md?: string | null;
+	execution_artifacts?: ReviewExecutionArtifactWire[];
 	findings: ReviewFindingWire[];
 }
 
@@ -804,6 +839,7 @@ export interface ReviewListItemWire {
 	created_at?: number;
 	completed_at?: number | null;
 	findings_count: number;
+	execution_status?: ReviewExecutionStatus | null;
 }
 
 export interface ReviewRepoWire {
@@ -812,6 +848,11 @@ export interface ReviewRepoWire {
 	owner: string;
 	name: string;
 	default_branch: string;
+	enabled?: boolean;
+	covered_branches?: string[];
+	status_check_enabled?: boolean;
+	merge_block_on_critical?: boolean;
+	pr_execution_enabled?: boolean;
 	status: "active" | "paused" | "revoked";
 	installation_id?: string | null;
 	created_at?: number;

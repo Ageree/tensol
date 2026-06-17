@@ -645,6 +645,13 @@ describe("GET /installations/:id/repos — repos for an installation", () => {
 			selection: "all",
 			repos: [{ owner: "acme", name: "web", defaultBranch: "main" }],
 		});
+		const [repo] = await service.listReposByUser("user_1", { limit: 1 });
+		if (!repo) throw new Error("expected reconciled repo");
+		await service.updateRepoSettings({
+			repoId: repo.id,
+			userId: "user_1",
+			prExecutionEnabled: true,
+		});
 
 		const res = await router.request(`/installations/${installation.id}/repos`);
 		expect(res.status).toBe(200);
@@ -654,10 +661,17 @@ describe("GET /installations/:id/repos — repos for an installation", () => {
 			name: string;
 			enabled: boolean;
 			default_branch: string;
+			pr_execution_enabled: boolean;
 		}>;
 		expect(Array.isArray(body)).toBe(true);
 		// Should contain repos from GitHub (via FakeGitHubClient) merged with local state.
 		expect(body.length).toBeGreaterThan(0);
+		expect(
+			body.find((entry) => entry.name === "web")?.pr_execution_enabled,
+		).toBe(true);
+		expect(
+			body.find((entry) => entry.name === "api")?.pr_execution_enabled,
+		).toBe(false);
 	});
 
 	test("honors limit for large installation repo lists", async () => {
@@ -797,6 +811,7 @@ describe("GET /installations/:id/repos — repos for an installation", () => {
 			expect(typeof r.owner).toBe("string");
 			expect(typeof r.name).toBe("string");
 			expect(typeof r.enabled).toBe("boolean");
+			expect(typeof r.pr_execution_enabled).toBe("boolean");
 		}
 	});
 });

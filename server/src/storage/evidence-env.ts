@@ -1,9 +1,5 @@
 export type EvidenceStorageEnv = {
 	bucket: string;
-	region: string;
-	endpoint: string;
-	accessKeyId: string;
-	secretAccessKey: string;
 	prefix: string;
 };
 
@@ -20,32 +16,10 @@ export function resolveEvidenceStorageEnv(
 ): EvidenceStorageEnv {
 	return {
 		bucket: firstNonEmpty(env, "TENSOL_EVIDENCE_BUCKET"),
-		region:
-			firstNonEmpty(env, "AWS_REGION", "TENSOL_EVIDENCE_S3_REGION") || "auto",
-		endpoint: firstNonEmpty(
-			env,
-			"AWS_ENDPOINT_URL",
-			"TENSOL_EVIDENCE_S3_ENDPOINT",
-		),
-		accessKeyId: firstNonEmpty(
-			env,
-			"AWS_ACCESS_KEY_ID",
-			"TENSOL_EVIDENCE_S3_ACCESS_KEY_ID",
-		),
-		secretAccessKey: firstNonEmpty(
-			env,
-			"AWS_SECRET_ACCESS_KEY",
-			"TENSOL_EVIDENCE_S3_SECRET_KEY",
-		),
 		prefix: firstNonEmpty(env, "TENSOL_EVIDENCE_PREFIX") || "scans/",
 	};
 }
 
 export function isEvidenceStorageConfigured(env: EvidenceStorageEnv): boolean {
-	return (
-		env.bucket.trim() !== "" &&
-		env.endpoint.trim() !== "" &&
-		env.accessKeyId.trim() !== "" &&
-		env.secretAccessKey.trim() !== ""
-	);
+	return env.bucket.trim() !== "";
 }

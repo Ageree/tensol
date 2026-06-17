@@ -56,15 +56,16 @@
  */
 import { and, eq, sql } from "drizzle-orm";
 
+import { emitSignedAudit } from "../../audit/emit.ts";
 import type { DB } from "../../db/client.ts";
 import { withTx } from "../../db/client.ts";
 import {
   auditLog,
   jobs as jobsTable,
+  vpsInstances,
 } from "../../db/schema.ts";
 import { ulid } from "../../lib/ids.ts";
 import { now as defaultNow } from "../../lib/time.ts";
-import { emitSignedAudit } from "../../audit/emit.ts";
 import type { CloudProvider } from "../../vps/provider.ts";
 
 /**
@@ -307,8 +308,23 @@ export function createTeardownScanVmHandler(
       }
     }
 
-    // 4b. Success — emit signed audit. NO scan_orders mutation (terminal).
+    // 4b. Success — mark the diagnostic VPS row destroyed, then emit audit.
+    //     NO scan_orders mutation (terminal).
     const ts = now();
+    await withTx(db, async (tx) => {
+      tx.update(vpsInstances)
+        .set({ status: "destroyed", destroyedAt: ts })
+        .where(
+          scanId
+            ? and(
+                eq(vpsInstances.scanId, scanId),
+                eq(vpsInstances.providerServerId, vpsInstanceId),
+              )
+            : eq(vpsInstances.providerServerId, vpsInstanceId),
+        )
+        .run();
+    });
+
     const metadata: Record<string, unknown> = {
       scan_order_id: scanOrderId,
       vps_instance_id: vpsInstanceId,

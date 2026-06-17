@@ -17,10 +17,6 @@ describe("Convex GCP provisioning contract helpers", () => {
 				WEBHOOK_SECRET: "fleet-webhook-secret",
 				TENSOL_EVIDENCE_BUCKET: "sthrip-evidence",
 				TENSOL_EVIDENCE_PREFIX: "scans/",
-				TENSOL_EVIDENCE_S3_ENDPOINT: "https://storage.example",
-				TENSOL_EVIDENCE_S3_ACCESS_KEY_ID: "access-key",
-				TENSOL_EVIDENCE_S3_SECRET_KEY: "secret-key",
-				TENSOL_EVIDENCE_S3_REGION: "auto",
 				VPS_AGENT_IMAGE: "registry.example/sthrip-agent:test",
 			},
 		});
@@ -34,10 +30,10 @@ describe("Convex GCP provisioning contract helpers", () => {
 		expect(script).toContain("-e TENSOL_SIGN_KEY='per-vm-sign-key'");
 		expect(script).toContain("-e TENSOL_EVIDENCE_BUCKET='sthrip-evidence'");
 		expect(script).toContain("-e TENSOL_EVIDENCE_PREFIX='scans/'");
-		expect(script).toContain("-e AWS_ENDPOINT='https://storage.example'");
-		expect(script).toContain("-e AWS_ACCESS_KEY_ID='access-key'");
-		expect(script).toContain("-e AWS_SECRET_ACCESS_KEY='secret-key'");
-		expect(script).toContain("-e AWS_REGION='auto'");
+		expect(script).not.toContain("-e AWS_ENDPOINT=");
+		expect(script).not.toContain("-e AWS_ACCESS_KEY_ID=");
+		expect(script).not.toContain("-e AWS_SECRET_ACCESS_KEY=");
+		expect(script).not.toContain("-e AWS_REGION=");
 		expect(script).toContain("registry.example/sthrip-agent:test");
 	});
 

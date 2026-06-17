@@ -25,6 +25,14 @@ jobs:
       - name: install
         working-directory: server
         run: bun install --frozen-lockfile
+      - name: license audit
+        run: bash server/scripts/license-audit.sh
+      - name: audit chain smoke
+        working-directory: server
+        run: bun run verify-chain --db :memory:
+      - name: typecheck
+        working-directory: server
+        run: bunx tsc -p tsconfig.json --noEmit
       - name: test
         working-directory: server
         run: bun test

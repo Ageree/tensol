@@ -49,6 +49,15 @@ import {
 	createDefaultRunnerDeps,
 	runScan as defaultRunCompleteScan,
 } from "./runner.ts";
+import {
+	PrExecutionEnvelopeSchema,
+	type PrExecutionResult,
+	type PrExecutionSandboxProvider,
+	parsePrExecutionSandboxProvider,
+	readVercelSandboxCredentials,
+	runPrExecution as defaultRunPrExecution,
+	verifyPrExecutionSignature,
+} from "./pr-execution.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,6 +80,14 @@ export type CreateAgentDeps = {
 	evidencePrefix?: string;
 	runCompleteScan?: (deps: RunnerDeps) => Promise<CompleteRunScanResult>;
 	createCompleteScanDeps?: (args: CreateCompleteScanDepsArgs) => RunnerDeps;
+	/** Optional worker-side PR execution endpoint. Disabled when secret is empty. */
+	prExecutionDockerImage?: string;
+	prExecutionSandboxProvider?: PrExecutionSandboxProvider;
+	prExecutionSecret?: string;
+	prExecutionGithubToken?: string;
+	prExecutionVercelRuntime?: string;
+	prExecutionVercelVcpus?: number;
+	runPrExecution?: typeof defaultRunPrExecution;
 	exitImpl?: (code: number) => void;
 	now?: () => number;
 	/**
@@ -212,6 +229,13 @@ export function createAgent(deps: CreateAgentDeps): {
 				...(args.langgraphUrl ? { langgraphUrl: args.langgraphUrl } : {}),
 			}),
 		exitImpl = (code: number) => process.exit(code),
+		prExecutionDockerImage,
+		prExecutionSandboxProvider,
+		prExecutionSecret = "",
+		prExecutionGithubToken,
+		prExecutionVercelRuntime,
+		prExecutionVercelVcpus,
+		runPrExecution = defaultRunPrExecution,
 		now = () => Date.now(),
 		composeFile = "/opt/tensol/docker-compose.yml",
 		findingsDir = "/opt/tensol/workspace/findings",
@@ -223,6 +247,7 @@ export function createAgent(deps: CreateAgentDeps): {
 	const getState = (): AgentState => state;
 
 	const app = new Hono();
+	const prExecutionNonces = new Map<string, number>();
 
 	// -------------------------------------------------------------------------
 	// GET /healthz (kept from T003)
@@ -235,14 +260,80 @@ export function createAgent(deps: CreateAgentDeps): {
 	app.get("/status", (c) => c.json(state));
 
 	// -------------------------------------------------------------------------
+	// POST /pr-execution — signed PR runtime execution dispatch
+	// -------------------------------------------------------------------------
+	app.post("/pr-execution", async (c) => {
+		const secret = prExecutionSecret.trim();
+		if (secret.length === 0) return c.json({ error: "not_configured" }, 503);
+
+		const rawBody = await c.req.text();
+		const sigHeader = c.req.header("X-Sthrip-Execution-Signature") ?? null;
+		if (!verifyPrExecutionSignature(rawBody, secret, sigHeader)) {
+			return c.json({ error: "invalid_signature" }, 401);
+		}
+
+		let parsed: z.infer<typeof PrExecutionEnvelopeSchema>;
+		try {
+			parsed = PrExecutionEnvelopeSchema.parse(JSON.parse(rawBody));
+		} catch (err) {
+			const message =
+				err instanceof z.ZodError ? "validation_error" : "invalid_json";
+			return c.json({ error: message }, 400);
+		}
+		const nowSeconds = Math.floor(now() / 1000);
+		for (const [nonce, expiresAt] of prExecutionNonces) {
+			if (expiresAt < nowSeconds) prExecutionNonces.delete(nonce);
+		}
+		if (parsed.iat > nowSeconds + 60 || parsed.exp < nowSeconds) {
+			return c.json({ error: "expired_execution_request" }, 401);
+		}
+		if (parsed.exp - parsed.iat > 15 * 60) {
+			return c.json({ error: "execution_request_ttl_too_long" }, 400);
+		}
+		if (prExecutionNonces.has(parsed.nonce)) {
+			return c.json({ error: "replayed_execution_request" }, 409);
+		}
+		prExecutionNonces.set(parsed.nonce, parsed.exp);
+
+		const result: PrExecutionResult = await runPrExecution({
+			input: parsed.input,
+			...(prExecutionSandboxProvider
+				? { sandboxProvider: prExecutionSandboxProvider }
+				: {}),
+			...(prExecutionDockerImage ? { dockerImage: prExecutionDockerImage } : {}),
+			...(prExecutionGithubToken ? { githubToken: prExecutionGithubToken } : {}),
+			...(prExecutionVercelRuntime || prExecutionVercelVcpus
+				? {
+						vercelSandbox: {
+							...(prExecutionVercelRuntime
+								? { runtime: prExecutionVercelRuntime }
+								: {}),
+							...(prExecutionVercelVcpus
+								? { vcpus: prExecutionVercelVcpus }
+								: {}),
+						},
+					}
+				: {}),
+			now,
+		});
+		return c.json(result, 200);
+	});
+
+	// -------------------------------------------------------------------------
 	// POST /scan — signed dispatch from backend
 	// -------------------------------------------------------------------------
 	app.post("/scan", async (c) => {
+		const activeSignKey = signKey.trim();
+		const activeScanId = expectedScanId.trim();
+		if (activeSignKey.length === 0 || activeScanId.length === 0) {
+			return c.json({ error: "not_configured" }, 503);
+		}
+
 		// 1. Verify HMAC over raw body BEFORE parsing JSON. Untrusted callers
 		//    must not be able to influence parser behaviour.
 		const rawBody = await c.req.text();
 		const sigHeader = c.req.header("X-Tensol-Signature") ?? null;
-		if (!verifySignature(rawBody, sigHeader, signKey)) {
+		if (!verifySignature(rawBody, sigHeader, activeSignKey)) {
 			return c.json({ error: "invalid_signature" }, 401);
 		}
 
@@ -259,7 +350,7 @@ export function createAgent(deps: CreateAgentDeps): {
 
 		// 3. Cross-check scan_id against the env-bound expected id. Prevents a
 		//    backend bug (or replay) from running a different scan on this VPS.
-		if (parsed.scan_id !== expectedScanId) {
+		if (parsed.scan_id !== activeScanId) {
 			return c.json({ error: "scan_id_mismatch" }, 400);
 		}
 
@@ -498,12 +589,89 @@ async function runScanAsync(opts: RunScanAsyncArgs): Promise<void> {
 // Production entry point (only runs when invoked directly via `bun src/agent.ts`)
 // ---------------------------------------------------------------------------
 
-function readRequiredEnv(name: string): string {
-	const v = process.env[name];
+function readRequiredEnv(
+	env: Record<string, string | undefined>,
+	name: string,
+): string {
+	const v = env[name];
 	if (!v || v.length === 0) {
 		throw new Error(`${name} is required but not set in environment`);
 	}
 	return v;
+}
+
+function readOptionalPositiveIntEnv(
+	env: Record<string, string | undefined>,
+	name: string,
+): number | undefined {
+	const value = env[name];
+	if (value === undefined || value.trim() === "") return undefined;
+	const parsed = Number(value);
+	if (!Number.isInteger(parsed) || parsed <= 0) {
+		throw new Error(`${name} must be a positive integer`);
+	}
+	return parsed;
+}
+
+function readOptionalBooleanEnv(
+	env: Record<string, string | undefined>,
+	name: string,
+): boolean | undefined {
+	const value = env[name];
+	if (value === undefined || value.trim() === "") return undefined;
+	const normalized = value.trim().toLowerCase();
+	if (
+		normalized === "1" ||
+		normalized === "true" ||
+		normalized === "yes" ||
+		normalized === "on"
+	) {
+		return true;
+	}
+	if (
+		normalized === "0" ||
+		normalized === "false" ||
+		normalized === "no" ||
+		normalized === "off"
+	) {
+		return false;
+	}
+	throw new Error(`${name} must be a boolean`);
+}
+
+export function readAgentRuntimeConfig(
+	env: Record<string, string | undefined> = process.env,
+) {
+	const prExecutionOnly =
+		readOptionalBooleanEnv(env, "STHRIP_PR_EXECUTION_ONLY") ?? false;
+	const prExecutionSecret = env.STHRIP_PR_EXECUTION_WORKER_SECRET ?? "";
+	if (prExecutionOnly && prExecutionSecret.trim().length === 0) {
+		throw new Error(
+			"STHRIP_PR_EXECUTION_WORKER_SECRET is required when STHRIP_PR_EXECUTION_ONLY=true",
+		);
+	}
+	const prExecutionSandboxProvider = parsePrExecutionSandboxProvider(
+		env.STHRIP_PR_EXECUTION_SANDBOX_PROVIDER,
+	);
+	if (prExecutionSandboxProvider === "vercel-sandbox") {
+		readVercelSandboxCredentials(env);
+	}
+
+	return {
+		signKey: prExecutionOnly ? "" : readRequiredEnv(env, "TENSOL_SIGN_KEY"),
+		scanId: prExecutionOnly ? "" : readRequiredEnv(env, "TENSOL_SCAN_ID"),
+		webhookSecret: env.TENSOL_WEBHOOK_SECRET ?? "",
+		evidencePrefix: env.TENSOL_EVIDENCE_PREFIX,
+		prExecutionDockerImage: env.STHRIP_PR_EXECUTION_DOCKER_IMAGE,
+		prExecutionSandboxProvider,
+		prExecutionSecret,
+		prExecutionGithubToken: env.STHRIP_PR_EXECUTION_GITHUB_TOKEN,
+		prExecutionVercelRuntime: env.STHRIP_PR_EXECUTION_VERCEL_RUNTIME,
+		prExecutionVercelVcpus: readOptionalPositiveIntEnv(
+			env,
+			"STHRIP_PR_EXECUTION_VERCEL_VCPUS",
+		),
+	};
 }
 
 let exported: { port: number; fetch: typeof Hono.prototype.fetch } | null =
@@ -528,18 +696,38 @@ if (import.meta.main) {
 		console.error(`[agent] process.exit code=${code}`);
 	});
 
-	const signKey = readRequiredEnv("TENSOL_SIGN_KEY");
-	const scanId = readRequiredEnv("TENSOL_SCAN_ID");
-	const webhookSecret = process.env.TENSOL_WEBHOOK_SECRET ?? "";
-	const evidencePrefix = process.env.TENSOL_EVIDENCE_PREFIX;
+	const runtimeConfig = readAgentRuntimeConfig();
 
 	const { app } = createAgent({
-		signKey,
-		scanId,
+		signKey: runtimeConfig.signKey,
+		scanId: runtimeConfig.scanId,
 		runScan: defaultRunScan,
 		sendCallback: defaultSendCallback,
-		webhookSecret,
-		...(evidencePrefix ? { evidencePrefix } : {}),
+		webhookSecret: runtimeConfig.webhookSecret,
+		...(runtimeConfig.evidencePrefix
+			? { evidencePrefix: runtimeConfig.evidencePrefix }
+			: {}),
+		...(runtimeConfig.prExecutionDockerImage
+			? { prExecutionDockerImage: runtimeConfig.prExecutionDockerImage }
+			: {}),
+		...(runtimeConfig.prExecutionSandboxProvider
+			? {
+					prExecutionSandboxProvider:
+						runtimeConfig.prExecutionSandboxProvider,
+				}
+			: {}),
+		...(runtimeConfig.prExecutionSecret
+			? { prExecutionSecret: runtimeConfig.prExecutionSecret }
+			: {}),
+		...(runtimeConfig.prExecutionGithubToken
+			? { prExecutionGithubToken: runtimeConfig.prExecutionGithubToken }
+			: {}),
+		...(runtimeConfig.prExecutionVercelRuntime
+			? { prExecutionVercelRuntime: runtimeConfig.prExecutionVercelRuntime }
+			: {}),
+		...(runtimeConfig.prExecutionVercelVcpus
+			? { prExecutionVercelVcpus: runtimeConfig.prExecutionVercelVcpus }
+			: {}),
 	});
 
 	const port = Number(process.env.PORT ?? 8080);

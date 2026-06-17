@@ -19,7 +19,11 @@ MDASH's thesis is the opposite: **"the harness does the work, and the model is o
 
 ### Non-goals
 - Do **not** change fast mode.
-- Do **not** add a new code-execution surface (Prove reuses the existing, gated Exploit Lab only).
+- Do **not** add a new code-execution surface inside the whitebox MDASH harness
+  (Prove reuses the existing, gated Exploit Lab only). This non-goal does not
+  block the separate PR runtime-execution feature in `specs/004-sthrip-pr-review`,
+  whose API server path is control-plane only and dispatches to an isolated
+  worker.
 - Do **not** retire the old `runResearch` chain — it stays as the fallback when the harness flag is off.
 
 ---

@@ -16,8 +16,8 @@
 #
 # Exit 0 → clean. Exit non-zero → violation (prints details).
 #
-# CI wiring: T051 (a later task) will add this as a step in the CI pipeline.
-# For now, run manually: bash server/scripts/license-audit.sh
+# CI wiring: run by .github/workflows/ci.yml and usable locally:
+#   bash server/scripts/license-audit.sh
 
 set -euo pipefail
 
