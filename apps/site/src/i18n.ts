@@ -641,7 +641,7 @@ const en = {
     navLabel: 'Pricing',
     eyebrow: '// PRICING · ASSESSMENT TRACKS',
     title: 'Start narrow. Expand into continuous coverage.',
-    sub: 'Start with hosted OxaPay checkout for blackbox credits, then expand into source-backed and managed offensive coverage as scope grows.',
+    sub: 'Separate PR review from runtime security testing: buy the subscription that matches the workflow you want covered.',
     mythosPositioning:
       'Sthrip is priced around scope and evidence quality, not alert volume. We quote based on runtime targets, repositories, sensitive flows, authorization model, and whether you need one-time assessment or continuous code-review coverage.',
     contactCta: 'Talk to security →',
@@ -649,7 +649,19 @@ const en = {
     depthLabel: 'Depth of test',
     plans: [
       {
-        name: 'Starter',
+        name: 'PR Review',
+        price: '$29',
+        priceAlt: '100 PR reviews / month',
+        unit: '/mo',
+        claim: 'Continuous AI review for pull requests',
+        bestFor:
+          'Engineering teams that want security feedback on code changes without paying blackbox assessment prices.',
+        depth: 'GitHub PR review · security comments · fix guidance · status-check workflow',
+        ctaLabel: 'Pay with OxaPay →',
+        ctaHref: '/billing?product=pr_review',
+      },
+      {
+        name: 'Blackbox Starter',
         price: '$99',
         priceAlt: '2 tests / month',
         unit: '/mo',
@@ -661,7 +673,7 @@ const en = {
         ctaHref: '/billing?product=starter',
       },
       {
-        name: 'Team',
+        name: 'Attack Surface Team',
         price: '$299',
         priceAlt: '15 tests / month',
         unit: '/mo',
@@ -673,7 +685,7 @@ const en = {
         ctaHref: '/billing?product=team',
       },
       {
-        name: 'Pro',
+        name: 'Offensive Pro',
         price: '$599',
         priceAlt: '50 tests / month',
         unit: '/mo',

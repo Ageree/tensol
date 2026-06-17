@@ -30,6 +30,7 @@ const checkoutStatus = v.union(
 );
 
 const productKey = v.union(
+  v.literal("pr_review"),
   v.literal("starter"),
   v.literal("team"),
   v.literal("pro"),
@@ -41,9 +42,11 @@ function publicProduct(product: (typeof BILLING_PRODUCTS)[number]) {
     name: product.name,
     monthly_usd_cents: product.monthly_usd_cents,
     scan_credits: product.scan_credits,
+    review_credits: product.review_credits,
     asset_limit: product.asset_limit,
     concurrent_tests: product.concurrent_tests,
     description: product.description,
+    checkout_description: product.checkout_description,
     features: product.features,
   };
 }
@@ -99,20 +102,23 @@ function numberField(row: Record<string, unknown>, key: string): number | null {
 async function upsertEntitlementCredits(
   ctx: MutationCtx,
   userId: Id<"users">,
-  credits: number,
+  scanCredits: number,
+  reviewCredits: number,
   now: number,
 ) {
   const existing = await getEntitlementForUser(ctx, userId);
   if (existing) {
     await ctx.db.patch(existing._id, {
-      scan_credits: existing.scan_credits + credits,
+      scan_credits: existing.scan_credits + scanCredits,
+      review_credits: (existing.review_credits ?? 0) + reviewCredits,
       updated_at: now,
     });
     return;
   }
   await ctx.db.insert("entitlements", {
     userId,
-    scan_credits: credits,
+    scan_credits: scanCredits,
+    review_credits: reviewCredits,
     manual_grant: false,
     created_at: now,
     updated_at: now,
@@ -143,12 +149,14 @@ export const myBillingStatus = query({
       .take(10);
     return {
       scan_credits: entitlement?.scan_credits ?? 0,
+      review_credits: entitlement?.review_credits ?? 0,
       checkout_sessions: sessions.map((session) => ({
         id: session._id,
         product_key: session.product_key,
         product_name: session.product_name,
         status: session.status,
         amount_usd_cents: session.amount_usd_cents,
+        review_credits: session.review_credits ?? 0,
         provider_payment_url: session.provider_payment_url ?? null,
         provider_track_id: session.provider_track_id ?? null,
         created_at: session.created_at,
@@ -184,6 +192,8 @@ export const createCheckout = action({
       product_name: string;
       amount_usd_cents: number;
       scan_credits: number;
+      review_credits: number;
+      checkout_description: string;
       order_id: string;
       return_path: string;
     } = await ctx.runMutation(internal.billing.prepareCheckoutSession, {
@@ -214,8 +224,8 @@ export const createCheckout = action({
         callback_url: callbackUrl,
         return_url: returnUrl.toString(),
         order_id: prepared.order_id,
-        thanks_message: "Payment received. Sthrip credits will appear shortly.",
-        description: `${prepared.product_name} - ${prepared.scan_credits} Sthrip scan credits`,
+        thanks_message: "Payment received. Sthrip entitlements will appear shortly.",
+        description: `${prepared.product_name} - ${prepared.checkout_description}`,
         sandbox: envBool("OXAPAY_SANDBOX"),
       }),
     });
@@ -283,6 +293,7 @@ export const prepareCheckoutSession = internalMutation({
       amount_usd_cents: product.monthly_usd_cents,
       currency: "USD",
       scan_credits: product.scan_credits,
+      review_credits: product.review_credits,
       return_path: args.return_path,
       created_at: now,
       updated_at: now,
@@ -292,6 +303,8 @@ export const prepareCheckoutSession = internalMutation({
       product_name: product.name,
       amount_usd_cents: product.monthly_usd_cents,
       scan_credits: product.scan_credits,
+      review_credits: product.review_credits,
+      checkout_description: product.checkout_description,
       order_id: sessionId,
       return_path: args.return_path,
     };
@@ -359,7 +372,13 @@ export const fulfillOxaPayWebhook = internalMutation({
     const alreadySettled =
       isSettledStatus(session.status) && session.paid_at !== undefined;
     if (isSettled && !alreadySettled) {
-      await upsertEntitlementCredits(ctx, session.userId, session.scan_credits, now);
+      await upsertEntitlementCredits(
+        ctx,
+        session.userId,
+        session.scan_credits,
+        session.review_credits ?? 0,
+        now,
+      );
     }
 
     await ctx.db.patch(session._id, {
@@ -377,6 +396,8 @@ export const fulfillOxaPayWebhook = internalMutation({
         provider_track_id: args.provider_track_id,
         status: args.status,
         product_key: session.product_key,
+        scan_credits: session.scan_credits,
+        review_credits: session.review_credits ?? 0,
         credited: isSettled && !alreadySettled,
       },
       created_at: now,

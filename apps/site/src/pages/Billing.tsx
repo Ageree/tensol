@@ -22,10 +22,11 @@ import { api } from '../lib/convex-api.ts';
 import { isConvexConfigured } from '../lib/convex.ts';
 
 interface BillingProduct {
-  key: 'starter' | 'team' | 'pro';
+  key: 'pr_review' | 'starter' | 'team' | 'pro';
   name: string;
   monthly_usd_cents: number;
   scan_credits: number;
+  review_credits: number;
   asset_limit: number;
   concurrent_tests: number;
   description: string;
@@ -34,12 +35,14 @@ interface BillingProduct {
 
 interface BillingStatus {
   scan_credits: number;
+  review_credits: number;
   checkout_sessions: Array<{
     id: string;
     product_key: string;
     product_name: string;
     status: string;
     amount_usd_cents: number;
+    review_credits: number;
     provider_payment_url: string | null;
     provider_track_id: string | null;
     created_at: number;
@@ -65,6 +68,17 @@ function formatUsd(cents: number): string {
 
 function returnPath(productKey: string): string {
   return `/billing?checkout=return&product=${encodeURIComponent(productKey)}`;
+}
+
+function productAllocation(product: BillingProduct): string {
+  const parts: string[] = [];
+  if (product.review_credits > 0) {
+    parts.push(`${product.review_credits} PR reviews`);
+  }
+  if (product.scan_credits > 0) {
+    parts.push(`${product.scan_credits} scan credits`);
+  }
+  return `${parts.join(' + ')} / month`;
 }
 
 function BillingUnavailable(): ReactElement {
@@ -136,7 +150,7 @@ export default function Billing(): ReactElement {
     <>
       <RouteHead
         title="Billing - Sthrip"
-        description="Buy Sthrip scan credits through OxaPay hosted checkout."
+        description="Buy Sthrip subscriptions through OxaPay hosted checkout."
       />
       <AppShell
         surface="hacktron-light"
@@ -146,7 +160,7 @@ export default function Billing(): ReactElement {
         <DashboardPage
           title="Billing"
           section="Billing"
-          description="Buy scan credits with OxaPay hosted checkout. Credits are granted after OxaPay sends a signed paid webhook."
+          description="Buy Sthrip subscriptions with OxaPay hosted checkout. Entitlements are granted after OxaPay sends a signed paid webhook."
           data-screen-label="billing"
           actions={<StatusChip status="OxaPay" tone="ok" size="md" />}
         >
@@ -160,16 +174,28 @@ export default function Billing(): ReactElement {
               </Card>
             ) : null}
 
-            <Card style={{ padding: 18, borderColor: 'var(--h-line)' }}>
-              <div style={{ display: 'grid', gap: 8 }}>
-                <Mono size={11} color="var(--h-muted)">
-                  AVAILABLE SCAN CREDITS
-                </Mono>
-                <strong style={{ fontSize: 34, lineHeight: 1 }}>
-                  {billingStatus?.scan_credits ?? '...'}
-                </strong>
-              </div>
-            </Card>
+            <div style={gridStyle}>
+              <Card style={{ padding: 18, borderColor: 'var(--h-line)' }}>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <Mono size={11} color="var(--h-muted)">
+                    AVAILABLE SCAN CREDITS
+                  </Mono>
+                  <strong style={{ fontSize: 34, lineHeight: 1 }}>
+                    {billingStatus?.scan_credits ?? '...'}
+                  </strong>
+                </div>
+              </Card>
+              <Card style={{ padding: 18, borderColor: 'var(--h-line)' }}>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <Mono size={11} color="var(--h-muted)">
+                    PR REVIEW CREDITS
+                  </Mono>
+                  <strong style={{ fontSize: 34, lineHeight: 1 }}>
+                    {billingStatus?.review_credits ?? '...'}
+                  </strong>
+                </div>
+              </Card>
+            </div>
 
             {checkoutError ? (
               <Card style={{ padding: 18, borderColor: 'var(--h-critical)' }}>
@@ -194,7 +220,7 @@ export default function Billing(): ReactElement {
                     <div style={{ display: 'grid', gap: 16, height: '100%' }}>
                       <div style={{ display: 'grid', gap: 8 }}>
                         <Mono size={11} color="var(--h-muted)">
-                          {product.scan_credits} credits / month
+                          {productAllocation(product)}
                         </Mono>
                         <h2 style={{ margin: 0, fontSize: 22 }}>
                           {product.name}

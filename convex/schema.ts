@@ -63,6 +63,7 @@ export default defineSchema({
   entitlements: defineTable({
     userId: v.id("users"),
     scan_credits: v.number(),
+    review_credits: v.optional(v.number()),
     manual_grant: v.boolean(),
     created_at: v.number(),
     updated_at: v.number(),
@@ -72,6 +73,7 @@ export default defineSchema({
     userId: v.id("users"),
     provider: v.literal("oxapay"),
     product_key: v.union(
+      v.literal("pr_review"),
       v.literal("starter"),
       v.literal("team"),
       v.literal("pro"),
@@ -94,6 +96,7 @@ export default defineSchema({
     amount_usd_cents: v.number(),
     currency: v.literal("USD"),
     scan_credits: v.number(),
+    review_credits: v.optional(v.number()),
     return_path: v.string(),
     provider_track_id: v.optional(v.string()),
     provider_payment_url: v.optional(v.string()),
